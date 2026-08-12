@@ -1,4 +1,4 @@
-name: CI DivisAR
+name: CI - ERP SWAT
 
 on:
   push:
