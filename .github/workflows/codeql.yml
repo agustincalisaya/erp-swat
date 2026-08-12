@@ -1,0 +1,55 @@
+name: "CodeQL"
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    - cron: '0 3 * * 1'
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [ 'javascript-typescript' ]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Detect JS/TS files
+        id: detect
+        run: |
+          if ls -1 **/*.js **/*.jsx **/*.ts **/*.tsx >/dev/null 2>&1; then
+            echo "has_js=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_js=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Initialize CodeQL
+        if: steps.detect.outputs.has_js == 'true'
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+
+      - name: Autobuild
+        if: steps.detect.outputs.has_js == 'true'
+        uses: github/codeql-action/autobuild@v3
+        continue-on-error: true
+
+      - name: Perform CodeQL Analysis
+        if: steps.detect.outputs.has_js == 'true'
+        uses: github/codeql-action/analyze@v3
+
+      - name: Skip message
+        if: steps.detect.outputs.has_js == 'false'
+        run: echo "No JS/TS files found. Skipping analysis."
+        
