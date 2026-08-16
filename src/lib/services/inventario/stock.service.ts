@@ -50,8 +50,18 @@ export async function actualizarUmbrales(
 }
 
 /**
+ * Sección 5.2: factores que traducen el promedio de egresos mensuales en
+ * umbrales sugeridos. `factor_seguridad` < `factor_lead_time` preserva la
+ * semántica `stock_seguridad < punto_pedido` (sección 2 de la tarea).
+ * Constantes de negocio ajustables — documentadas aquí, no en el Route Handler.
+ */
+const FACTOR_LEAD_TIME = 0.5; // ~2 semanas de cobertura sobre el promedio mensual
+const FACTOR_SEGURIDAD = 0.25;
+
+/**
  * HU-7 — Sección 6.2 / 3: promedio móvil mensual de egresos
- * (EGRESO + TRANSFERENCIA salientes) de los últimos `meses_historico` meses.
+ * (EGRESO + TRANSFERENCIA salientes) de los últimos `meses_historico` meses,
+ * y umbrales sugeridos (sección 5.2) derivados de ese promedio.
  * Función de solo lectura, sin efectos secundarios ni emisión de eventos.
  */
 export async function calcularPromedioMovilEgresos(
@@ -77,6 +87,8 @@ export async function calcularPromedioMovilEgresos(
   if (movimientos.length === 0) {
     return {
       promedio_egreso_mensual: 0,
+      punto_pedido_sugerido: null,
+      stock_seguridad_sugerido: null,
       meses_analizados: input.meses_historico,
       warning: "No hay movimientos históricos en el rango analizado",
     };
@@ -94,8 +106,12 @@ export async function calcularPromedioMovilEgresos(
     0,
   );
 
+  const promedio_egreso_mensual = totalEgresos / input.meses_historico;
+
   return {
-    promedio_egreso_mensual: totalEgresos / input.meses_historico,
+    promedio_egreso_mensual,
+    punto_pedido_sugerido: Math.ceil(promedio_egreso_mensual * FACTOR_LEAD_TIME),
+    stock_seguridad_sugerido: Math.ceil(promedio_egreso_mensual * FACTOR_SEGURIDAD),
     meses_analizados: input.meses_historico,
     warning: null,
   };
