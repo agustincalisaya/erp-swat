@@ -1,5 +1,6 @@
 import "server-only";
 
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { domainEventBus } from "@/lib/events/domain-event-bus";
 import { ServiceError } from "@/lib/errors/service-error";
@@ -115,7 +116,7 @@ export async function decrementarStockConAlerta(params: {
   cantidadSolicitada: number;
   movimientoIdOrigen: string;
 }) {
-  const resultado = await prisma.$transaction(async (tx) => {
+  const resultado = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     const update = await tx.stockDeposito.updateMany({
       where: {
         id: params.stockDepositoId,
