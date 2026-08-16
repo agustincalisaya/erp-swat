@@ -1,0 +1,4 @@
+# Este archivo .gitignore se utiliza para ignorar todos los archivos y carpetas en el directorio de tareas, 
+# excepto el propio archivo .gitignore. Esto es útil para mantener el repositorio limpio y evitar subir archivos innecesarios al control de versiones.
+*
+!.gitignore
