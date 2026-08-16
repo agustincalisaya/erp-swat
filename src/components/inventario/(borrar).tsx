@@ -1,3 +1,5 @@
-export default function LoginPage() {
-  return <div>Login</div>;
+// BORRAR ANTES DE PROGRAMAR 
+
+export default function PlaceholderLayout({ children }: { children: React.ReactNode }) {
+  return <>{children}</>;
 }
