@@ -35,7 +35,14 @@ export default function DepositosPage() {
         <CardHeader>
           <CardTitle>Umbrales de reposición</CardTitle>
           <CardDescription>
-            Variante {VARIANTE_SKU_ID_MOCK} · Depósito {DEPOSITO_ID_MOCK}
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center rounded-md bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-700/10">
+                Camisa de Policía (Talle M, Azul)
+              </span>
+              <span className="inline-flex items-center rounded-md bg-slate-50 px-2 py-1 text-xs font-medium text-slate-700 ring-1 ring-inset ring-slate-700/10">
+                Depósito Central
+              </span>
+            </div>
           </CardDescription>
         </CardHeader>
         <CardContent>

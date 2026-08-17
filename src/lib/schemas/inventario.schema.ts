@@ -7,8 +7,20 @@ import { z } from "zod";
 export const ActualizarUmbralesStockSchema = z.object({
   variante_sku_id: z.string().uuid(),
   deposito_id: z.string().uuid(),
-  punto_pedido: z.number().int().min(0),
-  stock_seguridad: z.number().int().min(0),
+  punto_pedido: z.preprocess(
+    (val) => (val === "" || val === undefined || val === null ? undefined : Number(val)),
+    z
+      .number({ invalid_type_error: "Este campo es requerido", required_error: "Este campo es requerido" })
+      .int("Debe ser un número entero")
+      .min(0, "Debe ser mayor o igual a 0"),
+  ),
+  stock_seguridad: z.preprocess(
+    (val) => (val === "" || val === undefined || val === null ? undefined : Number(val)),
+    z
+      .number({ invalid_type_error: "Este campo es requerido", required_error: "Este campo es requerido" })
+      .int("Debe ser un número entero")
+      .min(0, "Debe ser mayor o igual a 0"),
+  ),
 }).refine(data => data.punto_pedido >= data.stock_seguridad, {
   message: "El punto de pedido no puede ser menor al stock de seguridad",
   path: ["punto_pedido"],
