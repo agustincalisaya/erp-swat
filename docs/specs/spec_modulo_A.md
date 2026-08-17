@@ -4,7 +4,7 @@
 
 **Metodología:** Specification-Driven Development (SDD)
 **Stack:** Next.js 14+ (App Router) · Node.js · PostgreSQL 16 · Prisma ORM · Zod
-**Referencias normativas:** `RULES.md` (Reglas N.° 1, 2 y 3) · `contexto_sprint_1.md` · `schema.prisma`
+**Referencias normativas:** `RULES.md` (Reglas N.° 1, 2 y 3) · `schema.prisma`
 
 ---
 
