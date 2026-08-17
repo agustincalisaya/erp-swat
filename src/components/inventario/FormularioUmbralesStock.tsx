@@ -2,7 +2,8 @@
 
 import * as React from "react"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useForm } from "react-hook-form"
+import { useForm, type Resolver } from "react-hook-form"
+import { Calculator, Save } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -10,6 +11,7 @@ import { toast } from "@/components/ui/toast"
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -52,7 +54,7 @@ export function FormularioUmbralesStock({
   const [calculandoSugerencia, setCalculandoSugerencia] = React.useState(false)
 
   const form = useForm<ActualizarUmbralesStockInput>({
-    resolver: zodResolver(ActualizarUmbralesStockSchema),
+    resolver: zodResolver(ActualizarUmbralesStockSchema) as unknown as Resolver<ActualizarUmbralesStockInput>,
     defaultValues: {
       variante_sku_id,
       deposito_id,
@@ -140,61 +142,89 @@ export function FormularioUmbralesStock({
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-        <FormField
-          control={form.control}
-          name="punto_pedido"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Punto de pedido</FormLabel>
-              <FormControl>
-                <Input
-                  type="number"
-                  min={0}
-                  {...field}
-                  onChange={(event) => field.onChange(event.target.valueAsNumber)}
-                />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <FormField
+            control={form.control}
+            name="punto_pedido"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Punto de pedido</FormLabel>
+                <FormControl>
+                  <Input
+                    type="number"
+                    min={0}
+                    {...field}
+                    value={
+                      field.value === undefined ||
+                      field.value === null ||
+                      (field.value as unknown as string) === "" ||
+                      Number.isNaN(field.value)
+                        ? ""
+                        : field.value
+                    }
+                    onChange={(event) => {
+                      const val = event.target.value
+                      field.onChange(val === "" ? "" : Number(val))
+                    }}
+                  />
+                </FormControl>
+                <FormDescription>Expresado en unidades físicas.</FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
 
-        <FormField
-          control={form.control}
-          name="stock_seguridad"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Stock de seguridad</FormLabel>
-              <FormControl>
-                <Input
-                  type="number"
-                  min={0}
-                  {...field}
-                  onChange={(event) => field.onChange(event.target.valueAsNumber)}
-                />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
+          <FormField
+            control={form.control}
+            name="stock_seguridad"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Stock de seguridad</FormLabel>
+                <FormControl>
+                  <Input
+                    type="number"
+                    min={0}
+                    {...field}
+                    value={
+                      field.value === undefined ||
+                      field.value === null ||
+                      (field.value as unknown as string) === "" ||
+                      Number.isNaN(field.value)
+                        ? ""
+                        : field.value
+                    }
+                    onChange={(event) => {
+                      const val = event.target.value
+                      field.onChange(val === "" ? "" : Number(val))
+                    }}
+                  />
+                </FormControl>
+                <FormDescription>Expresado en unidades físicas.</FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
 
-        <div className="flex flex-wrap gap-2 pt-2">
+        <div className="flex flex-col-reverse sm:flex-row sm:justify-between sm:items-center mt-8 pt-6 border-t border-slate-100 gap-4">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={calcularSugerencia}
+            disabled={calculandoSugerencia}
+            className="bg-white text-blue-600 border border-blue-200 hover:bg-blue-50"
+          >
+            <Calculator className="mr-2 h-4 w-4" />
+            {calculandoSugerencia ? "Calculando..." : "Calcular sugerencia"}
+          </Button>
+
           <Button
             type="submit"
             disabled={form.formState.isSubmitting}
             className="bg-blue-600 text-white hover:bg-blue-700"
           >
+            <Save className="mr-2 h-4 w-4" />
             {form.formState.isSubmitting ? "Guardando..." : "Guardar"}
-          </Button>
-
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={calcularSugerencia}
-            disabled={calculandoSugerencia}
-            className="bg-blue-100 text-blue-900 hover:bg-blue-200"
-          >
-            {calculandoSugerencia ? "Calculando..." : "Calcular sugerencia"}
           </Button>
         </div>
       </form>
