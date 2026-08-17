@@ -29,31 +29,31 @@ datasource db {
 /// contraseña en texto plano. Controla intentos fallidos para políticas
 /// de bloqueo por fuerza bruta.
 model Usuario {
-  id                    String    @id @default(uuid())
-  nombre_usuario        String    @unique
-  email                 String    @unique
-  password_hash         String
-  password_salt         String
-  nombre_completo       String
-  estado                EstadoUsuario @default(ACTIVO)
-  intentos_fallidos     Int       @default(0)
-  bloqueado_hasta       DateTime?
-  ultimo_login          DateTime?
+  id                String        @id @default(uuid())
+  nombre_usuario    String        @unique
+  email             String        @unique
+  password_hash     String
+  password_salt     String
+  nombre_completo   String
+  estado            EstadoUsuario @default(ACTIVO)
+  intentos_fallidos Int           @default(0)
+  bloqueado_hasta   DateTime?
+  ultimo_login      DateTime?
 
   // --- Soft delete estricto ---
-  is_active             Boolean   @default(true)
-  deleted_at            DateTime?
-  deleted_by            String?
-  deletion_reason       String?
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
 
-  created_at            DateTime  @default(now())
-  updated_at            DateTime  @updatedAt
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
   // --- Relaciones ---
-  roles                 UsuarioRol[]
-  audit_logs            AuditLog[]
+  roles                   UsuarioRol[]
+  audit_logs              AuditLog[]
   movimientos_registrados MovimientoStock[] @relation("MovimientoRegistradoPor")
-  legajos_registrados   LegajoPrueba[]      @relation("LegajoRegistradoPor")
+  legajos_registrados     LegajoPrueba[]    @relation("LegajoRegistradoPor")
 
   @@map("usuarios")
 }
@@ -68,22 +68,22 @@ enum EstadoUsuario {
 /// Rol funcional dentro del sistema RBAC (ej: ADMIN, DEPOSITO, AUDITOR).
 /// Se vincula a Permiso mediante tabla pivote N:M (RolPermiso).
 model Rol {
-  id                String    @id @default(uuid())
-  nombre            String    @unique
-  descripcion       String?
+  id          String  @id @default(uuid())
+  nombre      String  @unique
+  descripcion String?
 
   // --- Soft delete estricto ---
-  is_active         Boolean   @default(true)
-  deleted_at        DateTime?
-  deleted_by        String?
-  deletion_reason   String?
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
 
-  created_at        DateTime  @default(now())
-  updated_at        DateTime  @updatedAt
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
   // --- Relaciones ---
-  usuarios          UsuarioRol[]
-  permisos          RolPermiso[]
+  usuarios UsuarioRol[]
+  permisos RolPermiso[]
 
   @@map("roles")
 }
@@ -92,22 +92,22 @@ model Rol {
 /// Principio de menor privilegio: cada permiso debe representar la unidad
 /// mínima de acción posible.
 model Permiso {
-  id                String    @id @default(uuid())
-  codigo            String    @unique
-  descripcion       String?
-  modulo            String    // Ej: "MODULO_A", "MODULO_D"
+  id          String  @id @default(uuid())
+  codigo      String  @unique
+  descripcion String?
+  modulo      String // Ej: "MODULO_A", "MODULO_D"
 
   // --- Soft delete estricto ---
-  is_active         Boolean   @default(true)
-  deleted_at        DateTime?
-  deleted_by        String?
-  deletion_reason   String?
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
 
-  created_at        DateTime  @default(now())
-  updated_at        DateTime  @updatedAt
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
   // --- Relaciones ---
-  roles             RolPermiso[]
+  roles RolPermiso[]
 
   @@map("permisos")
 }
@@ -115,21 +115,21 @@ model Permiso {
 /// Tabla pivote N:M entre Usuario y Rol.
 /// Un usuario puede tener múltiples roles asignados simultáneamente.
 model UsuarioRol {
-  id            String    @id @default(uuid())
-  usuario_id    String
-  rol_id        String
+  id         String @id @default(uuid())
+  usuario_id String
+  rol_id     String
 
-  usuario       Usuario   @relation(fields: [usuario_id], references: [id], onDelete: Restrict)
-  rol           Rol       @relation(fields: [rol_id], references: [id], onDelete: Restrict)
+  usuario Usuario @relation(fields: [usuario_id], references: [id], onDelete: Restrict)
+  rol     Rol     @relation(fields: [rol_id], references: [id], onDelete: Restrict)
 
   // --- Soft delete estricto ---
-  is_active         Boolean   @default(true)
-  deleted_at        DateTime?
-  deleted_by        String?
-  deletion_reason   String?
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
 
-  created_at    DateTime  @default(now())
-  updated_at     DateTime  @updatedAt
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
   @@unique([usuario_id, rol_id])
   @@map("usuario_roles")
@@ -137,21 +137,21 @@ model UsuarioRol {
 
 /// Tabla pivote N:M entre Rol y Permiso. Define el control RBAC granular.
 model RolPermiso {
-  id            String    @id @default(uuid())
-  rol_id        String
-  permiso_id    String
+  id         String @id @default(uuid())
+  rol_id     String
+  permiso_id String
 
-  rol           Rol       @relation(fields: [rol_id], references: [id], onDelete: Restrict)
-  permiso       Permiso   @relation(fields: [permiso_id], references: [id], onDelete: Restrict)
+  rol     Rol     @relation(fields: [rol_id], references: [id], onDelete: Restrict)
+  permiso Permiso @relation(fields: [permiso_id], references: [id], onDelete: Restrict)
 
   // --- Soft delete estricto ---
-  is_active         Boolean   @default(true)
-  deleted_at        DateTime?
-  deleted_by        String?
-  deletion_reason   String?
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
 
-  created_at    DateTime  @default(now())
-  updated_at     DateTime  @updatedAt
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
   @@unique([rol_id, permiso_id])
   @@map("rol_permisos")
@@ -164,24 +164,24 @@ model RolPermiso {
 /// Nota: por tratarse de un ledger append-only, NO lleva soft delete
 /// (is_active/deleted_at) ya que un log de auditoría jamás se "elimina".
 model AuditLog {
-  id                String    @id @default(uuid())
-  usuario_id        String?
-  accion            String    // Ej: "CREATE", "UPDATE", "DELETE", "LOGIN_FAILED"
-  tabla_afectada    String
-  registro_id       String?
-  ip                String
-  valor_anterior    Json?
-  valor_nuevo       Json?
+  id             String  @id @default(uuid())
+  usuario_id     String?
+  accion         String // Ej: "CREATE", "UPDATE", "DELETE", "LOGIN_FAILED"
+  tabla_afectada String
+  registro_id    String?
+  ip             String
+  valor_anterior Json?
+  valor_nuevo    Json?
 
   /// Hash SHA-256 del registro anterior en la cadena (integridad forense)
-  hash_anterior     String
+  hash_anterior String
   /// Hash SHA-256 calculado sobre este registro + hash_anterior
-  hash_actual       String    @unique
+  hash_actual   String @unique
 
-  created_at        DateTime  @default(now())
+  created_at DateTime @default(now())
 
   // --- Relación ---
-  usuario           Usuario?  @relation(fields: [usuario_id], references: [id], onDelete: Restrict)
+  usuario Usuario? @relation(fields: [usuario_id], references: [id], onDelete: Restrict)
 
   @@map("audit_logs")
 }
@@ -194,26 +194,26 @@ model AuditLog {
 /// No representa una unidad vendible; las variantes concretas están en
 /// VarianteSKU.
 model ProductoMaestro {
-  id                String    @id @default(uuid())
-  nombre            String
-  rubro             String
-  categoria         String
-  unidad_medida     String    // Ej: "UNIDAD", "PAR", "KG"
-  descripcion       String?
+  id                        String  @id @default(uuid())
+  nombre                    String
+  rubro                     String
+  categoria                 String
+  unidad_medida             String // Ej: "UNIDAD", "PAR", "KG"
+  descripcion               String?
   proveedor_preferente      String?
-  costo_estandar_referencia Decimal   @db.Decimal(10, 2) // Mejor que Float para finanzas
+  costo_estandar_referencia Decimal @db.Decimal(10, 2) // Mejor que Float para finanzas
 
   // --- Soft delete estricto ---
-  is_active         Boolean   @default(true)
-  deleted_at        DateTime?
-  deleted_by        String?
-  deletion_reason   String?
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
 
-  created_at        DateTime  @default(now())
-  updated_at        DateTime  @updatedAt
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
   // --- Relaciones ---
-  variantes         VarianteSKU[]
+  variantes VarianteSKU[]
 
   @@map("productos_maestros")
 }
@@ -224,10 +224,10 @@ model ProductoMaestro {
 /// dimensiones); `ean_qr` es el código de trazabilidad unitaria
 /// (EAN-13/QR) usado en el escaneo físico de depósito.
 model VarianteSKU {
-  id                  String    @id @default(uuid())
+  id                  String @id @default(uuid())
   producto_maestro_id String
-  sku                 String    @unique
-  ean_qr              String    @unique
+  sku                 String @unique
+  ean_qr              String @unique
   talle               String
   color               String
   genero              String
@@ -236,46 +236,46 @@ model VarianteSKU {
   /// STUB Sprint futuro — Módulo H (Compras): se vinculará cada variante
   /// a su proveedor habitual. Se deja opcional para no requerir migración
   /// destructiva cuando se implemente el Módulo H.
-  proveedor_id        String?
+  proveedor_id String?
 
   // --- Soft delete estricto ---
-  is_active           Boolean   @default(true)
-  deleted_at          DateTime?
-  deleted_by          String?
-  deletion_reason     String?
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
 
-  created_at          DateTime  @default(now())
-  updated_at          DateTime  @updatedAt
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
   // --- Relaciones ---
-  producto_maestro    ProductoMaestro @relation(fields: [producto_maestro_id], references: [id], onDelete: Restrict)
-  stock_depositos      StockDeposito[]
-  movimientos          MovimientoStock[]
-  legajos_prueba       LegajoPrueba[]
+  producto_maestro ProductoMaestro   @relation(fields: [producto_maestro_id], references: [id], onDelete: Restrict)
+  stock_depositos  StockDeposito[]
+  movimientos      MovimientoStock[]
+  legajos_prueba   LegajoPrueba[]
 
   @@map("variantes_sku")
 }
 
 /// Ubicación física de almacenamiento (Central, Showroom, Móvil, etc.).
 model Deposito {
-  id                String    @id @default(uuid())
-  nombre            String    @unique
-  tipo              String    // Ej: "CENTRAL", "SHOWROOM", "MOVIL"
-  direccion         String?
+  id        String  @id @default(uuid())
+  nombre    String  @unique
+  tipo      String // Ej: "CENTRAL", "SHOWROOM", "MOVIL"
+  direccion String?
 
   // --- Soft delete estricto ---
-  is_active         Boolean   @default(true)
-  deleted_at        DateTime?
-  deleted_by        String?
-  deletion_reason   String?
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
 
-  created_at        DateTime  @default(now())
-  updated_at        DateTime  @updatedAt
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
   // --- Relaciones ---
-  stock_items            StockDeposito[]
-  movimientos_origen     MovimientoStock[] @relation("MovimientoOrigen")
-  movimientos_destino    MovimientoStock[] @relation("MovimientoDestino")
+  stock_items         StockDeposito[]
+  movimientos_origen  MovimientoStock[] @relation("MovimientoOrigen")
+  movimientos_destino MovimientoStock[] @relation("MovimientoDestino")
 
   @@map("depositos")
 }
@@ -284,25 +284,25 @@ model Deposito {
 /// Deposito específico. Define umbrales de reposición (`punto_pedido`) y
 /// stock mínimo de seguridad (`stock_seguridad`).
 model StockDeposito {
-  id                  String    @id @default(uuid())
-  variante_sku_id     String
-  deposito_id         String
-  cantidad            Int       @default(0)
-  punto_pedido        Int       @default(0)
-  stock_seguridad     Int       @default(0)
+  id              String @id @default(uuid())
+  variante_sku_id String
+  deposito_id     String
+  cantidad        Int    @default(0)
+  punto_pedido    Int    @default(0)
+  stock_seguridad Int    @default(0)
 
   // --- Soft delete estricto ---
-  is_active           Boolean   @default(true)
-  deleted_at          DateTime?
-  deleted_by          String?
-  deletion_reason     String?
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
 
-  created_at          DateTime  @default(now())
-  updated_at          DateTime  @updatedAt
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
   // --- Relaciones ---
-  variante_sku        VarianteSKU @relation(fields: [variante_sku_id], references: [id], onDelete: Restrict)
-  deposito             Deposito    @relation(fields: [deposito_id], references: [id], onDelete: Restrict)
+  variante_sku VarianteSKU @relation(fields: [variante_sku_id], references: [id], onDelete: Restrict)
+  deposito     Deposito    @relation(fields: [deposito_id], references: [id], onDelete: Restrict)
 
   @@unique([variante_sku_id, deposito_id])
   @@map("stock_depositos")
@@ -313,36 +313,36 @@ model StockDeposito {
 /// actualizarse: cualquier corrección se modela como un nuevo movimiento
 /// compensatorio (principio de inmutabilidad contable).
 model MovimientoStock {
-  id                    String    @id @default(uuid())
-  variante_sku_id       String
-  deposito_origen_id    String?
-  deposito_destino_id   String?
-  tipo_movimiento       TipoMovimiento
-  estado_origen         String?
-  estado_destino        String?
-  cantidad              Int
+  id                     String         @id @default(uuid())
+  variante_sku_id        String
+  deposito_origen_id     String?
+  deposito_destino_id    String?
+  tipo_movimiento        TipoMovimiento
+  estado_origen          String?
+  estado_destino         String?
+  cantidad               Int
   comprobante_referencia String?
-  registrado_por_id     String
+  registrado_por_id      String
 
   /// STUB Sprint futuro — Módulo B (POS): vinculará el movimiento de
   /// egreso con la venta que lo originó. Opcional para no romper el
   /// modelo actual cuando se integre el módulo de ventas.
-  venta_id              String?
+  venta_id String?
 
   // --- Soft delete estricto ---
-  is_active             Boolean   @default(true)
-  deleted_at            DateTime?
-  deleted_by            String?
-  deletion_reason       String?
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
 
-  created_at            DateTime  @default(now())
-  updated_at            DateTime  @updatedAt
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
   // --- Relaciones ---
-  variante_sku          VarianteSKU @relation(fields: [variante_sku_id], references: [id], onDelete: Restrict)
-  deposito_origen       Deposito?   @relation("MovimientoOrigen", fields: [deposito_origen_id], references: [id], onDelete: Restrict)
-  deposito_destino      Deposito?   @relation("MovimientoDestino", fields: [deposito_destino_id], references: [id], onDelete: Restrict)
-  registrado_por        Usuario     @relation("MovimientoRegistradoPor", fields: [registrado_por_id], references: [id], onDelete: Restrict)
+  variante_sku     VarianteSKU @relation(fields: [variante_sku_id], references: [id], onDelete: Restrict)
+  deposito_origen  Deposito?   @relation("MovimientoOrigen", fields: [deposito_origen_id], references: [id], onDelete: Restrict)
+  deposito_destino Deposito?   @relation("MovimientoDestino", fields: [deposito_destino_id], references: [id], onDelete: Restrict)
+  registrado_por   Usuario     @relation("MovimientoRegistradoPor", fields: [registrado_por_id], references: [id], onDelete: Restrict)
 
   @@map("movimientos_stock")
 }
@@ -361,35 +361,35 @@ enum TipoMovimiento {
 /// datos personales); en Prisma se modelan como String ya que el cifrado
 /// ocurre antes de persistir.
 model LegajoPrueba {
-  id                    String    @id @default(uuid())
-  variante_sku_id       String
-  registrado_por_id     String
+  id                String @id @default(uuid())
+  variante_sku_id   String
+  registrado_por_id String
 
   /// Campo cifrado en la capa de aplicación (AES-256)
-  efectivo_placa        String
+  efectivo_placa     String
   /// Campo cifrado en la capa de aplicación (AES-256)
-  efectivo_organismo    String
+  efectivo_organismo String
 
-  fecha_inicio_prueba   DateTime  @default(now())
-  fecha_fin_prueba      DateTime?
+  fecha_inicio_prueba DateTime  @default(now())
+  fecha_fin_prueba    DateTime?
 
   /// STUB Sprint futuro — Módulo C (Legajos Institucionales): vinculará
   /// este legajo de prueba al legajo institucional completo del cliente
   /// (fuerza de seguridad). Opcional para evitar migración destructiva.
-  cliente_id            String?
+  cliente_id String?
 
   // --- Soft delete estricto ---
-  is_active             Boolean   @default(true)
-  deleted_at            DateTime?
-  deleted_by            String?
-  deletion_reason       String?
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
 
-  created_at            DateTime  @default(now())
-  updated_at             DateTime  @updatedAt
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
   // --- Relaciones ---
-  variante_sku           VarianteSKU @relation(fields: [variante_sku_id], references: [id], onDelete: Restrict)
-  registrado_por         Usuario     @relation("LegajoRegistradoPor", fields: [registrado_por_id], references: [id], onDelete: Restrict)
+  variante_sku   VarianteSKU @relation(fields: [variante_sku_id], references: [id], onDelete: Restrict)
+  registrado_por Usuario     @relation("LegajoRegistradoPor", fields: [registrado_por_id], references: [id], onDelete: Restrict)
 
   @@map("legajos_prueba")
 }
