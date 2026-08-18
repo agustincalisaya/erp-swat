@@ -591,13 +591,37 @@ export async function reactivarUsuario(
  * default aunque la UI pase el filtro explícito la mayoría de las veces
  * (task_cali_filtro_reactivacion.md §1.1).
  *
+ * `busqueda` es un parámetro nuevo y opcional (superset de la firma
+ * anterior, a diferencia del cambio de `filtro` que sí reemplazó un tipo
+ * existente) — coincidencia parcial case-insensitive sobre
+ * `nombre_completo`/`email`/`nombre_usuario` simultáneamente, combinada
+ * (AND) con el filtro de estado (task_cali_buscador_usuarios.md §2). Si
+ * `busqueda` es `undefined`, vacío, o solo espacios, no se agrega ninguna
+ * cláusula — nunca se depende del comportamiento implícito de
+ * `contains: ""` de Prisma.
+ *
  * @param filtro - `"activos"` (default) | `"inactivos"` | `"todos"`.
+ * @param busqueda - Término de búsqueda opcional, sin trim previo del caller.
  */
 export async function listarUsuarios(
   filtro: FiltroEstadoUsuario = "activos",
+  busqueda?: string,
 ): Promise<UsuarioListado[]> {
-  const where: Prisma.UsuarioWhereInput =
+  const whereEstado: Prisma.UsuarioWhereInput =
     filtro === "activos" ? { is_active: true } : filtro === "inactivos" ? { is_active: false } : {};
+
+  const terminoBusqueda = busqueda?.trim();
+  const whereBusqueda: Prisma.UsuarioWhereInput = terminoBusqueda
+    ? {
+        OR: [
+          { nombre_completo: { contains: terminoBusqueda, mode: "insensitive" } },
+          { email: { contains: terminoBusqueda, mode: "insensitive" } },
+          { nombre_usuario: { contains: terminoBusqueda, mode: "insensitive" } },
+        ],
+      }
+    : {};
+
+  const where: Prisma.UsuarioWhereInput = { ...whereEstado, ...whereBusqueda };
 
   const usuarios = await prisma.usuario.findMany({
     where,
