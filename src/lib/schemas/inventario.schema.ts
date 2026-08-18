@@ -69,3 +69,47 @@ export const IniciarLegajoPruebaSchema = z.object({
 
 export type IniciarLegajoPruebaInput = z.infer<typeof IniciarLegajoPruebaSchema>;
 
+// ──────────────────────────────────────────────────────────────────────────────
+// HU-2 — Escaneo de códigos e ingreso de mercadería
+// ──────────────────────────────────────────────────────────────────────────────
+
+export const ResolverCodigoEscaneoSchema = z.object({
+  codigo: z.string().min(1, "El código escaneado es obligatorio").trim(),
+});
+
+export type ResolverCodigoEscaneoInput = z.infer<typeof ResolverCodigoEscaneoSchema>;
+
+const ESTADOS_DESTINO_INGRESO = [
+  "DISPONIBLE",
+  "EN_PRUEBA",
+  "RESERVADO",
+  "VENDIDO",
+  "DEVUELTO",
+  "BAJA_MERMA",
+  "EN_TRANSITO",
+] as const;
+
+export const RegistrarIngresoPorEscaneoSchema = z.object({
+  variante_sku_id: z.string().uuid("Código no resuelto: variante inválida"),
+  deposito_destino_id: z.string().uuid("Seleccioná un depósito destino"),
+  cantidad: z.preprocess(
+    (val) => (val === "" || val === undefined || val === null ? undefined : Number(val)),
+    z
+      .number({ invalid_type_error: "Este campo es requerido", required_error: "Este campo es requerido" })
+      .int("Debe ser un número entero")
+      .positive("La cantidad debe ser mayor a 0"),
+  ),
+  comprobante_referencia: z.string().max(100, "Máximo 100 caracteres").trim().default(""),
+  estado_destino: z.enum(ESTADOS_DESTINO_INGRESO),
+  /**
+   * El modelo de datos actual (`VarianteSKU`) representa un modelo genérico
+   * (talle+color+género+modelo), no una unidad serializada individual — ver
+   * nota en `legajo-prueba.service.ts`. Estos campos se aceptan por
+   * compatibilidad con el formulario del escáner pero no se persisten.
+   */
+  es_serializado: z.boolean().default(false),
+  numero_serie: z.string().trim().optional(),
+});
+
+export type RegistrarIngresoPorEscaneoInput = z.infer<typeof RegistrarIngresoPorEscaneoSchema>;
+

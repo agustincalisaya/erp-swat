@@ -42,6 +42,20 @@ export interface LegajoPruebaIniciadoPayload {
 }
 
 /**
+ * HU-2 — Payload emitido tras registrar un ingreso de mercadería por
+ * escaneo (creación de `MovimientoStock` tipo INGRESO + incremento de
+ * `StockDeposito.cantidad`).
+ */
+export interface IngresoStockRegistradoPayload {
+  movimiento_id: string;
+  variante_sku_id: string;
+  deposito_destino_id: string;
+  cantidad: number;
+  cantidad_resultante: number;
+  usuario_id: string;
+}
+
+/**
  * HU-1 (Módulo D) — Payload emitido tras el alta atómica de `Usuario` + `UsuarioRol`.
  * No incluye `password`/`password_hash`/`password_salt` bajo NINGUNA
  * circunstancia (RULES.md §2, spec_modulo_D.md §5.1) — esta prohibición
@@ -166,6 +180,8 @@ export interface DomainEventMap {
   "stock:umbral_critico_alcanzado": UmbralCriticoAlcanzadoPayload;
   /** HU-A3: se emite tras la transacción atómica de asignación en prueba. */
   "inventario:legajo_prueba_iniciado": LegajoPruebaIniciadoPayload;
+  /** HU-2: se emite tras registrar un ingreso de mercadería por escaneo. */
+  "inventario:ingreso_stock_registrado": IngresoStockRegistradoPayload;
   /** HU-1: se emite tras el alta atómica de Usuario + UsuarioRol. */
   "usuario:creado": UsuarioCreadoPayload;
   /** HU-2: se emite tras la baja lógica de Usuario. */
@@ -187,4 +203,3 @@ export interface DomainEventMap {
 }
 
 export type DomainEventName = keyof DomainEventMap;
-
