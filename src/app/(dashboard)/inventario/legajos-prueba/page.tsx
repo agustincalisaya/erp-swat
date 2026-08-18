@@ -25,6 +25,14 @@ import {
 } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
+// Server Component: `LegajosData` llama a `listarLegajosPruebaActivos()`
+// (Prisma) y descifra datos personales (AES-256, Ley N.° 25.326) en cada
+// render. Sin esto, `next build` intenta prerenderizar la página
+// estáticamente y falla si no hay una base de datos accesible en
+// build-time (ej. CI). Datos personales descifrados, además, nunca deben
+// quedar horneados en un artefacto estático/cacheado.
+export const dynamic = "force-dynamic";
+
 export const metadata = {
   title: "Legajos en Prueba — ERP SWAT",
   description:
