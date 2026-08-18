@@ -41,12 +41,28 @@ export interface LegajoPruebaIniciadoPayload {
   ip: string;
 }
 
+/**
+ * HU-2 — Payload emitido tras registrar un ingreso de mercadería por
+ * escaneo (creación de `MovimientoStock` tipo INGRESO + incremento de
+ * `StockDeposito.cantidad`).
+ */
+export interface IngresoStockRegistradoPayload {
+  movimiento_id: string;
+  variante_sku_id: string;
+  deposito_destino_id: string;
+  cantidad: number;
+  cantidad_resultante: number;
+  usuario_id: string;
+}
+
 /** Mapa evento → payload, usado por `domain-event-bus.ts` para tipar `emit`/`on`. */
 export interface DomainEventMap {
   "stock:umbrales_configurados": UmbralesConfiguradosPayload;
   "stock:umbral_critico_alcanzado": UmbralCriticoAlcanzadoPayload;
   /** HU-A3: se emite tras la transacción atómica de asignación en prueba. */
   "inventario:legajo_prueba_iniciado": LegajoPruebaIniciadoPayload;
+  /** HU-2: se emite tras registrar un ingreso de mercadería por escaneo. */
+  "inventario:ingreso_stock_registrado": IngresoStockRegistradoPayload;
 }
 
 export type DomainEventName = keyof DomainEventMap;
