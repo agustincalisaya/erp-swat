@@ -7,13 +7,14 @@
  * HU-1 (alta) / HU-2 (baja lógica) — Módulo D.2.
  */
 import { Suspense } from "react";
-import { Users, ShieldCheck, ShieldAlert, ShieldX, ShieldOff, AlertTriangle } from "lucide-react";
+import { Users, ShieldCheck, ShieldAlert, ShieldX, ShieldOff, AlertTriangle, Search } from "lucide-react";
 import { listarUsuarios, listarRolesActivos } from "@/lib/services/auditoria/usuario.service";
 import type { FiltroEstadoUsuario as TipoFiltroEstadoUsuario } from "@/lib/services/auditoria/usuario.service";
 import { FormularioAltaUsuario } from "@/components/auditoria/FormularioAltaUsuario";
 import { DialogBajaUsuario } from "@/components/auditoria/DialogBajaUsuario";
 import { ControlEstadoUsuario } from "@/components/auditoria/ControlEstadoUsuario";
 import { FiltroEstadoUsuarios } from "@/components/auditoria/FiltroEstadoUsuarios";
+import { BuscadorUsuarios } from "@/components/auditoria/BuscadorUsuarios";
 import { DialogReactivarUsuario } from "@/components/auditoria/DialogReactivarUsuario";
 
 import {
@@ -86,13 +87,26 @@ function parseFiltroEstado(valor: string | string[] | undefined): TipoFiltroEsta
     : "activos";
 }
 
+/** `undefined` si no hay término (o es solo espacios) — mismo criterio que `listarUsuarios()`. */
+function parseBusqueda(valor: string | string[] | undefined): string | undefined {
+  const candidato = Array.isArray(valor) ? valor[0] : valor;
+  const trimmed = candidato?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // Server: obtener datos (componente async para Suspense)
 // ──────────────────────────────────────────────────────────────────────────────
-async function UsuariosData({ filtro }: { filtro: TipoFiltroEstadoUsuario }) {
+async function UsuariosData({
+  filtro,
+  busqueda,
+}: {
+  filtro: TipoFiltroEstadoUsuario;
+  busqueda?: string;
+}) {
   let usuarios;
   try {
-    usuarios = await listarUsuarios(filtro);
+    usuarios = await listarUsuarios(filtro, busqueda);
   } catch (err) {
     console.error("[UsuariosPage] Error al obtener usuarios:", err);
     return (
@@ -112,6 +126,25 @@ async function UsuariosData({ filtro }: { filtro: TipoFiltroEstadoUsuario }) {
   const mostrarColumnaBaja = filtro !== "activos";
 
   if (usuarios.length === 0) {
+    // Estado vacío específico de búsqueda sin resultados
+    // (task_cali_buscador_usuarios.md §4) — distinto del genérico de abajo,
+    // porque acá la acción correcta no es "dar de alta", es "revisar el término".
+    if (busqueda) {
+      return (
+        <div className="flex flex-col items-center justify-center py-16 rounded-xl border-2 border-dashed border-blue-100 bg-blue-50/40 text-center">
+          <div className="p-4 rounded-full bg-blue-100 text-blue-500 mb-4">
+            <Search className="size-8" />
+          </div>
+          <p className="text-sm font-medium text-gray-600">
+            No se encontraron usuarios que coincidan con &ldquo;{busqueda}&rdquo;
+          </p>
+          <p className="text-xs text-muted-foreground mt-1">
+            Probá con otro nombre, email o usuario, o revisá el filtro de estado activo.
+          </p>
+        </div>
+      );
+    }
+
     const mensaje =
       filtro === "inactivos"
         ? "No hay usuarios inactivos"
@@ -277,6 +310,7 @@ const CARD_DESCRIPCION: Record<TipoFiltroEstadoUsuario, string> = {
 export default async function UsuariosPage({ searchParams }: UsuariosPageProps) {
   const params = await searchParams;
   const filtro = parseFiltroEstado(params.estado);
+  const busqueda = parseBusqueda(params.q);
 
   const roles = await listarRolesActivos();
 
@@ -312,13 +346,16 @@ export default async function UsuariosPage({ searchParams }: UsuariosPageProps) 
                 </CardTitle>
                 <CardDescription>{CARD_DESCRIPCION[filtro]}</CardDescription>
               </div>
-              <FiltroEstadoUsuarios filtroActual={filtro} />
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                <BuscadorUsuarios />
+                <FiltroEstadoUsuarios filtroActual={filtro} />
+              </div>
             </div>
           </CardHeader>
 
           <CardContent className="pt-5">
             <Suspense
-              key={filtro}
+              key={`${filtro}::${busqueda ?? ""}`}
               fallback={
                 <div className="flex items-center justify-center gap-3 py-12 text-sm text-muted-foreground">
                   <span className="size-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
@@ -326,7 +363,7 @@ export default async function UsuariosPage({ searchParams }: UsuariosPageProps) 
                 </div>
               }
             >
-              <UsuariosData filtro={filtro} />
+              <UsuariosData filtro={filtro} busqueda={busqueda} />
             </Suspense>
           </CardContent>
         </Card>
