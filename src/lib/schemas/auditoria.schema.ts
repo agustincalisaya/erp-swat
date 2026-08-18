@@ -65,6 +65,28 @@ export const CambiarEstadoUsuarioSchema = z.object({
 export type CambiarEstadoUsuarioInput = z.infer<typeof CambiarEstadoUsuarioSchema>;
 
 // ──────────────────────────────────────────────────────────────────────────────
+// Reactivación de Usuario INACTIVO — deliberadamente separado del Endpoint
+// 2.2.3 (task_cali_filtro_reactivacion.md §2): reactivar una baja lógica es
+// una decisión de mayor peso que levantar una suspensión temporal, por eso
+// tiene su propio endpoint, su propio schema y su propio motivo obligatorio.
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Schema de entrada para la reactivación de un `Usuario` con `estado === "INACTIVO"`.
+ * `motivo_reactivacion` es obligatorio — simétrico a `deletion_reason` en
+ * `BajaLogicaUsuarioSchema`: motivo obligatorio en ambas direcciones.
+ *
+ * @see spec_modulo_D.md §2.2 (punto 3, decisión confirmada de preservar
+ *      `deleted_at`/`deleted_by`/`deletion_reason` al reactivar)
+ * @see task_cali_filtro_reactivacion.md §2.1
+ */
+export const ReactivarUsuarioSchema = z.object({
+  usuario_id: z.string().uuid(),
+  motivo_reactivacion: z.string().min(1, "El motivo de reactivación es obligatorio"),
+});
+export type ReactivarUsuarioInput = z.infer<typeof ReactivarUsuarioSchema>;
+
+// ──────────────────────────────────────────────────────────────────────────────
 // D.3 — Consola de Auditoría Forense
 // ──────────────────────────────────────────────────────────────────────────────
 

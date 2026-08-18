@@ -119,6 +119,19 @@ export interface UsuarioEstadoCambiadoPayload {
 }
 
 /**
+ * task_cali_filtro_reactivacion.md §2.4 (Módulo D) — Payload emitido tras la
+ * reactivación de un `Usuario` con `estado === "INACTIVO"`. Deliberadamente
+ * separado de `UsuarioEstadoCambiadoPayload` (Endpoint 2.2.3) — ver
+ * `reactivarUsuario()` en `usuario.service.ts`.
+ */
+export interface UsuarioReactivadoPayload {
+  usuario_id: string;
+  reactivado_por: string;
+  motivo_reactivacion: string;
+  ip: string;
+}
+
+/**
  * Endpoint 2.2.5 (Módulo D) — Payload emitido tras el alta atómica de `Rol`
  * + N filas `RolPermiso`. Incluye `nombre`/`descripcion` (no solo IDs —
  * mismo estándar fijado para `usuario:creado`), y `permiso_ids` como lista
@@ -165,6 +178,8 @@ export interface DomainEventMap {
   "usuario:sesion_cerrada": UsuarioSesionCerradaPayload;
   /** Endpoint 2.2.3: se emite tras un cambio manual de Usuario.estado. */
   "usuario:estado_cambiado": UsuarioEstadoCambiadoPayload;
+  /** task_cali_filtro_reactivacion.md §2: se emite tras reactivar un Usuario INACTIVO. */
+  "usuario:reactivado": UsuarioReactivadoPayload;
   /** Endpoint 2.2.5: se emite tras el alta atómica de Rol + N RolPermiso. */
   "rol:creado": RolCreadoPayload;
   /** Endpoint 2.2.6: se emite tras actualizar los permisos de un Rol. */
