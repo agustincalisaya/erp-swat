@@ -37,6 +37,7 @@ import type {
   CrearUsuarioInput,
   BajaLogicaUsuarioInput,
   CambiarEstadoUsuarioInput,
+  ReactivarUsuarioInput,
 } from "@/lib/schemas/auditoria.schema";
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -61,6 +62,14 @@ export interface UsuarioEstadoCambiado {
   estado_nuevo: string;
 }
 
+export interface UsuarioReactivado {
+  id: string;
+  estado: string;
+}
+
+/** Filtro de estado para `listarUsuarios()` — task_cali_filtro_reactivacion.md §1.1. */
+export type FiltroEstadoUsuario = "activos" | "inactivos" | "todos";
+
 export interface UsuarioListado {
   id: string;
   nombre_usuario: string;
@@ -70,6 +79,9 @@ export interface UsuarioListado {
   is_active: boolean;
   created_at: Date;
   roles: string[];
+  /** Visible en la UI cuando el filtro no es "activos" (task_cali_filtro_reactivacion.md §1.4). */
+  deleted_at: Date | null;
+  deletion_reason: string | null;
 }
 
 export interface RolActivo {
@@ -474,17 +486,121 @@ export async function cambiarEstadoUsuario(
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
+// Reactivación de Usuario INACTIVO (task_cali_filtro_reactivacion.md §2)
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Reactiva un `Usuario` con `estado === "INACTIVO"` (dado de baja lógica).
+ * Deliberadamente separado de `cambiarEstadoUsuario()` (Endpoint 2.2.3):
+ * reactivar una baja lógica (egreso/renuncia/despido) es una decisión de
+ * mayor peso que levantar una suspensión temporal por intentos fallidos —
+ * decisión de negocio ya tomada, no debe compartir flujo con el botón
+ * simple "Activo" que existe para SUSPENDIDO/BLOQUEADO.
+ *
+ * Secuencia:
+ *  1. Verifica que el usuario exista y que su estado sea **específicamente**
+ *     `INACTIVO` — si está `ACTIVO`, `SUSPENDIDO` o `BLOQUEADO`, rechaza con
+ *     `USUARIO_NO_INACTIVO` (ese no es el flujo correcto para esos estados,
+ *     usar el Endpoint 2.2.3 / `cambiarEstadoUsuario()`).
+ *  2. Dentro de `prisma.$transaction`:
+ *     - `estado: "ACTIVO"`, `is_active: true`.
+ *     - **Decisión confirmada con el usuario** (spec_modulo_D.md §2.2 punto
+ *       3, antes marcada "a confirmar, no asumir"): `deleted_at`,
+ *       `deleted_by` y `deletion_reason` se PRESERVAN tal cual quedaron en
+ *       la baja original — no se limpian. El motivo de la baja lógica es
+ *       información forense valiosa que no debería perderse solo porque la
+ *       persona fue reactivada después; el propio evento `usuario:reactivado`
+ *       (paso 3) es el registro de que la reactivación ocurrió.
+ *     - Resetea `intentos_fallidos: 0`, `bloqueado_hasta: null` (mismo
+ *       criterio que la reactivación de `SUSPENDIDO` en `cambiarEstadoUsuario()`).
+ *     - No requiere la guarda de "administrador funcional" (Camino A/B/C):
+ *       reactivar a alguien nunca puede dejar al sistema sin administradores
+ *       — esa guarda solo aplica a operaciones que remueven acceso.
+ *     - No toca `Sesion`: un usuario reactivado no tiene sesiones previas
+ *       que revivir (ya fueron revocadas al momento de la baja), mismo
+ *       criterio que toda transición HACIA `ACTIVO` en `cambiarEstadoUsuario()`.
+ *  3. Fuera de la transacción: emite `usuario:reactivado` — única vía de
+ *     escritura a `AuditLog` (spec_modulo_D.md §4.1), consumido por
+ *     `audit-log.listener.ts`.
+ *
+ * @param input - Datos validados por `ReactivarUsuarioSchema`.
+ * @param usuarioEjecutorId - ID del Administrador autenticado que ejecuta la reactivación.
+ * @param ip - IP del cliente, para el AuditLog.
+ * @throws {ServiceError} USUARIO_NO_ENCONTRADO | USUARIO_NO_INACTIVO
+ */
+export async function reactivarUsuario(
+  input: ReactivarUsuarioInput,
+  usuarioEjecutorId: string,
+  ip: string,
+): Promise<UsuarioReactivado> {
+  // 1. Existencia + debe ser ESPECÍFICAMENTE INACTIVO
+  const usuarioExistente = await prisma.usuario.findUnique({
+    where: { id: input.usuario_id },
+    select: { id: true, estado: true },
+  });
+
+  if (!usuarioExistente) {
+    throw new ServiceError("USUARIO_NO_ENCONTRADO", "El usuario indicado no existe");
+  }
+
+  if (usuarioExistente.estado !== "INACTIVO") {
+    throw new ServiceError(
+      "USUARIO_NO_INACTIVO",
+      "Solo se puede reactivar por esta vía a un usuario dado de baja lógica (INACTIVO). " +
+        "Para ACTIVO/SUSPENDIDO/BLOQUEADO usá el cambio de estado manual.",
+    );
+  }
+
+  // 2. Transacción atómica: reactivación (preserva deleted_at/deleted_by/deletion_reason)
+  const usuario = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    return tx.usuario.update({
+      where: { id: input.usuario_id },
+      data: {
+        estado: "ACTIVO",
+        is_active: true,
+        intentos_fallidos: 0,
+        bloqueado_hasta: null,
+      },
+    });
+  });
+
+  // 3. Emisión de evento de dominio (FUERA de la transacción)
+  domainEventBus.emit("usuario:reactivado", {
+    usuario_id: usuario.id,
+    reactivado_por: usuarioEjecutorId,
+    motivo_reactivacion: input.motivo_reactivacion,
+    ip,
+  });
+
+  return {
+    id: usuario.id,
+    estado: usuario.estado,
+  };
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 // Consulta: listarUsuarios
 // ──────────────────────────────────────────────────────────────────────────────
 
 /**
- * Lista usuarios, filtrando por defecto los inactivos (RULES.md §1 / spec §5.5).
+ * Lista usuarios, filtrando por defecto los inactivos (RULES.md §1 / spec §3.5).
  *
- * @param incluirInactivos - Reservado para el módulo de Auditoría. `false` por defecto.
+ * El default `"activos"` es lo que garantiza que un caller que invoque la
+ * función sin argumentos (como `UsuariosData()` en `page.tsx`) preserve
+ * exactamente el comportamiento anterior a esta tarea — no cambiar este
+ * default aunque la UI pase el filtro explícito la mayoría de las veces
+ * (task_cali_filtro_reactivacion.md §1.1).
+ *
+ * @param filtro - `"activos"` (default) | `"inactivos"` | `"todos"`.
  */
-export async function listarUsuarios(incluirInactivos = false): Promise<UsuarioListado[]> {
+export async function listarUsuarios(
+  filtro: FiltroEstadoUsuario = "activos",
+): Promise<UsuarioListado[]> {
+  const where: Prisma.UsuarioWhereInput =
+    filtro === "activos" ? { is_active: true } : filtro === "inactivos" ? { is_active: false } : {};
+
   const usuarios = await prisma.usuario.findMany({
-    where: incluirInactivos ? {} : { is_active: true },
+    where,
     include: {
       roles: {
         where: { is_active: true },
@@ -503,6 +619,8 @@ export async function listarUsuarios(incluirInactivos = false): Promise<UsuarioL
     is_active: usuario.is_active,
     created_at: usuario.created_at,
     roles: usuario.roles.map((usuarioRol) => usuarioRol.rol.nombre),
+    deleted_at: usuario.deleted_at,
+    deletion_reason: usuario.deletion_reason,
   }));
 }
 

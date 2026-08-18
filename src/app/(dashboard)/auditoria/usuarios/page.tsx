@@ -7,11 +7,14 @@
  * HU-1 (alta) / HU-2 (baja lógica) — Módulo D.2.
  */
 import { Suspense } from "react";
-import { Users, ShieldCheck, ShieldAlert, ShieldX, AlertTriangle } from "lucide-react";
+import { Users, ShieldCheck, ShieldAlert, ShieldX, ShieldOff, AlertTriangle } from "lucide-react";
 import { listarUsuarios, listarRolesActivos } from "@/lib/services/auditoria/usuario.service";
+import type { FiltroEstadoUsuario as TipoFiltroEstadoUsuario } from "@/lib/services/auditoria/usuario.service";
 import { FormularioAltaUsuario } from "@/components/auditoria/FormularioAltaUsuario";
 import { DialogBajaUsuario } from "@/components/auditoria/DialogBajaUsuario";
 import { ControlEstadoUsuario } from "@/components/auditoria/ControlEstadoUsuario";
+import { FiltroEstadoUsuarios } from "@/components/auditoria/FiltroEstadoUsuarios";
+import { DialogReactivarUsuario } from "@/components/auditoria/DialogReactivarUsuario";
 
 import {
   Card,
@@ -68,15 +71,28 @@ const ESTADO_BADGE: Record<string, { className: string; icon: typeof ShieldCheck
     className: "bg-red-100 text-red-700 border border-red-200 hover:bg-red-100",
     icon: ShieldX,
   },
+  INACTIVO: {
+    className: "bg-gray-100 text-gray-600 border border-gray-200 hover:bg-gray-100",
+    icon: ShieldOff,
+  },
 };
+
+const FILTROS_VALIDOS: TipoFiltroEstadoUsuario[] = ["activos", "inactivos", "todos"];
+
+function parseFiltroEstado(valor: string | string[] | undefined): TipoFiltroEstadoUsuario {
+  const candidato = Array.isArray(valor) ? valor[0] : valor;
+  return FILTROS_VALIDOS.includes(candidato as TipoFiltroEstadoUsuario)
+    ? (candidato as TipoFiltroEstadoUsuario)
+    : "activos";
+}
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Server: obtener datos (componente async para Suspense)
 // ──────────────────────────────────────────────────────────────────────────────
-async function UsuariosData() {
+async function UsuariosData({ filtro }: { filtro: TipoFiltroEstadoUsuario }) {
   let usuarios;
   try {
-    usuarios = await listarUsuarios();
+    usuarios = await listarUsuarios(filtro);
   } catch (err) {
     console.error("[UsuariosPage] Error al obtener usuarios:", err);
     return (
@@ -89,13 +105,25 @@ async function UsuariosData() {
     );
   }
 
+  // 1.4 — la columna de baja (deletion_reason/deleted_at) solo tiene sentido
+  // cuando el filtro puede traer usuarios INACTIVO a la vista: es
+  // precisamente el contexto que un Administrador necesita para decidir si
+  // reactivar o no (task_cali_filtro_reactivacion.md §1.4).
+  const mostrarColumnaBaja = filtro !== "activos";
+
   if (usuarios.length === 0) {
+    const mensaje =
+      filtro === "inactivos"
+        ? "No hay usuarios inactivos"
+        : filtro === "todos"
+          ? "No hay usuarios cargados"
+          : "No hay usuarios activos";
     return (
       <div className="flex flex-col items-center justify-center py-16 rounded-xl border-2 border-dashed border-blue-100 bg-blue-50/40 text-center">
         <div className="p-4 rounded-full bg-blue-100 text-blue-500 mb-4">
           <Users className="size-8" />
         </div>
-        <p className="text-sm font-medium text-gray-600">No hay usuarios activos</p>
+        <p className="text-sm font-medium text-gray-600">{mensaje}</p>
         <p className="text-xs text-muted-foreground mt-1">
           Dá de alta el primer usuario usando el botón superior.
         </p>
@@ -123,6 +151,11 @@ async function UsuariosData() {
             <TableHead className="hidden sm:table-cell text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Alta
             </TableHead>
+            {mostrarColumnaBaja && (
+              <TableHead className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Baja
+              </TableHead>
+            )}
             <TableHead className="text-xs font-semibold uppercase tracking-wide text-muted-foreground text-right">
               Acciones
             </TableHead>
@@ -174,13 +207,43 @@ async function UsuariosData() {
                   {formatDate(usuario.created_at)}
                 </span>
               </TableCell>
+              {mostrarColumnaBaja && (
+                <TableCell className="max-w-[220px]">
+                  {usuario.deleted_at ? (
+                    <div
+                      className="flex flex-col gap-0.5"
+                      title={usuario.deletion_reason ?? undefined}
+                    >
+                      <span className="text-xs text-muted-foreground whitespace-nowrap">
+                        {formatDate(usuario.deleted_at)}
+                      </span>
+                      <span className="text-xs text-gray-600 truncate">
+                        {usuario.deletion_reason ?? "Sin motivo registrado"}
+                      </span>
+                    </div>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">—</span>
+                  )}
+                </TableCell>
+              )}
               <TableCell className="text-right">
                 <div className="flex flex-col items-end gap-2">
-                  <ControlEstadoUsuario usuarioId={usuario.id} estadoActual={usuario.estado} />
-                  <DialogBajaUsuario
-                    usuarioId={usuario.id}
-                    nombreUsuario={usuario.nombre_usuario}
-                  />
+                  {usuario.estado === "INACTIVO" ? (
+                    <DialogReactivarUsuario
+                      usuarioId={usuario.id}
+                      nombreUsuario={usuario.nombre_usuario}
+                      deletionReason={usuario.deletion_reason}
+                      deletedAt={usuario.deleted_at}
+                    />
+                  ) : (
+                    <>
+                      <ControlEstadoUsuario usuarioId={usuario.id} estadoActual={usuario.estado} />
+                      <DialogBajaUsuario
+                        usuarioId={usuario.id}
+                        nombreUsuario={usuario.nombre_usuario}
+                      />
+                    </>
+                  )}
                 </div>
               </TableCell>
             </TableRow>
@@ -194,7 +257,27 @@ async function UsuariosData() {
 // ──────────────────────────────────────────────────────────────────────────────
 // Página
 // ──────────────────────────────────────────────────────────────────────────────
-export default async function UsuariosPage() {
+
+interface UsuariosPageProps {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}
+
+const CARD_TITULO: Record<TipoFiltroEstadoUsuario, string> = {
+  activos: "Usuarios activos",
+  inactivos: "Usuarios inactivos",
+  todos: "Todos los usuarios",
+};
+
+const CARD_DESCRIPCION: Record<TipoFiltroEstadoUsuario, string> = {
+  activos: "Usuarios con acceso vigente al sistema.",
+  inactivos: "Usuarios dados de baja lógica — revisá el motivo antes de reactivar.",
+  todos: "Usuarios activos e inactivos, sin filtrar.",
+};
+
+export default async function UsuariosPage({ searchParams }: UsuariosPageProps) {
+  const params = await searchParams;
+  const filtro = parseFiltroEstado(params.estado);
+
   const roles = await listarRolesActivos();
 
   return (
@@ -221,15 +304,21 @@ export default async function UsuariosPage() {
         {/* ── Tabla en Card ────────────────────────────────────────────── */}
         <Card>
           <CardHeader className="border-b border-border">
-            <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-              <Users className="size-4 text-blue-500" aria-hidden="true" />
-              Usuarios activos
-            </CardTitle>
-            <CardDescription>Usuarios con acceso vigente al sistema.</CardDescription>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-sm font-semibold">
+                  <Users className="size-4 text-blue-500" aria-hidden="true" />
+                  {CARD_TITULO[filtro]}
+                </CardTitle>
+                <CardDescription>{CARD_DESCRIPCION[filtro]}</CardDescription>
+              </div>
+              <FiltroEstadoUsuarios filtroActual={filtro} />
+            </div>
           </CardHeader>
 
           <CardContent className="pt-5">
             <Suspense
+              key={filtro}
               fallback={
                 <div className="flex items-center justify-center gap-3 py-12 text-sm text-muted-foreground">
                   <span className="size-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
@@ -237,7 +326,7 @@ export default async function UsuariosPage() {
                 </div>
               }
             >
-              <UsuariosData />
+              <UsuariosData filtro={filtro} />
             </Suspense>
           </CardContent>
         </Card>

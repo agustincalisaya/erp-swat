@@ -82,6 +82,22 @@ export function iniciarAuditLogListener(): void {
     });
   });
 
+  domainEventBus.on("usuario:reactivado", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.reactivado_por,
+      accion: "REACTIVACION",
+      tabla_afectada: "usuarios",
+      registro_id: payload.usuario_id,
+      ip: payload.ip,
+      valor_anterior: { estado: "INACTIVO", is_active: false },
+      valor_nuevo: {
+        estado: "ACTIVO",
+        is_active: true,
+        motivo_reactivacion: payload.motivo_reactivacion,
+      },
+    });
+  });
+
   domainEventBus.on("usuario:suspendido_automaticamente", (payload) => {
     void registrarAuditLog({
       usuario_id: payload.usuario_id,
