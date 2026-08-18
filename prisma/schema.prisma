@@ -54,6 +54,7 @@ model Usuario {
   audit_logs              AuditLog[]
   movimientos_registrados MovimientoStock[] @relation("MovimientoRegistradoPor")
   legajos_registrados     LegajoPrueba[]    @relation("LegajoRegistradoPor")
+  sesiones                Sesion[]
 
   @@map("usuarios")
 }
@@ -184,6 +185,33 @@ model AuditLog {
   usuario Usuario? @relation(fields: [usuario_id], references: [id], onDelete: Restrict)
 
   @@map("audit_logs")
+}
+
+/// Sesión activa de un Usuario autenticado (HU-3). Permite revocación
+/// instantánea independiente de la expiración del JWT (spec_modulo_D.md
+/// §3.3 y HU-2) — el JWT solo prueba identidad e integridad; esta tabla es
+/// la fuente de verdad sobre si la sesión sigue siendo válida.
+/// Nota: no usa el soft delete estándar de RULES.md §1 (`is_active`/
+/// `deleted_at`) porque no es una entidad de catálogo/transaccional de
+/// negocio — revocada/expirada/activa son tres estados propios de un
+/// artefacto técnico de autenticación, no un simple activo/inactivo.
+model Sesion {
+  id              String    @id @default(uuid())
+  usuario_id      String
+  jwt_id          String    @unique // claim "jti" del JWT — vincula el token emitido con esta fila
+  ip_origen       String
+  user_agent      String?
+  emitida_en      DateTime  @default(now())
+  expira_en       DateTime
+  revocada        Boolean   @default(false)
+  revocada_en     DateTime?
+  revocada_motivo String? // ej. "logout", "baja_logica_usuario", "cambio_password"
+
+  usuario Usuario @relation(fields: [usuario_id], references: [id], onDelete: Restrict)
+
+  @@index([usuario_id])
+  @@index([jwt_id])
+  @@map("sesiones")
 }
 
 // ============================================================================

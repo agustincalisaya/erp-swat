@@ -6,6 +6,15 @@ import type { DomainEventMap } from "@/lib/events/event-types";
  * sección 4). Sprint 1: `EventEmitter` interno de proceso. Reemplazable a
  * futuro por un broker externo (ej. Redis Streams) sin acoplar el dominio
  * (patrón Adapter, RULES.md sección 4).
+ *
+ * Auto-registro de listeners persistentes del proceso (ver abajo): NO se usa
+ * `src/instrumentation.ts` (`register()`) para esto — verificado empíricamente
+ * que Next.js/Turbopack ejecuta ese hook en un grafo de módulos AISLADO del
+ * que usan los Route Handlers, así que un listener registrado ahí queda
+ * suscripto a una instancia de `DomainEventBus` DISTINTA de la que los
+ * services usan al emitir (`emit()` medía `listenerCount=0` pese a que el
+ * listener sí se había registrado al arrancar). El bus se autorregistra acá
+ * mismo para garantizar que use exactamente esta instancia.
  */
 class DomainEventBus extends EventEmitter {
   emit<K extends keyof DomainEventMap>(event: K, payload: DomainEventMap[K]): boolean {
@@ -21,3 +30,11 @@ class DomainEventBus extends EventEmitter {
 }
 
 export const domainEventBus = new DomainEventBus();
+
+// Import DINÁMICO (no estático) para evitar un ciclo de módulos real con
+// `audit-log.listener.ts` (que importa `domainEventBus` de este archivo) —
+// se dispara apenas se crea el singleton de arriba, antes de que cualquier
+// Route Handler llegue a emitir un evento.
+void import("@/lib/events/listeners/audit-log.listener").then(({ iniciarAuditLogListener }) => {
+  iniciarAuditLogListener();
+});
