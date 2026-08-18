@@ -31,6 +31,14 @@ import {
   TableCell,
 } from "@/components/ui/table";
 
+// Server Component: llama a `listarUsuarios()`/`listarRolesActivos()` (Prisma)
+// directamente al renderizar. Sin esto, `next build` intenta prerenderizar
+// la página estáticamente y falla si no hay una base de datos accesible en
+// build-time (ej. CI). Además, RBAC exige lectura fresca en cada request
+// (spec_modulo_D.md §3.3 — revocación inmediata), así que esta página nunca
+// debería cachearse de todos modos.
+export const dynamic = "force-dynamic";
+
 export const metadata = {
   title: "Usuarios — ERP SWAT",
   description: "Alta y baja lógica de usuarios del sistema (Módulo D — RBAC).",

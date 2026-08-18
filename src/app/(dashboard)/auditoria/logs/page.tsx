@@ -21,6 +21,13 @@ import { BotonVerificarCadena } from "@/components/auditoria/BotonVerificarCaden
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
+// Server Component: resuelve sesión (`getServerSession()`, lee cookies),
+// lee `searchParams` y llama a `listarAuditLog()` (Prisma) directamente.
+// Sin esto, `next build` intenta prerenderizar la página estáticamente y
+// falla si no hay una base de datos accesible en build-time (ej. CI). El
+// Ledger forense además exige lectura fresca por request — nunca cachear.
+export const dynamic = "force-dynamic";
+
 export const metadata = {
   title: "Auditoría Forense — ERP SWAT",
   description: "Consola de solo lectura sobre el Ledger de Auditoría (Módulo D — D.3).",

@@ -26,6 +26,14 @@ import {
   TableCell,
 } from "@/components/ui/table";
 
+// Server Component: resuelve sesión (`getServerSession()`, lee cookies) y
+// llama a `listarRoles()`/`listarPermisos()` (Prisma) directamente. Sin
+// esto, `next build` intenta prerenderizar la página estáticamente y falla
+// si no hay una base de datos accesible en build-time (ej. CI). Además,
+// RBAC exige lectura fresca en cada request (spec_modulo_D.md §3.3 —
+// revocación inmediata), así que esta página nunca debería cachearse.
+export const dynamic = "force-dynamic";
+
 export const metadata = {
   title: "Roles y Permisos — ERP SWAT",
   description: "Gestión de RBAC: alta de roles y asignación de permisos (Módulo D).",
