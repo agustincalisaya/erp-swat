@@ -307,7 +307,7 @@ export function LegajoPruebaForm({ onSuccess }: LegajoPruebaFormProps) {
         </Form>
 
         {/* Footer */}
-        <DialogFooter className="gap-2">
+        <DialogFooter className="px-6 pb-6 pt-2 gap-2">
           <Button
             type="button"
             variant="outline"
