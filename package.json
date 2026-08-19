@@ -17,6 +17,7 @@
     "@node-rs/argon2": "^2.1.0",
     "@prisma/client": "^6.19.3",
     "@zxing/browser": "^0.2.1",
+    "@zxing/library": "^0.23.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "jose": "^6.2.9",
