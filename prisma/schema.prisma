@@ -54,6 +54,7 @@ model Usuario {
   audit_logs              AuditLog[]
   movimientos_registrados MovimientoStock[] @relation("MovimientoRegistradoPor")
   legajos_registrados     LegajoPrueba[]    @relation("LegajoRegistradoPor")
+  reservas_registradas    Reserva[]         @relation("ReservaRegistradaPor")
   sesiones                Sesion[]
 
   @@map("usuarios")
@@ -210,7 +211,6 @@ model Sesion {
   usuario Usuario @relation(fields: [usuario_id], references: [id], onDelete: Restrict)
 
   @@index([usuario_id])
-  @@index([jwt_id])
   @@map("sesiones")
 }
 
@@ -280,6 +280,7 @@ model VarianteSKU {
   stock_depositos  StockDeposito[]
   movimientos      MovimientoStock[]
   legajos_prueba   LegajoPrueba[]
+  reservas         Reserva[]
 
   @@map("variantes_sku")
 }
@@ -304,6 +305,7 @@ model Deposito {
   stock_items         StockDeposito[]
   movimientos_origen  MovimientoStock[] @relation("MovimientoOrigen")
   movimientos_destino MovimientoStock[] @relation("MovimientoDestino")
+  reservas            Reserva[]
 
   @@map("depositos")
 }
@@ -420,4 +422,53 @@ model LegajoPrueba {
   registrado_por Usuario     @relation("LegajoRegistradoPor", fields: [registrado_por_id], references: [id], onDelete: Restrict)
 
   @@map("legajos_prueba")
+}
+
+/// Reserva temporal de una unidad de stock originada por una seña o
+/// licitación (Criterio 5 — Máquina de Estados). El TTL por defecto es
+/// de 72 horas: si `fecha_fin_reserva` sigue siendo NULL transcurrido ese
+/// tiempo, la API Cron `/api/cron/check-pruebas-vencidas` devuelve el stock
+/// atómicamente al estado DISPONIBLE.
+///
+/// Relación con el stock:
+///  - Al crear la Reserva → `StockDeposito.cantidad` se decrementa (DISPONIBLE → RESERVADO).
+///  - Al liberar por TTL → `StockDeposito.cantidad` se incrementa (RESERVADO → DISPONIBLE)
+///    + se registra un MovimientoStock INGRESO compensatorio.
+///  - Al confirmar la venta → `fecha_fin_reserva` se setea (RESERVADO → VENDIDO).
+model Reserva {
+  id              String @id @default(uuid())
+  variante_sku_id String
+  deposito_id     String
+  cantidad        Int
+
+  /// Momento en que se inicia la reserva (inicio del TTL de 72 horas).
+  fecha_inicio_reserva DateTime  @default(now())
+  /// NULL = reserva activa. Se setea al confirmar venta o al liberar por TTL.
+  fecha_fin_reserva    DateTime?
+
+  /// Motivo legible de la reserva (ej: "Seña N.° 1234", "Licitación GCBA-2026-001").
+  /// Opcional pero recomendado para trazabilidad.
+  motivo String?
+
+  /// ID del vendedor o usuario que creó la reserva.
+  registrado_por_id String
+
+  // --- Soft delete estricto (RULES.md §1) ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  variante_sku   VarianteSKU @relation(fields: [variante_sku_id], references: [id], onDelete: Restrict)
+  deposito       Deposito    @relation(fields: [deposito_id], references: [id], onDelete: Restrict)
+  registrado_por Usuario     @relation("ReservaRegistradaPor", fields: [registrado_por_id], references: [id], onDelete: Restrict)
+
+  /// Índice compuesto para la query del cron: busca reservas activas sin cierre
+  /// dentro de una ventana temporal (fecha_inicio_reserva < umbral).
+  @@index([is_active, fecha_fin_reserva, fecha_inicio_reserva])
+  @@map("reservas")
 }

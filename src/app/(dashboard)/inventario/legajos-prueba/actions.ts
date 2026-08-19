@@ -68,7 +68,10 @@ export async function iniciarLegajoPruebaAction(
   if (!session) {
     return {
       success: false,
-      error: { code: "UNAUTHORIZED", message: "Sesión requerida para realizar esta operación." },
+      error: {
+        code: "UNAUTHORIZED",
+        message: "Sesión requerida para realizar esta operación.",
+      },
     };
   }
 
@@ -80,7 +83,10 @@ export async function iniciarLegajoPruebaAction(
       error: {
         code: "VALIDATION_ERROR",
         message: "Los datos enviados no son válidos.",
-        fieldErrors: parsed.error.flatten().fieldErrors as Record<string, string[]>,
+        fieldErrors: parsed.error.flatten().fieldErrors as Record<
+          string,
+          string[]
+        >,
       },
     };
   }
@@ -94,7 +100,11 @@ export async function iniciarLegajoPruebaAction(
 
   // 4. Ejecutar operación atómica
   try {
-    const resultado = await asignarStockEnPrueba(parsed.data, session.userId, ip);
+    const resultado = await asignarStockEnPrueba(
+      parsed.data,
+      session.userId,
+      ip,
+    );
 
     // 5. Invalidar caché para refrescar la tabla de la página
     revalidatePath("/inventario/legajos-prueba");
@@ -111,7 +121,10 @@ export async function iniciarLegajoPruebaAction(
     console.error("[iniciarLegajoPruebaAction] Error inesperado:", err);
     return {
       success: false,
-      error: { code: "INTERNAL_ERROR", message: "Error interno. Intentá nuevamente." },
+      error: {
+        code: "INTERNAL_ERROR",
+        message: "Error interno. Intentá nuevamente.",
+      },
     };
   }
 }
