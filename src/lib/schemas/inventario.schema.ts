@@ -1,5 +1,38 @@
 import { z } from "zod";
 
+// ──────────────────────────────────────────────────────────────────────────────
+// HU-A1 — Alta de Producto Maestro y generación en lote de Variantes SKU
+// ──────────────────────────────────────────────────────────────────────────────
+
+export const CrearProductoMaestroSchema = z.object({
+  nombre: z.string().min(1),
+  descripcion: z.string().optional(),
+  rubro: z.string().min(1),
+  categoria: z.string().min(1),
+  unidad_medida: z.string().min(1),
+  proveedor_preferente: z.string().optional(),
+  costo_estandar_referencia: z.number().nonnegative(),
+});
+
+export type CrearProductoMaestroInput = z.infer<typeof CrearProductoMaestroSchema>;
+
+/**
+ * Genera variantes en lote mediante producto cartesiano talle × color × género.
+ * "modelo" es el segmento [MODELO] del SKU (ej. "SS3" para Softshell Nivel III).
+ * No incluye `ean_qr`: se genera server-side como placeholder determinístico
+ * derivado del `sku` de cada combinación (ver `generarEanQrPlaceholder()` en
+ * `lib/utils/sku.ts`), no se recibe del cliente.
+ */
+export const GenerarVariantesMatrizSchema = z.object({
+  producto_maestro_id: z.string().uuid(),
+  modelo: z.string().min(1).max(10),
+  talles: z.array(z.string().min(1)).min(1),
+  colores: z.array(z.string().min(1)).min(1),
+  generos: z.array(z.enum(["HOMBRE", "MUJER", "UNISEX"])).min(1),
+});
+
+export type GenerarVariantesMatrizInput = z.infer<typeof GenerarVariantesMatrizSchema>;
+
 /**
  * Semántica: stock_seguridad (piso crítico) < punto_pedido (umbral de alerta)
  * El refine exige punto_pedido >= stock_seguridad para dejar margen de reacción.
