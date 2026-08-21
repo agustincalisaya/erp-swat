@@ -11,14 +11,23 @@ export const CrearProductoMaestroSchema = z.object({
    * familia pueden compartir código — la unicidad la garantiza VarianteSKU.sku.
    * Solo letras y números, sin espacios ni guiones.
    */
-  codigo_producto: z.string().min(2).max(8).regex(/^[A-Za-z0-9]+$/, "Solo letras y números, sin espacios ni guiones"),
-  nombre: z.string().min(1),
+  codigo_producto: z
+    .string()
+    .min(2, "El código debe tener al menos 2 caracteres")
+    .max(8, "El código no puede superar los 8 caracteres")
+    .regex(/^[A-Za-z0-9]+$/, "Solo letras y números, sin espacios ni guiones"),
+  nombre: z.string().min(1, "El nombre es obligatorio"),
   descripcion: z.string().optional(),
-  rubro: z.string().min(1),
-  categoria: z.string().min(1),
-  unidad_medida: z.string().min(1),
+  rubro: z.string().min(1, "El rubro es obligatorio"),
+  categoria: z.string().min(1, "La categoría es obligatoria"),
+  unidad_medida: z.string().min(1, "La unidad de medida es obligatoria"),
   proveedor_preferente: z.string().optional(),
-  costo_estandar_referencia: z.number().nonnegative(),
+  costo_estandar_referencia: z
+    .number({
+      invalid_type_error: "El costo debe ser un número",
+      required_error: "El costo estándar es obligatorio",
+    })
+    .nonnegative("El costo no puede ser negativo"),
 });
 
 export type CrearProductoMaestroInput = z.infer<typeof CrearProductoMaestroSchema>;

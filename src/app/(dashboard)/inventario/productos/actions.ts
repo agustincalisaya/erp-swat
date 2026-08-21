@@ -10,8 +10,15 @@
  * A diferencia de los Route Handlers (que devuelven `NextResponse`), las
  * Server Actions retornan un objeto plano `{ data, error }` — mismo shape
  * que `app/(dashboard)/inventario/depositos/actions.ts`.
+ *
+ * Deliberadamente SIN `revalidatePath()`: esta página no lista nada
+ * server-fetched que necesite invalidarse (Paso 4/8 — "no requiere fetch
+ * inicial, es pantalla de creación"). Se probó agregarlo y causaba un bug
+ * real: el refresh de router que dispara `revalidatePath` sobre la MISMA
+ * ruta remonta `FormularioProductoMaestro`/`MatrizVariantes` desde su HTML
+ * SSR (formulario en blanco), destruyendo el estado local que decide qué
+ * paso del flujo mostrar — el usuario perdía la matriz recién generada.
  */
-import { revalidatePath } from "next/cache";
 import { getServerSession } from "@/lib/auth/session";
 import { ServiceError } from "@/lib/errors/service-error";
 import {
@@ -23,12 +30,31 @@ import {
   generarVariantesMatriz as generarVariantesMatrizService,
   type ResultadoGenerarVariantesMatriz,
 } from "@/lib/services/inventario/producto.service";
-import type { ProductoMaestro } from "@prisma/client";
 
 type ActionError = { code: string; message: string; fieldErrors?: Record<string, string[]> };
 
+/**
+ * Shape serializable del `ProductoMaestro` creado. A diferencia del Route
+ * Handler (que serializa vía `NextResponse.json`/`JSON.stringify`, donde el
+ * `Decimal` de Prisma se auto-convierte por su `toJSON()`), las Server
+ * Actions cruzan el límite cliente/servidor por serialización RSC, que NO
+ * soporta instancias de clase como `Decimal` — de ahí la conversión
+ * explícita a `number` acá.
+ */
+export interface ProductoMaestroCreado {
+  id: string;
+  codigo_producto: string;
+  nombre: string;
+  descripcion: string | null;
+  rubro: string;
+  categoria: string;
+  unidad_medida: string;
+  proveedor_preferente: string | null;
+  costo_estandar_referencia: number;
+}
+
 type CrearProductoMaestroResult =
-  | { data: ProductoMaestro; error: null }
+  | { data: ProductoMaestroCreado; error: null }
   | { data: null; error: ActionError };
 
 type GenerarVariantesMatrizResult =
@@ -59,8 +85,20 @@ export async function crearProductoMaestro(formData: unknown): Promise<CrearProd
 
   try {
     const producto = await crearProductoMaestroService(parsed.data, session.userId);
-    revalidatePath("/inventario/productos");
-    return { data: producto, error: null };
+    return {
+      data: {
+        id: producto.id,
+        codigo_producto: producto.codigo_producto,
+        nombre: producto.nombre,
+        descripcion: producto.descripcion,
+        rubro: producto.rubro,
+        categoria: producto.categoria,
+        unidad_medida: producto.unidad_medida,
+        proveedor_preferente: producto.proveedor_preferente,
+        costo_estandar_referencia: producto.costo_estandar_referencia.toNumber(),
+      },
+      error: null,
+    };
   } catch (err) {
     if (err instanceof ServiceError) {
       return { data: null, error: { code: err.code, message: err.message } };
@@ -107,7 +145,6 @@ export async function generarVariantesMatriz(
 
   try {
     const resultado = await generarVariantesMatrizService(parsed.data, session.userId);
-    revalidatePath("/inventario/productos");
     return { data: resultado, error: null };
   } catch (err) {
     if (err instanceof ServiceError) {
