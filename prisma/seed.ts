@@ -1,34 +1,43 @@
 // ============================================================================
+// ERP SWAT — Seed Script unificado (Sprint 1 · Módulo D + HU-A3)
+//
 // Password de TODOS los usuarios de prueba sembrados por este archivo:
 //
 //     abc123456789
 //
 // Derivada con hashPassword() de lib/auth/password-hash-core.ts — el mismo
-// algoritmo Argon2id que usa la app real (lib/auth/password.ts lo reexporta
-// con el guard `server-only` puesto para el resto de la app; este archivo
-// importa el núcleo directo porque `prisma db seed` corre vía `tsx` plano,
-// fuera del bundler de Next.js, donde `server-only` lanzaría una excepción
-// al cargar el módulo).
+// algoritmo Argon2id que usa la app real. Este archivo importa el núcleo
+// directo porque `prisma db seed` corre vía `tsx` fuera del bundler de
+// Next.js, donde `server-only` lanzaría una excepción.
+//
+// La función `encrypt()` al pie de las constantes reproduce EXACTAMENTE el
+// algoritmo de src/lib/crypto/aes.ts (Base64(IV||AuthTag||Ciphertext)) para
+// cifrar los campos de LegajoPrueba requeridos por HU-A3 / Ley 25.326.
+// Se replica inline porque aes.ts también usa "server-only".
 // ============================================================================
+
 import { PrismaClient } from "@prisma/client";
 import { hashPassword } from "@/lib/auth/password-hash-core";
+import * as crypto from "crypto";
+import * as dotenv from "dotenv";
+
+dotenv.config();
 
 const prisma = new PrismaClient();
 
 const PASSWORD_SEED = "abc123456789";
 
+// ──────────────────────────────────────────────────────────────────────────────
+// Patrón de reactivación para entidades RBAC definicionales
+// ──────────────────────────────────────────────────────────────────────────────
+
 /**
  * Reactivación explícita para las filas RBAC PURAMENTE definicionales que
  * este seed posee por completo (`Permiso`, `Rol`, `RolPermiso`): si alguna
- * quedó soft-deleteada por una prueba manual (ej. un script de concurrencia
- * que reasigna permisos de prueba), volver a correr el seed debe restaurar
- * el grafo RBAC de referencia a su estado conocido. Deliberadamente NO se
- * aplica a `Usuario`, `UsuarioRol` ni a las entidades de Módulo A
- * (`ProductoMaestro`/`VarianteSKU`/`Deposito`/`StockDeposito`/
- * `MovimientoStock`) — esas sí son sujetos de prueba habituales de flujos
- * de baja lógica/cambio de estado, y reactivarlas solas silenciosamente
- * revertiría el estado de una prueba en curso (contradice el requisito de
- * "no pisar datos existentes").
+ * quedó soft-deleteada por una prueba manual, volver a correr el seed debe
+ * restaurar el grafo RBAC de referencia a su estado conocido.
+ * Deliberadamente NO se aplica a `Usuario`, `UsuarioRol` ni a entidades de
+ * Módulo A — esas son sujetos de prueba habituales de flujos de baja lógica.
  */
 const REACTIVAR_REFERENCIA_RBAC = {
   is_active: true,
@@ -37,21 +46,12 @@ const REACTIVAR_REFERENCIA_RBAC = {
   deletion_reason: null,
 };
 
-/**
- * IDs fijos (no @default(uuid()) al insertar) para que el seed sea
- * idempotente vía `upsert` y para que
- * `src/app/(dashboard)/inventario/depositos/page.tsx` pueda referenciar
- * exactamente estos registros sin copiar/pegar el output de cada corrida.
- */
+// ──────────────────────────────────────────────────────────────────────────────
+// IDs fijos — idempotencia vía upsert
+// ──────────────────────────────────────────────────────────────────────────────
+
+// --- Origen: seed original (HU-7) ---
 const USUARIO_SEED_ID = "8c682c21-d075-4665-9cd2-ed0285c80f91";
-const PERMISO_LEER_FORENSE_ID = "d45883eb-0c09-4564-8b95-beefcf61d05d";
-const PERMISO_VERIFICAR_CADENA_ID = "8edff94c-5e73-4be4-b774-87409cafd8bb";
-const ROL_AUDITOR_ID = "cfe51d79-332c-4217-8906-481f2a94a1cc";
-const ROL_PERMISO_LEER_FORENSE_ID = "c05147a1-8b65-4362-91ef-f631ec30fa67";
-const ROL_PERMISO_VERIFICAR_CADENA_ID = "cc582af5-de13-4345-b290-de1e478312ea";
-const PERMISO_ROLES_ADMINISTRAR_ID = "9b1217cb-3802-4ad0-b026-ed95b0b8b6e4";
-const ROL_ADMINISTRADOR_ID = "2998bb21-960c-474c-8941-848d1f20038e";
-const ROL_PERMISO_ROLES_ADMINISTRAR_ID = "8535ced4-40fb-4cc3-bb51-eec97c4ddc49";
 const PRODUCTO_MAESTRO_SEED_ID = "cccf5533-44b5-4ed2-99e5-0d29c20da167";
 const VARIANTE_SKU_SEED_ID = "fadabd3f-991e-4e26-90f2-ad8cc97856c7";
 const DEPOSITO_SEED_ID = "a61c8fe5-bac1-4c4f-a15a-9a2ff1c7c95a";
@@ -60,11 +60,18 @@ const MOVIMIENTO_EGRESO_1_ID = "a74c7b59-1d02-4d32-b839-205bd67f14ec";
 const MOVIMIENTO_EGRESO_2_ID = "d0290236-d5b5-485f-9063-afe5e760548b";
 const MOVIMIENTO_EGRESO_3_ID = "c7d4f09e-d987-4356-b052-121a67b14558";
 
-// --- Usuarios de ejemplo (uno por rol) ---
-// NOTA: nombre_usuario "admin.seed" NO se usa acá a propósito — ya existe una
-// fila manual con ese nombre_usuario (creada fuera de este seed, en estado
-// INACTIVO) y nombre_usuario es @unique. Se usa "administrador.seed" para no
-// pisarla ni asumir que es propiedad de este seed.
+// --- Origen: Módulo D (RBAC forense / gestión de roles) ---
+const PERMISO_LEER_FORENSE_ID = "d45883eb-0c09-4564-8b95-beefcf61d05d";
+const PERMISO_VERIFICAR_CADENA_ID = "8edff94c-5e73-4be4-b774-87409cafd8bb";
+const PERMISO_ROLES_ADMINISTRAR_ID = "9b1217cb-3802-4ad0-b026-ed95b0b8b6e4";
+const PERMISO_INVENTARIO_OPERAR_ID = "874a1bb2-fb27-4d51-97b0-c29288bfb01c";
+const ROL_AUDITOR_ID = "cfe51d79-332c-4217-8906-481f2a94a1cc";
+const ROL_ADMINISTRADOR_ID = "2998bb21-960c-474c-8941-848d1f20038e";
+const ROL_ENCARGADO_DEPOSITO_ID = "1ce2f5fc-8b66-4496-82de-36d434bc79aa";
+const ROL_PERMISO_LEER_FORENSE_ID = "c05147a1-8b65-4362-91ef-f631ec30fa67";
+const ROL_PERMISO_VERIFICAR_CADENA_ID = "cc582af5-de13-4345-b290-de1e478312ea";
+const ROL_PERMISO_ROLES_ADMINISTRAR_ID = "8535ced4-40fb-4cc3-bb51-eec97c4ddc49";
+const ROL_PERMISO_INVENTARIO_OPERAR_ID = "2f19285c-6494-4e97-aee6-99fdb48feadd";
 const USUARIO_ADMIN_SEED_ID = "64a0a7e3-76e2-4637-828e-f7cb96756597";
 const USUARIO_AUDITOR_SEED_ID = "0e273fcf-b944-4580-a610-062f7a92a384";
 const USUARIO_ENCARGADO_SEED_ID = "77b685fd-ac1c-4af5-9f59-48830d96c9ea";
@@ -72,24 +79,16 @@ const USUARIO_ROL_ADMIN_ID = "9d8356d0-b396-4a95-9934-5824614d5c3a";
 const USUARIO_ROL_AUDITOR_ID = "dd26a842-a1a1-4a21-a920-5dad6e4c5a9a";
 const USUARIO_ROL_ENCARGADO_ID = "31827e93-6bdb-44ec-87e0-9607c51c1837";
 
-// --- RBAC mínimo para Encargado de Depósito (Módulo A) ---
-const PERMISO_INVENTARIO_OPERAR_ID = "874a1bb2-fb27-4d51-97b0-c29288bfb01c";
-const ROL_ENCARGADO_DEPOSITO_ID = "1ce2f5fc-8b66-4496-82de-36d434bc79aa";
-const ROL_PERMISO_INVENTARIO_OPERAR_ID = "2f19285c-6494-4e97-aee6-99fdb48feadd";
-
-// --- Módulo A: catálogo adicional ---
+// --- Origen: Módulo A — catálogo adicional ---
 const PRODUCTO_CAMISA_TACTICA_ID = "9e717646-bd40-47d7-9bc3-1c5bf053becb";
 const PRODUCTO_BORCEGOS_ID = "cf6b1caa-ef43-4554-ade4-f9e225a2993a";
-
 const VARIANTE_CAMISA_TACTICA_1_ID = "407e729d-47c3-404d-a89a-0a9c1f85a3db"; // M, Verde, Masculino, Manga Larga
 const VARIANTE_CAMISA_TACTICA_2_ID = "6fbb4612-9e6d-4661-b250-0bc62579089e"; // L, Negro, Masculino, Manga Corta
 const VARIANTE_CAMISA_TACTICA_3_ID = "0929aab1-57fb-44bc-90b6-76417c76c016"; // S, Verde, Femenino, Manga Larga
 const VARIANTE_BORCEGOS_1_ID = "864c2765-cbdd-41eb-837a-e12814b62868"; // 42, Negro, Masculino, Combate
 const VARIANTE_BORCEGOS_2_ID = "79f41b7f-a667-4867-b3cc-2c73f6134086"; // 38, Negro, Femenino, Combate
-
 const DEPOSITO_SHOWROOM_ID = "acafbd3f-3309-46f6-8199-3509ca1d37f9";
 const DEPOSITO_MOVIL_ID = "453a9cda-87ca-4ae4-82de-9e25dab04d16";
-
 const STOCK_CT1_CENTRAL_ID = "ec3dfab3-aae7-431f-a08d-c0aca9b21c5e";
 const STOCK_CT2_CENTRAL_ID = "5325a4c7-e7af-4ea7-8eb1-73ace46a5e34";
 const STOCK_CT3_CENTRAL_ID = "d0aa3ce0-b6e9-4739-acbc-78dfbf9fcce4";
@@ -99,41 +98,47 @@ const STOCK_CT1_SHOWROOM_ID = "7bcdc606-fef2-443c-b501-8859c49ae7ad";
 const STOCK_B1_SHOWROOM_ID = "9c1c70af-b0c6-4188-8771-3ad4e3a90940";
 const STOCK_CT2_MOVIL_ID = "724c48d5-ea9d-4fb8-b44a-315a683bb0c1";
 
+// --- Origen: HU-A3 (Legajos en Prueba) ---
+const MOV_LEGAJO1_ID = "c7d4f09e-d987-4356-b052-121a67b14560";
+const MOV_LEGAJO2_ID = "c7d4f09e-d987-4356-b052-121a67b14561";
+const LEGAJO_VIGENTE_ID = "00000000-0000-0000-0006-000000000001";
+const LEGAJO_VENCIDO_ID = "00000000-0000-0000-0006-000000000002";
+const LEGAJO_FINALIZADO_ID = "00000000-0000-0000-0006-000000000003";
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Helpers — Fechas
+// ──────────────────────────────────────────────────────────────────────────────
+
 function diasAtras(dias: number): Date {
   const fecha = new Date();
   fecha.setDate(fecha.getDate() - dias);
   return fecha;
 }
 
+// ──────────────────────────────────────────────────────────────────────────────
+// Helper — SKU determinístico (réplica de spec_modulo_A.md §2.1)
+// ──────────────────────────────────────────────────────────────────────────────
+
 /**
  * Réplica del algoritmo determinístico de `spec_modulo_A.md` §2.1:
  * `[PRODUCTO]-[MODELO]-[TALLE]-[COLOR]-[GENERO]`, normalizado a mayúsculas
- * y sin espacios. NO se pudo importar la implementación real porque
- * `lib/services/inventario/producto.service.ts` está vacío (no implementado
- * todavía) al momento de escribir este seed — cuando exista, reemplazar este
- * helper por un import directo, no mantener dos copias del algoritmo.
- *
- * Nota: el `VarianteSKU` sembrado en rondas anteriores ("Camisa de Policía")
- * tiene un `sku` tipeado a mano ("CAMISA-POLICIA-M-AZUL-MASCULINO") que no
- * se recalcula con este helper — se deja intacto (upsert por `id`, no se
- * toca su valor existente) para no romper la referencia ya usada en
- * `depositos/page.tsx` y en los `MovimientoStock` de HU-7.
+ * y sin espacios. NO se importa desde producto.service.ts porque ese archivo
+ * está vacío al momento de escribir este seed.
  */
 const RANGO_DIACRITICOS_COMBINANTES_DESDE = 0x0300;
 const RANGO_DIACRITICOS_COMBINANTES_HASTA = 0x036f;
 
 function normalizarSegmentoSku(valor: string): string {
-  // NFD separa cada letra acentuada en (letra base + marca diacrítica
-  // combinante); filtrar el rango Unicode de marcas combinantes despoja
-  // el acento sin tocar la letra base (Táctica -> Tactica -> TACTICA).
   const sinDiacriticos = Array.from(valor.normalize("NFD"))
     .filter((caracter) => {
       const codigo = caracter.codePointAt(0) ?? 0;
-      return codigo < RANGO_DIACRITICOS_COMBINANTES_DESDE || codigo > RANGO_DIACRITICOS_COMBINANTES_HASTA;
+      return (
+        codigo < RANGO_DIACRITICOS_COMBINANTES_DESDE ||
+        codigo > RANGO_DIACRITICOS_COMBINANTES_HASTA
+      );
     })
     .join("");
-
-  return sinDiacriticos.toUpperCase().replace(/\s+/g, ""); // "sin espacios" (spec_modulo_A.md §2.1)
+  return sinDiacriticos.toUpperCase().replace(/\s+/g, "");
 }
 
 function calcularSkuDeterministico(params: {
@@ -143,22 +148,182 @@ function calcularSkuDeterministico(params: {
   color: string;
   genero: string;
 }): string {
-  return [params.nombreProducto, params.modelo, params.talle, params.color, params.genero]
+  return [
+    params.nombreProducto,
+    params.modelo,
+    params.talle,
+    params.color,
+    params.genero,
+  ]
     .map(normalizarSegmentoSku)
     .join("-");
 }
 
+// ──────────────────────────────────────────────────────────────────────────────
+// AES-256-GCM inline — réplica EXACTA de src/lib/crypto/aes.ts
+//
+// Formato de salida: Base64( IV[12 bytes] || AuthTag[16 bytes] || Ciphertext )
+// Se reimplementa aquí porque aes.ts tiene "server-only" y no puede
+// importarse fuera del contexto de Next.js.
+// ──────────────────────────────────────────────────────────────────────────────
+
+const AES_ALGORITHM = "aes-256-gcm";
+const AES_IV_LENGTH = 12;
+
+function getEncryptionKey(): Buffer {
+  const keyHex = process.env.ENCRYPTION_KEY_LEGAJOS;
+  if (!keyHex || keyHex.length !== 64) {
+    throw new Error(
+      "[seed] ENCRYPTION_KEY_LEGAJOS no está configurada o no tiene 64 chars hex.\n" +
+        "       Verificá el archivo .env antes de ejecutar el seed.\n" +
+        "       Ejemplo: openssl rand -hex 32",
+    );
+  }
+  return Buffer.from(keyHex, "hex");
+}
+
+/**
+ * Cifra un plaintext con AES-256-GCM.
+ * Réplica exacta de src/lib/crypto/aes.ts → encrypt().
+ * @param plaintext - Cadena UTF-8 a cifrar.
+ * @returns Base64( IV[12] || AuthTag[16] || Ciphertext )
+ */
+function encrypt(plaintext: string): string {
+  const key = getEncryptionKey();
+  const iv = crypto.randomBytes(AES_IV_LENGTH);
+  const cipher = crypto.createCipheriv(AES_ALGORITHM, key, iv);
+  const encryptedParts = [cipher.update(plaintext, "utf8"), cipher.final()];
+  const encrypted = Buffer.concat(encryptedParts);
+  const authTag = cipher.getAuthTag(); // disponible tras cipher.final()
+  // Empaquetado: IV (12) || AuthTag (16) || Ciphertext → Base64
+  const combined = Buffer.concat([iv, authTag, encrypted]);
+  return combined.toString("base64");
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// seedLegajosPrueba — HU-A3 (Cifrado AES-256-GCM + Ley 25.326)
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Siembra 3 legajos de prueba con campos sensibles cifrados:
+ *  • Legajo 1 (vigente)   — inició hace 5 días, sin fecha_fin.
+ *  • Legajo 2 (vencido)   — inició hace 35 días (>30 días), sin fecha_fin.
+ *                           El cron /api/cron/check-pruebas-vencidas lo detectará.
+ *  • Legajo 3 (finalizado) — tiene fecha_fin_prueba seteada.
+ *
+ * Los legajos se eliminan y recrean siempre para garantizar que los campos
+ * cifrados estén en el formato Base64 correcto (upsert con update:{} no
+ * sobreescribiría ciphertext existente en formato incorrecto).
+ *
+ * @param depositoCentralId  - ID del depósito Central (para los MovimientoStock asociados).
+ * @param registradoPorId    - ID del usuario que registra (encargado.seed en main()).
+ * @param varianteCamisa1Id  - Variante para legajo 1 y 3.
+ * @param varianteBorcegos1Id - Variante para legajo 2.
+ */
+async function seedLegajosPrueba(
+  depositoCentralId: string,
+  registradoPorId: string,
+  varianteCamisa1Id: string,
+  varianteBorcegos1Id: string,
+): Promise<void> {
+  console.log("  → Legajos de prueba (HU-A3 — AES-256-GCM)...");
+
+  // MovimientoStock de egreso asociado al Legajo 1
+  await prisma.movimientoStock.upsert({
+    where: { id: MOV_LEGAJO1_ID },
+    update: {},
+    create: {
+      id: MOV_LEGAJO1_ID,
+      variante_sku_id: varianteCamisa1Id,
+      deposito_origen_id: depositoCentralId,
+      tipo_movimiento: "EGRESO",
+      estado_origen: "DISPONIBLE",
+      estado_destino: "EN_PRUEBA",
+      cantidad: 1,
+      comprobante_referencia: "LEGAJO-SEED-001",
+      registrado_por_id: registradoPorId,
+    },
+  });
+
+  // MovimientoStock de egreso asociado al Legajo 2 (vencido)
+  await prisma.movimientoStock.upsert({
+    where: { id: MOV_LEGAJO2_ID },
+    update: {},
+    create: {
+      id: MOV_LEGAJO2_ID,
+      variante_sku_id: varianteBorcegos1Id,
+      deposito_origen_id: depositoCentralId,
+      tipo_movimiento: "EGRESO",
+      estado_origen: "DISPONIBLE",
+      estado_destino: "EN_PRUEBA",
+      cantidad: 1,
+      comprobante_referencia: "LEGAJO-SEED-002",
+      registrado_por_id: registradoPorId,
+    },
+  });
+
+  // Eliminar y recrear los 3 legajos para garantizar formato AES correcto
+  await prisma.legajoPrueba.deleteMany({
+    where: {
+      id: { in: [LEGAJO_VIGENTE_ID, LEGAJO_VENCIDO_ID, LEGAJO_FINALIZADO_ID] },
+    },
+  });
+
+  // Legajo 1: Vigente (5 días — dentro del plazo de 30)
+  await prisma.legajoPrueba.create({
+    data: {
+      id: LEGAJO_VIGENTE_ID,
+      variante_sku_id: varianteCamisa1Id,
+      registrado_por_id: registradoPorId,
+      efectivo_placa: encrypt("PFA-12345"),
+      efectivo_organismo: encrypt("Policía Federal Argentina"),
+      fecha_inicio_prueba: diasAtras(5),
+    },
+  });
+
+  // Legajo 2: VENCIDO (35 días — supera el límite de 30)
+  await prisma.legajoPrueba.create({
+    data: {
+      id: LEGAJO_VENCIDO_ID,
+      variante_sku_id: varianteBorcegos1Id,
+      registrado_por_id: registradoPorId,
+      efectivo_placa: encrypt("GNA-98765"),
+      efectivo_organismo: encrypt("Gendarmería Nacional Argentina"),
+      fecha_inicio_prueba: diasAtras(35),
+    },
+  });
+
+  // Legajo 3: Finalizado (con fecha_fin_prueba)
+  await prisma.legajoPrueba.create({
+    data: {
+      id: LEGAJO_FINALIZADO_ID,
+      variante_sku_id: varianteCamisa1Id,
+      registrado_por_id: registradoPorId,
+      efectivo_placa: encrypt("PSA-54321"),
+      efectivo_organismo: encrypt("Policía de Seguridad Aeroportuaria"),
+      fecha_inicio_prueba: diasAtras(20),
+      fecha_fin_prueba: diasAtras(7),
+    },
+  });
+
+  console.log(
+    "    ✓ Legajo 1 (vigente) · Legajo 2 (VENCIDO → cron lo detectará) · Legajo 3 (finalizado)",
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// main
+// ──────────────────────────────────────────────────────────────────────────────
+
 async function main() {
   const passwordSeed = await hashPassword(PASSWORD_SEED);
+
+  // ── Seed original HU-7: usuario base, producto, variante, depósito, stock ──
 
   const usuario = await prisma.usuario.upsert({
     where: { id: USUARIO_SEED_ID },
     update: {
-      // Migración puntual: este usuario se sembró en una ronda anterior
-      // (antes de que `lib/auth/password.ts` existiera) con un hash falso
-      // marcado explícitamente como "no es una credencial real". Ahora que
-      // hashPassword() existe, se lo actualiza a una credencial real y
-      // consistente con el resto de los usuarios de este seed.
+      // Migración puntual: actualiza el hash placeholder al hash Argon2id real.
       password_hash: passwordSeed.hash,
       password_salt: passwordSeed.salt,
     },
@@ -178,6 +343,7 @@ async function main() {
     update: {},
     create: {
       id: PRODUCTO_MAESTRO_SEED_ID,
+      codigo_producto: "CAMPOL",
       nombre: "Camisa de Policía",
       rubro: "Indumentaria",
       categoria: "Camisas",
@@ -230,9 +396,7 @@ async function main() {
     },
   });
 
-  // 3 egresos dentro de los últimos 2 meses, para que
-  // calcularPromedioMovilEgresos (meses_historico default = 3) tenga
-  // historial real con el que calcular el promedio móvil sugerido.
+  // 3 egresos históricos para HU-7 (promedio móvil)
   const egresos = [
     { id: MOVIMIENTO_EGRESO_1_ID, cantidad: 20, hace_dias: 50 },
     { id: MOVIMIENTO_EGRESO_2_ID, cantidad: 30, hace_dias: 30 },
@@ -259,22 +423,16 @@ async function main() {
     });
   }
 
-  // ──────────────────────────────────────────────────────────────────────
-  // Datos de referencia RBAC — D.3 (Consola de Auditoría Forense)
-  // Mínimo indispensable para que la regla de segregación de funciones
-  // (spec_modulo_D.md §3.1 punto 3 / §4.3) sea comprobable: los permisos
-  // `auditoria:leer_forense` y `auditoria:verificar_cadena` deben existir
-  // como filas reales de `Permiso`, distintas entre sí (nunca un único
-  // permiso genérico de auditoría). El CRUD completo de Roles/Permisos
-  // queda para una tarea separada — esto es solo la referencia mínima.
-  // ──────────────────────────────────────────────────────────────────────
+  // ── Módulo D — RBAC: Consola de Auditoría Forense ──────────────────────────
+
   const permisoLeerForense = await prisma.permiso.upsert({
     where: { id: PERMISO_LEER_FORENSE_ID },
     update: REACTIVAR_REFERENCIA_RBAC,
     create: {
       id: PERMISO_LEER_FORENSE_ID,
       codigo: "auditoria:leer_forense",
-      descripcion: "Lectura ampliada del historial de AuditLog de cualquier usuario",
+      descripcion:
+        "Lectura ampliada del historial de AuditLog de cualquier usuario",
       modulo: "MODULO_D",
     },
   });
@@ -285,7 +443,8 @@ async function main() {
     create: {
       id: PERMISO_VERIFICAR_CADENA_ID,
       codigo: "auditoria:verificar_cadena",
-      descripcion: "Ejecutar la verificación de integridad de la cadena de hashes de AuditLog",
+      descripcion:
+        "Ejecutar la verificación de integridad de la cadena de hashes de AuditLog",
       modulo: "MODULO_D",
     },
   });
@@ -296,7 +455,8 @@ async function main() {
     create: {
       id: ROL_AUDITOR_ID,
       nombre: "AUDITOR",
-      descripcion: "Solo lectura ampliada de auditoría forense — no gestiona usuarios ni roles",
+      descripcion:
+        "Solo lectura ampliada de auditoría forense — no gestiona usuarios ni roles",
     },
   });
 
@@ -320,23 +480,16 @@ async function main() {
     },
   });
 
-  // ──────────────────────────────────────────────────────────────────────
-  // Datos de referencia RBAC — Endpoints 2.2.5/2.2.6 (Gestión de Roles y
-  // Permisos). `roles:administrar` es el permiso que habilita crear roles
-  // y reasignar sus permisos (POST/PATCH /api/auth/roles/**) — sin al
-  // menos un Rol que lo tenga, nadie podría administrar RBAC ni siquiera
-  // para el primer alta. No se asigna a ningún usuario de seed por
-  // defecto (mismo patrón que AUDITOR arriba) — el único usuario sembrado
-  // hoy es "seed.deposito" (Encargado de Depósito), y no correspondería
-  // semánticamente convertirlo también en administrador de RBAC.
-  // ──────────────────────────────────────────────────────────────────────
+  // ── Módulo D — RBAC: Gestión de Roles y Permisos ───────────────────────────
+
   const permisoRolesAdministrar = await prisma.permiso.upsert({
     where: { id: PERMISO_ROLES_ADMINISTRAR_ID },
     update: REACTIVAR_REFERENCIA_RBAC,
     create: {
       id: PERMISO_ROLES_ADMINISTRAR_ID,
       codigo: "roles:administrar",
-      descripcion: "Crear roles y administrar los permisos asignados a un rol existente",
+      descripcion:
+        "Crear roles y administrar los permisos asignados a un rol existente",
       modulo: "MODULO_D",
     },
   });
@@ -347,7 +500,8 @@ async function main() {
     create: {
       id: ROL_ADMINISTRADOR_ID,
       nombre: "ADMINISTRADOR",
-      descripcion: "Gestión de usuarios y RBAC — no incluye auditoría forense por defecto",
+      descripcion:
+        "Gestión de usuarios y RBAC — no incluye auditoría forense por defecto",
     },
   });
 
@@ -361,23 +515,8 @@ async function main() {
     },
   });
 
-  // ──────────────────────────────────────────────────────────────────────
-  // Rol mínimo para Encargado de Depósito (Módulo A).
-  //
-  // Ningún Route Handler/Server Action de Módulo A verifica hoy un permiso
-  // "inventario:*" — `producto.service.ts`, `variante.service.ts`,
-  // `deposito.service.ts` y `movimiento.service.ts` están vacíos (no
-  // implementados) al momento de escribir este seed; solo
-  // `legajo-prueba.service.ts` (HU-A3) y `stock.service.ts` (HU-7) existen,
-  // y ninguno de los dos llama a `withPermission()` todavía.
-  // `inventario:operar` es un PLACEHOLDER: existe únicamente para que este
-  // rol no quede sin permisos (principio de menor privilegio,
-  // spec_modulo_D.md §3.4) y para que "encargado.seed" tenga un rol
-  // asignado. Cuando se implemente el RBAC real de Módulo A, reemplazar
-  // este código por los permisos granulares reales (ej.
-  // "inventario:crear", "inventario:mover") según la convención
-  // `withPermission("inventario:<accion>")` de spec_modulo_A.md §2.
-  // ──────────────────────────────────────────────────────────────────────
+  // ── Módulo D — RBAC: Encargado de Depósito (Módulo A — placeholder) ────────
+
   const permisoInventarioOperar = await prisma.permiso.upsert({
     where: { id: PERMISO_INVENTARIO_OPERAR_ID },
     update: REACTIVAR_REFERENCIA_RBAC,
@@ -397,7 +536,8 @@ async function main() {
     create: {
       id: ROL_ENCARGADO_DEPOSITO_ID,
       nombre: "ENCARGADO_DEPOSITO",
-      descripcion: "Operación de depósito (Módulo A) — permiso placeholder hasta que exista RBAC granular",
+      descripcion:
+        "Operación de depósito (Módulo A) — permiso placeholder hasta que exista RBAC granular",
     },
   });
 
@@ -416,13 +556,8 @@ async function main() {
     },
   });
 
-  // ──────────────────────────────────────────────────────────────────────
-  // Usuarios de ejemplo — uno por rol, todos con la misma password fija
-  // documentada al inicio de este archivo. Upsert por `nombre_usuario`
-  // (campo único de negocio), no por `id` fijo: a diferencia de las
-  // entidades de referencia de arriba, no hay ningún otro archivo que
-  // necesite referenciar el `id` exacto de estos usuarios.
-  // ──────────────────────────────────────────────────────────────────────
+  // ── Módulo D — Usuarios de ejemplo (uno por rol) ───────────────────────────
+
   const usuarioAdmin = await prisma.usuario.upsert({
     where: { nombre_usuario: "administrador.seed" },
     update: {},
@@ -439,7 +574,12 @@ async function main() {
   });
 
   await prisma.usuarioRol.upsert({
-    where: { usuario_id_rol_id: { usuario_id: usuarioAdmin.id, rol_id: rolAdministrador.id } },
+    where: {
+      usuario_id_rol_id: {
+        usuario_id: usuarioAdmin.id,
+        rol_id: rolAdministrador.id,
+      },
+    },
     update: {},
     create: {
       id: USUARIO_ROL_ADMIN_ID,
@@ -464,7 +604,12 @@ async function main() {
   });
 
   await prisma.usuarioRol.upsert({
-    where: { usuario_id_rol_id: { usuario_id: usuarioAuditor.id, rol_id: rolAuditor.id } },
+    where: {
+      usuario_id_rol_id: {
+        usuario_id: usuarioAuditor.id,
+        rol_id: rolAuditor.id,
+      },
+    },
     update: {},
     create: {
       id: USUARIO_ROL_AUDITOR_ID,
@@ -489,7 +634,12 @@ async function main() {
   });
 
   await prisma.usuarioRol.upsert({
-    where: { usuario_id_rol_id: { usuario_id: usuarioEncargado.id, rol_id: rolEncargadoDeposito.id } },
+    where: {
+      usuario_id_rol_id: {
+        usuario_id: usuarioEncargado.id,
+        rol_id: rolEncargadoDeposito.id,
+      },
+    },
     update: {},
     create: {
       id: USUARIO_ROL_ENCARGADO_ID,
@@ -498,17 +648,14 @@ async function main() {
     },
   });
 
-  // ──────────────────────────────────────────────────────────────────────
-  // Módulo A — Catálogo adicional (complementa la Camisa de Policía de
-  // HU-7, no la reemplaza). 2 ProductoMaestro nuevos, 2-3 VarianteSKU cada
-  // uno, con `sku` calculado por `calcularSkuDeterministico()` (ver nota
-  // arriba sobre por qué no se importa desde producto.service.ts).
-  // ──────────────────────────────────────────────────────────────────────
+  // ── Módulo A — Catálogo adicional: Camisa Táctica y Borcegos ───────────────
+
   const productoCamisaTactica = await prisma.productoMaestro.upsert({
     where: { id: PRODUCTO_CAMISA_TACTICA_ID },
     update: {},
     create: {
       id: PRODUCTO_CAMISA_TACTICA_ID,
+      codigo_producto: "CAMTAC",
       nombre: "Camisa Táctica",
       rubro: "Indumentaria",
       categoria: "Camisas",
@@ -524,6 +671,7 @@ async function main() {
     update: {},
     create: {
       id: PRODUCTO_BORCEGOS_ID,
+      codigo_producto: "BORCEG",
       nombre: "Borcegos",
       rubro: "Calzado",
       categoria: "Botas",
@@ -634,9 +782,8 @@ async function main() {
     varianteSkuById.set(v.id, { id: creada.id, sku: creada.sku });
   }
 
-  // ──────────────────────────────────────────────────────────────────────
-  // Módulo A — Depósitos adicionales (complementan el Depósito Central).
-  // ──────────────────────────────────────────────────────────────────────
+  // ── Módulo A — Depósitos adicionales ───────────────────────────────────────
+
   const depositoShowroom = await prisma.deposito.upsert({
     where: { id: DEPOSITO_SHOWROOM_ID },
     update: {},
@@ -661,167 +808,109 @@ async function main() {
     },
   });
 
-  // ──────────────────────────────────────────────────────────────────────
-  // Módulo A — StockDeposito inicial. La mayoría queda con
-  // punto_pedido=0/stock_seguridad=0 ("sin configurar", comportamiento por
-  // defecto del schema); la combinación Camisa Táctica M-Verde-Masculino
-  // en Depósito Central se deja con umbrales reales para poder probar
-  // HU-7 sin configurarlos a mano primero (complementa la combinación ya
-  // sembrada de la Camisa de Policía, que también los tiene).
-  // ──────────────────────────────────────────────────────────────────────
-  await prisma.stockDeposito.upsert({
-    where: {
-      variante_sku_id_deposito_id: {
-        variante_sku_id: VARIANTE_CAMISA_TACTICA_1_ID,
-        deposito_id: deposito.id,
-      },
-    },
-    update: {},
-    create: {
+  // ── Módulo A — StockDeposito inicial ───────────────────────────────────────
+
+  const stockEntries = [
+    {
       id: STOCK_CT1_CENTRAL_ID,
-      variante_sku_id: VARIANTE_CAMISA_TACTICA_1_ID,
-      deposito_id: deposito.id,
-      cantidad: 25,
-      punto_pedido: 8,
-      stock_seguridad: 3,
-      is_active: true,
+      vid: VARIANTE_CAMISA_TACTICA_1_ID,
+      did: deposito.id,
+      qty: 25,
+      pp: 8,
+      ss: 3,
     },
-  });
-
-  await prisma.stockDeposito.upsert({
-    where: {
-      variante_sku_id_deposito_id: {
-        variante_sku_id: VARIANTE_CAMISA_TACTICA_2_ID,
-        deposito_id: deposito.id,
-      },
-    },
-    update: {},
-    create: {
+    {
       id: STOCK_CT2_CENTRAL_ID,
-      variante_sku_id: VARIANTE_CAMISA_TACTICA_2_ID,
-      deposito_id: deposito.id,
-      cantidad: 18,
-      punto_pedido: 0,
-      stock_seguridad: 0,
-      is_active: true,
+      vid: VARIANTE_CAMISA_TACTICA_2_ID,
+      did: deposito.id,
+      qty: 18,
+      pp: 0,
+      ss: 0,
     },
-  });
-
-  await prisma.stockDeposito.upsert({
-    where: {
-      variante_sku_id_deposito_id: {
-        variante_sku_id: VARIANTE_CAMISA_TACTICA_3_ID,
-        deposito_id: deposito.id,
-      },
-    },
-    update: {},
-    create: {
+    {
       id: STOCK_CT3_CENTRAL_ID,
-      variante_sku_id: VARIANTE_CAMISA_TACTICA_3_ID,
-      deposito_id: deposito.id,
-      cantidad: 12,
-      punto_pedido: 0,
-      stock_seguridad: 0,
-      is_active: true,
+      vid: VARIANTE_CAMISA_TACTICA_3_ID,
+      did: deposito.id,
+      qty: 12,
+      pp: 0,
+      ss: 0,
     },
-  });
-
-  await prisma.stockDeposito.upsert({
-    where: {
-      variante_sku_id_deposito_id: {
-        variante_sku_id: VARIANTE_BORCEGOS_1_ID,
-        deposito_id: deposito.id,
-      },
-    },
-    update: {},
-    create: {
+    {
       id: STOCK_B1_CENTRAL_ID,
-      variante_sku_id: VARIANTE_BORCEGOS_1_ID,
-      deposito_id: deposito.id,
-      cantidad: 30,
-      punto_pedido: 0,
-      stock_seguridad: 0,
-      is_active: true,
+      vid: VARIANTE_BORCEGOS_1_ID,
+      did: deposito.id,
+      qty: 30,
+      pp: 0,
+      ss: 0,
     },
-  });
-
-  await prisma.stockDeposito.upsert({
-    where: {
-      variante_sku_id_deposito_id: {
-        variante_sku_id: VARIANTE_BORCEGOS_2_ID,
-        deposito_id: deposito.id,
-      },
-    },
-    update: {},
-    create: {
+    {
       id: STOCK_B2_CENTRAL_ID,
-      variante_sku_id: VARIANTE_BORCEGOS_2_ID,
-      deposito_id: deposito.id,
-      cantidad: 14,
-      punto_pedido: 0,
-      stock_seguridad: 0,
-      is_active: true,
+      vid: VARIANTE_BORCEGOS_2_ID,
+      did: deposito.id,
+      qty: 14,
+      pp: 0,
+      ss: 0,
     },
-  });
-
-  await prisma.stockDeposito.upsert({
-    where: {
-      variante_sku_id_deposito_id: {
-        variante_sku_id: VARIANTE_CAMISA_TACTICA_1_ID,
-        deposito_id: depositoShowroom.id,
-      },
-    },
-    update: {},
-    create: {
+    {
       id: STOCK_CT1_SHOWROOM_ID,
-      variante_sku_id: VARIANTE_CAMISA_TACTICA_1_ID,
-      deposito_id: depositoShowroom.id,
-      cantidad: 4,
-      punto_pedido: 0,
-      stock_seguridad: 0,
-      is_active: true,
+      vid: VARIANTE_CAMISA_TACTICA_1_ID,
+      did: depositoShowroom.id,
+      qty: 4,
+      pp: 0,
+      ss: 0,
     },
-  });
-
-  await prisma.stockDeposito.upsert({
-    where: {
-      variante_sku_id_deposito_id: {
-        variante_sku_id: VARIANTE_BORCEGOS_1_ID,
-        deposito_id: depositoShowroom.id,
-      },
-    },
-    update: {},
-    create: {
+    {
       id: STOCK_B1_SHOWROOM_ID,
-      variante_sku_id: VARIANTE_BORCEGOS_1_ID,
-      deposito_id: depositoShowroom.id,
-      cantidad: 3,
-      punto_pedido: 0,
-      stock_seguridad: 0,
-      is_active: true,
+      vid: VARIANTE_BORCEGOS_1_ID,
+      did: depositoShowroom.id,
+      qty: 3,
+      pp: 0,
+      ss: 0,
     },
-  });
-
-  await prisma.stockDeposito.upsert({
-    where: {
-      variante_sku_id_deposito_id: {
-        variante_sku_id: VARIANTE_CAMISA_TACTICA_2_ID,
-        deposito_id: depositoMovil.id,
-      },
-    },
-    update: {},
-    create: {
+    {
       id: STOCK_CT2_MOVIL_ID,
-      variante_sku_id: VARIANTE_CAMISA_TACTICA_2_ID,
-      deposito_id: depositoMovil.id,
-      cantidad: 6,
-      punto_pedido: 0,
-      stock_seguridad: 0,
-      is_active: true,
+      vid: VARIANTE_CAMISA_TACTICA_2_ID,
+      did: depositoMovil.id,
+      qty: 6,
+      pp: 0,
+      ss: 0,
     },
-  });
+  ];
 
-  console.log("Seed HU-7 completado:");
+  for (const s of stockEntries) {
+    await prisma.stockDeposito.upsert({
+      where: {
+        variante_sku_id_deposito_id: {
+          variante_sku_id: s.vid,
+          deposito_id: s.did,
+        },
+      },
+      update: {},
+      create: {
+        id: s.id,
+        variante_sku_id: s.vid,
+        deposito_id: s.did,
+        cantidad: s.qty,
+        punto_pedido: s.pp,
+        stock_seguridad: s.ss,
+        is_active: true,
+      },
+    });
+  }
+
+  // ── HU-A3 — Legajos de prueba (cifrado AES-256-GCM) ───────────────────────
+  // Usa usuarioEncargado.id como registrado_por y las variantes del catálogo
+  // adicional ya insertadas arriba (Camisa Táctica y Borcegos).
+  await seedLegajosPrueba(
+    deposito.id,
+    usuarioEncargado.id,
+    VARIANTE_CAMISA_TACTICA_1_ID,
+    VARIANTE_BORCEGOS_1_ID,
+  );
+
+  // ── Resumen final ───────────────────────────────────────────────────────────
+
+  console.log("\nSeed HU-7 completado:");
   console.table({
     usuario_id: usuario.id,
     producto_maestro_id: productoMaestro.id,
@@ -833,42 +922,49 @@ async function main() {
     movimiento_egreso_3_id: MOVIMIENTO_EGRESO_3_ID,
   });
 
-  console.log("Seed RBAC — D.3 (Consola de Auditoría Forense) completado:");
+  console.log("\nSeed RBAC — Módulo D completado:");
   console.table({
     permiso_leer_forense_id: permisoLeerForense.id,
     permiso_verificar_cadena_id: permisoVerificarCadena.id,
-    rol_auditor_id: rolAuditor.id,
-  });
-
-  console.log("Seed RBAC — Roles y Permisos (roles:administrar) completado:");
-  console.table({
     permiso_roles_administrar_id: permisoRolesAdministrar.id,
-    rol_administrador_id: rolAdministrador.id,
-  });
-
-  console.log("Seed RBAC — Encargado de Depósito (placeholder Módulo A) completado:");
-  console.table({
     permiso_inventario_operar_id: permisoInventarioOperar.id,
+    rol_auditor_id: rolAuditor.id,
+    rol_administrador_id: rolAdministrador.id,
     rol_encargado_deposito_id: rolEncargadoDeposito.id,
   });
 
-  console.log(`Seed usuarios de ejemplo completado (password: "${PASSWORD_SEED}"):`);
+  console.log(
+    `\nSeed usuarios de ejemplo completado (password: "${PASSWORD_SEED}"):`,
+  );
   console.table({
-    administrador_seed: `${usuarioAdmin.nombre_usuario} <${usuarioAdmin.email}>`,
-    auditor_seed: `${usuarioAuditor.nombre_usuario} <${usuarioAuditor.email}>`,
-    encargado_seed: `${usuarioEncargado.nombre_usuario} <${usuarioEncargado.email}>`,
+    administrador_seed: `${usuarioAdmin.nombre_usuario}  <${usuarioAdmin.email}>`,
+    auditor_seed: `${usuarioAuditor.nombre_usuario}       <${usuarioAuditor.email}>`,
+    encargado_seed: `${usuarioEncargado.nombre_usuario}     <${usuarioEncargado.email}>`,
   });
 
-  console.log("Seed Módulo A — catálogo adicional completado:");
+  console.log("\nSeed Módulo A — catálogo adicional completado:");
   console.table({
     producto_camisa_tactica_id: productoCamisaTactica.id,
     producto_borcegos_id: productoBorcegos.id,
     deposito_showroom_id: depositoShowroom.id,
     deposito_movil_id: depositoMovil.id,
     ...Object.fromEntries(
-      [...varianteSkuById.entries()].map(([id, v]) => [`variante_${id.slice(0, 8)}`, v.sku]),
+      [...varianteSkuById.entries()].map(([id, v]) => [
+        `variante_${id.slice(0, 8)}`,
+        v.sku,
+      ]),
     ),
   });
+
+  console.log("\nSeed HU-A3 completado:");
+  console.table({
+    legajo_vigente_id: LEGAJO_VIGENTE_ID,
+    legajo_vencido_id: LEGAJO_VENCIDO_ID,
+    legajo_finalizado_id: LEGAJO_FINALIZADO_ID,
+  });
+  console.log(
+    "   ⚠  Tip: GET /api/cron/check-pruebas-vencidas detectará el Legajo 2 (vencido 35 días).",
+  );
 }
 
 main()

@@ -76,7 +76,13 @@ export function LegajoPruebaForm({ onSuccess }: LegajoPruebaFormProps) {
   const form = useForm<LegajoPruebaFormValues>({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     resolver: zodResolver(IniciarLegajoPruebaSchema) as any,
-    defaultValues: { cantidad: 1 },
+    defaultValues: {
+      variante_sku_id:    "",
+      deposito_origen_id: "",
+      cantidad:           1,
+      efectivo_placa:     "",
+      efectivo_organismo: "",
+    },
   });
 
   const handleClose = useCallback(() => {
@@ -213,12 +219,18 @@ export function LegajoPruebaForm({ onSuccess }: LegajoPruebaFormProps) {
                     Cantidad
                   </FormLabel>
                   <FormControl>
-                    <Input
-                      {...field}
-                      type="number"
-                      min={1}
-                      className="w-28 focus-visible:border-blue-500 focus-visible:ring-blue-500/30"
-                      onChange={(e) => field.onChange(e.target.valueAsNumber)}
+                    <Input 
+                      type="number" 
+                      min={1} 
+                      {...field} 
+                      /* 1. Evitamos que le llegue NaN al Input visual */
+                      value={Number.isNaN(field.value) || field.value === undefined ? "" : field.value}
+                      /* 2. Controlamos qué pasa cuando el usuario borra o escribe */
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        // Si el campo está vacío, mandamos string vacío. Si no, lo convertimos a número.
+                        field.onChange(val === "" ? "" : Number(val));
+                      }}
                     />
                   </FormControl>
                   <FormDescription>
@@ -307,7 +319,7 @@ export function LegajoPruebaForm({ onSuccess }: LegajoPruebaFormProps) {
         </Form>
 
         {/* Footer */}
-        <DialogFooter className="gap-2">
+        <DialogFooter className="px-6 pb-6 pt-2 gap-2">
           <Button
             type="button"
             variant="outline"
