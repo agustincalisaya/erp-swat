@@ -343,6 +343,7 @@ async function main() {
     update: {},
     create: {
       id: PRODUCTO_MAESTRO_SEED_ID,
+      codigo_producto: "CAMPOL",
       nombre: "Camisa de Policía",
       rubro: "Indumentaria",
       categoria: "Camisas",
@@ -654,6 +655,7 @@ async function main() {
     update: {},
     create: {
       id: PRODUCTO_CAMISA_TACTICA_ID,
+      codigo_producto: "CAMTAC",
       nombre: "Camisa Táctica",
       rubro: "Indumentaria",
       categoria: "Camisas",
@@ -669,6 +671,7 @@ async function main() {
     update: {},
     create: {
       id: PRODUCTO_BORCEGOS_ID,
+      codigo_producto: "BORCEG",
       nombre: "Borcegos",
       rubro: "Calzado",
       categoria: "Botas",

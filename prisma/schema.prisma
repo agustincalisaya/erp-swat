@@ -223,6 +223,13 @@ model Sesion {
 /// VarianteSKU.
 model ProductoMaestro {
   id                        String  @id @default(uuid())
+  /// Código corto usado como segmento [PRODUCTO] del SKU determinístico
+  /// generado por `generarSku()` (ej. "CAMP" para "Campera Softshell Nivel III").
+  /// Definido explícitamente al crear el producto — no se deriva del nombre.
+  /// Deliberadamente NO único: dos ProductoMaestro de la misma familia (ej.
+  /// dos modelos de campera) pueden compartir el mismo código de categoría —
+  /// la unicidad real del SKU la garantiza VarianteSKU.sku @unique.
+  codigo_producto           String
   nombre                    String
   rubro                     String
   categoria                 String

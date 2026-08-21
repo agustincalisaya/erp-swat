@@ -1,5 +1,66 @@
 import { z } from "zod";
 
+// ──────────────────────────────────────────────────────────────────────────────
+// HU-A1 — Alta de Producto Maestro y generación en lote de Variantes SKU
+// ──────────────────────────────────────────────────────────────────────────────
+
+export const CrearProductoMaestroSchema = z.object({
+  /**
+   * Código corto, segmento [PRODUCTO] del SKU (ver `generarSku()` en
+   * `lib/utils/sku.ts`). No es único: dos ProductoMaestro de la misma
+   * familia pueden compartir código — la unicidad la garantiza VarianteSKU.sku.
+   * Solo letras y números, sin espacios ni guiones.
+   */
+  codigo_producto: z
+    .string()
+    .min(2, "El código debe tener al menos 2 caracteres")
+    .max(8, "El código no puede superar los 8 caracteres")
+    .regex(/^[A-Za-z0-9]+$/, "Solo letras y números, sin espacios ni guiones"),
+  nombre: z.string().min(1, "El nombre es obligatorio"),
+  descripcion: z.string().optional(),
+  rubro: z.string().min(1, "El rubro es obligatorio"),
+  categoria: z.string().min(1, "La categoría es obligatoria"),
+  unidad_medida: z.string().min(1, "La unidad de medida es obligatoria"),
+  proveedor_preferente: z.string().optional(),
+  costo_estandar_referencia: z
+    .number({
+      invalid_type_error: "El costo debe ser un número",
+      required_error: "El costo estándar es obligatorio",
+    })
+    .nonnegative("El costo no puede ser negativo"),
+});
+
+export type CrearProductoMaestroInput = z.infer<typeof CrearProductoMaestroSchema>;
+
+/**
+ * Genera variantes en lote mediante producto cartesiano talle × color × género.
+ * "modelo" es el segmento [MODELO] del SKU (ej. "SS3" para Softshell Nivel III).
+ * No incluye `ean_qr`: se genera server-side como placeholder determinístico
+ * derivado del `sku` de cada combinación (ver `generarEanQrPlaceholder()` en
+ * `lib/utils/sku.ts`), no se recibe del cliente.
+ */
+export const GenerarVariantesMatrizSchema = z.object({
+  producto_maestro_id: z.string().uuid(),
+  modelo: z.string().min(1).max(10),
+  talles: z.array(z.string().min(1)).min(1),
+  colores: z.array(z.string().min(1)).min(1),
+  generos: z.array(z.enum(["HOMBRE", "MUJER", "UNISEX"])).min(1),
+});
+
+export type GenerarVariantesMatrizInput = z.infer<typeof GenerarVariantesMatrizSchema>;
+
+/**
+ * Baja lógica de un `ProductoMaestro` (sección 5.3). `deletion_reason` es
+ * opcional a nivel de forma — la obligatoriedad depende de si el producto
+ * tiene stock remanente en algún depósito, y esa regla se evalúa en la capa
+ * de servicio (`desactivarProductoMaestro()`), no acá.
+ */
+export const DesactivarProductoMaestroSchema = z.object({
+  deletion_reason: z.string().trim().min(1).optional(),
+});
+
+export type DesactivarProductoMaestroInput = z.infer<typeof DesactivarProductoMaestroSchema>;
+
 /**
  * Semántica: stock_seguridad (piso crítico) < punto_pedido (umbral de alerta)
  * El refine exige punto_pedido >= stock_seguridad para dejar margen de reacción.
