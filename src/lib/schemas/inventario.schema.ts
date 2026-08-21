@@ -5,6 +5,13 @@ import { z } from "zod";
 // ──────────────────────────────────────────────────────────────────────────────
 
 export const CrearProductoMaestroSchema = z.object({
+  /**
+   * Código corto, segmento [PRODUCTO] del SKU (ver `generarSku()` en
+   * `lib/utils/sku.ts`). No es único: dos ProductoMaestro de la misma
+   * familia pueden compartir código — la unicidad la garantiza VarianteSKU.sku.
+   * Solo letras y números, sin espacios ni guiones.
+   */
+  codigo_producto: z.string().min(2).max(8).regex(/^[A-Za-z0-9]+$/, "Solo letras y números, sin espacios ni guiones"),
   nombre: z.string().min(1),
   descripcion: z.string().optional(),
   rubro: z.string().min(1),
