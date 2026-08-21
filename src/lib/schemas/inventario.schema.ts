@@ -41,6 +41,18 @@ export const GenerarVariantesMatrizSchema = z.object({
 export type GenerarVariantesMatrizInput = z.infer<typeof GenerarVariantesMatrizSchema>;
 
 /**
+ * Baja lógica de un `ProductoMaestro` (sección 5.3). `deletion_reason` es
+ * opcional a nivel de forma — la obligatoriedad depende de si el producto
+ * tiene stock remanente en algún depósito, y esa regla se evalúa en la capa
+ * de servicio (`desactivarProductoMaestro()`), no acá.
+ */
+export const DesactivarProductoMaestroSchema = z.object({
+  deletion_reason: z.string().trim().min(1).optional(),
+});
+
+export type DesactivarProductoMaestroInput = z.infer<typeof DesactivarProductoMaestroSchema>;
+
+/**
  * Semántica: stock_seguridad (piso crítico) < punto_pedido (umbral de alerta)
  * El refine exige punto_pedido >= stock_seguridad para dejar margen de reacción.
  */

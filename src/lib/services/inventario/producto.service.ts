@@ -21,6 +21,7 @@ import { generarSku, generarEanQrPlaceholder, type Genero } from "@/lib/utils/sk
 import type {
   CrearProductoMaestroInput,
   GenerarVariantesMatrizInput,
+  DesactivarProductoMaestroInput,
 } from "@/lib/schemas/inventario.schema";
 
 /** Límite de combinaciones por invocación (sección 6.2) — evita cargas masivas accidentales. */
@@ -172,4 +173,68 @@ export async function generarVariantesMatriz(
     variantes_omitidas_duplicadas: variantesAInsertar.length - resultadoInsercion.count,
     variantes: variantesCreadas,
   };
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// 5.3 — desactivarProductoMaestro
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Baja lógica de un `ProductoMaestro`. `deletion_reason` es obligatorio
+ * únicamente cuando el producto tiene stock remanente (`StockDeposito.cantidad
+ * > 0`, activo) en cualquiera de sus variantes — un producto sin stock puede
+ * darse de baja sin motivo explícito. No toca `VarianteSKU` individuales
+ * (baja lógica de variante es HU-A6, fuera de alcance acá).
+ *
+ * @throws {ServiceError} PRODUCTO_MAESTRO_NO_ENCONTRADO | MOTIVO_REQUERIDO
+ */
+export async function desactivarProductoMaestro(
+  productoMaestroId: string,
+  input: DesactivarProductoMaestroInput,
+  usuarioId: string,
+) {
+  const productoMaestro = await prisma.productoMaestro.findFirst({
+    where: { id: productoMaestroId, is_active: true },
+  });
+
+  if (!productoMaestro) {
+    throw new ServiceError(
+      "PRODUCTO_MAESTRO_NO_ENCONTRADO",
+      `No se encontró un Producto Maestro activo con id ${productoMaestroId}.`,
+    );
+  }
+
+  const stockRemanente = await prisma.stockDeposito.findFirst({
+    where: {
+      is_active: true,
+      cantidad: { gt: 0 },
+      variante_sku: { producto_maestro_id: productoMaestroId, is_active: true },
+    },
+    select: { id: true },
+  });
+
+  if (stockRemanente && !input.deletion_reason) {
+    throw new ServiceError(
+      "MOTIVO_REQUERIDO",
+      "El producto tiene stock remanente en depósito: el motivo de baja es obligatorio.",
+    );
+  }
+
+  const productoDesactivado = await prisma.productoMaestro.update({
+    where: { id: productoMaestroId },
+    data: {
+      is_active: false,
+      deleted_at: new Date(),
+      deleted_by: usuarioId,
+      deletion_reason: input.deletion_reason ?? null,
+    },
+  });
+
+  domainEventBus.emit("producto_maestro:desactivado", {
+    producto_maestro_id: productoDesactivado.id,
+    deletion_reason: productoDesactivado.deletion_reason,
+    usuario_id: usuarioId,
+  });
+
+  return productoDesactivado;
 }

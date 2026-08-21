@@ -25,6 +25,16 @@ export interface VariantesGeneradasPayload {
   usuario_id: string;
 }
 
+/**
+ * HU-A1 — Payload emitido tras la baja lógica de un `ProductoMaestro`
+ * (`desactivarProductoMaestro()`, sección 5.3 de task_relos.md).
+ */
+export interface ProductoMaestroDesactivadoPayload {
+  producto_maestro_id: string;
+  deletion_reason: string | null;
+  usuario_id: string;
+}
+
 export interface UmbralesConfiguradosPayload {
   stock_deposito_id: string;
   variante_sku_id: string;
@@ -201,6 +211,8 @@ export interface DomainEventMap {
   "producto_maestro:creado": ProductoMaestroCreadoPayload;
   /** HU-A1: se emite tras generar variantes en lote (matriz talle×color×género). */
   "variantes:generadas": VariantesGeneradasPayload;
+  /** HU-A1: se emite tras la baja lógica de un ProductoMaestro. */
+  "producto_maestro:desactivado": ProductoMaestroDesactivadoPayload;
   "stock:umbrales_configurados": UmbralesConfiguradosPayload;
   "stock:umbral_critico_alcanzado": UmbralCriticoAlcanzadoPayload;
   /** HU-A3: se emite tras la transacción atómica de asignación en prueba. */
