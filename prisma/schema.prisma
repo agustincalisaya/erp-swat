@@ -53,7 +53,6 @@ model Usuario {
   roles                   UsuarioRol[]
   audit_logs              AuditLog[]
   movimientos_registrados MovimientoStock[] @relation("MovimientoRegistradoPor")
-  legajos_registrados     LegajoPrueba[]    @relation("LegajoRegistradoPor")
   reservas_registradas    Reserva[]         @relation("ReservaRegistradaPor")
   sesiones                Sesion[]
 
@@ -286,7 +285,6 @@ model VarianteSKU {
   producto_maestro ProductoMaestro   @relation(fields: [producto_maestro_id], references: [id], onDelete: Restrict)
   stock_depositos  StockDeposito[]
   movimientos      MovimientoStock[]
-  legajos_prueba   LegajoPrueba[]
   reservas         Reserva[]
 
   @@map("variantes_sku")
@@ -389,46 +387,6 @@ enum TipoMovimiento {
   EGRESO
   TRANSFERENCIA
   AJUSTE
-}
-
-/// Entidad pivote que vincula una unidad física (VarianteSKU) de forma
-/// temporal al estado "En Prueba", típicamente asociada a un efectivo
-/// policial receptor. Los campos `efectivo_placa` y `efectivo_organismo`
-/// se cifran a nivel aplicación con AES-256 (Ley 25.326 — protección de
-/// datos personales); en Prisma se modelan como String ya que el cifrado
-/// ocurre antes de persistir.
-model LegajoPrueba {
-  id                String @id @default(uuid())
-  variante_sku_id   String
-  registrado_por_id String
-
-  /// Campo cifrado en la capa de aplicación (AES-256)
-  efectivo_placa     String
-  /// Campo cifrado en la capa de aplicación (AES-256)
-  efectivo_organismo String
-
-  fecha_inicio_prueba DateTime  @default(now())
-  fecha_fin_prueba    DateTime?
-
-  /// STUB Sprint futuro — Módulo C (Legajos Institucionales): vinculará
-  /// este legajo de prueba al legajo institucional completo del cliente
-  /// (fuerza de seguridad). Opcional para evitar migración destructiva.
-  cliente_id String?
-
-  // --- Soft delete estricto ---
-  is_active       Boolean   @default(true)
-  deleted_at      DateTime?
-  deleted_by      String?
-  deletion_reason String?
-
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-
-  // --- Relaciones ---
-  variante_sku   VarianteSKU @relation(fields: [variante_sku_id], references: [id], onDelete: Restrict)
-  registrado_por Usuario     @relation("LegajoRegistradoPor", fields: [registrado_por_id], references: [id], onDelete: Restrict)
-
-  @@map("legajos_prueba")
 }
 
 /// Reserva temporal de una unidad de stock originada por una seña o
