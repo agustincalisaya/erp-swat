@@ -37,8 +37,8 @@ export interface LegajoPruebaCreado {
 export interface LegajoPruebaDecifrado {
   id: string;
   variante_sku_id: string;
-  efectivo_placa: string;       // descifrado en memoria
-  efectivo_organismo: string;   // descifrado en memoria
+  efectivo_placa: string; // descifrado en memoria
+  efectivo_organismo: string; // descifrado en memoria
   fecha_inicio_prueba: Date;
   fecha_fin_prueba: Date | null;
   registrado_por_id: string;
@@ -89,114 +89,115 @@ export async function asignarStockEnPrueba(
   const organismoCifrado = encrypt(input.efectivo_organismo);
 
   // ─── Transacción atómica ──────────────────────────────────────────────────
-  const resultado = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+  const resultado = await prisma.$transaction(
+    async (tx: Prisma.TransactionClient) => {
+      // 1. Verificar existencia de StockDeposito con stock suficiente
+      const stockDeposito = await tx.stockDeposito.findFirst({
+        where: {
+          variante_sku_id: input.variante_sku_id,
+          deposito_id: input.deposito_origen_id,
+          is_active: true,
+          deleted_at: null,
+        },
+      });
 
-    // 1. Verificar existencia de StockDeposito con stock suficiente
-    const stockDeposito = await tx.stockDeposito.findFirst({
-      where: {
-        variante_sku_id: input.variante_sku_id,
-        deposito_id: input.deposito_origen_id,
-        is_active: true,
-        deleted_at: null,
-      },
-    });
+      if (!stockDeposito) {
+        throw new ServiceError(
+          "STOCK_DEPOSITO_NO_ENCONTRADO",
+          `No se encontró stock activo para la variante ${input.variante_sku_id} ` +
+            `en el depósito ${input.deposito_origen_id}.`,
+        );
+      }
 
-    if (!stockDeposito) {
-      throw new ServiceError(
-        "STOCK_DEPOSITO_NO_ENCONTRADO",
-        `No se encontró stock activo para la variante ${input.variante_sku_id} ` +
-          `en el depósito ${input.deposito_origen_id}.`,
-      );
-    }
+      if (stockDeposito.cantidad < input.cantidad) {
+        throw new ServiceError(
+          "STOCK_INSUFICIENTE",
+          `Stock insuficiente. Disponible: ${stockDeposito.cantidad}, ` +
+            `solicitado: ${input.cantidad}.`,
+        );
+      }
 
-    if (stockDeposito.cantidad < input.cantidad) {
-      throw new ServiceError(
-        "STOCK_INSUFICIENTE",
-        `Stock insuficiente. Disponible: ${stockDeposito.cantidad}, ` +
-          `solicitado: ${input.cantidad}.`,
-      );
-    }
+      // 2. (Eliminado) — No se restringe la cantidad de LegajosPrueba simultáneos
+      // por VarianteSKU. Un VarianteSKU es un MODELO GENÉRICO (talle + color),
+      // no un número de serie unitario. Si hay 10 unidades en stock, 10 efectivos
+      // pueden tener simultáneamente un legajo activo para esa misma variante.
+      // La única barrera es el stock disponible, verificada en el paso siguiente.
 
-    // 2. (Eliminado) — No se restringe la cantidad de LegajosPrueba simultáneos
-    // por VarianteSKU. Un VarianteSKU es un MODELO GENÉRICO (talle + color),
-    // no un número de serie unitario. Si hay 10 unidades en stock, 10 efectivos
-    // pueden tener simultáneamente un legajo activo para esa misma variante.
-    // La única barrera es el stock disponible, verificada en el paso siguiente.
+      // 3. Decrementar StockDeposito atómicamente (patrón updateMany condicionado)
+      // La condición `cantidad: { gte: input.cantidad }` es evaluada atómicamente
+      // por PostgreSQL dentro de la transacción — evita race conditions.
+      const updateResult = await tx.stockDeposito.updateMany({
+        where: {
+          id: stockDeposito.id,
+          is_active: true,
+          cantidad: { gte: input.cantidad },
+        },
+        data: {
+          cantidad: { decrement: input.cantidad },
+        },
+      });
 
-    // 3. Decrementar StockDeposito atómicamente (patrón updateMany condicionado)
-    // La condición `cantidad: { gte: input.cantidad }` es evaluada atómicamente
-    // por PostgreSQL dentro de la transacción — evita race conditions.
-    const updateResult = await tx.stockDeposito.updateMany({
-      where: {
-        id: stockDeposito.id,
-        is_active: true,
-        cantidad: { gte: input.cantidad },
-      },
-      data: {
-        cantidad: { decrement: input.cantidad },
-      },
-    });
+      // Si count === 0, otra transacción concurrente ganó la carrera
+      if (updateResult.count === 0) {
+        throw new ServiceError(
+          "STOCK_INSUFICIENTE",
+          "Stock insuficiente (condición de concurrencia detectada).",
+        );
+      }
 
-    // Si count === 0, otra transacción concurrente ganó la carrera
-    if (updateResult.count === 0) {
-      throw new ServiceError(
-        "STOCK_INSUFICIENTE",
-        "Stock insuficiente (condición de concurrencia detectada).",
-      );
-    }
-
-    // 4. Crear MovimientoStock (registro inmutable — nunca se actualiza)
-    const movimiento = await tx.movimientoStock.create({
-      data: {
-        variante_sku_id: input.variante_sku_id,
-        deposito_origen_id: input.deposito_origen_id,
-        tipo_movimiento: "EGRESO",
-        estado_origen: "DISPONIBLE",
-        estado_destino: "EN_PRUEBA",
-        cantidad: input.cantidad,
-        comprobante_referencia: null,
-        registrado_por_id: usuarioId,
-      },
-    });
-
-    // 5. Crear LegajoPrueba con campos sensibles cifrados
-    const legajoPrueba = await tx.legajoPrueba.create({
-      data: {
-        variante_sku_id: input.variante_sku_id,
-        registrado_por_id: usuarioId,
-        efectivo_placa: placaCifrada,       // AES-256-GCM — nunca texto plano en BD
-        efectivo_organismo: organismoCifrado, // AES-256-GCM — nunca texto plano en BD
-      },
-    });
-
-    // 6. AuditLog (stub Sprint 1 — no-op; Ledger SHA-256 encadenado en HU-D)
-    await registrarAuditLog(
-      {
-        usuario_id: usuarioId,
-        accion: "CREATE",
-        tabla_afectada: "legajos_prueba",
-        registro_id: legajoPrueba.id,
-        ip,
-        valor_anterior: null,
-        valor_nuevo: {
+      // 4. Crear MovimientoStock (registro inmutable — nunca se actualiza)
+      const movimiento = await tx.movimientoStock.create({
+        data: {
           variante_sku_id: input.variante_sku_id,
           deposito_origen_id: input.deposito_origen_id,
+          tipo_movimiento: "EGRESO",
+          estado_origen: "DISPONIBLE",
+          estado_destino: "EN_PRUEBA",
           cantidad: input.cantidad,
-          // los campos cifrados nunca se loguean en claro
+          comprobante_referencia: null,
+          registrado_por_id: usuarioId,
         },
-      },
-      tx,
-    );
+      });
 
-    return {
-      legajo_prueba_id: legajoPrueba.id,
-      movimiento_stock_id: movimiento.id,
-      variante_sku_id: legajoPrueba.variante_sku_id,
-      deposito_origen_id: input.deposito_origen_id,
-      cantidad: input.cantidad,
-      fecha_inicio_prueba: legajoPrueba.fecha_inicio_prueba,
-    };
-  });
+      // 5. Crear LegajoPrueba con campos sensibles cifrados
+      const legajoPrueba = await tx.legajoPrueba.create({
+        data: {
+          variante_sku_id: input.variante_sku_id,
+          registrado_por_id: usuarioId,
+          efectivo_placa: placaCifrada, // AES-256-GCM — nunca texto plano en BD
+          efectivo_organismo: organismoCifrado, // AES-256-GCM — nunca texto plano en BD
+        },
+      });
+
+      // 6. AuditLog (stub Sprint 1 — no-op; Ledger SHA-256 encadenado en HU-D)
+      await registrarAuditLog(
+        {
+          usuario_id: usuarioId,
+          accion: "CREATE",
+          tabla_afectada: "legajos_prueba",
+          registro_id: legajoPrueba.id,
+          ip,
+          valor_anterior: null,
+          valor_nuevo: {
+            variante_sku_id: input.variante_sku_id,
+            deposito_origen_id: input.deposito_origen_id,
+            cantidad: input.cantidad,
+            // los campos cifrados nunca se loguean en claro
+          },
+        },
+        tx,
+      );
+
+      return {
+        legajo_prueba_id: legajoPrueba.id,
+        movimiento_stock_id: movimiento.id,
+        variante_sku_id: legajoPrueba.variante_sku_id,
+        deposito_origen_id: input.deposito_origen_id,
+        cantidad: input.cantidad,
+        fecha_inicio_prueba: legajoPrueba.fecha_inicio_prueba,
+      };
+    },
+  );
 
   // ─── Emisión de evento de dominio (FUERA de la transacción) ───────────────
   // Se emite solo si la tx commitió exitosamente.
@@ -225,12 +226,18 @@ export async function asignarStockEnPrueba(
  *
  * @returns Array de legajos con datos descifrados. Solo para consumo en Server.
  */
-export async function listarLegajosPruebaActivos(): Promise<LegajoPruebaDecifrado[]> {
+export async function listarLegajosPruebaActivos(): Promise<
+  LegajoPruebaDecifrado[]
+> {
   const legajos = await prisma.legajoPrueba.findMany({
     where: {
       is_active: true,
       deleted_at: null,
       fecha_fin_prueba: null,
+      variante_sku: {
+        is_active: true,
+        deleted_at: null,
+      },
     },
     include: {
       variante_sku: {
