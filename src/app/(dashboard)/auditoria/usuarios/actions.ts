@@ -3,8 +3,7 @@
 /**
  * @module actions — usuarios (Módulo D.2)
  * @description Server Actions para HU-1 (alta) y HU-2 (baja lógica) de Usuario.
- * Mismo patrón que `inventario/legajos-prueba/actions.ts`: Zod re-valida en el
- * borde servidor aunque el origen sea un Client Component.
+ * Zod re-valida en el borde servidor aunque el origen sea un Client Component.
  */
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";

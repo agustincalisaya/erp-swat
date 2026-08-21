@@ -25,9 +25,8 @@ export interface CodigoResuelto {
   color: string;
   /**
    * `VarianteSKU` es un modelo genérico (talle+color+género+modelo), no una
-   * unidad serializada individual (ver nota en `legajo-prueba.service.ts`).
-   * El dato de trazabilidad unitaria todavía no existe en el esquema, por lo
-   * que siempre se resuelve como `false`/`null`.
+   * unidad serializada individual. El dato de trazabilidad unitaria todavía
+   * no existe en el esquema, por lo que siempre se resuelve como `false`/`null`.
    */
   es_serializado: boolean;
   numero_serie: string | null;
