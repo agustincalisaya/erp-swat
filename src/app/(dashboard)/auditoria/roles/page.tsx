@@ -7,6 +7,7 @@
  * Endpoints 2.2.5 (alta) / 2.2.6 (actualización de permisos) — Módulo D.2.
  */
 import { Suspense } from "react";
+import { redirect } from "next/navigation";
 import { ShieldCheck, AlertTriangle } from "lucide-react";
 import { getServerSession } from "@/lib/auth/session";
 import { usuarioTienePermiso } from "@/lib/auth/with-permission";
@@ -44,7 +45,13 @@ const PERMISO_ROLES_ADMINISTRAR = "roles:administrar";
 // ──────────────────────────────────────────────────────────────────────────────
 // Server: obtener datos (componente async para Suspense)
 // ──────────────────────────────────────────────────────────────────────────────
-async function RolesData({ puedeAdministrar }: { puedeAdministrar: boolean }) {
+// Sin prop de permiso: llegar acá ya implica `roles:administrar` (HU-D10,
+// task_cali_bloqueo_url_auditoria.md §1.2 — la página redirige a
+// `/no-autorizado` antes de renderizar `RolesData` si falta el permiso).
+// La rama de solo-lectura que existía para usuarios sin el permiso se
+// eliminó junto con ese redirect: ya no hay caso en que este componente
+// se renderice para alguien sin `roles:administrar`.
+async function RolesData() {
   let roles;
   let permisos;
   try {
@@ -86,11 +93,9 @@ async function RolesData({ puedeAdministrar }: { puedeAdministrar: boolean }) {
             <TableHead className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Permisos
             </TableHead>
-            {puedeAdministrar && (
-              <TableHead className="text-xs font-semibold uppercase tracking-wide text-muted-foreground text-right">
-                Acciones
-              </TableHead>
-            )}
+            <TableHead className="text-xs font-semibold uppercase tracking-wide text-muted-foreground text-right">
+              Acciones
+            </TableHead>
           </TableRow>
         </TableHeader>
 
@@ -121,16 +126,14 @@ async function RolesData({ puedeAdministrar }: { puedeAdministrar: boolean }) {
                   )}
                 </div>
               </TableCell>
-              {puedeAdministrar && (
-                <TableCell className="text-right">
-                  <EditorPermisosRol
-                    rolId={rol.id}
-                    nombreRol={rol.nombre}
-                    permisoIdsActuales={(rol.permisos ?? []).map((p) => p.id)}
-                    permisosDisponibles={permisos}
-                  />
-                </TableCell>
-              )}
+              <TableCell className="text-right">
+                <EditorPermisosRol
+                  rolId={rol.id}
+                  nombreRol={rol.nombre}
+                  permisoIdsActuales={(rol.permisos ?? []).map((p) => p.id)}
+                  permisosDisponibles={permisos}
+                />
+              </TableCell>
             </TableRow>
           ))}
         </TableBody>
@@ -160,8 +163,14 @@ export default async function RolesPage() {
     );
   }
 
+  // Bloqueo real de acceso (HU-D10, task_cali_bloqueo_url_auditoria.md
+  // §1.2) — reemplaza la vista de solo lectura que existía para usuarios
+  // sin `roles:administrar` por un rechazo real: si no está autorizado,
+  // no llega a ver ni la tabla ni ningún dato de roles/permisos.
   const puedeAdministrar = await usuarioTienePermiso(session.userId, PERMISO_ROLES_ADMINISTRAR);
-  const permisosParaAlta = puedeAdministrar ? await listarPermisos() : [];
+  if (!puedeAdministrar) redirect("/no-autorizado");
+
+  const permisosParaAlta = await listarPermisos();
 
   return (
     <main className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
@@ -179,11 +188,9 @@ export default async function RolesPage() {
               </p>
             </div>
           </div>
-          {puedeAdministrar && (
-            <div className="pl-12 sm:pl-0">
-              <FormularioAltaRol permisos={permisosParaAlta} />
-            </div>
-          )}
+          <div className="pl-12 sm:pl-0">
+            <FormularioAltaRol permisos={permisosParaAlta} />
+          </div>
         </div>
 
         {/* ── Tabla en Card ────────────────────────────────────────────── */}
@@ -193,11 +200,7 @@ export default async function RolesPage() {
               <ShieldCheck className="size-4 text-blue-500" aria-hidden="true" />
               Roles activos
             </CardTitle>
-            <CardDescription>
-              {puedeAdministrar
-                ? "Roles del sistema y sus permisos asignados."
-                : "Solo lectura — no tenés el permiso roles:administrar."}
-            </CardDescription>
+            <CardDescription>Roles del sistema y sus permisos asignados.</CardDescription>
           </CardHeader>
 
           <CardContent className="pt-5">
@@ -209,7 +212,7 @@ export default async function RolesPage() {
                 </div>
               }
             >
-              <RolesData puedeAdministrar={puedeAdministrar} />
+              <RolesData />
             </Suspense>
           </CardContent>
         </Card>
