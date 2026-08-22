@@ -13,6 +13,7 @@ import { CrearRolSchema, ActualizarPermisosRolSchema } from "@/lib/schemas/audit
 import { crearRol, actualizarPermisosRol } from "@/lib/services/auditoria/rol.service";
 import type { RolCreado, RolPermisosActualizados } from "@/lib/services/auditoria/rol.service";
 import { getServerSession } from "@/lib/auth/session";
+import { usuarioTienePermiso, PERMISO_ROLES_ADMINISTRAR } from "@/lib/auth/with-permission";
 import { ServiceError } from "@/lib/errors/service-error";
 
 export interface ActionResult<T = unknown> {
@@ -44,6 +45,20 @@ export async function crearRolAction(formData: unknown): Promise<ActionResult<Ro
     return {
       success: false,
       error: { code: "UNAUTHORIZED", message: "Sesión requerida para realizar esta operación." },
+    };
+  }
+
+  // Camino A (task_cali_roles_permisos.md, ronda de corrección posterior al
+  // cierre de la tarea de Roles/Permisos) — este Server Action llama a
+  // crearRol() directo, sin pasar por POST /api/auth/roles (que sí queda
+  // gateado con withPermission). Sin este chequeo acá, la UI seguía siendo
+  // un camino sin gate para el mismo problema — mismo fix ya aplicado en
+  // usuarios/actions.ts.
+  const autorizado = await usuarioTienePermiso(session.userId, PERMISO_ROLES_ADMINISTRAR);
+  if (!autorizado) {
+    return {
+      success: false,
+      error: { code: "FORBIDDEN", message: "No tenés el permiso requerido para realizar esta operación." },
     };
   }
 
@@ -90,6 +105,18 @@ export async function actualizarPermisosRolAction(
     return {
       success: false,
       error: { code: "UNAUTHORIZED", message: "Sesión requerida para realizar esta operación." },
+    };
+  }
+
+  // Camino A — ver nota idéntica en crearRolAction() arriba: este Server
+  // Action llama a actualizarPermisosRol() directo, sin pasar por
+  // PATCH /api/auth/roles/[id]/permisos (que sí queda gateado con
+  // withPermission). Mismo fix ya aplicado en usuarios/actions.ts.
+  const autorizado = await usuarioTienePermiso(session.userId, PERMISO_ROLES_ADMINISTRAR);
+  if (!autorizado) {
+    return {
+      success: false,
+      error: { code: "FORBIDDEN", message: "No tenés el permiso requerido para realizar esta operación." },
     };
   }
 

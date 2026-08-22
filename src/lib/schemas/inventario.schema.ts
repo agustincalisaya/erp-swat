@@ -116,49 +116,6 @@ export type CalcularPromedioMovilInput = z.infer<
 >;
 
 // ──────────────────────────────────────────────────────────────────────────────
-// HU-A3 — Transición a estado «En Prueba» (Cifrado AES-256)
-// ──────────────────────────────────────────────────────────────────────────────
-
-/**
- * Schema de entrada para registrar la asignación de una unidad de stock al
- * estado EN_PRUEBA y vincularla al efectivo institucional receptor.
- *
- * Los campos `efectivo_placa` y `efectivo_organismo` se cifran en la capa de
- * servicio mediante AES-256-GCM antes de persistir (Ley N.° 25.326).
- *
- * @see src/lib/services/inventario/legajo-prueba.service.ts
- * @see spec_modulo_A_HU3.md §2.1
- */
-export const IniciarLegajoPruebaSchema = z.object({
-  variante_sku_id: z
-    .string()
-    .uuid("El ID de variante SKU debe ser un UUID válido"),
-  deposito_origen_id: z
-    .string()
-    .uuid("El ID de depósito debe ser un UUID válido"),
-  /** Generalmente 1 para pruebas de tallaje unitario */
-  cantidad: z
-    .number()
-    .int()
-    .positive("La cantidad debe ser un número entero positivo")
-    .default(1),
-  efectivo_placa: z
-    .string()
-    .min(1, "La placa/credencial es obligatoria")
-    .max(50, "La placa no puede superar los 50 caracteres")
-    .trim(),
-  efectivo_organismo: z
-    .string()
-    .min(1, "El organismo de pertenencia es obligatorio")
-    .max(100, "El organismo no puede superar los 100 caracteres")
-    .trim(),
-});
-
-export type IniciarLegajoPruebaInput = z.infer<
-  typeof IniciarLegajoPruebaSchema
->;
-
-// ──────────────────────────────────────────────────────────────────────────────
 // HU-2 — Escaneo de códigos e ingreso de mercadería
 // ──────────────────────────────────────────────────────────────────────────────
 
@@ -172,7 +129,6 @@ export type ResolverCodigoEscaneoInput = z.infer<
 
 const ESTADOS_DESTINO_INGRESO = [
   "DISPONIBLE",
-  "EN_PRUEBA",
   "RESERVADO",
   "VENDIDO",
   "DEVUELTO",
@@ -202,9 +158,9 @@ export const RegistrarIngresoPorEscaneoSchema = z.object({
   estado_destino: z.enum(ESTADOS_DESTINO_INGRESO),
   /**
    * El modelo de datos actual (`VarianteSKU`) representa un modelo genérico
-   * (talle+color+género+modelo), no una unidad serializada individual — ver
-   * nota en `legajo-prueba.service.ts`. Estos campos se aceptan por
-   * compatibilidad con el formulario del escáner pero no se persisten.
+   * (talle+color+género+modelo), no una unidad serializada individual.
+   * Estos campos se aceptan por compatibilidad con el formulario del
+   * escáner pero no se persisten.
    */
   es_serializado: z.boolean().default(false),
   numero_serie: z.string().trim().optional(),

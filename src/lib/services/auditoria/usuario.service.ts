@@ -663,3 +663,34 @@ export async function listarRolesActivos(): Promise<RolActivo[]> {
 
   return roles;
 }
+
+export interface IdentidadUsuario {
+  nombre_completo: string;
+  roles: string[];
+}
+
+/**
+ * Resuelve nombre completo y roles activos del usuario autenticado, para
+ * mostrar identidad en el Navbar (HU-D9, task_cali_layout_dashboard.md).
+ * Lectura mínima — no es un listado administrativo, no aplica los filtros
+ * de `listarUsuarios` (búsqueda, estado, etc.).
+ */
+export async function obtenerIdentidadUsuario(usuarioId: string): Promise<IdentidadUsuario | null> {
+  const usuario = await prisma.usuario.findFirst({
+    where: { id: usuarioId, is_active: true },
+    select: {
+      nombre_completo: true,
+      roles: {
+        where: { is_active: true },
+        include: { rol: { select: { nombre: true } } },
+      },
+    },
+  });
+
+  if (!usuario) return null;
+
+  return {
+    nombre_completo: usuario.nombre_completo,
+    roles: usuario.roles.map((usuarioRol) => usuarioRol.rol.nombre),
+  };
+}

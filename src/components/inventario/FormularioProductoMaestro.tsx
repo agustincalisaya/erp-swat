@@ -8,7 +8,7 @@
  * requiere navegación entre pantallas, es una transición de estado local.
  *
  * UI Stack: Shadcn UI (Card, Form, Input, Button, Alert) + react-hook-form +
- * @hookform/resolvers/zod, mismo patrón que `LegajoPruebaForm.tsx`.
+ * @hookform/resolvers/zod.
  */
 
 import { useState } from "react";

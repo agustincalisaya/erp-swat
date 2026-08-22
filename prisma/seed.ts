@@ -10,15 +10,10 @@
 // directo porque `prisma db seed` corre vía `tsx` fuera del bundler de
 // Next.js, donde `server-only` lanzaría una excepción.
 //
-// La función `encrypt()` al pie de las constantes reproduce EXACTAMENTE el
-// algoritmo de src/lib/crypto/aes.ts (Base64(IV||AuthTag||Ciphertext)) para
-// cifrar los campos de LegajoPrueba requeridos por HU-A3 / Ley 25.326.
-// Se replica inline porque aes.ts también usa "server-only".
 // ============================================================================
 
 import { PrismaClient } from "@prisma/client";
 import { hashPassword } from "@/lib/auth/password-hash-core";
-import * as crypto from "crypto";
 import * as dotenv from "dotenv";
 
 dotenv.config();
@@ -98,13 +93,6 @@ const STOCK_CT1_SHOWROOM_ID = "7bcdc606-fef2-443c-b501-8859c49ae7ad";
 const STOCK_B1_SHOWROOM_ID = "9c1c70af-b0c6-4188-8771-3ad4e3a90940";
 const STOCK_CT2_MOVIL_ID = "724c48d5-ea9d-4fb8-b44a-315a683bb0c1";
 
-// --- Origen: HU-A3 (Legajos en Prueba) ---
-const MOV_LEGAJO1_ID = "c7d4f09e-d987-4356-b052-121a67b14560";
-const MOV_LEGAJO2_ID = "c7d4f09e-d987-4356-b052-121a67b14561";
-const LEGAJO_VIGENTE_ID = "00000000-0000-0000-0006-000000000001";
-const LEGAJO_VENCIDO_ID = "00000000-0000-0000-0006-000000000002";
-const LEGAJO_FINALIZADO_ID = "00000000-0000-0000-0006-000000000003";
-
 // ──────────────────────────────────────────────────────────────────────────────
 // Helpers — Fechas
 // ──────────────────────────────────────────────────────────────────────────────
@@ -157,158 +145,6 @@ function calcularSkuDeterministico(params: {
   ]
     .map(normalizarSegmentoSku)
     .join("-");
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// AES-256-GCM inline — réplica EXACTA de src/lib/crypto/aes.ts
-//
-// Formato de salida: Base64( IV[12 bytes] || AuthTag[16 bytes] || Ciphertext )
-// Se reimplementa aquí porque aes.ts tiene "server-only" y no puede
-// importarse fuera del contexto de Next.js.
-// ──────────────────────────────────────────────────────────────────────────────
-
-const AES_ALGORITHM = "aes-256-gcm";
-const AES_IV_LENGTH = 12;
-
-function getEncryptionKey(): Buffer {
-  const keyHex = process.env.ENCRYPTION_KEY_LEGAJOS;
-  if (!keyHex || keyHex.length !== 64) {
-    throw new Error(
-      "[seed] ENCRYPTION_KEY_LEGAJOS no está configurada o no tiene 64 chars hex.\n" +
-        "       Verificá el archivo .env antes de ejecutar el seed.\n" +
-        "       Ejemplo: openssl rand -hex 32",
-    );
-  }
-  return Buffer.from(keyHex, "hex");
-}
-
-/**
- * Cifra un plaintext con AES-256-GCM.
- * Réplica exacta de src/lib/crypto/aes.ts → encrypt().
- * @param plaintext - Cadena UTF-8 a cifrar.
- * @returns Base64( IV[12] || AuthTag[16] || Ciphertext )
- */
-function encrypt(plaintext: string): string {
-  const key = getEncryptionKey();
-  const iv = crypto.randomBytes(AES_IV_LENGTH);
-  const cipher = crypto.createCipheriv(AES_ALGORITHM, key, iv);
-  const encryptedParts = [cipher.update(plaintext, "utf8"), cipher.final()];
-  const encrypted = Buffer.concat(encryptedParts);
-  const authTag = cipher.getAuthTag(); // disponible tras cipher.final()
-  // Empaquetado: IV (12) || AuthTag (16) || Ciphertext → Base64
-  const combined = Buffer.concat([iv, authTag, encrypted]);
-  return combined.toString("base64");
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// seedLegajosPrueba — HU-A3 (Cifrado AES-256-GCM + Ley 25.326)
-// ──────────────────────────────────────────────────────────────────────────────
-
-/**
- * Siembra 3 legajos de prueba con campos sensibles cifrados:
- *  • Legajo 1 (vigente)   — inició hace 5 días, sin fecha_fin.
- *  • Legajo 2 (vencido)   — inició hace 35 días (>30 días), sin fecha_fin.
- *                           El cron /api/cron/check-pruebas-vencidas lo detectará.
- *  • Legajo 3 (finalizado) — tiene fecha_fin_prueba seteada.
- *
- * Los legajos se eliminan y recrean siempre para garantizar que los campos
- * cifrados estén en el formato Base64 correcto (upsert con update:{} no
- * sobreescribiría ciphertext existente en formato incorrecto).
- *
- * @param depositoCentralId  - ID del depósito Central (para los MovimientoStock asociados).
- * @param registradoPorId    - ID del usuario que registra (encargado.seed en main()).
- * @param varianteCamisa1Id  - Variante para legajo 1 y 3.
- * @param varianteBorcegos1Id - Variante para legajo 2.
- */
-async function seedLegajosPrueba(
-  depositoCentralId: string,
-  registradoPorId: string,
-  varianteCamisa1Id: string,
-  varianteBorcegos1Id: string,
-): Promise<void> {
-  console.log("  → Legajos de prueba (HU-A3 — AES-256-GCM)...");
-
-  // MovimientoStock de egreso asociado al Legajo 1
-  await prisma.movimientoStock.upsert({
-    where: { id: MOV_LEGAJO1_ID },
-    update: {},
-    create: {
-      id: MOV_LEGAJO1_ID,
-      variante_sku_id: varianteCamisa1Id,
-      deposito_origen_id: depositoCentralId,
-      tipo_movimiento: "EGRESO",
-      estado_origen: "DISPONIBLE",
-      estado_destino: "EN_PRUEBA",
-      cantidad: 1,
-      comprobante_referencia: "LEGAJO-SEED-001",
-      registrado_por_id: registradoPorId,
-    },
-  });
-
-  // MovimientoStock de egreso asociado al Legajo 2 (vencido)
-  await prisma.movimientoStock.upsert({
-    where: { id: MOV_LEGAJO2_ID },
-    update: {},
-    create: {
-      id: MOV_LEGAJO2_ID,
-      variante_sku_id: varianteBorcegos1Id,
-      deposito_origen_id: depositoCentralId,
-      tipo_movimiento: "EGRESO",
-      estado_origen: "DISPONIBLE",
-      estado_destino: "EN_PRUEBA",
-      cantidad: 1,
-      comprobante_referencia: "LEGAJO-SEED-002",
-      registrado_por_id: registradoPorId,
-    },
-  });
-
-  // Eliminar y recrear los 3 legajos para garantizar formato AES correcto
-  await prisma.legajoPrueba.deleteMany({
-    where: {
-      id: { in: [LEGAJO_VIGENTE_ID, LEGAJO_VENCIDO_ID, LEGAJO_FINALIZADO_ID] },
-    },
-  });
-
-  // Legajo 1: Vigente (5 días — dentro del plazo de 30)
-  await prisma.legajoPrueba.create({
-    data: {
-      id: LEGAJO_VIGENTE_ID,
-      variante_sku_id: varianteCamisa1Id,
-      registrado_por_id: registradoPorId,
-      efectivo_placa: encrypt("PFA-12345"),
-      efectivo_organismo: encrypt("Policía Federal Argentina"),
-      fecha_inicio_prueba: diasAtras(5),
-    },
-  });
-
-  // Legajo 2: VENCIDO (35 días — supera el límite de 30)
-  await prisma.legajoPrueba.create({
-    data: {
-      id: LEGAJO_VENCIDO_ID,
-      variante_sku_id: varianteBorcegos1Id,
-      registrado_por_id: registradoPorId,
-      efectivo_placa: encrypt("GNA-98765"),
-      efectivo_organismo: encrypt("Gendarmería Nacional Argentina"),
-      fecha_inicio_prueba: diasAtras(35),
-    },
-  });
-
-  // Legajo 3: Finalizado (con fecha_fin_prueba)
-  await prisma.legajoPrueba.create({
-    data: {
-      id: LEGAJO_FINALIZADO_ID,
-      variante_sku_id: varianteCamisa1Id,
-      registrado_por_id: registradoPorId,
-      efectivo_placa: encrypt("PSA-54321"),
-      efectivo_organismo: encrypt("Policía de Seguridad Aeroportuaria"),
-      fecha_inicio_prueba: diasAtras(20),
-      fecha_fin_prueba: diasAtras(7),
-    },
-  });
-
-  console.log(
-    "    ✓ Legajo 1 (vigente) · Legajo 2 (VENCIDO → cron lo detectará) · Legajo 3 (finalizado)",
-  );
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -898,16 +734,6 @@ async function main() {
     });
   }
 
-  // ── HU-A3 — Legajos de prueba (cifrado AES-256-GCM) ───────────────────────
-  // Usa usuarioEncargado.id como registrado_por y las variantes del catálogo
-  // adicional ya insertadas arriba (Camisa Táctica y Borcegos).
-  await seedLegajosPrueba(
-    deposito.id,
-    usuarioEncargado.id,
-    VARIANTE_CAMISA_TACTICA_1_ID,
-    VARIANTE_BORCEGOS_1_ID,
-  );
-
   // ── Resumen final ───────────────────────────────────────────────────────────
 
   console.log("\nSeed HU-7 completado:");
@@ -956,15 +782,6 @@ async function main() {
     ),
   });
 
-  console.log("\nSeed HU-A3 completado:");
-  console.table({
-    legajo_vigente_id: LEGAJO_VIGENTE_ID,
-    legajo_vencido_id: LEGAJO_VENCIDO_ID,
-    legajo_finalizado_id: LEGAJO_FINALIZADO_ID,
-  });
-  console.log(
-    "   ⚠  Tip: GET /api/cron/check-pruebas-vencidas detectará el Legajo 2 (vencido 35 días).",
-  );
 }
 
 main()

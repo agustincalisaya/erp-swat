@@ -54,25 +54,6 @@ export interface UmbralCriticoAlcanzadoPayload {
 }
 
 /**
- * HU-A3 — Payload emitido tras la creación atómica del LegajoPrueba.
- * Escucha: futuro audit-log.listener.ts y módulo de notificaciones.
- *
- * Nota: `efectivo_placa` y `efectivo_organismo` NO se incluyen en el payload
- * del evento para evitar que datos cifrados circulen por el bus en memoria.
- * Los listeners que necesiten los datos identificatorios deben leerlos de la
- * BD y descifrarlos bajo demanda.
- */
-export interface LegajoPruebaIniciadoPayload {
-  legajo_prueba_id: string;
-  variante_sku_id: string;
-  deposito_origen_id: string;
-  movimiento_stock_id: string;
-  cantidad: number;
-  usuario_id: string;
-  ip: string;
-}
-
-/**
  * HU-2 — Payload emitido tras registrar un ingreso de mercadería por
  * escaneo (creación de `MovimientoStock` tipo INGRESO + incremento de
  * `StockDeposito.cantidad`).
@@ -215,8 +196,6 @@ export interface DomainEventMap {
   "producto_maestro:desactivado": ProductoMaestroDesactivadoPayload;
   "stock:umbrales_configurados": UmbralesConfiguradosPayload;
   "stock:umbral_critico_alcanzado": UmbralCriticoAlcanzadoPayload;
-  /** HU-A3: se emite tras la transacción atómica de asignación en prueba. */
-  "inventario:legajo_prueba_iniciado": LegajoPruebaIniciadoPayload;
   /** HU-2: se emite tras registrar un ingreso de mercadería por escaneo. */
   "inventario:ingreso_stock_registrado": IngresoStockRegistradoPayload;
   /** HU-1: se emite tras el alta atómica de Usuario + UsuarioRol. */

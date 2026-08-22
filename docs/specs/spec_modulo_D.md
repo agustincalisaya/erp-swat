@@ -313,4 +313,5 @@ Ningún evento debe incluir en `valor_anterior`/`valor_nuevo` el contenido en te
 
 - **D.1 — Panel de Comando BI/Dashboard:** requiere Módulo B (Ventas) y Módulo H (Proveedores) como emisores de datos reales, además de decisiones no resueltas de arquitectura CQRS y mecanismo de actualización en tiempo real (polling / SSE / WebSockets). Se especificará como documento independiente cuando existan esos módulos.
 - **Reactivación automática de `SUSPENDIDO` al expirar `bloqueado_hasta`:** este documento define la transición manual (2.2.3) y la transición automática de entrada a `SUSPENDIDO` (2.1), pero no un job/cron de reactivación automática al vencer el plazo — para Sprint actual, la reactivación es manual vía 2.2.3. Si se requiere automática, es una HU separada (job programado, fuera del ciclo request-response de Next.js).
+- **[CANCELADO — Sprint Review 21/08/2026] HU-A3 — Legajos de Prueba (`LegajoPrueba`) / estado `EN_PRUEBA`:** funcionalidad cancelada por decisión del Product Owner (no debía haber entrado al sprint); el código fue eliminado. Las referencias a `stock:legajo_prueba_iniciado` en las tablas de este documento quedan como registro histórico.
 ```
