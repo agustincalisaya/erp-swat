@@ -105,8 +105,25 @@ CREATE TABLE "audit_logs" (
 );
 
 -- CreateTable
+CREATE TABLE "sesiones" (
+    "id" TEXT NOT NULL,
+    "usuario_id" TEXT NOT NULL,
+    "jwt_id" TEXT NOT NULL,
+    "ip_origen" TEXT NOT NULL,
+    "user_agent" TEXT,
+    "emitida_en" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "expira_en" TIMESTAMP(3) NOT NULL,
+    "revocada" BOOLEAN NOT NULL DEFAULT false,
+    "revocada_en" TIMESTAMP(3),
+    "revocada_motivo" TEXT,
+
+    CONSTRAINT "sesiones_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "productos_maestros" (
     "id" TEXT NOT NULL,
+    "codigo_producto" TEXT NOT NULL,
     "nombre" TEXT NOT NULL,
     "rubro" TEXT NOT NULL,
     "categoria" TEXT NOT NULL,
@@ -203,15 +220,15 @@ CREATE TABLE "movimientos_stock" (
 );
 
 -- CreateTable
-CREATE TABLE "legajos_prueba" (
+CREATE TABLE "reservas" (
     "id" TEXT NOT NULL,
     "variante_sku_id" TEXT NOT NULL,
+    "deposito_id" TEXT NOT NULL,
+    "cantidad" INTEGER NOT NULL,
+    "fecha_inicio_reserva" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "fecha_fin_reserva" TIMESTAMP(3),
+    "motivo" TEXT,
     "registrado_por_id" TEXT NOT NULL,
-    "efectivo_placa" TEXT NOT NULL,
-    "efectivo_organismo" TEXT NOT NULL,
-    "fecha_inicio_prueba" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "fecha_fin_prueba" TIMESTAMP(3),
-    "cliente_id" TEXT,
     "is_active" BOOLEAN NOT NULL DEFAULT true,
     "deleted_at" TIMESTAMP(3),
     "deleted_by" TEXT,
@@ -219,7 +236,7 @@ CREATE TABLE "legajos_prueba" (
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL,
 
-    CONSTRAINT "legajos_prueba_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "reservas_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateIndex
@@ -244,6 +261,12 @@ CREATE UNIQUE INDEX "rol_permisos_rol_id_permiso_id_key" ON "rol_permisos"("rol_
 CREATE UNIQUE INDEX "audit_logs_hash_actual_key" ON "audit_logs"("hash_actual");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "sesiones_jwt_id_key" ON "sesiones"("jwt_id");
+
+-- CreateIndex
+CREATE INDEX "sesiones_usuario_id_idx" ON "sesiones"("usuario_id");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "variantes_sku_sku_key" ON "variantes_sku"("sku");
 
 -- CreateIndex
@@ -254,6 +277,9 @@ CREATE UNIQUE INDEX "depositos_nombre_key" ON "depositos"("nombre");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "stock_depositos_variante_sku_id_deposito_id_key" ON "stock_depositos"("variante_sku_id", "deposito_id");
+
+-- CreateIndex
+CREATE INDEX "reservas_is_active_fecha_fin_reserva_fecha_inicio_reserva_idx" ON "reservas"("is_active", "fecha_fin_reserva", "fecha_inicio_reserva");
 
 -- AddForeignKey
 ALTER TABLE "usuario_roles" ADD CONSTRAINT "usuario_roles_usuario_id_fkey" FOREIGN KEY ("usuario_id") REFERENCES "usuarios"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -269,6 +295,9 @@ ALTER TABLE "rol_permisos" ADD CONSTRAINT "rol_permisos_permiso_id_fkey" FOREIGN
 
 -- AddForeignKey
 ALTER TABLE "audit_logs" ADD CONSTRAINT "audit_logs_usuario_id_fkey" FOREIGN KEY ("usuario_id") REFERENCES "usuarios"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "sesiones" ADD CONSTRAINT "sesiones_usuario_id_fkey" FOREIGN KEY ("usuario_id") REFERENCES "usuarios"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "variantes_sku" ADD CONSTRAINT "variantes_sku_producto_maestro_id_fkey" FOREIGN KEY ("producto_maestro_id") REFERENCES "productos_maestros"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -292,7 +321,10 @@ ALTER TABLE "movimientos_stock" ADD CONSTRAINT "movimientos_stock_deposito_desti
 ALTER TABLE "movimientos_stock" ADD CONSTRAINT "movimientos_stock_registrado_por_id_fkey" FOREIGN KEY ("registrado_por_id") REFERENCES "usuarios"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "legajos_prueba" ADD CONSTRAINT "legajos_prueba_variante_sku_id_fkey" FOREIGN KEY ("variante_sku_id") REFERENCES "variantes_sku"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "reservas" ADD CONSTRAINT "reservas_variante_sku_id_fkey" FOREIGN KEY ("variante_sku_id") REFERENCES "variantes_sku"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "legajos_prueba" ADD CONSTRAINT "legajos_prueba_registrado_por_id_fkey" FOREIGN KEY ("registrado_por_id") REFERENCES "usuarios"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "reservas" ADD CONSTRAINT "reservas_deposito_id_fkey" FOREIGN KEY ("deposito_id") REFERENCES "depositos"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "reservas" ADD CONSTRAINT "reservas_registrado_por_id_fkey" FOREIGN KEY ("registrado_por_id") REFERENCES "usuarios"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
