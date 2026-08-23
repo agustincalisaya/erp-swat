@@ -6,7 +6,7 @@
 
 ---
 
-# PARTE 1 — Referencia Técnica (estado actual, verificado).
+# PARTE 1 — Referencia Técnica (estado actual, verificado)
 
 > Esta sección describe **cómo funciona la funcionalidad hoy**, confirmado con pruebas reales (Postman + Prisma Studio + navegador headless), no solo por lectura de código. Para el proceso de cómo se llegó a este estado, ver la Parte 2 — Historial de Desarrollo.
 
