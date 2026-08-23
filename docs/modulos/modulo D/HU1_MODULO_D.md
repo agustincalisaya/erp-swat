@@ -6,7 +6,7 @@
 
 ---
 
-# PARTE 1 — Referencia Técnica (estado actual)
+# PARTE 1 — Referencia Técnica (estado actual).
 
 ## 1.1. Alcance funcional
 
