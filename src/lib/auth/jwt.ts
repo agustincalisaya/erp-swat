@@ -4,8 +4,8 @@
  *
  * Ningún otro módulo debe invocar `jose` directamente para firmar/verificar
  * el JWT de sesión — se centraliza acá, mismo patrón que `lib/auth/password.ts`
- * (Argon2id) y `lib/crypto/aes.ts` (AES-256): primitivas criptográficas
- * versionadas en un único archivo, nunca inline en services/routes.
+ * (Argon2id): primitivas criptográficas versionadas en un único archivo,
+ * nunca inline en services/routes.
  *
  * Alcance deliberadamente mínimo: esta función SOLO verifica firma y
  * expiración criptográfica del JWT. NO consulta la tabla `Sesion` (revocada/

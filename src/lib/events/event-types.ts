@@ -4,6 +4,37 @@
  * consume estos eventos para construir el `AuditLog` encadenado por SHA-256.
  */
 
+/**
+ * HU-A1 — Payload emitido tras el alta de un `ProductoMaestro`
+ * (`crearProductoMaestro()`, sección 6.1 de task_relos.md).
+ */
+export interface ProductoMaestroCreadoPayload {
+  producto_maestro_id: string;
+  nombre: string;
+  usuario_id: string;
+}
+
+/**
+ * HU-A1 — Payload emitido tras la generación en lote de `VarianteSKU`
+ * (`generarVariantesMatriz()`, sección 6.2 de task_relos.md). Un único evento
+ * con el conteo total — nunca un evento por variante individual.
+ */
+export interface VariantesGeneradasPayload {
+  producto_maestro_id: string;
+  cantidad_generadas: number;
+  usuario_id: string;
+}
+
+/**
+ * HU-A1 — Payload emitido tras la baja lógica de un `ProductoMaestro`
+ * (`desactivarProductoMaestro()`, sección 5.3 de task_relos.md).
+ */
+export interface ProductoMaestroDesactivadoPayload {
+  producto_maestro_id: string;
+  deletion_reason: string | null;
+  usuario_id: string;
+}
+
 export interface UmbralesConfiguradosPayload {
   stock_deposito_id: string;
   variante_sku_id: string;
@@ -20,25 +51,6 @@ export interface UmbralCriticoAlcanzadoPayload {
   cantidad_resultante: number;
   punto_pedido: number;
   movimiento_id_origen: string;
-}
-
-/**
- * HU-A3 — Payload emitido tras la creación atómica del LegajoPrueba.
- * Escucha: futuro audit-log.listener.ts y módulo de notificaciones.
- *
- * Nota: `efectivo_placa` y `efectivo_organismo` NO se incluyen en el payload
- * del evento para evitar que datos cifrados circulen por el bus en memoria.
- * Los listeners que necesiten los datos identificatorios deben leerlos de la
- * BD y descifrarlos bajo demanda.
- */
-export interface LegajoPruebaIniciadoPayload {
-  legajo_prueba_id: string;
-  variante_sku_id: string;
-  deposito_origen_id: string;
-  movimiento_stock_id: string;
-  cantidad: number;
-  usuario_id: string;
-  ip: string;
 }
 
 /**
@@ -176,10 +188,14 @@ export interface RolPermisosActualizadosPayload {
 
 /** Mapa evento → payload, usado por `domain-event-bus.ts` para tipar `emit`/`on`. */
 export interface DomainEventMap {
+  /** HU-A1: se emite tras el alta de un ProductoMaestro. */
+  "producto_maestro:creado": ProductoMaestroCreadoPayload;
+  /** HU-A1: se emite tras generar variantes en lote (matriz talle×color×género). */
+  "variantes:generadas": VariantesGeneradasPayload;
+  /** HU-A1: se emite tras la baja lógica de un ProductoMaestro. */
+  "producto_maestro:desactivado": ProductoMaestroDesactivadoPayload;
   "stock:umbrales_configurados": UmbralesConfiguradosPayload;
   "stock:umbral_critico_alcanzado": UmbralCriticoAlcanzadoPayload;
-  /** HU-A3: se emite tras la transacción atómica de asignación en prueba. */
-  "inventario:legajo_prueba_iniciado": LegajoPruebaIniciadoPayload;
   /** HU-2: se emite tras registrar un ingreso de mercadería por escaneo. */
   "inventario:ingreso_stock_registrado": IngresoStockRegistradoPayload;
   /** HU-1: se emite tras el alta atómica de Usuario + UsuarioRol. */

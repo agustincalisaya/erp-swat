@@ -7,7 +7,10 @@
  * HU-1 (alta) / HU-2 (baja lógica) — Módulo D.2.
  */
 import { Suspense } from "react";
+import { redirect } from "next/navigation";
 import { Users, ShieldCheck, ShieldAlert, ShieldX, ShieldOff, AlertTriangle, Search } from "lucide-react";
+import { getServerSession } from "@/lib/auth/session";
+import { usuarioTienePermiso, PERMISO_ROLES_ADMINISTRAR } from "@/lib/auth/with-permission";
 import { listarUsuarios, listarRolesActivos } from "@/lib/services/auditoria/usuario.service";
 import type { FiltroEstadoUsuario as TipoFiltroEstadoUsuario } from "@/lib/services/auditoria/usuario.service";
 import { FormularioAltaUsuario } from "@/components/auditoria/FormularioAltaUsuario";
@@ -308,6 +311,17 @@ const CARD_DESCRIPCION: Record<TipoFiltroEstadoUsuario, string> = {
 };
 
 export default async function UsuariosPage({ searchParams }: UsuariosPageProps) {
+  // Bloqueo real de acceso (HU-D10, task_cali_bloqueo_url_auditoria.md
+  // §1.2) — hasta esta tarea, la página no verificaba sesión ni permiso
+  // en absoluto (las mutaciones sí estaban gateadas en actions.ts, pero
+  // la vista no). Ahora rechaza el acceso completo sin `roles:administrar`,
+  // en vez de solo ocultar el link en el sidebar.
+  const session = await getServerSession();
+  if (!session) redirect("/login");
+
+  const autorizado = await usuarioTienePermiso(session.userId, PERMISO_ROLES_ADMINISTRAR);
+  if (!autorizado) redirect("/no-autorizado");
+
   const params = await searchParams;
   const filtro = parseFiltroEstado(params.estado);
   const busqueda = parseBusqueda(params.q);

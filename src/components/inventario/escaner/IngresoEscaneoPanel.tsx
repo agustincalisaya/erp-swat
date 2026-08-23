@@ -60,7 +60,6 @@ type IngresoFormValues = {
   comprobante_referencia: string;
   estado_destino:
     | "DISPONIBLE"
-    | "EN_PRUEBA"
     | "RESERVADO"
     | "VENDIDO"
     | "DEVUELTO"
@@ -85,7 +84,6 @@ interface IngresoEscaneoPanelProps {
 
 const ESTADOS_DESTINO: IngresoFormValues["estado_destino"][] = [
   "DISPONIBLE",
-  "EN_PRUEBA",
   "RESERVADO",
   "VENDIDO",
   "DEVUELTO",

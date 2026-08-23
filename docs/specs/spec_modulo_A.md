@@ -10,7 +10,7 @@
 
 ## 1. Visión General
 
-El Módulo A es el subsistema responsable de la gestión del catálogo de indumentaria táctica (`ProductoMaestro` → `VarianteSKU`), el control de existencias por ubicación física (`Deposito` → `StockDeposito`) y el registro inmutable de todo movimiento de stock (`MovimientoStock`), incluyendo la asignación temporal de unidades a efectivos de fuerzas de seguridad bajo el estado "En Prueba" (`LegajoPrueba`).
+El Módulo A es el subsistema responsable de la gestión del catálogo de indumentaria táctica (`ProductoMaestro` → `VarianteSKU`), el control de existencias por ubicación física (`Deposito` → `StockDeposito`) y el registro inmutable de todo movimiento de stock (`MovimientoStock`). La asignación temporal de unidades a efectivos de fuerzas de seguridad bajo el estado "En Prueba" (`LegajoPrueba`, HU-A3) fue cancelada por decisión del PO en la Sprint Review del 21/08/2026 (ver nota en 2.4).
 
 Bajo la arquitectura Next.js App Router, el módulo se implementa como un conjunto de **Route Handlers** (`app/api/inventario/**/route.ts`) para operaciones invocadas desde clientes externos, dispositivos de escaneo EAN-13/QR o integraciones futuras (Módulo B - POS), y **Server Actions** para mutaciones originadas directamente desde formularios de la PWA (`app/(dashboard)/inventario/**/actions.ts`). Ambas superficies delegan exclusivamente en una **capa de servicios** (`lib/services/inventario/*`) que concentra las reglas de negocio, garantizando que ningún Route Handler ni Server Action contenga lógica de dominio inline.
 
@@ -149,6 +149,8 @@ export const TransferenciaStockSchema = z.object({
 ---
 
 ### 2.4. Transición a estado "En Prueba" (vinculación con `LegajoPrueba`)
+
+> **[CANCELADO — Sprint Review 21/08/2026]** El Product Owner decidió eliminar por completo esta funcionalidad (HU-A3): no debía haber entrado al sprint. El código fue eliminado del repositorio; esta sección queda como referencia histórica.
 
 **Ruta:** `POST /app/api/inventario/legajos-prueba/route.ts`
 

@@ -41,10 +41,6 @@ interface SugerenciaUmbralesResponse {
   error: { code: string; message: string } | null
 }
 
-// TODO(Módulo D): reemplazar por el usuario de la sesión real una vez exista
-// `lib/auth/session.ts`. Ver nota en depositos/actions.ts.
-const USUARIO_ID_MOCK = "00000000-0000-4000-8000-000000000000"
-
 export function FormularioUmbralesStock({
   variante_sku_id,
   deposito_id,
@@ -70,7 +66,7 @@ export function FormularioUmbralesStock({
     formData.set("punto_pedido", String(values.punto_pedido))
     formData.set("stock_seguridad", String(values.stock_seguridad))
 
-    const resultado = await actualizarUmbrales(USUARIO_ID_MOCK, formData)
+    const resultado = await actualizarUmbrales(formData)
 
     if (resultado.error) {
       toast.add({

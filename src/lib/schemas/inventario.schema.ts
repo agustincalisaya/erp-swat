@@ -1,32 +1,109 @@
 import { z } from "zod";
 
+// ──────────────────────────────────────────────────────────────────────────────
+// HU-A1 — Alta de Producto Maestro y generación en lote de Variantes SKU
+// ──────────────────────────────────────────────────────────────────────────────
+
+export const CrearProductoMaestroSchema = z.object({
+  /**
+   * Código corto, segmento [PRODUCTO] del SKU (ver `generarSku()` en
+   * `lib/utils/sku.ts`). No es único: dos ProductoMaestro de la misma
+   * familia pueden compartir código — la unicidad la garantiza VarianteSKU.sku.
+   * Solo letras y números, sin espacios ni guiones.
+   */
+  codigo_producto: z
+    .string()
+    .min(2, "El código debe tener al menos 2 caracteres")
+    .max(8, "El código no puede superar los 8 caracteres")
+    .regex(/^[A-Za-z0-9]+$/, "Solo letras y números, sin espacios ni guiones"),
+  nombre: z.string().min(1, "El nombre es obligatorio"),
+  descripcion: z.string().optional(),
+  rubro: z.string().min(1, "El rubro es obligatorio"),
+  categoria: z.string().min(1, "La categoría es obligatoria"),
+  unidad_medida: z.string().min(1, "La unidad de medida es obligatoria"),
+  proveedor_preferente: z.string().optional(),
+  costo_estandar_referencia: z
+    .number({
+      invalid_type_error: "El costo debe ser un número",
+      required_error: "El costo estándar es obligatorio",
+    })
+    .nonnegative("El costo no puede ser negativo"),
+});
+
+export type CrearProductoMaestroInput = z.infer<typeof CrearProductoMaestroSchema>;
+
+/**
+ * Genera variantes en lote mediante producto cartesiano talle × color × género.
+ * "modelo" es el segmento [MODELO] del SKU (ej. "SS3" para Softshell Nivel III).
+ * No incluye `ean_qr`: se genera server-side como placeholder determinístico
+ * derivado del `sku` de cada combinación (ver `generarEanQrPlaceholder()` en
+ * `lib/utils/sku.ts`), no se recibe del cliente.
+ */
+export const GenerarVariantesMatrizSchema = z.object({
+  producto_maestro_id: z.string().uuid(),
+  modelo: z.string().min(1).max(10),
+  talles: z.array(z.string().min(1)).min(1),
+  colores: z.array(z.string().min(1)).min(1),
+  generos: z.array(z.enum(["HOMBRE", "MUJER", "UNISEX"])).min(1),
+});
+
+export type GenerarVariantesMatrizInput = z.infer<typeof GenerarVariantesMatrizSchema>;
+
+/**
+ * Baja lógica de un `ProductoMaestro` (sección 5.3). `deletion_reason` es
+ * opcional a nivel de forma — la obligatoriedad depende de si el producto
+ * tiene stock remanente en algún depósito, y esa regla se evalúa en la capa
+ * de servicio (`desactivarProductoMaestro()`), no acá.
+ */
+export const DesactivarProductoMaestroSchema = z.object({
+  deletion_reason: z.string().trim().min(1).optional(),
+});
+
+export type DesactivarProductoMaestroInput = z.infer<typeof DesactivarProductoMaestroSchema>;
+
 /**
  * Semántica: stock_seguridad (piso crítico) < punto_pedido (umbral de alerta)
  * El refine exige punto_pedido >= stock_seguridad para dejar margen de reacción.
  */
-export const ActualizarUmbralesStockSchema = z.object({
-  variante_sku_id: z.string().uuid(),
-  deposito_id: z.string().uuid(),
-  punto_pedido: z.preprocess(
-    (val) => (val === "" || val === undefined || val === null ? undefined : Number(val)),
-    z
-      .number({ invalid_type_error: "Este campo es requerido", required_error: "Este campo es requerido" })
-      .int("Debe ser un número entero")
-      .min(0, "Debe ser mayor o igual a 0"),
-  ),
-  stock_seguridad: z.preprocess(
-    (val) => (val === "" || val === undefined || val === null ? undefined : Number(val)),
-    z
-      .number({ invalid_type_error: "Este campo es requerido", required_error: "Este campo es requerido" })
-      .int("Debe ser un número entero")
-      .min(0, "Debe ser mayor o igual a 0"),
-  ),
-}).refine(data => data.punto_pedido >= data.stock_seguridad, {
-  message: "El punto de pedido no puede ser menor al stock de seguridad",
-  path: ["punto_pedido"],
-});
+export const ActualizarUmbralesStockSchema = z
+  .object({
+    variante_sku_id: z.string().uuid(),
+    deposito_id: z.string().uuid(),
+    punto_pedido: z.preprocess(
+      (val) =>
+        val === "" || val === undefined || val === null
+          ? undefined
+          : Number(val),
+      z
+        .number({
+          invalid_type_error: "Este campo es requerido",
+          required_error: "Este campo es requerido",
+        })
+        .int("Debe ser un número entero")
+        .min(0, "Debe ser mayor o igual a 0"),
+    ),
+    stock_seguridad: z.preprocess(
+      (val) =>
+        val === "" || val === undefined || val === null
+          ? undefined
+          : Number(val),
+      z
+        .number({
+          invalid_type_error: "Este campo es requerido",
+          required_error: "Este campo es requerido",
+        })
+        .int("Debe ser un número entero")
+        .min(0, "Debe ser mayor o igual a 0"),
+    ),
+  })
+  .refine((data) => data.punto_pedido >= data.stock_seguridad, {
+    message: "El punto de pedido no puede ser menor al stock de seguridad",
+    path: ["punto_pedido"],
+  });
 
-export type ActualizarUmbralesStockInput = z.infer<typeof ActualizarUmbralesStockSchema>;
+export type ActualizarUmbralesStockInput = z.infer<
+  typeof ActualizarUmbralesStockSchema
+>;
 
 export const CalcularPromedioMovilSchema = z.object({
   variante_sku_id: z.string().uuid(),
@@ -34,40 +111,9 @@ export const CalcularPromedioMovilSchema = z.object({
   meses_historico: z.number().int().min(1).max(12).default(3),
 });
 
-export type CalcularPromedioMovilInput = z.infer<typeof CalcularPromedioMovilSchema>;
-
-// ──────────────────────────────────────────────────────────────────────────────
-// HU-A3 — Transición a estado «En Prueba» (Cifrado AES-256)
-// ──────────────────────────────────────────────────────────────────────────────
-
-/**
- * Schema de entrada para registrar la asignación de una unidad de stock al
- * estado EN_PRUEBA y vincularla al efectivo institucional receptor.
- *
- * Los campos `efectivo_placa` y `efectivo_organismo` se cifran en la capa de
- * servicio mediante AES-256-GCM antes de persistir (Ley N.° 25.326).
- *
- * @see src/lib/services/inventario/legajo-prueba.service.ts
- * @see spec_modulo_A_HU3.md §2.1
- */
-export const IniciarLegajoPruebaSchema = z.object({
-  variante_sku_id: z.string().uuid("El ID de variante SKU debe ser un UUID válido"),
-  deposito_origen_id: z.string().uuid("El ID de depósito debe ser un UUID válido"),
-  /** Generalmente 1 para pruebas de tallaje unitario */
-  cantidad: z.number().int().positive("La cantidad debe ser un número entero positivo").default(1),
-  efectivo_placa: z
-    .string()
-    .min(1, "La placa/credencial es obligatoria")
-    .max(50, "La placa no puede superar los 50 caracteres")
-    .trim(),
-  efectivo_organismo: z
-    .string()
-    .min(1, "El organismo de pertenencia es obligatorio")
-    .max(100, "El organismo no puede superar los 100 caracteres")
-    .trim(),
-});
-
-export type IniciarLegajoPruebaInput = z.infer<typeof IniciarLegajoPruebaSchema>;
+export type CalcularPromedioMovilInput = z.infer<
+  typeof CalcularPromedioMovilSchema
+>;
 
 // ──────────────────────────────────────────────────────────────────────────────
 // HU-2 — Escaneo de códigos e ingreso de mercadería
@@ -77,11 +123,12 @@ export const ResolverCodigoEscaneoSchema = z.object({
   codigo: z.string().min(1, "El código escaneado es obligatorio").trim(),
 });
 
-export type ResolverCodigoEscaneoInput = z.infer<typeof ResolverCodigoEscaneoSchema>;
+export type ResolverCodigoEscaneoInput = z.infer<
+  typeof ResolverCodigoEscaneoSchema
+>;
 
 const ESTADOS_DESTINO_INGRESO = [
   "DISPONIBLE",
-  "EN_PRUEBA",
   "RESERVADO",
   "VENDIDO",
   "DEVUELTO",
@@ -93,23 +140,32 @@ export const RegistrarIngresoPorEscaneoSchema = z.object({
   variante_sku_id: z.string().uuid("Código no resuelto: variante inválida"),
   deposito_destino_id: z.string().uuid("Seleccioná un depósito destino"),
   cantidad: z.preprocess(
-    (val) => (val === "" || val === undefined || val === null ? undefined : Number(val)),
+    (val) =>
+      val === "" || val === undefined || val === null ? undefined : Number(val),
     z
-      .number({ invalid_type_error: "Este campo es requerido", required_error: "Este campo es requerido" })
+      .number({
+        invalid_type_error: "Este campo es requerido",
+        required_error: "Este campo es requerido",
+      })
       .int("Debe ser un número entero")
       .positive("La cantidad debe ser mayor a 0"),
   ),
-  comprobante_referencia: z.string().max(100, "Máximo 100 caracteres").trim().default(""),
+  comprobante_referencia: z
+    .string()
+    .max(100, "Máximo 100 caracteres")
+    .trim()
+    .default(""),
   estado_destino: z.enum(ESTADOS_DESTINO_INGRESO),
   /**
    * El modelo de datos actual (`VarianteSKU`) representa un modelo genérico
-   * (talle+color+género+modelo), no una unidad serializada individual — ver
-   * nota en `legajo-prueba.service.ts`. Estos campos se aceptan por
-   * compatibilidad con el formulario del escáner pero no se persisten.
+   * (talle+color+género+modelo), no una unidad serializada individual.
+   * Estos campos se aceptan por compatibilidad con el formulario del
+   * escáner pero no se persisten.
    */
   es_serializado: z.boolean().default(false),
   numero_serie: z.string().trim().optional(),
 });
 
-export type RegistrarIngresoPorEscaneoInput = z.infer<typeof RegistrarIngresoPorEscaneoSchema>;
-
+export type RegistrarIngresoPorEscaneoInput = z.infer<
+  typeof RegistrarIngresoPorEscaneoSchema
+>;
