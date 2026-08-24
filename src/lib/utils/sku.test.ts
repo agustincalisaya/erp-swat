@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { generarSku, generarEanQrPlaceholder } from "./sku";
+import { generarSku, generarEanQrPlaceholder, extraerCodigoProducto } from "./sku";
 
 test("generarSku: combinación normal", () => {
   const sku = generarSku({
@@ -73,4 +73,24 @@ test("generarEanQrPlaceholder: normaliza minúsculas/espacios igual que el SKU",
     generarEanQrPlaceholder("  camp-ss3-l-neg-h  "),
     "PEND-CAMP-SS3-L-NEG-H",
   );
+});
+
+test("extraerCodigoProducto: extrae el primer segmento de un SKU completo", () => {
+  assert.equal(extraerCodigoProducto("CAMTAC-MANGA LARGA-M-VERDE-H"), "CAMTAC");
+});
+
+test("extraerCodigoProducto: normaliza a mayúsculas sin espacios, igual que generarSku()", () => {
+  assert.equal(extraerCodigoProducto(" camtac -manga larga-m-verde-h"), "CAMTAC");
+});
+
+test("extraerCodigoProducto: devuelve null si no hay separador '-'", () => {
+  assert.equal(extraerCodigoProducto("CAMTAC"), null);
+});
+
+test("extraerCodigoProducto: devuelve null para string vacío", () => {
+  assert.equal(extraerCodigoProducto(""), null);
+});
+
+test("extraerCodigoProducto: devuelve null si el primer segmento queda vacío", () => {
+  assert.equal(extraerCodigoProducto("-ABC-DEF"), null);
 });

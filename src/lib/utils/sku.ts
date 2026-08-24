@@ -54,3 +54,23 @@ export function generarSku(params: {
 export function generarEanQrPlaceholder(sku: string): string {
   return `PEND-${sku.trim().toUpperCase()}`;
 }
+
+/**
+ * Extrae el segmento `[PRODUCTO]` de un SKU completo (o de un código de
+ * fábrica que sigue la misma convención) — el inverso parcial de
+ * `generarSku()`: toma todo antes del primer `-`, normalizado igual que
+ * cada segmento en `generarSku()` (trim + mayúsculas).
+ *
+ * Devuelve `null` cuando el código no tiene el separador `-` (formato
+ * inesperado, no un SKU de este sistema) o cuando el primer segmento
+ * queda vacío (ej. `"-ABC-DEF"`) — en ambos casos no hay nada válido que
+ * buscar contra `ProductoMaestro.codigo_producto`, y el llamador decide
+ * cómo comunicarlo (nunca se trunca ni se adivina el segmento a la fuerza).
+ */
+export function extraerCodigoProducto(codigoEscaneado: string): string | null {
+  const partes = codigoEscaneado.split("-");
+  if (partes.length < 2) return null;
+
+  const segmento = partes[0].trim().toUpperCase();
+  return segmento.length > 0 ? segmento : null;
+}

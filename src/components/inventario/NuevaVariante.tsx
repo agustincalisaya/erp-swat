@@ -37,6 +37,7 @@ export function NuevaVariante() {
         <MatrizVariantes
           productoMaestroId={productoSeleccionado.id}
           codigoProducto={productoSeleccionado.codigo_producto}
+          nombreProducto={productoSeleccionado.nombre}
         />
 
         <Button
