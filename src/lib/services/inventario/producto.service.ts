@@ -63,6 +63,72 @@ export async function crearProductoMaestro(
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
+// Mejora post-HU-A1 — buscarProductosActivos
+// ──────────────────────────────────────────────────────────────────────────────
+
+export interface ProductoMaestroActivoResumen {
+  id: string;
+  nombre: string;
+  codigo_producto: string;
+}
+
+/**
+ * Búsqueda liviana de `ProductoMaestro` activos por nombre o código de
+ * producto — soporta el camino alternativo "agregar variantes a un producto
+ * existente" (sin pasar por el alta de Paso 1). Solo `is_active: true`: un
+ * producto dado de baja no debe ofrecerse como destino de variantes nuevas
+ * (la regla de negocio la aplica igual `generarVariantesMatriz()` con
+ * PRODUCTO_MAESTRO_NO_ENCONTRADO/INACTIVO — este filtro es solo para no
+ * mostrarlo en el buscador, no reemplaza esa validación).
+ */
+export async function buscarProductosActivos(query: string): Promise<ProductoMaestroActivoResumen[]> {
+  const texto = query.trim();
+  if (texto.length < 2) return [];
+
+  return prisma.productoMaestro.findMany({
+    where: {
+      is_active: true,
+      OR: [
+        { nombre: { contains: texto, mode: "insensitive" } },
+        { codigo_producto: { contains: texto, mode: "insensitive" } },
+      ],
+    },
+    select: { id: true, nombre: true, codigo_producto: true },
+    orderBy: { nombre: "asc" },
+    take: 10,
+  });
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Selector jerárquico de umbrales — listarProductosConVariantes
+// ──────────────────────────────────────────────────────────────────────────────
+
+export interface ProductoConVariantesResumen {
+  id: string;
+  nombre: string;
+}
+
+/**
+ * task_cali_selector_umbrales.md — sección 3: segundo nivel del selector
+ * jerárquico (Depósito → Producto → Variante). Lista **todos** los
+ * `ProductoMaestro` activos que tengan al menos una `VarianteSKU` activa —
+ * deliberadamente sin filtrar por si esas variantes ya tienen `StockDeposito`
+ * en el depósito elegido (permite configurar umbrales antes de que llegue
+ * mercadería nueva, decisión de negocio confirmada en la sección 1 de esa
+ * tarea).
+ */
+export async function listarProductosConVariantes(): Promise<ProductoConVariantesResumen[]> {
+  return prisma.productoMaestro.findMany({
+    where: {
+      is_active: true,
+      variantes: { some: { is_active: true } },
+    },
+    select: { id: true, nombre: true },
+    orderBy: { nombre: "asc" },
+  });
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 // 6.2 — generarVariantesMatriz
 // ──────────────────────────────────────────────────────────────────────────────
 

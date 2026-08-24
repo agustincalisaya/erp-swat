@@ -28,6 +28,7 @@ import {
 import {
   crearProductoMaestro as crearProductoMaestroService,
   generarVariantesMatriz as generarVariantesMatrizService,
+  buscarProductosActivos as buscarProductosActivosService,
   type ResultadoGenerarVariantesMatriz,
 } from "@/lib/services/inventario/producto.service";
 
@@ -60,6 +61,41 @@ type CrearProductoMaestroResult =
 type GenerarVariantesMatrizResult =
   | { data: ResultadoGenerarVariantesMatriz; error: null }
   | { data: null; error: ActionError };
+
+/** Shape serializable mínima de un `ProductoMaestro` activo devuelto por el buscador. */
+export interface ProductoMaestroActivoResumen {
+  id: string;
+  nombre: string;
+  codigo_producto: string;
+}
+
+type BuscarProductosActivosResult =
+  | { data: ProductoMaestroActivoResumen[]; error: null }
+  | { data: null; error: ActionError };
+
+/**
+ * Server Action de lectura liviana — mejora post-HU-A1: permite buscar un
+ * `ProductoMaestro` activo existente para saltar directo al Paso 2 (matriz
+ * de variantes) sin repetir el alta de Paso 1. Solo `is_active: true`, ver
+ * docstring de `buscarProductosActivos()` en `producto.service.ts`.
+ */
+export async function buscarProductosActivos(query: string): Promise<BuscarProductosActivosResult> {
+  const session = await getServerSession();
+  if (!session) {
+    return {
+      data: null,
+      error: { code: "UNAUTHORIZED", message: "Sesión requerida para realizar esta operación." },
+    };
+  }
+
+  try {
+    const productos = await buscarProductosActivosService(query);
+    return { data: productos, error: null };
+  } catch (err) {
+    console.error("[buscarProductosActivos action] Error inesperado:", err);
+    return { data: null, error: { code: "INTERNAL_ERROR", message: "Error interno. Intentá nuevamente." } };
+  }
+}
 
 /** Server Action equivalente a `POST /api/inventario/productos`. */
 export async function crearProductoMaestro(formData: unknown): Promise<CrearProductoMaestroResult> {

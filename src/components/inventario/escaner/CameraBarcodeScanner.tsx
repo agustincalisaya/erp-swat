@@ -22,8 +22,16 @@ export function CameraBarcodeScanner({
   activo = true,
   className,
 }: CameraBarcodeScannerProps) {
-  const { videoRef, isScanning, motor, error, dispositivos, dispositivoId, seleccionarDispositivo } =
-    useBarcodeScanner({ onDetect, activo });
+  const {
+    videoRef,
+    isScanning,
+    motor,
+    error,
+    dispositivos,
+    dispositivoId,
+    seleccionarDispositivo,
+    actualizarDispositivos,
+  } = useBarcodeScanner({ onDetect, activo });
 
   return (
     <div
@@ -47,6 +55,7 @@ export function CameraBarcodeScanner({
           <select
             value={dispositivoId ?? ""}
             onChange={(e) => seleccionarDispositivo(e.target.value)}
+            onFocus={() => void actualizarDispositivos()}
             className="rounded-md border border-white/20 bg-slate-900/85 px-2 py-1 text-xs font-medium text-white shadow-sm outline-none focus:ring-2 focus:ring-blue-400"
             aria-label="Seleccionar cámara"
           >
@@ -83,11 +92,22 @@ export function CameraBarcodeScanner({
         </div>
       )}
 
-      {/* Cámara inicializando */}
-      {!isScanning && !error && (
+      {/* Cámara inicializando — solo aplica cuando el escaneo debería estar
+          activo; si `activo` es false (ej. confirmando un ingreso), el
+          stream se detuvo a propósito y no está "iniciando". */}
+      {!isScanning && !error && activo && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-slate-300">
           <Camera className="size-8 animate-pulse" aria-hidden="true" />
           <p className="text-sm">Iniciando cámara…</p>
+        </div>
+      )}
+
+      {/* Escaneo en pausa — cámara detenida intencionalmente (ej. mientras
+          se confirma un ingreso), no un error ni un arranque en curso. */}
+      {!isScanning && !error && !activo && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-slate-300">
+          <Camera className="size-8" aria-hidden="true" />
+          <p className="text-sm">Escaneo en pausa</p>
         </div>
       )}
 

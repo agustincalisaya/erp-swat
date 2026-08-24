@@ -51,4 +51,9 @@ next-env.d.ts
 # Personal HU prompts (dev-only workflow, not team docs)
 /prompts/
 docs/tasks/prompts/
+# Configuraciones locales de IA y Guardian Angel
+.gga
+.windsurf/
+AGENTS.md
+CLAUDE.md
 
