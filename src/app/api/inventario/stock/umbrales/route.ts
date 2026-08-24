@@ -54,10 +54,9 @@ export const PATCH = withAuth(async (req: NextRequest, session) => {
     );
   } catch (err) {
     if (err instanceof ServiceError) {
-      const status = err.code === "STOCK_DEPOSITO_NO_ENCONTRADO" ? 404 : 400;
       return NextResponse.json(
         { data: null, error: { code: err.code, message: err.message } },
-        { status },
+        { status: 400 },
       );
     }
 

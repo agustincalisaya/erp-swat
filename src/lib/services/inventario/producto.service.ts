@@ -100,6 +100,35 @@ export async function buscarProductosActivos(query: string): Promise<ProductoMae
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
+// Selector jerárquico de umbrales — listarProductosConVariantes
+// ──────────────────────────────────────────────────────────────────────────────
+
+export interface ProductoConVariantesResumen {
+  id: string;
+  nombre: string;
+}
+
+/**
+ * task_cali_selector_umbrales.md — sección 3: segundo nivel del selector
+ * jerárquico (Depósito → Producto → Variante). Lista **todos** los
+ * `ProductoMaestro` activos que tengan al menos una `VarianteSKU` activa —
+ * deliberadamente sin filtrar por si esas variantes ya tienen `StockDeposito`
+ * en el depósito elegido (permite configurar umbrales antes de que llegue
+ * mercadería nueva, decisión de negocio confirmada en la sección 1 de esa
+ * tarea).
+ */
+export async function listarProductosConVariantes(): Promise<ProductoConVariantesResumen[]> {
+  return prisma.productoMaestro.findMany({
+    where: {
+      is_active: true,
+      variantes: { some: { is_active: true } },
+    },
+    select: { id: true, nombre: true },
+    orderBy: { nombre: "asc" },
+  });
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 // 6.2 — generarVariantesMatriz
 // ──────────────────────────────────────────────────────────────────────────────
 

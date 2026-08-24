@@ -28,6 +28,14 @@ interface FormularioUmbralesStockProps {
   deposito_id: string
   punto_pedido_actual: number
   stock_seguridad_actual: number
+  /**
+   * `false` cuando la combinación variante/depósito no tiene fila en
+   * `StockDeposito` todavía (selector jerárquico —
+   * task_cali_selector_umbrales.md, sección 4). El guardado sigue
+   * funcionando igual (`actualizarUmbrales()` la crea con `cantidad: 0`) —
+   * este flag es solo para el indicador visual, no cambia el submit.
+   */
+  tiene_stock_cargado: boolean
 }
 
 interface SugerenciaUmbralesResponse {
@@ -46,6 +54,7 @@ export function FormularioUmbralesStock({
   deposito_id,
   punto_pedido_actual,
   stock_seguridad_actual,
+  tiene_stock_cargado,
 }: FormularioUmbralesStockProps) {
   const [calculandoSugerencia, setCalculandoSugerencia] = React.useState(false)
 
@@ -138,6 +147,13 @@ export function FormularioUmbralesStock({
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+        {!tiene_stock_cargado && (
+          <div className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800 ring-1 ring-inset ring-amber-600/20">
+            Esta variante todavía no tiene stock cargado en este depósito. Los
+            umbrales se guardarán igual, por adelantado, para cuando llegue
+            mercadería nueva.
+          </div>
+        )}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <FormField
             control={form.control}
