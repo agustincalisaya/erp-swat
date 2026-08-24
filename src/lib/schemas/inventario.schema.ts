@@ -62,6 +62,20 @@ export const DesactivarProductoMaestroSchema = z.object({
 export type DesactivarProductoMaestroInput = z.infer<typeof DesactivarProductoMaestroSchema>;
 
 /**
+ * HU-A6 — Baja lógica de una `VarianteSKU` (sección 3.5 de spec_modulo_A.md).
+ * Shape-only, mismo criterio que `DesactivarProductoMaestroSchema`:
+ * `deletion_reason` es opcional a nivel de forma — la obligatoriedad depende
+ * del stock remanente activo de la variante (`StockDeposito.cantidad > 0`),
+ * regla que evalúa la capa de servicio (`darDeBajaVariante()`), no el schema.
+ * Sin superRefine (decisión D4).
+ */
+export const BajaLogicaVarianteSchema = z.object({
+  deletion_reason: z.string().trim().min(1).optional(),
+});
+
+export type BajaLogicaVarianteInput = z.infer<typeof BajaLogicaVarianteSchema>;
+
+/**
  * Semántica: stock_seguridad (piso crítico) < punto_pedido (umbral de alerta)
  * El refine exige punto_pedido >= stock_seguridad para dejar margen de reacción.
  */
@@ -135,6 +149,34 @@ const ESTADOS_DESTINO_INGRESO = [
   "BAJA_MERMA",
   "EN_TRANSITO",
 ] as const;
+
+export type IngresoEstadoDestino = (typeof ESTADOS_DESTINO_INGRESO)[number];
+
+export type ImpactoStockDestino = "SUMA" | "RESTA";
+
+/**
+ * Impacto de cada `estado_destino` sobre el stock DISPONIBLE/vendible del
+ * depósito (`StockDeposito.cantidad` — mismo criterio ya usado por
+ * `Reserva`, ver schema.prisma):
+ *  - SUMA — `DISPONIBLE` (ingreso estándar) y `DEVUELTO` (reingreso ya
+ *    validado como apto para reventa por quien lo selecciona: el modelo
+ *    actual no tiene un flag separado de "inspección favorable").
+ *  - RESTA — `RESERVADO`, `VENDIDO`, `BAJA_MERMA` y `EN_TRANSITO`: mercadería
+ *    que, aunque pasa por esta pantalla de ingreso, queda inmediatamente
+ *    comprometida/no vendible y se descuenta del disponible del mismo
+ *    depósito seleccionado (este flujo es de un solo depósito — no modela
+ *    origen/destino separados para `EN_TRANSITO`).
+ * `Record` exhaustivo a propósito: agregar un estado nuevo al enum rompe la
+ * compilación hasta decidir explícitamente su impacto acá.
+ */
+export const IMPACTO_STOCK_POR_ESTADO_DESTINO: Record<IngresoEstadoDestino, ImpactoStockDestino> = {
+  DISPONIBLE: "SUMA",
+  DEVUELTO: "SUMA",
+  RESERVADO: "RESTA",
+  VENDIDO: "RESTA",
+  BAJA_MERMA: "RESTA",
+  EN_TRANSITO: "RESTA",
+};
 
 export const RegistrarIngresoPorEscaneoSchema = z.object({
   variante_sku_id: z.string().uuid("Código no resuelto: variante inválida"),

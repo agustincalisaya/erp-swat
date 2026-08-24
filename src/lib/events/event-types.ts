@@ -35,6 +35,24 @@ export interface ProductoMaestroDesactivadoPayload {
   usuario_id: string;
 }
 
+/**
+ * HU-A6 — Payload emitido tras la baja lógica de una `VarianteSKU`
+ * (`darDeBajaVariante()`, sección 3.5 de spec_modulo_A.md). El evento se
+ * emite SOLO después de que el `UPDATE` de soft delete resuelve
+ * exitosamente, nunca dentro de `prisma.$transaction` (regla de emisión de
+ * spec_modulo_A.md §4). `stock_total_al_momento` es el total de stock activo
+ * leído ANTES del update; `ip` mantiene `AuditLog.ip` NOT NULL con default
+ * `"unknown"`. El payload nunca incluye datos sensibles (regla de
+ * `event-types.ts` y spec_modulo_D.md §5.1).
+ */
+export interface VarianteBajaLogicaPayload {
+  variante_sku_id: string;
+  usuario_id: string;
+  deletion_reason: string | null;
+  stock_total_al_momento: number;
+  ip: string;
+}
+
 export interface UmbralesConfiguradosPayload {
   stock_deposito_id: string;
   variante_sku_id: string;
@@ -198,6 +216,8 @@ export interface DomainEventMap {
   "stock:umbral_critico_alcanzado": UmbralCriticoAlcanzadoPayload;
   /** HU-2: se emite tras registrar un ingreso de mercadería por escaneo. */
   "inventario:ingreso_stock_registrado": IngresoStockRegistradoPayload;
+  /** HU-A6: se emite tras la baja lógica de una VarianteSKU (después del UPDATE, nunca en $transaction). */
+  "inventario:variante_baja_logica": VarianteBajaLogicaPayload;
   /** HU-1: se emite tras el alta atómica de Usuario + UsuarioRol. */
   "usuario:creado": UsuarioCreadoPayload;
   /** HU-2: se emite tras la baja lógica de Usuario. */
