@@ -41,15 +41,20 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Search, Loader2 } from "lucide-react";
+import { Search, Loader2, Camera, CircleAlert } from "lucide-react";
 
 import {
   buscarProductosActivos,
+  buscarProductosPorCodigo,
   type ProductoMaestroActivoResumen,
 } from "@/app/(dashboard)/inventario/productos/actions";
+import { extraerCodigoProducto } from "@/lib/utils/sku";
+import { CameraBarcodeScanner } from "@/components/inventario/escaner/CameraBarcodeScanner";
 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 const DEBOUNCE_MS = 300;
 
@@ -76,6 +81,15 @@ export function BuscadorProductoExistente({ onSeleccionar }: BuscadorProductoExi
   // Descarta respuestas obsoletas cuando dos búsquedas quedan en vuelo a la
   // vez (el usuario tipeó de nuevo antes de que la anterior resolviera).
   const ultimaConsultaRef = useRef("");
+
+  // ── Escáner de código de fábrica ────────────────────────────────────────
+  const [scannerActivo, setScannerActivo] = useState(false);
+  const [resolviendoEscaneo, setResolviendoEscaneo] = useState(false);
+  const [errorEscaneo, setErrorEscaneo] = useState<string | null>(null);
+  // Guarda contra detecciones reentrantes mientras una búsqueda por código
+  // ya está en vuelo (la cámara se desactiva antes del await, pero un frame
+  // ya en curso podría reportar una detección en el mismo tick).
+  const resolviendoEscaneoRef = useRef(false);
 
   function abrirListbox() {
     const rect = inputWrapperRef.current?.getBoundingClientRect();
@@ -105,6 +119,7 @@ export function BuscadorProductoExistente({ onSeleccionar }: BuscadorProductoExi
 
   function handleChange(valor: string) {
     setQuery(valor);
+    setErrorEscaneo(null);
     abrirListbox();
 
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -159,6 +174,57 @@ export function BuscadorProductoExistente({ onSeleccionar }: BuscadorProductoExi
     onSeleccionar(producto);
   }
 
+  function toggleScanner() {
+    setErrorEscaneo(null);
+    setScannerActivo((prev) => !prev);
+  }
+
+  /**
+   * Post-procesamiento del código escaneado (task_cali_scanner_variante.md
+   * §1.2/1.3): extrae `[PRODUCTO]`, busca coincidencias EXACTAS y decide
+   * según cardinalidad. Específico de este flujo — no reusa la resolución de
+   * `IngresoEscaneoPanel.tsx`, que resuelve un SKU completo contra
+   * `VarianteSKU`, no un `ProductoMaestro` por su código corto.
+   */
+  async function handleDetect(codigoEscaneado: string) {
+    if (resolviendoEscaneoRef.current) return;
+
+    const segmento = extraerCodigoProducto(codigoEscaneado);
+    if (!segmento) {
+      setErrorEscaneo("Código no reconocido. Verificá que sea un código de producto válido.");
+      return;
+    }
+
+    resolviendoEscaneoRef.current = true;
+    setScannerActivo(false);
+    setErrorEscaneo(null);
+    setResolviendoEscaneo(true);
+
+    const respuesta = await buscarProductosPorCodigo(segmento);
+    const productos = respuesta.data ?? [];
+
+    resolviendoEscaneoRef.current = false;
+    setResolviendoEscaneo(false);
+
+    if (productos.length === 1) {
+      handleSeleccionar(productos[0]);
+      return;
+    }
+
+    if (productos.length === 0) {
+      setErrorEscaneo(
+        `No se encontró ningún producto con código "${segmento}". Verificá el código o cargalo manualmente.`,
+      );
+      return;
+    }
+
+    // Colisión (2+ coincidencias): recae en el buscador manual ya existente
+    // — precarga el segmento y muestra la lista para elección explícita.
+    setQuery(segmento);
+    abrirListbox();
+    ejecutarBusqueda(segmento);
+  }
+
   const queryValida = query.trim().length >= 2;
   const mostrarLista = abierto && queryValida;
 
@@ -167,27 +233,58 @@ export function BuscadorProductoExistente({ onSeleccionar }: BuscadorProductoExi
       <Label htmlFor="buscador-producto-existente">
         ¿El producto ya existe? Agregar variantes a uno existente
       </Label>
-      <div ref={inputWrapperRef} className="relative">
-        <Search
-          className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground"
-          aria-hidden="true"
-        />
-        <Input
-          id="buscador-producto-existente"
-          value={query}
-          onChange={(e) => handleChange(e.target.value)}
-          onFocus={abrirListbox}
-          placeholder="Buscar por nombre o código de producto…"
-          autoComplete="off"
-          className="pl-9"
-        />
-        {buscando && queryValida && (
-          <Loader2
-            className="absolute right-3 top-1/2 -translate-y-1/2 size-4 animate-spin text-muted-foreground"
+      <div className="flex items-center gap-2">
+        <div ref={inputWrapperRef} className="relative flex-1">
+          <Search
+            className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground"
             aria-hidden="true"
           />
-        )}
+          <Input
+            id="buscador-producto-existente"
+            value={query}
+            onChange={(e) => handleChange(e.target.value)}
+            onFocus={abrirListbox}
+            placeholder="Buscar por nombre o código de producto…"
+            autoComplete="off"
+            className="pl-9"
+          />
+          {buscando && queryValida && (
+            <Loader2
+              className="absolute right-3 top-1/2 -translate-y-1/2 size-4 animate-spin text-muted-foreground"
+              aria-hidden="true"
+            />
+          )}
+        </div>
+
+        <Button
+          type="button"
+          variant="outline"
+          className="shrink-0 gap-2"
+          onClick={toggleScanner}
+          disabled={resolviendoEscaneo}
+        >
+          <Camera className="size-4" aria-hidden="true" />
+          {scannerActivo ? "Cerrar cámara" : "Escanear código"}
+        </Button>
       </div>
+
+      {scannerActivo && (
+        <CameraBarcodeScanner onDetect={handleDetect} activo={scannerActivo} />
+      )}
+
+      {resolviendoEscaneo && (
+        <div className="flex items-center justify-center gap-2 rounded-lg bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700">
+          <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+          Resolviendo código escaneado…
+        </div>
+      )}
+
+      {errorEscaneo && (
+        <Alert variant="destructive">
+          <CircleAlert className="size-4" aria-hidden="true" />
+          <AlertDescription>{errorEscaneo}</AlertDescription>
+        </Alert>
+      )}
 
       {mostrarLista &&
         posicion &&

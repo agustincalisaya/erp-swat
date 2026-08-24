@@ -94,6 +94,7 @@ export function FormularioProductoMaestro() {
         <MatrizVariantes
           productoMaestroId={productoCreado.id}
           codigoProducto={productoCreado.codigo_producto}
+          nombreProducto={productoCreado.nombre}
         />
 
         <Button type="button" variant="outline" onClick={handleCargarOtroProducto} className="gap-2">

@@ -99,6 +99,37 @@ export async function buscarProductosActivos(query: string): Promise<ProductoMae
   });
 }
 
+/**
+ * Búsqueda EXACTA de `ProductoMaestro` activos por `codigo_producto` — usada
+ * por el escáner de código de fábrica (Alta de Variante): el segmento
+ * `[PRODUCTO]` extraído del SKU escaneado (`extraerCodigoProducto()`, ya
+ * normalizado a mayúsculas) debe resolver contra el `codigo_producto` real,
+ * no contra `nombre`. `mode: "insensitive"` porque `codigo_producto` se
+ * guarda tal cual lo tipeó el usuario en el alta (sin normalizar mayúsculas
+ * server-side, ver `crearProductoMaestro()`), mientras que el segmento
+ * escaneado siempre llega en mayúsculas.
+ *
+ * A diferencia de `buscarProductosActivos()` (fuzzy, `contains`), esta
+ * devuelve TODAS las coincidencias exactas — puede ser 0, 1, o más de 1 fila:
+ * `codigo_producto` no es único por diseño (ver `DICCIONARIO_DATOS.md`), y el
+ * llamador decide qué hacer ante cada cardinalidad.
+ */
+export async function buscarProductosPorCodigo(
+  codigoProducto: string,
+): Promise<ProductoMaestroActivoResumen[]> {
+  const codigo = codigoProducto.trim();
+  if (!codigo) return [];
+
+  return prisma.productoMaestro.findMany({
+    where: {
+      is_active: true,
+      codigo_producto: { equals: codigo, mode: "insensitive" },
+    },
+    select: { id: true, nombre: true, codigo_producto: true },
+    orderBy: { nombre: "asc" },
+  });
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // Selector jerárquico de umbrales — listarProductosConVariantes
 // ──────────────────────────────────────────────────────────────────────────────

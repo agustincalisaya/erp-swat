@@ -34,6 +34,7 @@ const GENEROS: Genero[] = ["HOMBRE", "MUJER", "UNISEX"];
 interface MatrizVariantesProps {
   productoMaestroId: string;
   codigoProducto: string;
+  nombreProducto: string;
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -102,7 +103,11 @@ function TagList({ label, placeholder, values, onAdd, onRemove }: TagListProps) 
 // ──────────────────────────────────────────────────────────────────────────────
 // MatrizVariantes
 // ──────────────────────────────────────────────────────────────────────────────
-export function MatrizVariantes({ productoMaestroId, codigoProducto }: MatrizVariantesProps) {
+export function MatrizVariantes({
+  productoMaestroId,
+  codigoProducto,
+  nombreProducto,
+}: MatrizVariantesProps) {
   const [modelo, setModelo] = useState("");
   const [talles, setTalles] = useState<string[]>([]);
   const [colores, setColores] = useState<string[]>([]);
@@ -205,8 +210,9 @@ export function MatrizVariantes({ productoMaestroId, codigoProducto }: MatrizVar
           Matriz de Variantes
         </CardTitle>
         <CardDescription>
-          Combinación talle × color × género para el producto{" "}
-          <span className="font-mono">{codigoProducto}</span>.
+          Combinación talle × color × género para{" "}
+          <span className="font-semibold text-foreground">{nombreProducto}</span>{" "}
+          (<span className="font-mono">{codigoProducto}</span>).
         </CardDescription>
       </CardHeader>
 
