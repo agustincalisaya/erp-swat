@@ -2,13 +2,15 @@
 
 /**
  * @component TablaForenseInventario
- * @description Client Component que renderiza el historial de auditoría del
- * Módulo A (Inventario) y provee las acciones interactivas:
- *  - Verificación de integridad SHA-256 de la cadena de hashes.
- *  - Filtrado por usuario, SKU, rango de fechas y tipo de movimiento.
+ * @description Client Component de solo lectura para la HU-A7.
  *
- * Recibe los datos pre-renderizados como props desde el RSC `page.tsx`.
- * Las interacciones (verificar cadena, filtrar) se ejecutan vía Server Actions.
+ * Provee:
+ *  - Filtros server-side: búsqueda libre, SKU, usuario, rango de fechas,
+ *    tipo de movimiento y módulo/tabla (CA 2).
+ *  - Verificación interactiva de integridad SHA-256 (CA 3).
+ *  - Visualización append-only del ledger (CA 4).
+ *
+ * No expone ninguna acción de mutación (CA 1 / CA 4).
  */
 
 import { useState, useTransition, useCallback, useRef } from "react";
@@ -19,12 +21,13 @@ import {
   XCircle,
   Search,
   Hash,
+  Filter,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { DatoCifradoViewer } from "@/components/inventario/auditoria/DatoCifradoViewer";
+import { Label } from "@/components/ui/label";
 import { verificarIntegridadAction } from "@/app/(dashboard)/inventario/auditoria/actions";
 import type {
   RegistroAuditoriaInventario,
@@ -36,8 +39,15 @@ interface TablaForenseInventarioProps {
   total: number;
   page: number;
   page_size: number;
-  /** Término de búsqueda inicial (sincronizado con searchParams.q del RSC). */
-  q: string;
+  /** Valores iniciales de los filtros activos (hidratados desde la URL). */
+  filtrosIniciales?: {
+    q?: string;
+    sku_referencia?: string;
+    tipo_movimiento?: string;
+    tabla_afectada?: string;
+    fecha_desde?: string;
+    fecha_hasta?: string;
+  };
 }
 
 const ACCION_COLOR: Record<string, string> = {
@@ -45,25 +55,97 @@ const ACCION_COLOR: Record<string, string> = {
   UPDATE: "bg-blue-100 text-blue-800 border-blue-200",
   EGRESO: "bg-orange-100 text-orange-800 border-orange-200",
   INGRESO: "bg-emerald-100 text-emerald-800 border-emerald-200",
-  LECTURA_SENSIBLE: "bg-purple-100 text-purple-800 border-purple-200",
+  AJUSTE: "bg-yellow-100 text-yellow-800 border-yellow-200",
+  TRANSFERENCIA: "bg-cyan-100 text-cyan-800 border-cyan-200",
   DELETE: "bg-red-100 text-red-800 border-red-200",
 };
+
+const TIPOS_MOVIMIENTO = [
+  { value: "INGRESO", label: "Ingreso" },
+  { value: "EGRESO", label: "Egreso" },
+  { value: "AJUSTE", label: "Ajuste" },
+  { value: "TRANSFERENCIA", label: "Transferencia" },
+  { value: "CREATE", label: "Creación" },
+  { value: "UPDATE", label: "Actualización" },
+  { value: "DELETE", label: "Eliminación" },
+];
+
+const TABLAS_MODULO_A = [
+  { value: "movimientos_stock", label: "Movimientos de Stock" },
+  { value: "stock_depositos", label: "Stock por Depósito" },
+  { value: "variantes_sku", label: "Variantes SKU" },
+  { value: "depositos", label: "Depósitos" },
+  { value: "productos_maestros", label: "Productos Maestros" },
+  { value: "legajos_prueba", label: "Legajos en Prueba" },
+];
 
 export function TablaForenseInventario({
   registros,
   total,
   page,
   page_size,
-  q,
+  filtrosIniciales = {},
 }: TablaForenseInventarioProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
+
   const [resultadoVerificacion, setResultadoVerificacion] =
     useState<ResultadoVerificacionInventario | null>(null);
-  const [busquedaLocal, setBusquedaLocal] = useState(q);
   const [isPending, startTransition] = useTransition();
+
+  // Estado local de filtros (se sincronizan con la URL al aplicar)
+  const [q, setQ] = useState(filtrosIniciales.q ?? "");
+  const [sku, setSku] = useState(filtrosIniciales.sku_referencia ?? "");
+  const [tipoMov, setTipoMov] = useState(filtrosIniciales.tipo_movimiento ?? "");
+  const [tabla, setTabla] = useState(filtrosIniciales.tabla_afectada ?? "");
+  const [fechaDesde, setFechaDesde] = useState(filtrosIniciales.fecha_desde ?? "");
+  const [fechaHasta, setFechaHasta] = useState(filtrosIniciales.fecha_hasta ?? "");
+
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // ── Aplicar filtros → URL (dispara recarga del RSC) ────────────────────────
+  const aplicarFiltros = useCallback(
+    (overrides: Record<string, string> = {}) => {
+      const params = new URLSearchParams(searchParams.toString());
+      const values: Record<string, string> = {
+        q,
+        sku_referencia: sku,
+        tipo_movimiento: tipoMov,
+        tabla_afectada: tabla,
+        fecha_desde: fechaDesde,
+        fecha_hasta: fechaHasta,
+        ...overrides,
+      };
+
+      Object.entries(values).forEach(([key, val]) => {
+        if (val && val.trim()) {
+          params.set(key, val.trim());
+        } else {
+          params.delete(key);
+        }
+      });
+      params.delete("page");
+      router.push(`?${params.toString()}`);
+    },
+    [router, searchParams, q, sku, tipoMov, tabla, fechaDesde, fechaHasta],
+  );
+
+  // Búsqueda libre con debounce 350ms
+  const handleBusquedaLibre = (valor: string) => {
+    setQ(valor);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      aplicarFiltros({ q: valor });
+    }, 350);
+  };
+
+  const limpiarFiltros = () => {
+    setQ(""); setSku(""); setTipoMov(""); setTabla("");
+    setFechaDesde(""); setFechaHasta("");
+    router.push("?");
+  };
+
+  // ── Verificación SHA-256 ───────────────────────────────────────────────────
   const handleVerificarCadena = () => {
     startTransition(async () => {
       setResultadoVerificacion(null);
@@ -74,45 +156,135 @@ export function TablaForenseInventario({
     });
   };
 
-  // Búsqueda server-side: actualiza la URL con ?q=... y deja que el RSC
-  // recargue la página filtrando desde Prisma. Debounced 350ms para evitar
-  // un request por keystroke.
-  const handleBusqueda = useCallback(
-    (valor: string) => {
-      setBusquedaLocal(valor);
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-      debounceRef.current = setTimeout(() => {
-        const params = new URLSearchParams(searchParams.toString());
-        if (valor.trim()) {
-          params.set("q", valor.trim());
-        } else {
-          params.delete("q");
-        }
-        // Resetear a página 1 al buscar
-        params.delete("page");
-        router.push(`?${params.toString()}`);
-      }, 350);
-    },
-    [router, searchParams],
-  );
-
-  // Los registros ya llegan filtrados desde el servidor
-  const registrosFiltrados = registros;
+  const hayFiltrosActivos = [q, sku, tipoMov, tabla, fechaDesde, fechaHasta].some(Boolean);
 
   return (
     <div className="space-y-4">
-      {/* Toolbar */}
-      <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-          <Input
-            id="busqueda-auditoria-inventario"
-            placeholder="Filtrar por acción, tabla, registro..."
-            value={busquedaLocal}
-            onChange={(e) => handleBusqueda(e.target.value)}
-            className="pl-9 text-sm"
-          />
+
+      {/* ── Panel de filtros (CA 2) ─────────────────────────────────────── */}
+      <div className="rounded-xl border border-border bg-muted/30 p-4 space-y-3">
+        <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+          <Filter className="size-3.5" />
+          Filtros
         </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+
+          {/* Búsqueda libre */}
+          <div className="space-y-1">
+            <Label htmlFor="busqueda-libre" className="text-xs">Búsqueda libre</Label>
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+              <Input
+                id="busqueda-libre"
+                placeholder="Acción, tabla, registro..."
+                value={q}
+                onChange={(e) => handleBusquedaLibre(e.target.value)}
+                className="pl-8 text-sm h-8"
+              />
+            </div>
+          </div>
+
+          {/* SKU */}
+          <div className="space-y-1">
+            <Label htmlFor="filtro-sku" className="text-xs">SKU / Variante</Label>
+            <Input
+              id="filtro-sku"
+              placeholder="UUID o fragmento de SKU"
+              value={sku}
+              onChange={(e) => setSku(e.target.value)}
+              onBlur={() => aplicarFiltros({ sku_referencia: sku })}
+              onKeyDown={(e) => e.key === "Enter" && aplicarFiltros({ sku_referencia: sku })}
+              className="text-sm h-8"
+            />
+          </div>
+
+          {/* Tipo de movimiento */}
+          <div className="space-y-1">
+            <Label htmlFor="filtro-tipo" className="text-xs">Tipo de movimiento</Label>
+            <select
+              id="filtro-tipo"
+              value={tipoMov}
+              onChange={(e) => {
+                setTipoMov(e.target.value);
+                aplicarFiltros({ tipo_movimiento: e.target.value });
+              }}
+              className="flex h-8 w-full rounded-md border border-input bg-background px-2.5 py-1 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+            >
+              <option value="">Todos los tipos</option>
+              {TIPOS_MOVIMIENTO.map((t) => (
+                <option key={t.value} value={t.value}>{t.label}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Módulo / Tabla */}
+          <div className="space-y-1">
+            <Label htmlFor="filtro-tabla" className="text-xs">Módulo / Entidad</Label>
+            <select
+              id="filtro-tabla"
+              value={tabla}
+              onChange={(e) => {
+                setTabla(e.target.value);
+                aplicarFiltros({ tabla_afectada: e.target.value });
+              }}
+              className="flex h-8 w-full rounded-md border border-input bg-background px-2.5 py-1 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+            >
+              <option value="">Todas las entidades</option>
+              {TABLAS_MODULO_A.map((t) => (
+                <option key={t.value} value={t.value}>{t.label}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Fecha desde */}
+          <div className="space-y-1">
+            <Label htmlFor="filtro-fecha-desde" className="text-xs">Desde</Label>
+            <Input
+              id="filtro-fecha-desde"
+              type="date"
+              value={fechaDesde}
+              onChange={(e) => setFechaDesde(e.target.value)}
+              onBlur={() => aplicarFiltros({ fecha_desde: fechaDesde })}
+              className="text-sm h-8"
+            />
+          </div>
+
+          {/* Fecha hasta */}
+          <div className="space-y-1">
+            <Label htmlFor="filtro-fecha-hasta" className="text-xs">Hasta</Label>
+            <Input
+              id="filtro-fecha-hasta"
+              type="date"
+              value={fechaHasta}
+              onChange={(e) => setFechaHasta(e.target.value)}
+              onBlur={() => aplicarFiltros({ fecha_hasta: fechaHasta })}
+              className="text-sm h-8"
+            />
+          </div>
+
+        </div>
+
+        {hayFiltrosActivos && (
+          <div className="flex justify-end">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={limpiarFiltros}
+              className="text-xs h-7 text-muted-foreground hover:text-foreground"
+            >
+              Limpiar filtros
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {/* ── Toolbar: verificación + contador ───────────────────────────────── */}
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs text-muted-foreground">
+          Mostrando {registros.length} de {total} evento(s) — página {page} de{" "}
+          {Math.ceil(total / page_size) || 1}
+        </p>
         <Button
           id="btn-verificar-cadena-inventario"
           variant="outline"
@@ -130,7 +302,7 @@ export function TablaForenseInventario({
         </Button>
       </div>
 
-      {/* Resultado de verificación */}
+      {/* ── Resultado de verificación (CA 3) ───────────────────────────────── */}
       {resultadoVerificacion && (
         <Alert
           variant={resultadoVerificacion.integra ? "default" : "destructive"}
@@ -149,17 +321,18 @@ export function TablaForenseInventario({
             {resultadoVerificacion.integra ? (
               <>
                 <strong>Cadena íntegra.</strong> Se verificaron{" "}
-                {resultadoVerificacion.registros_verificados} evento(s) de
-                inventario sin discrepancias.
+                {resultadoVerificacion.registros_verificados} evento(s) sin discrepancias.
               </>
             ) : (
               <>
-                <strong>¡Cadena comprometida!</strong> Ruptura detectada después
-                de {resultadoVerificacion.registros_verificados} evento(s).
+                <strong>¡Cadena comprometida!</strong> Ruptura detectada después de{" "}
+                {resultadoVerificacion.registros_verificados} evento(s).
                 {resultadoVerificacion.primer_registro_divergente_id && (
                   <span className="block mt-1 font-mono text-xs">
                     Primer registro divergente:{" "}
-                    {resultadoVerificacion.primer_registro_divergente_id}
+                    <span className="font-semibold">
+                      {resultadoVerificacion.primer_registro_divergente_id}
+                    </span>
                   </span>
                 )}
               </>
@@ -168,13 +341,7 @@ export function TablaForenseInventario({
         </Alert>
       )}
 
-      {/* Contador */}
-      <p className="text-xs text-muted-foreground">
-        Mostrando {registrosFiltrados.length} de {total} evento(s) — página{" "}
-        {page} de {Math.ceil(total / page_size) || 1}
-      </p>
-
-      {/* Tabla */}
+      {/* ── Tabla (CA 1: solo lectura, CA 4: append-only visible) ─────────── */}
       <div className="rounded-xl border border-border overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -190,13 +357,10 @@ export function TablaForenseInventario({
                   Acción
                 </th>
                 <th className="text-left px-4 py-3 font-semibold text-xs uppercase tracking-wide text-muted-foreground">
-                  Tabla
+                  Entidad
                 </th>
                 <th className="text-left px-4 py-3 font-semibold text-xs uppercase tracking-wide text-muted-foreground">
                   Registro ID
-                </th>
-                <th className="text-left px-4 py-3 font-semibold text-xs uppercase tracking-wide text-muted-foreground">
-                  Datos sensibles
                 </th>
                 <th className="text-left px-4 py-3 font-semibold text-xs uppercase tracking-wide text-muted-foreground">
                   Hash SHA-256
@@ -204,22 +368,21 @@ export function TablaForenseInventario({
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {registrosFiltrados.length === 0 ? (
+              {registros.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={7}
+                    colSpan={6}
                     className="text-center py-12 text-muted-foreground text-sm"
                   >
-                    No hay eventos de auditoría que coincidan con los filtros.
+                    No hay eventos que coincidan con los filtros aplicados.
                   </td>
                 </tr>
               ) : (
-                registrosFiltrados.map((registro) => (
+                registros.map((registro) => (
                   <tr
                     key={registro.id}
                     className="hover:bg-muted/30 transition-colors"
                   >
-                    {/* Fecha */}
                     <td className="px-4 py-3 whitespace-nowrap text-xs text-muted-foreground">
                       {registro.created_at.toLocaleString("es-AR", {
                         dateStyle: "short",
@@ -227,7 +390,6 @@ export function TablaForenseInventario({
                       })}
                     </td>
 
-                    {/* Usuario */}
                     <td className="px-4 py-3 text-xs">
                       <div className="font-medium">
                         {registro.usuario_nombre ?? "Sistema"}
@@ -237,7 +399,6 @@ export function TablaForenseInventario({
                       </div>
                     </td>
 
-                    {/* Acción */}
                     <td className="px-4 py-3">
                       <Badge
                         variant="outline"
@@ -247,45 +408,14 @@ export function TablaForenseInventario({
                       </Badge>
                     </td>
 
-                    {/* Tabla */}
                     <td className="px-4 py-3 text-xs font-mono text-muted-foreground">
                       {registro.tabla_afectada}
                     </td>
 
-                    {/* Registro ID */}
                     <td className="px-4 py-3 text-[10px] font-mono text-muted-foreground truncate max-w-[120px]">
                       {registro.registro_id ?? "—"}
                     </td>
 
-                    {/* Datos sensibles (solo para legajos_prueba) */}
-                    <td className="px-4 py-3">
-                      {registro.tabla_afectada === "legajos_prueba" &&
-                      registro.registro_id &&
-                      registro.accion === "CREATE" ? (
-                        <div className="space-y-1.5">
-                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                            <span className="w-14 shrink-0">Placa:</span>
-                            <DatoCifradoViewer
-                              legajoPruebaId={registro.registro_id}
-                              campo="efectivo_placa"
-                              label="placa"
-                            />
-                          </div>
-                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                            <span className="w-14 shrink-0">Organismo:</span>
-                            <DatoCifradoViewer
-                              legajoPruebaId={registro.registro_id}
-                              campo="efectivo_organismo"
-                              label="organismo"
-                            />
-                          </div>
-                        </div>
-                      ) : (
-                        <span className="text-muted-foreground text-xs">—</span>
-                      )}
-                    </td>
-
-                    {/* Hash SHA-256 */}
                     <td className="px-4 py-3">
                       <code
                         className="text-[9px] font-mono text-muted-foreground truncate block max-w-[140px]"
@@ -301,6 +431,7 @@ export function TablaForenseInventario({
           </table>
         </div>
       </div>
+
     </div>
   );
 }

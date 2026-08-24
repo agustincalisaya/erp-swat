@@ -56,7 +56,6 @@ async function AuditoriaData({
   searchParams: Record<string, string | string[] | undefined>;
   sesion: ServerSession;
 }) {
-  // Extraer término de búsqueda libre
   // Extraer y sanitizar el término de búsqueda libre (máx. 100 chars)
   const q = typeof searchParams.q === "string"
     ? searchParams.q.slice(0, 100)
@@ -69,6 +68,7 @@ async function AuditoriaData({
     fecha_desde: searchParams.fecha_desde,
     fecha_hasta: searchParams.fecha_hasta,
     tipo_movimiento: searchParams.tipo_movimiento,
+    tabla_afectada: searchParams.tabla_afectada,
     page: searchParams.page ?? "1",
     page_size: searchParams.page_size ?? "25",
   });
@@ -106,7 +106,14 @@ async function AuditoriaData({
       total={listado.total}
       page={listado.page}
       page_size={listado.page_size}
-      q={q ?? ""}
+      filtrosIniciales={{
+        q: q ?? "",
+        sku_referencia: typeof searchParams.sku_referencia === "string" ? searchParams.sku_referencia : "",
+        tipo_movimiento: typeof searchParams.tipo_movimiento === "string" ? searchParams.tipo_movimiento : "",
+        tabla_afectada: typeof searchParams.tabla_afectada === "string" ? searchParams.tabla_afectada : "",
+        fecha_desde: typeof searchParams.fecha_desde === "string" ? searchParams.fecha_desde : "",
+        fecha_hasta: typeof searchParams.fecha_hasta === "string" ? searchParams.fecha_hasta : "",
+      }}
     />
   );
 }
