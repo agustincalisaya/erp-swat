@@ -32,6 +32,7 @@ import {
 import { Label } from "@/components/ui/label"
 import { toast } from "@/components/ui/toast"
 import { FormularioUmbralesStock } from "@/components/inventario/FormularioUmbralesStock"
+import { ComboboxFiltrable } from "@/components/inventario/ComboboxFiltrable"
 import {
   listarDepositosActivos,
   listarProductosConVariantes,
@@ -192,42 +193,34 @@ export function SelectorJerarquicoStock() {
 
           <div className="space-y-2">
             <Label htmlFor="selector-producto">Producto Maestro</Label>
-            <select
+            <ComboboxFiltrable
               id="selector-producto"
-              className={selectClassName}
+              items={productos}
+              getId={(producto) => producto.id}
+              getLabel={(producto) => producto.nombre}
               value={productoId}
-              disabled={!depositoId || cargandoProductos}
-              onChange={(e) => handleProductoChange(e.target.value)}
-            >
-              <option value="">
-                {cargandoProductos ? "Cargando…" : "Seleccioná un producto"}
-              </option>
-              {productos.map((producto) => (
-                <option key={producto.id} value={producto.id}>
-                  {producto.nombre}
-                </option>
-              ))}
-            </select>
+              onChange={(producto) => handleProductoChange(producto.id)}
+              placeholder="Buscar producto por nombre…"
+              disabled={!depositoId}
+              cargando={cargandoProductos}
+              emptyMessage="Sin coincidencias."
+            />
           </div>
 
           <div className="space-y-2">
             <Label htmlFor="selector-variante">Variante</Label>
-            <select
+            <ComboboxFiltrable
               id="selector-variante"
-              className={selectClassName}
+              items={variantes}
+              getId={(variante) => variante.id}
+              getLabel={etiquetaVariante}
               value={varianteId}
-              disabled={!productoId || cargandoVariantes}
-              onChange={(e) => handleVarianteChange(e.target.value)}
-            >
-              <option value="">
-                {cargandoVariantes ? "Cargando…" : "Seleccioná una variante"}
-              </option>
-              {variantes.map((variante) => (
-                <option key={variante.id} value={variante.id}>
-                  {etiquetaVariante(variante)}
-                </option>
-              ))}
-            </select>
+              onChange={(variante) => handleVarianteChange(variante.id)}
+              placeholder="Buscar variante por talle, color, género o SKU…"
+              disabled={!productoId}
+              cargando={cargandoVariantes}
+              emptyMessage="Sin coincidencias."
+            />
           </div>
         </CardContent>
       </Card>
