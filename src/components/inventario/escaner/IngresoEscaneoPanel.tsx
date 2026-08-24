@@ -8,7 +8,7 @@
  * múltiples ítems): tras cada ingreso exitoso, vuelve automáticamente al
  * estado de escaneo.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
@@ -22,9 +22,14 @@ import {
   Hash,
   FileText,
   BadgeCheck,
+  Keyboard,
 } from "lucide-react";
 
-import { RegistrarIngresoPorEscaneoSchema } from "@/lib/schemas/inventario.schema";
+import {
+  RegistrarIngresoPorEscaneoSchema,
+  IMPACTO_STOCK_POR_ESTADO_DESTINO,
+  type IngresoEstadoDestino,
+} from "@/lib/schemas/inventario.schema";
 import {
   resolverCodigoEscaneoAction,
   registrarIngresoStockAction,
@@ -56,7 +61,14 @@ type Estado = "escaneando" | "resolviendo" | "confirmando" | "registrando" | "ex
 type IngresoFormValues = {
   variante_sku_id: string;
   deposito_destino_id: string;
-  cantidad: number;
+  /**
+   * `number` en los valores por defecto/reset; `string` mientras el usuario
+   * edita el input (ver `onChange` del campo Cantidad) — así el campo nunca
+   * queda controlado por un `NaN` a mitad de tipeo (ej. al escribir "." o
+   * "-"). La conversión final a entero la hace el `preprocess` de
+   * `RegistrarIngresoPorEscaneoSchema` al validar/enviar.
+   */
+  cantidad: number | string;
   comprobante_referencia: string;
   estado_destino:
     | "DISPONIBLE"
@@ -74,6 +86,8 @@ interface ItemHistorial {
   sku: string;
   producto_nombre: string;
   cantidad: number;
+  estado_destino: string;
+  impacto_stock: "SUMA" | "RESTA";
   stock_resultante: number;
   ts: number;
 }
@@ -105,6 +119,7 @@ export function IngresoEscaneoPanel({ depositos }: IngresoEscaneoPanelProps) {
   const [errorRegistro, setErrorRegistro] = useState<string | null>(null);
   const [ultimoResultado, setUltimoResultado] = useState<IngresoRegistrado | null>(null);
   const [historial, setHistorial] = useState<ItemHistorial[]>([]);
+  const [codigoManual, setCodigoManual] = useState("");
 
   const estadoRef = useRef(estado);
   useEffect(() => {
@@ -166,6 +181,17 @@ export function IngresoEscaneoPanel({ depositos }: IngresoEscaneoPanelProps) {
     setEstado("confirmando");
   }
 
+  // ── Ingreso manual de código — fallback cuando la cámara no está
+  // disponible (sin cámara en el dispositivo, permiso denegado, etiqueta
+  // dañada/ilegible). Reutiliza el mismo flujo de resolución que la cámara.
+  async function handleDetectManual(e: FormEvent) {
+    e.preventDefault();
+    const codigo = codigoManual.trim();
+    if (!codigo || estado !== "escaneando") return;
+    setCodigoManual("");
+    await handleDetect(codigo);
+  }
+
   // ── Paso 2: confirmación y registro transaccional ───────────────────────
   async function onSubmit(data: IngresoFormValues) {
     setEstado("registrando");
@@ -187,6 +213,8 @@ export function IngresoEscaneoPanel({ depositos }: IngresoEscaneoPanelProps) {
           sku: resuelto?.sku ?? "",
           producto_nombre: resuelto?.producto_nombre ?? "",
           cantidad: resultado.data!.cantidad,
+          estado_destino: resultado.data!.estado_destino,
+          impacto_stock: resultado.data!.impacto_stock,
           stock_resultante: resultado.data!.stock_resultante.cantidad,
           ts: Date.now(),
         },
@@ -204,7 +232,15 @@ export function IngresoEscaneoPanel({ depositos }: IngresoEscaneoPanelProps) {
   }
 
   const cantidad = useWatch({ control: form.control, name: "cantidad" });
+  const estadoDestinoSeleccionado = useWatch({ control: form.control, name: "estado_destino" });
   const esSerializado = resuelto?.es_serializado ?? false;
+  // El botón solo debe mostrar cantidades válidas — `cantidad` puede ser
+  // string (mientras se edita), negativa, decimal o vacía.
+  const cantidadNumerica = typeof cantidad === "number" ? cantidad : Number(cantidad);
+  const cantidadMostrada =
+    Number.isInteger(cantidadNumerica) && cantidadNumerica > 0 ? cantidadNumerica : 1;
+  const impactoSeleccionado =
+    IMPACTO_STOCK_POR_ESTADO_DESTINO[estadoDestinoSeleccionado as IngresoEstadoDestino];
 
   return (
     <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.05fr_1fr] lg:items-start">
@@ -222,6 +258,32 @@ export function IngresoEscaneoPanel({ depositos }: IngresoEscaneoPanelProps) {
         <CardContent className="space-y-3 pt-5">
           <CameraBarcodeScanner onDetect={handleDetect} activo={estado === "escaneando"} />
 
+          {/* Alta manual — fallback cuando la cámara no está disponible o el
+              código está dañado/ilegible. */}
+          <form onSubmit={handleDetectManual} className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <Keyboard
+                className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+                aria-hidden="true"
+              />
+              <Input
+                value={codigoManual}
+                onChange={(e) => setCodigoManual(e.target.value)}
+                placeholder="O ingresá el código manualmente"
+                aria-label="Código manual de la variante"
+                disabled={estado !== "escaneando"}
+                className="pl-8 focus-visible:border-blue-500 focus-visible:ring-blue-500/30"
+              />
+            </div>
+            <Button
+              type="submit"
+              variant="outline"
+              disabled={estado !== "escaneando" || !codigoManual.trim()}
+            >
+              Buscar
+            </Button>
+          </form>
+
           {estado === "resolviendo" && (
             <div className="flex items-center justify-center gap-2 rounded-lg bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700">
               <Loader2 className="size-4 animate-spin" aria-hidden="true" />
@@ -237,11 +299,40 @@ export function IngresoEscaneoPanel({ depositos }: IngresoEscaneoPanelProps) {
           )}
 
           {estado === "exito" && ultimoResultado && (
-            <Alert className="border-blue-200 bg-blue-50">
-              <CheckCircle2 className="size-4 text-blue-600" aria-hidden="true" />
-              <AlertDescription className="text-blue-800">
-                Ingreso registrado. Stock resultante en depósito:{" "}
-                <span className="font-semibold">{ultimoResultado.stock_resultante.cantidad}</span> unidades.
+            <Alert
+              className={
+                ultimoResultado.impacto_stock === "SUMA"
+                  ? "border-blue-200 bg-blue-50"
+                  : "border-amber-200 bg-amber-50"
+              }
+            >
+              {ultimoResultado.impacto_stock === "SUMA" ? (
+                <CheckCircle2 className="size-4 text-blue-600" aria-hidden="true" />
+              ) : (
+                <CircleAlert className="size-4 text-amber-600" aria-hidden="true" />
+              )}
+              <AlertDescription
+                className={
+                  ultimoResultado.impacto_stock === "SUMA" ? "text-blue-800" : "text-amber-800"
+                }
+              >
+                {ultimoResultado.impacto_stock === "SUMA" ? (
+                  <>
+                    Ingreso registrado. Stock disponible en depósito:{" "}
+                    <span className="font-semibold">{ultimoResultado.stock_resultante.cantidad}</span>{" "}
+                    unidades.
+                  </>
+                ) : (
+                  <>
+                    Movimiento registrado como{" "}
+                    <span className="font-semibold">
+                      {ultimoResultado.estado_destino.replaceAll("_", " ")}
+                    </span>
+                    . Se restaron {ultimoResultado.cantidad} unidades del stock disponible (queda en{" "}
+                    <span className="font-semibold">{ultimoResultado.stock_resultante.cantidad}</span>{" "}
+                    unidades).
+                  </>
+                )}
               </AlertDescription>
             </Alert>
           )}
@@ -262,7 +353,16 @@ export function IngresoEscaneoPanel({ depositos }: IngresoEscaneoPanelProps) {
                       <PackageCheck className="size-3.5 shrink-0 text-blue-600" aria-hidden="true" />
                       <span className="truncate">{item.producto_nombre || item.sku}</span>
                     </span>
-                    <Badge className="shrink-0 bg-blue-600 text-white">+{item.cantidad}</Badge>
+                    {item.impacto_stock === "SUMA" ? (
+                      <Badge className="shrink-0 bg-blue-600 text-white">+{item.cantidad}</Badge>
+                    ) : (
+                      <Badge
+                        variant="outline"
+                        className="shrink-0 border-amber-300 text-amber-700"
+                      >
+                        {item.estado_destino.replaceAll("_", " ")} −{item.cantidad}
+                      </Badge>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -354,7 +454,14 @@ export function IngresoEscaneoPanel({ depositos }: IngresoEscaneoPanelProps) {
                             min={1}
                             disabled={esSerializado}
                             className="focus-visible:border-blue-500 focus-visible:ring-blue-500/30"
-                            onChange={(e) => field.onChange(e.target.valueAsNumber)}
+                            // Se pasa el string crudo, NUNCA `valueAsNumber`: para un
+                            // input controlado, un valor intermedio inválido (ej. "."
+                            // o "-" solos) hace que `valueAsNumber` sea NaN, y asignarle
+                            // NaN al `value` de un <input type="number"> controlado hace
+                            // que el navegador borre todo lo tipeado. El string se
+                            // conserva tal cual el usuario lo escribe; la conversión a
+                            // entero la hace el `preprocess` del schema al validar.
+                            onChange={(e) => field.onChange(e.target.value)}
                           />
                         </FormControl>
                         <FormMessage />
@@ -380,6 +487,11 @@ export function IngresoEscaneoPanel({ depositos }: IngresoEscaneoPanelProps) {
                             ))}
                           </select>
                         </FormControl>
+                        {impactoSeleccionado === "RESTA" && (
+                          <p className="text-[11px] font-medium text-amber-600">
+                            Este estado resta del stock disponible del depósito.
+                          </p>
+                        )}
                         <FormMessage />
                       </FormItem>
                     )}
@@ -426,6 +538,7 @@ export function IngresoEscaneoPanel({ depositos }: IngresoEscaneoPanelProps) {
                           {...field}
                           placeholder="Ej: REM-2026-001"
                           autoComplete="off"
+                          maxLength={100}
                           className="focus-visible:border-blue-500 focus-visible:ring-blue-500/30"
                         />
                       </FormControl>
@@ -457,7 +570,7 @@ export function IngresoEscaneoPanel({ depositos }: IngresoEscaneoPanelProps) {
                     ) : (
                       <>
                         <PackageCheck className="size-4" aria-hidden="true" />
-                        Confirmar ingreso ({cantidad || 1})
+                        Confirmar ingreso ({cantidadMostrada})
                       </>
                     )}
                   </Button>
