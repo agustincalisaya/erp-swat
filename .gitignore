@@ -42,3 +42,13 @@ next-env.d.ts
 
 /app/generated/prisma
 
+# SDD skill registry (local index, regenerable)
+.atl/
+
+# SDD artifact store (local-only trail, not for the team repo)
+/openspec/
+
+# Personal HU prompts (dev-only workflow, not team docs)
+/prompts/
+docs/tasks/prompts/
+
