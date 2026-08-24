@@ -6,7 +6,6 @@ import { z } from "zod";
 
 /** Tablas del Módulo A expuestas como opciones de filtro "módulo". */
 const TABLAS_MODULO_A = [
-  "legajos_prueba",
   "stock_depositos",
   "movimientos_stock",
   "variantes_sku",
@@ -32,7 +31,7 @@ export const FiltrosAuditoriaInventarioSchema = z
     fecha_desde: z.coerce.date().optional(),
     fecha_hasta: z.coerce.date().optional(),
     tipo_movimiento: z
-      .enum(["INGRESO", "EGRESO", "AJUSTE", "TRANSFERENCIA", "CREATE", "UPDATE", "DELETE", "LECTURA_SENSIBLE"])
+      .enum(["INGRESO", "EGRESO", "AJUSTE", "TRANSFERENCIA", "CREATE", "UPDATE", "DELETE"])
       .optional(),
     tabla_afectada: z.enum(TABLAS_MODULO_A).optional(),
     page: z.coerce.number().int().min(1).default(1),

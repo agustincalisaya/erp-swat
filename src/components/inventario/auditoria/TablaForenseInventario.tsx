@@ -76,7 +76,6 @@ const TABLAS_MODULO_A = [
   { value: "variantes_sku", label: "Variantes SKU" },
   { value: "depositos", label: "Depósitos" },
   { value: "productos_maestros", label: "Productos Maestros" },
-  { value: "legajos_prueba", label: "Legajos en Prueba" },
 ];
 
 export function TablaForenseInventario({

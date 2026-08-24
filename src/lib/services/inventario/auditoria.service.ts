@@ -19,8 +19,7 @@ import "server-only";
 
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
-import { calcularHashEncadenado } from "@/lib/crypto/hash-chain";
-import { registrarAuditLog } from "@/lib/services/auditoria/audit-log.service";
+import { calcularHashEncadenado, HASH_GENESIS } from "@/lib/crypto/hash-chain";
 import { usuarioTienePermiso } from "@/lib/auth/with-permission";
 import type { ServerSession } from "@/lib/auth/session";
 import type { FiltrosAuditoriaInventarioInput } from "@/lib/schemas/inventario-auditoria.schema";
@@ -36,7 +35,6 @@ const PERMISO_LEER_FORENSE = "auditoria:leer_forense";
  * desde la vista de auditoría de inventario.
  */
 const TABLAS_MODULO_A = [
-  "legajos_prueba",
   "stock_depositos",
   "movimientos_stock",
   "variantes_sku",
@@ -187,8 +185,22 @@ export async function obtenerLogsInventario(
 // ──────────────────────────────────────────────────────────────────────────────
 
 /**
- * Recalcula secuencialmente los hashes SHA-256 de los eventos de inventario,
- * detectando el primer punto de ruptura de la cadena.
+ * Recalcula secuencialmente los hashes SHA-256 de TODO el ledger `AuditLog`
+ * (sin filtrar por tabla) y detecta el primer punto de ruptura de la cadena.
+ *
+ * Punto crítico de diseño (ronda de corrección post-HU-A7): `registrarAuditLog()`
+ * encadena cada evento contra el último registro de TODA la tabla `AuditLog`
+ * — usuarios, roles, sesiones e inventario comparten una única cadena global,
+ * nunca una cadena separada por módulo (ver `audit-log.service.ts`). Filtrar
+ * primero por `TABLAS_MODULO_A` y recién ahí encadenar las filas filtradas
+ * entre sí (como hacía la versión anterior de esta función) produce falsos
+ * positivos de "ruptura" apenas hay un evento de otro módulo (ej. un login)
+ * intercalado cronológicamente entre dos eventos de inventario — situación
+ * habitual en uso real. La verificación tiene que recorrer la cadena
+ * completa, igual que `verificarCadenaIntegridad()` de Módulo D
+ * (`audit-log.service.ts`) — el filtro de Módulo A se aplica solo para
+ * contar cuántos de los eventos ya verificados como íntegros pertenecen al
+ * dominio de inventario, nunca para decidir adyacencia de hashes.
  *
  * No confía en los valores almacenados: reconstruye `hash_actual` en memoria
  * usando un acumulador local. Detecta dos clases de tamper:
@@ -197,7 +209,6 @@ export async function obtenerLogsInventario(
  */
 export async function verificarCadenaHashesInventario(): Promise<ResultadoVerificacionInventario> {
   const registros = await prisma.auditLog.findMany({
-    where: { tabla_afectada: { in: [...TABLAS_MODULO_A] } },
     orderBy: { created_at: "asc" },
     select: {
       id: true,
@@ -213,21 +224,16 @@ export async function verificarCadenaHashesInventario(): Promise<ResultadoVerifi
     },
   });
 
-  if (registros.length === 0) {
-    return { integra: true, registros_verificados: 0 };
-  }
-
-  // El punto de partida es el hash_anterior del primer registro de inventario
-  // (apunta al último evento global previo, o a HASH_GENESIS si es el primero).
-  let hashAnteriorEsperado = registros[0].hash_anterior;
-  let registrosVerificados = 0;
+  const tablasModuloA: readonly string[] = TABLAS_MODULO_A;
+  let hashAnteriorEsperado = HASH_GENESIS;
+  let registrosModuloAVerificados = 0;
 
   for (const registro of registros) {
     // Check 1: el hash_anterior almacenado debe coincidir con el acumulador
     if (registro.hash_anterior !== hashAnteriorEsperado) {
       return {
         integra: false,
-        registros_verificados: registrosVerificados,
+        registros_verificados: registrosModuloAVerificados,
         primer_registro_divergente_id: registro.id,
         hash_esperado: hashAnteriorEsperado,
         hash_almacenado: registro.hash_anterior,
@@ -251,22 +257,18 @@ export async function verificarCadenaHashesInventario(): Promise<ResultadoVerifi
     if (registro.hash_actual !== hashActualEsperado) {
       return {
         integra: false,
-        registros_verificados: registrosVerificados,
+        registros_verificados: registrosModuloAVerificados,
         primer_registro_divergente_id: registro.id,
         hash_esperado: hashActualEsperado,
         hash_almacenado: registro.hash_actual,
       };
     }
 
-    registrosVerificados++;
+    if (tablasModuloA.includes(registro.tabla_afectada)) {
+      registrosModuloAVerificados++;
+    }
     hashAnteriorEsperado = registro.hash_actual;
   }
 
-  return { integra: true, registros_verificados: registrosVerificados };
+  return { integra: true, registros_verificados: registrosModuloAVerificados };
 }
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Re-exportar registrarAuditLog para uso interno del módulo A
-// (append-only — CA 4: ningún caso de uso expone UPDATE/DELETE)
-// ──────────────────────────────────────────────────────────────────────────────
-export { registrarAuditLog };
