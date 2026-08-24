@@ -192,4 +192,107 @@ export function iniciarAuditLogListener(): void {
       },
     });
   });
+
+  // HU-A7 (ronda de corrección) — alta de ProductoMaestro. El payload no
+  // trae `ip` (el service de catálogo no la captura); se usa el sentinel
+  // "unknown" ya establecido en este archivo para el mismo problema (ver
+  // `usuario:sesion_cerrada`), ya que `AuditLog.ip` es NOT NULL. El service
+  // nunca llama `registrarAuditLog()` directo — solo emite el evento.
+  domainEventBus.on("producto_maestro:creado", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "CREATE",
+      tabla_afectada: "productos_maestros",
+      registro_id: payload.producto_maestro_id,
+      ip: "unknown",
+      valor_anterior: null,
+      valor_nuevo: { nombre: payload.nombre },
+    });
+  });
+
+  // HU-A7 (ronda de corrección) — generación en lote de VarianteSKU. Evento
+  // batch por diseño (un único evento con el conteo total, nunca uno por
+  // variante individual) — `registro_id` referencia el ProductoMaestro
+  // padre, no existe un id de variante individual en este payload.
+  // `ip: "unknown"` por el mismo motivo que el resto de los bloques de
+  // Módulo A en este archivo.
+  domainEventBus.on("variantes:generadas", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "CREATE",
+      tabla_afectada: "variantes_sku",
+      registro_id: payload.producto_maestro_id,
+      ip: "unknown",
+      valor_anterior: null,
+      valor_nuevo: { cantidad_generadas: payload.cantidad_generadas },
+    });
+  });
+
+  // HU-A7 (ronda de corrección) — baja lógica de ProductoMaestro. Mismo
+  // patrón que `inventario:variante_baja_logica` (arriba): `valor_anterior`
+  // asume `is_active: true` porque el payload no trae snapshot previo.
+  // `ip: "unknown"` — este payload tampoco la incluye.
+  domainEventBus.on("producto_maestro:desactivado", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "DELETE_LOGICO",
+      tabla_afectada: "productos_maestros",
+      registro_id: payload.producto_maestro_id,
+      ip: "unknown",
+      valor_anterior: { is_active: true },
+      valor_nuevo: {
+        is_active: false,
+        deletion_reason: payload.deletion_reason,
+      },
+    });
+  });
+
+  // Configuración de umbrales de reposición sobre StockDeposito (HU-7,
+  // `actualizarUmbrales()`). El payload solo trae los valores nuevos (no
+  // hay snapshot "antes"), de ahí `valor_anterior: null`. `registro_id`
+  // usa `stock_deposito_id` (la fila realmente afectada) en vez de
+  // `variante_sku_id`/`deposito_id`, que quedan como contexto en
+  // `valor_nuevo`. `ip: "unknown"` — mismo motivo que el resto de esta
+  // sección.
+  domainEventBus.on("stock:umbrales_configurados", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "UPDATE",
+      tabla_afectada: "stock_depositos",
+      registro_id: payload.stock_deposito_id,
+      ip: "unknown",
+      valor_anterior: null,
+      valor_nuevo: {
+        variante_sku_id: payload.variante_sku_id,
+        deposito_id: payload.deposito_id,
+        punto_pedido: payload.punto_pedido,
+        stock_seguridad: payload.stock_seguridad,
+      },
+    });
+  });
+
+  // HU-2 — ingreso de mercadería por escaneo (crea MovimientoStock tipo
+  // INGRESO + incrementa StockDeposito.cantidad). `accion: "INGRESO"` (no
+  // "CREATE") a propósito: es el valor que ya existe como opción
+  // seleccionable en el filtro "Tipo de movimiento" de
+  // `TablaForenseInventario.tsx` (`TIPOS_MOVIMIENTO`), que se traduce 1:1 a
+  // `AuditLog.accion` en la consulta de `auditoria.service.ts` — usar
+  // "CREATE" dejaría ese filtro sin poder encontrar nunca estos registros.
+  // `ip: "unknown"` — mismo motivo que el resto de esta sección.
+  domainEventBus.on("inventario:ingreso_stock_registrado", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "INGRESO",
+      tabla_afectada: "movimientos_stock",
+      registro_id: payload.movimiento_id,
+      ip: "unknown",
+      valor_anterior: null,
+      valor_nuevo: {
+        variante_sku_id: payload.variante_sku_id,
+        deposito_destino_id: payload.deposito_destino_id,
+        cantidad: payload.cantidad,
+        cantidad_resultante: payload.cantidad_resultante,
+      },
+    });
+  });
 }

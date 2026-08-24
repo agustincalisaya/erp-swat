@@ -200,9 +200,9 @@ export default async function AuditoriaInventarioPage({
                 Vista de solo lectura — Auditor
               </p>
               <p className="text-xs text-indigo-100 mt-0.5">
-                Cada acceso a datos sensibles se registra automáticamente como{" "}
-                <span className="font-semibold">LECTURA_SENSIBLE</span> en el
-                ledger de auditoría (Ley N.° 25.326).
+                Toda alta, actualización o baja lógica sobre inventario queda
+                registrada en un ledger encadenado por SHA-256, verificable en
+                cualquier momento.
               </p>
             </div>
           </div>
@@ -223,7 +223,8 @@ export default async function AuditoriaInventarioPage({
               Log de eventos — Módulo A
             </CardTitle>
             <CardDescription>
-              Movimientos de stock, legajos en prueba y cambios de inventario.
+              Movimientos de stock, altas y bajas del catálogo de productos, y
+              configuración de umbrales de reposición.
             </CardDescription>
             <CardAction>
               <span className="text-xs text-muted-foreground italic flex items-center gap-1">
