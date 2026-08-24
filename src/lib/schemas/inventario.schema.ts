@@ -62,6 +62,20 @@ export const DesactivarProductoMaestroSchema = z.object({
 export type DesactivarProductoMaestroInput = z.infer<typeof DesactivarProductoMaestroSchema>;
 
 /**
+ * HU-A6 — Baja lógica de una `VarianteSKU` (sección 3.5 de spec_modulo_A.md).
+ * Shape-only, mismo criterio que `DesactivarProductoMaestroSchema`:
+ * `deletion_reason` es opcional a nivel de forma — la obligatoriedad depende
+ * del stock remanente activo de la variante (`StockDeposito.cantidad > 0`),
+ * regla que evalúa la capa de servicio (`darDeBajaVariante()`), no el schema.
+ * Sin superRefine (decisión D4).
+ */
+export const BajaLogicaVarianteSchema = z.object({
+  deletion_reason: z.string().trim().min(1).optional(),
+});
+
+export type BajaLogicaVarianteInput = z.infer<typeof BajaLogicaVarianteSchema>;
+
+/**
  * Semántica: stock_seguridad (piso crítico) < punto_pedido (umbral de alerta)
  * El refine exige punto_pedido >= stock_seguridad para dejar margen de reacción.
  */
