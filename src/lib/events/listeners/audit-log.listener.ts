@@ -1,7 +1,7 @@
 /**
  * @module audit-log.listener
  * @description ÚNICA vía de escritura a `AuditLog` de todo el Módulo D
- * (spec_modulo_D.md §4.1) — consume los 8 eventos de dominio y llama
+ * (spec_modulo_D.md §4.1) — consume los 10 eventos de dominio y llama
  * `registrarAuditLog()`. Ningún service invoca `registrarAuditLog()` de
  * forma directa; todos emiten al bus y este listener reacciona.
  *
@@ -170,6 +170,26 @@ export function iniciarAuditLogListener(): void {
       ip: payload.ip,
       valor_anterior: { permisos_removidos: payload.permisos_removidos },
       valor_nuevo: { permisos_agregados: payload.permisos_agregados },
+    });
+  });
+
+  // HU-A6 — baja lógica de VarianteSKU (spec_modulo_A.md §4, spec_modulo_D.md §4).
+  // `tabla_afectada` usa el `@@map` en minúsculas (`variantes_sku`), misma
+  // convención que el resto de los listeners (`usuarios`, `roles`, `sesiones`).
+  // El service nunca llama `registrarAuditLog()` directo — solo emite el evento.
+  domainEventBus.on("inventario:variante_baja_logica", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "DELETE_LOGICO",
+      tabla_afectada: "variantes_sku",
+      registro_id: payload.variante_sku_id,
+      ip: payload.ip,
+      valor_anterior: { is_active: true },
+      valor_nuevo: {
+        is_active: false,
+        deletion_reason: payload.deletion_reason,
+        stock_total_al_momento: payload.stock_total_al_momento,
+      },
     });
   });
 }
