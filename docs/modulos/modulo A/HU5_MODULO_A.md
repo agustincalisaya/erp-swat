@@ -1,4 +1,4 @@
-# HU-7 — Configuración de Umbrales de Stock (Módulo A)
+# HU-5 — Configuración de Umbrales de Stock (Módulo A)
 
 **Estado:** Implementado y verificado — incluida la fórmula de cálculo de sugerencia, confirmada con datos de fixture. Ver sección 1.7 para el detalle exacto de qué está confirmado, qué está fuera de alcance por depender de trabajo de otro integrante del equipo, y qué queda como limitación conocida.
 **Metodología:** Specification-Driven Development (SDD) con Claude Code.
@@ -39,10 +39,12 @@ Sin migraciones — la entidad objetivo, `StockDeposito`, ya contaba con los cam
 
 | Endpoint | Método | Estado | Verificación |
 |---|---|---|---|
-| `/api/inventario/stock/umbrales` | `PATCH` | ✅ Implementado | Configuración válida (`200`, persistido en Postgres), violación de regla semántica (`400`), sin sesión (`401`), combinación inexistente (`404`) |
+| `/api/inventario/stock/umbrales` | `PATCH` | ✅ Implementado | Configuración válida (`200`, persistido en Postgres), violación de regla semántica (`400`, tanto en creación como en actualización), sin sesión (`401`) |
 | `/api/inventario/stock/umbrales/sugerencia` | `POST` | ✅ Implementado | Caso sin histórico (`null`/`null` + warning) y caso con histórico (datos de fixture) ambos verificados |
 
 Ambos endpoints delegan en `actualizarUmbrales()` y `calcularPromedioMovilEgresos()` de `stock.service.ts` — sin lógica de negocio duplicada entre el Route Handler y el Server Action equivalente que consume el dashboard.
+
+**Cambio de comportamiento (posterior a la verificación inicial):** `actualizarUmbrales()` originalmente rechazaba con `404 STOCK_DEPOSITO_NO_ENCONTRADO` cualquier combinación variante/depósito sin `StockDeposito` previo. Reemplazado por un `upsert` sobre la clave compuesta `[variante_sku_id, deposito_id]` (mismo patrón que `registrarIngresoStock()`), habilitando configurar umbrales de forma anticipada para variantes que todavía no tienen stock físico cargado — caso de uso de negocio explícito (planificar reposición antes de que llegue mercadería nueva). La rama de creación (`create`) inicializa `cantidad: 0` y toma `punto_pedido`/`stock_seguridad` del input recibido, no de un default vacío — verificado en runtime que el primer guardado de una combinación nueva persiste los umbrales reales, no ceros.
 
 ## 1.5. Fuente de datos para el cálculo dinámico
 
@@ -76,10 +78,26 @@ Adicionalmente, `event-types.ts` define el evento `stock:umbral_critico_alcanzad
 | Cálculo de sugerencia — integración con flujo real de EGRESO/TRANSFERENCIA | ⛔ No verificable actualmente (bloqueado por ausencia de esos flujos en `movimiento.service.ts`) |
 | Alerta automática al cruzar umbral | ⛔ Lógica completa pero desconectada — requiere coordinación de equipo, fuera de este alcance |
 | UI de configuración desde el dashboard | ✅ Verificado con navegador real (sesión auténtica, sin mocks) |
+| Selector jerárquico Depósito → Producto → Variante | ✅ Verificado en navegador real (Chrome), 7/7 casos del plan de prueba, incluida creación de `StockDeposito` con umbrales reales (no ceros) para combinaciones sin stock previo |
 
 ## 1.8. Ubicación de la UI
 
 El formulario de configuración de umbrales vive en `inventario/depositos/`, no en `inventario/variantes/`. Justificación: `punto_pedido`/`stock_seguridad` son propiedades de la combinación variante+depósito, no de la variante en sí — la misma variante puede tener umbrales distintos en depósitos distintos. El rol dueño de la HU (Encargado de Depósito) opera pensando en términos de "mi depósito".
+
+## 1.9. Selector jerárquico Depósito → Producto → Variante
+
+Ampliación posterior a la verificación inicial: el formulario ya no opera sobre una combinación fija — un componente cliente (`SelectorJerarquicoStock`) resuelve una cascada de 3 niveles antes de habilitar el formulario de umbrales.
+
+**Orden de selección:** Depósito → Producto Maestro → Variante — decisión de negocio explícita, priorizando la unidad mental de trabajo del Encargado de Depósito ("mi depósito") sobre el catálogo completo de la empresa.
+
+**Alcance de cada nivel:**
+- Depósito: lista depósitos activos.
+- Producto Maestro: lista todos los productos activos con al menos una variante — sin filtrar por si ya tienen stock en el depósito elegido.
+- Variante: lista todas las variantes activas del producto elegido — tampoco filtrado por `StockDeposito` existente. Decisión de negocio confirmada: permite configurar umbrales de reposición antes de que llegue mercadería nueva.
+
+Cambiar la selección de un nivel resetea automáticamente los niveles posteriores (verificado: cambiar el depósito con producto y variante ya elegidos hace desaparecer el formulario, no deja una selección obsoleta visible).
+
+**Doble validación de la regla semántica** (`punto_pedido >= stock_seguridad`): verificado tanto client-side (react-hook-form, bloquea antes del submit) como server-side (rechazo real del endpoint REST vía fetch directo, esquivando la UI) — el backend nunca crea una fila espuria aunque se evada la validación del formulario.
 
 ---
 
@@ -87,7 +105,7 @@ El formulario de configuración de umbrales vive en `inventario/depositos/`, no 
 
 ## 2.1. Contexto de la tarea original
 
-Primera Historia de Usuario trabajada bajo esta metodología SDD en el proyecto, a partir de una fila de planificación (Módulo A, HU-7, Encargado de Depósito, 3 puntos de historia) que definía el criterio de aceptación en términos generales.
+Primera Historia de Usuario trabajada bajo esta metodología SDD en el proyecto, a partir de una fila de planificación (Módulo A, HU-5, Encargado de Depósito, 3 puntos de historia) que definía el criterio de aceptación en términos generales.
 
 ## 2.2. Ambigüedades identificadas y resueltas en la especificación original
 
@@ -129,3 +147,31 @@ Ante la imposibilidad de generar movimientos `EGRESO`/`TRANSFERENCIA` reales (fu
 **Resultado:** el cálculo esperado a mano (`promedio_egreso_mensual: 10`, `punto_pedido_sugerido: 5`, `stock_seguridad_sugerido: 3`) coincidió exactamente con la respuesta real del endpoint. La fórmula de cálculo queda confirmada como correcta. Los movimientos de fixture fueron eliminados de la base al finalizar la verificación, para no dejar datos ficticios en `movimientos_stock` que pudieran confundir a otros integrantes del equipo al inspeccionar la tabla.
 
 **Alcance explícito de esta verificación:** confirma la corrección matemática de la fórmula. No confirma la integración con el flujo real de egreso de stock, que aún no existe en el código y es responsabilidad de otra Historia de Usuario.
+
+## 2.7. Selector jerárquico Depósito → Producto → Variante
+
+Ampliación posterior, motivada por una limitación real de la UI original: el formulario de umbrales solo operaba sobre una única combinación fija (`VARIANTE_SKU_ID_MOCK`/`DEPOSITO_ID_MOCK` hardcodeados desde la implementación inicial), sin ninguna forma de elegir sobre qué unidad de stock configurar.
+
+**Decisión de negocio resuelta antes de implementar:** el orden de selección (Depósito → Producto → Variante) y el alcance del listado de Variantes (todas, no solo las que ya tienen `StockDeposito`) se confirmaron explícitamente antes de escribir código — priorizando el caso de uso de configurar umbrales de forma anticipada, antes de que llegue mercadería nueva al depósito.
+
+**Cambio de comportamiento no anticipado en el alcance original, pero necesario:** permitir seleccionar variantes sin `StockDeposito` previo implicaba que el endpoint de guardado, que hasta entonces rechazaba esas combinaciones con `404`, tenía que pasar a crear la fila faltante. Se resolvió reemplazando la lectura-y-falla por un `upsert`, reutilizando el mismo patrón ya usado en `registrarIngresoStock()` — decisión de reutilizar arquitectura existente en vez de introducir un mecanismo nuevo para el mismo problema.
+
+**Hallazgo adicional durante el relevamiento previo a esta tarea:** se confirmó que `depositos/page.tsx` nunca había tenido fetch real de valores — los props `punto_pedido_actual`/`stock_seguridad_actual` eran constantes hardcodeadas (`10`/`5`) desde la implementación original de la HU, nunca conectadas a datos reales. Esta ampliación fue la primera vez que ese fetch se implementó de verdad.
+
+**Verificación:** ejecutada en navegador real (Chrome, tras instalación específica para esta tarea), 7 de 7 casos del plan de prueba, incluyendo confirmación directa en Postgres de que el primer guardado de una combinación sin stock previo persiste los umbrales reales ingresados por el usuario, no valores en cero — y doble verificación de la validación semántica (client-side vía formulario, y server-side vía fetch directo al endpoint, esquivando la UI).
+
+## 2.8. Corrección de UX — chip de confirmación de variante
+
+Verificando el selector jerárquico en navegador real, se detectaron dos problemas relacionados: el `<select>` nativo de Variante truncaba visualmente el texto de opciones largas (ej. "38 · Negro · Femenino (" sin cerrar el paréntesis del SKU), y la sección de guardado (`Umbrales de reposición`) no mostraba ningún indicio de *cuál* variante específica se estaba configurando — solo el Producto Maestro y el Depósito, sin talle/color/género — dejando al usuario sin forma de confirmar visualmente su elección antes de guardar.
+
+**Corrección:** se agregó un tercer chip junto a los dos existentes, mostrando el detalle completo de la variante elegida (`Talle {talle} · {color} · {genero}`, mismo separador ya usado por `etiquetaVariante()` en el propio componente, sin duplicar estilo). Se decidió explícitamente no incluir `modelo` en este chip — a diferencia del `<select>`, cuyo propósito es diferenciar entre opciones de una lista, el chip cumple una función distinta (confirmar la elección ya hecha), para la cual talle/color/género ya son suficientes.
+
+Esta corrección resuelve el problema de fondo (falta de confirmación visual) sin necesidad de reemplazar el `<select>` nativo por un componente de UI más complejo.
+
+## 2.9. Conflicto de merge con trabajo paralelo de otro integrante (HU-A6)
+
+Al integrar esta rama con `develop`, se detectó un conflicto de merge real (no un error de código) en `variante.service.ts`: el archivo estaba completamente vacío al momento de iniciar esta tarea, y dos integrantes del equipo lo completaron de forma independiente y simultánea con contenido distinto — `listarVariantesPorProducto()` (esta HU) y `usuarioPuedeBajarVariante()`/`darDeBajaVariante()` (HU-A6, baja lógica de variantes, de otro integrante).
+
+**Resolución:** se fusionó el archivo para que ambas funciones coexistan, deduplicando los `import` compartidos (`server-only`, cliente de Prisma) sin modificar el contenido ni los comentarios de ninguna de las dos funciones originales. Verificado que el archivo resultante compila sin errores (`tsc --noEmit`) y no contiene marcadores de conflicto residuales.
+
+**Hallazgo colateral durante este proceso, no relacionado a HU-5:** al traer los cambios de `develop`, se detectó que el mismo integrante de HU-A6 había reintroducido código relacionado a la funcionalidad "Stock En Prueba" (`lib/crypto/aes.ts`, entre otros archivos de una nueva auditoría de inventario con datos cifrados), construido sobre una versión del Product Backlog anterior a su corrección — la funcionalidad había sido cancelada por el Product Owner y eliminada del código en una tarea previa (ver `MODULO_D.md`, hallazgo de Sprint Review). Se coordinó directamente con ese integrante, quien confirmó que se encargará de esa limpieza en su propio trabajo; esos archivos no fueron tocados como parte de esta tarea, mergeados tal como llegaron de `develop`, sin intervención.
