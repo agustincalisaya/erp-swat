@@ -77,7 +77,7 @@ export function FormularioLogin() {
         return;
       }
 
-      const redirectTo = searchParams.get("redirect") || "/inventario";
+      const redirectTo = searchParams.get("redirect") || "/home";
       router.push(redirectTo);
       router.refresh();
     });
