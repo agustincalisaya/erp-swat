@@ -45,6 +45,50 @@ export interface IngresoRegistrado {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
+// Autorización — ingreso de mercadería por escaneo
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Roles con autorización vigente para registrar ingreso de mercadería
+ * (Hallazgo 1 — RBAC). Mismo criterio y misma lista que
+ * `ROLES_AUTORIZADOS_BAJA_VARIANTE` en `variante.service.ts` (decisión D2,
+ * HU-A6): no se usa `withPermission("inventario:operar")` porque el seed
+ * solo otorga ese permiso a `ENCARGADO_DEPOSITO` y dejaría fuera a
+ * `ADMINISTRADOR`. Un rol de solo lectura (ej. `AUDITOR`) queda excluido
+ * por no figurar en esta lista.
+ */
+const ROLES_AUTORIZADOS_INGRESO_STOCK = ["ADMINISTRADOR", "ENCARGADO_DEPOSITO"] as const;
+
+/**
+ * Verifica si el usuario tiene al menos un rol activo autorizado para
+ * resolver códigos y registrar el ingreso de mercadería, con la relación
+ * `UsuarioRol → Rol` activa en ambos niveles (mismo patrón de
+ * `usuarioPuedeBajarVariante()` en `variante.service.ts` y
+ * `usuarioTienePermiso()` en `lib/auth/with-permission.ts`).
+ *
+ * Único punto de verdad reutilizado por la página, ambas Server Actions y
+ * el Route Handler REST — evita que alguno de esos caminos quede sin la
+ * misma verificación de rol (Hallazgo 1).
+ *
+ * @param usuarioId - `usuario_id` de la sesión autenticada.
+ */
+export async function usuarioPuedeRegistrarIngresoStock(usuarioId: string): Promise<boolean> {
+  const match = await prisma.usuarioRol.findFirst({
+    where: {
+      usuario_id: usuarioId,
+      is_active: true,
+      rol: {
+        is_active: true,
+        nombre: { in: [...ROLES_AUTORIZADOS_INGRESO_STOCK] },
+      },
+    },
+    select: { id: true },
+  });
+
+  return match !== null;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 // Resolución de código escaneado
 // ──────────────────────────────────────────────────────────────────────────────
 

@@ -4,10 +4,21 @@
  *
  * Server Component: obtiene los depósitos activos en servidor y los pasa
  * como props al panel de escaneo (Client Component).
+ *
+ * Capa 1 de RBAC (Hallazgo 1) — bloqueo real de acceso, mismo patrón que
+ * `auditoria/usuarios/page.tsx` (HU-D10): sin sesión válida redirige a
+ * `/login`; con sesión pero sin un rol autorizado
+ * (`usuarioPuedeRegistrarIngresoStock()`, único punto de verdad compartido
+ * con las Server Actions y el Route Handler REST) redirige a
+ * `/no-autorizado`. Antes de esta corrección, un rol de solo lectura
+ * (ej. `AUDITOR`) podía abrir esta pantalla y mutar stock real.
  */
 import { Suspense } from "react";
+import { redirect } from "next/navigation";
 import { ScanBarcode, AlertTriangle } from "lucide-react";
+import { getServerSession } from "@/lib/auth/session";
 import { listarDepositosActivos } from "@/lib/services/inventario/deposito.service";
+import { usuarioPuedeRegistrarIngresoStock } from "@/lib/services/inventario/movimiento.service";
 import { IngresoEscaneoPanel } from "@/components/inventario/escaner/IngresoEscaneoPanel";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
@@ -35,7 +46,13 @@ async function IngresoEscaneoData() {
   return <IngresoEscaneoPanel depositos={depositos} />;
 }
 
-export default function MovimientosPage() {
+export default async function MovimientosPage() {
+  const session = await getServerSession();
+  if (!session) redirect("/login");
+
+  const autorizado = await usuarioPuedeRegistrarIngresoStock(session.userId);
+  if (!autorizado) redirect("/no-autorizado");
+
   return (
     <main className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
       <div className="mx-auto max-w-6xl space-y-5">
