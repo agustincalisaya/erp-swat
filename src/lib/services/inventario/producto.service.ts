@@ -35,11 +35,36 @@ const MAX_COMBINACIONES_POR_INVOCACION = 200;
  * Inserta un `ProductoMaestro` (sin variantes — eso es un paso explícito y
  * separado, `generarVariantesMatriz()`). Emite `producto_maestro:creado` tras
  * el commit.
+ *
+ * Nota: un ProductoMaestro con 0 variantes es un estado válido esperado
+ * (Paso 1 de 2 del wizard) — no se valida acá a propósito, ver HU-A1 para el
+ * análisis completo (decisión de negocio confirmada: no se bloquea).
+ *
+ * @throws {ServiceError} PRODUCTO_MAESTRO_NOMBRE_DUPLICADO
  */
 export async function crearProductoMaestro(
   input: CrearProductoMaestroInput,
   usuarioId: string,
 ) {
+  const nombreTrimmed = input.nombre.trim();
+
+  // Regla de negocio HU-A1: no puede haber dos ProductoMaestro activos con
+  // el mismo nombre (case-insensitive, trim). codigo_producto queda afuera
+  // a propósito — dos productos distintos pueden compartirlo (ver docstring
+  // del modelo en schema.prisma). Un producto dado de baja no bloquea la
+  // reutilización de su nombre, de ahí el filtro is_active: true.
+  const duplicado = await prisma.productoMaestro.findFirst({
+    where: { is_active: true, nombre: { equals: nombreTrimmed, mode: "insensitive" } },
+    select: { id: true },
+  });
+
+  if (duplicado) {
+    throw new ServiceError(
+      "PRODUCTO_MAESTRO_NOMBRE_DUPLICADO",
+      `Ya existe un Producto Maestro activo con el nombre "${nombreTrimmed}".`,
+    );
+  }
+
   const producto = await prisma.productoMaestro.create({
     data: {
       codigo_producto: input.codigo_producto,
