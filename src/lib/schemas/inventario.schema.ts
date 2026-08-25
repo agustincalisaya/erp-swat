@@ -169,11 +169,9 @@ export type ImpactoStockDestino = "SUMA" | "RESTA";
  *  - SUMA — `DISPONIBLE` (ingreso estándar) y `DEVUELTO` (reingreso ya
  *    validado como apto para reventa por quien lo selecciona: el modelo
  *    actual no tiene un flag separado de "inspección favorable").
- *  - RESTA — `RESERVADO`, `VENDIDO`, `BAJA_MERMA` y `EN_TRANSITO`: mercadería
- *    que, aunque pasa por esta pantalla de ingreso, queda inmediatamente
- *    comprometida/no vendible y se descuenta del disponible del mismo
- *    depósito seleccionado (este flujo es de un solo depósito — no modela
- *    origen/destino separados para `EN_TRANSITO`).
+ *  - RESTA — `RESERVADO`, `VENDIDO` y `BAJA_MERMA`: mercadería que queda
+ *    inmediatamente comprometida/no vendible y se descuenta del disponible
+ *    del depósito seleccionado.
  * `Record` exhaustivo a propósito: agregar un estado nuevo al enum rompe la
  * compilación hasta decidir explícitamente su impacto acá.
  */
@@ -183,7 +181,6 @@ export const IMPACTO_STOCK_POR_ESTADO_DESTINO: Record<IngresoEstadoDestino, Impa
   RESERVADO: "RESTA",
   VENDIDO: "RESTA",
   BAJA_MERMA: "RESTA",
-  EN_TRANSITO: "RESTA",
 };
 
 export const RegistrarIngresoPorEscaneoSchema = z.object({

@@ -134,7 +134,7 @@ export async function resolverCodigoEscaneo(
  *  2. Según `IMPACTO_STOCK_POR_ESTADO_DESTINO[estado_destino]`:
  *     - SUMA: incrementa (o crea) el `StockDeposito` vía `upsert` sobre la
  *       clave compuesta `[variante_sku_id, deposito_id]`.
- *     - RESTA (`RESERVADO`, `VENDIDO`, `BAJA_MERMA`, `EN_TRANSITO`):
+ *     - RESTA (`RESERVADO`, `VENDIDO`, `BAJA_MERMA`):
  *       decrementa el disponible del mismo depósito seleccionado, con el
  *       mismo patrón atómico condicionado que `decrementarStockConAlerta()`
  *       (`stock.service.ts`) — un `updateMany` con `cantidad: { gte }`

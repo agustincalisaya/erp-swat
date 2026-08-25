@@ -1,10 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import {
-  generarSku,
-  generarEanQrPlaceholder,
-  claveCombinacionVariante,
-} from "./sku.ts";
+import { generarSku, claveCombinacionVariante } from "./sku.ts";
 
 test("generarSku: combinación normal", () => {
   const sku = generarSku({

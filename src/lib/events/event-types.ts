@@ -238,18 +238,12 @@ export interface DomainEventMap {
   "stock:umbral_critico_alcanzado": UmbralCriticoAlcanzadoPayload;
   /** HU-2: se emite tras registrar un ingreso de mercadería por escaneo. */
   "inventario:ingreso_stock_registrado": IngresoStockRegistradoPayload;
-"inventario:ingreso_stock_registrado": IngresoStockRegistradoPayload;
-
-/** HU-A5: eventos de transferencia de stock entre depósitos. */
-"stock:transferencia_iniciada": TransferenciaStockPayload;
-"stock:transferencia_recibida": TransferenciaStockRecibidaPayload;
-"stock:transferencia_baja_logica": TransferenciaStockBajaPayload;
-
-/** HU-A6: baja lógica de una VarianteSKU. */
-"inventario:variante_baja_logica": VarianteBajaLogicaPayload;
-
-/** HU-D1: se emite tras el alta atómica de Usuario + UsuarioRol. */
-"usuario:creado": UsuarioCreadoPayload;
+  /** HU-A5: eventos de transferencia de stock entre depósitos. */
+  "stock:transferencia_iniciada": TransferenciaStockPayload;
+  "stock:transferencia_recibida": TransferenciaStockRecibidaPayload;
+  "stock:transferencia_baja_logica": TransferenciaStockBajaPayload;
+  /** HU-A6: baja lógica de una VarianteSKU. */
+  "inventario:variante_baja_logica": VarianteBajaLogicaPayload;
   /** HU-1: se emite tras el alta atómica de Usuario + UsuarioRol. */
   "usuario:creado": UsuarioCreadoPayload;
   /** HU-2: se emite tras la baja lógica de Usuario. */
