@@ -50,11 +50,13 @@ model Usuario {
   updated_at DateTime @updatedAt
 
   // --- Relaciones ---
-  roles                   UsuarioRol[]
-  audit_logs              AuditLog[]
-  movimientos_registrados MovimientoStock[] @relation("MovimientoRegistradoPor")
-  reservas_registradas    Reserva[]         @relation("ReservaRegistradaPor")
-  sesiones                Sesion[]
+  roles                      UsuarioRol[]
+  audit_logs                 AuditLog[]
+  movimientos_registrados    MovimientoStock[]    @relation("MovimientoRegistradoPor")
+  transferencias_despachadas TransferenciaStock[] @relation("TransferenciaDespachadaPor")
+  transferencias_recibidas   TransferenciaStock[] @relation("TransferenciaRecibidaPor")
+  reservas_registradas       Reserva[]            @relation("ReservaRegistradaPor")
+  sesiones                   Sesion[]
 
   @@map("usuarios")
 }
@@ -285,9 +287,10 @@ model VarianteSKU {
   updated_at DateTime @updatedAt
 
   // --- Relaciones ---
-  producto_maestro ProductoMaestro   @relation(fields: [producto_maestro_id], references: [id], onDelete: Restrict)
+  producto_maestro ProductoMaestro      @relation(fields: [producto_maestro_id], references: [id], onDelete: Restrict)
   stock_depositos  StockDeposito[]
   movimientos      MovimientoStock[]
+  transferencias   TransferenciaStock[]
   reservas         Reserva[]
 
   @@map("variantes_sku")
@@ -310,10 +313,12 @@ model Deposito {
   updated_at DateTime @updatedAt
 
   // --- Relaciones ---
-  stock_items         StockDeposito[]
-  movimientos_origen  MovimientoStock[] @relation("MovimientoOrigen")
-  movimientos_destino MovimientoStock[] @relation("MovimientoDestino")
-  reservas            Reserva[]
+  stock_items            StockDeposito[]
+  movimientos_origen     MovimientoStock[]    @relation("MovimientoOrigen")
+  movimientos_destino    MovimientoStock[]    @relation("MovimientoDestino")
+  transferencias_origen  TransferenciaStock[] @relation("TransferenciaOrigen")
+  transferencias_destino TransferenciaStock[] @relation("TransferenciaDestino")
+  reservas               Reserva[]
 
   @@map("depositos")
 }
@@ -383,6 +388,45 @@ model MovimientoStock {
   registrado_por   Usuario     @relation("MovimientoRegistradoPor", fields: [registrado_por_id], references: [id], onDelete: Restrict)
 
   @@map("movimientos_stock")
+}
+
+/// Remito interno de una transferencia de stock en dos fases. Mientras se
+/// encuentra EN_TRANSITO, su cantidad es stock fisico no disponible en ningun
+/// deposito. Los movimientos son append-only; el remito solo cambia de estado.
+model TransferenciaStock {
+  id                  String              @id @default(uuid())
+  numero_remito       String              @unique
+  variante_sku_id     String
+  deposito_origen_id  String
+  deposito_destino_id String
+  cantidad            Int
+  estado              EstadoTransferencia @default(EN_TRANSITO)
+  despachada_por_id   String
+  despachada_at       DateTime            @default(now())
+  recibida_por_id     String?
+  recibida_at         DateTime?
+
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+
+  variante_sku     VarianteSKU @relation(fields: [variante_sku_id], references: [id], onDelete: Restrict)
+  deposito_origen  Deposito    @relation("TransferenciaOrigen", fields: [deposito_origen_id], references: [id], onDelete: Restrict)
+  deposito_destino Deposito    @relation("TransferenciaDestino", fields: [deposito_destino_id], references: [id], onDelete: Restrict)
+  despachada_por   Usuario     @relation("TransferenciaDespachadaPor", fields: [despachada_por_id], references: [id], onDelete: Restrict)
+  recibida_por     Usuario?    @relation("TransferenciaRecibidaPor", fields: [recibida_por_id], references: [id], onDelete: Restrict)
+
+  @@index([variante_sku_id, estado, is_active])
+  @@index([deposito_destino_id, estado, is_active])
+  @@map("transferencias_stock")
+}
+
+enum EstadoTransferencia {
+  EN_TRANSITO
+  RECIBIDA
 }
 
 enum TipoMovimiento {

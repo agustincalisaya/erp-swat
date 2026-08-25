@@ -156,7 +156,6 @@ const ESTADOS_DESTINO_INGRESO = [
   "VENDIDO",
   "DEVUELTO",
   "BAJA_MERMA",
-  "EN_TRANSITO",
 ] as const;
 
 export type IngresoEstadoDestino = (typeof ESTADOS_DESTINO_INGRESO)[number];
@@ -170,11 +169,9 @@ export type ImpactoStockDestino = "SUMA" | "RESTA";
  *  - SUMA — `DISPONIBLE` (ingreso estándar) y `DEVUELTO` (reingreso ya
  *    validado como apto para reventa por quien lo selecciona: el modelo
  *    actual no tiene un flag separado de "inspección favorable").
- *  - RESTA — `RESERVADO`, `VENDIDO`, `BAJA_MERMA` y `EN_TRANSITO`: mercadería
- *    que, aunque pasa por esta pantalla de ingreso, queda inmediatamente
- *    comprometida/no vendible y se descuenta del disponible del mismo
- *    depósito seleccionado (este flujo es de un solo depósito — no modela
- *    origen/destino separados para `EN_TRANSITO`).
+ *  - RESTA — `RESERVADO`, `VENDIDO` y `BAJA_MERMA`: mercadería que queda
+ *    inmediatamente comprometida/no vendible y se descuenta del disponible
+ *    del depósito seleccionado.
  * `Record` exhaustivo a propósito: agregar un estado nuevo al enum rompe la
  * compilación hasta decidir explícitamente su impacto acá.
  */
@@ -184,7 +181,6 @@ export const IMPACTO_STOCK_POR_ESTADO_DESTINO: Record<IngresoEstadoDestino, Impa
   RESERVADO: "RESTA",
   VENDIDO: "RESTA",
   BAJA_MERMA: "RESTA",
-  EN_TRANSITO: "RESTA",
 };
 
 export const RegistrarIngresoPorEscaneoSchema = z.object({
@@ -220,3 +216,25 @@ export const RegistrarIngresoPorEscaneoSchema = z.object({
 export type RegistrarIngresoPorEscaneoInput = z.infer<
   typeof RegistrarIngresoPorEscaneoSchema
 >;
+
+// HU-5 — Transferencia interna en dos fases
+export const CrearTransferenciaSchema = z
+  .object({
+    variante_sku_id: z.string().uuid(),
+    deposito_origen_id: z.string().uuid(),
+    deposito_destino_id: z.string().uuid(),
+    cantidad: z.number().int().positive(),
+  })
+  .refine((data) => data.deposito_origen_id !== data.deposito_destino_id, {
+    message: "El depósito de origen y destino no pueden ser iguales",
+    path: ["deposito_destino_id"],
+  });
+
+export const BajaTransferenciaSchema = z.object({
+  deletion_reason: z.string().trim().min(1, "El motivo de baja es obligatorio"),
+});
+
+export const TransferenciaIdSchema = z.string().uuid("El ID de transferencia es inválido");
+
+export type CrearTransferenciaInput = z.infer<typeof CrearTransferenciaSchema>;
+export type BajaTransferenciaInput = z.infer<typeof BajaTransferenciaSchema>;
