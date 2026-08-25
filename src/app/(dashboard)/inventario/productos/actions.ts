@@ -29,7 +29,6 @@ import {
   crearProductoMaestro as crearProductoMaestroService,
   generarVariantesMatriz as generarVariantesMatrizService,
   buscarProductosActivos as buscarProductosActivosService,
-  buscarProductosPorCodigo as buscarProductosPorCodigoService,
   type ResultadoGenerarVariantesMatriz,
 } from "@/lib/services/inventario/producto.service";
 
@@ -94,34 +93,6 @@ export async function buscarProductosActivos(query: string): Promise<BuscarProdu
     return { data: productos, error: null };
   } catch (err) {
     console.error("[buscarProductosActivos action] Error inesperado:", err);
-    return { data: null, error: { code: "INTERNAL_ERROR", message: "Error interno. Intentá nuevamente." } };
-  }
-}
-
-/**
- * Server Action de lectura liviana — escáner de código de fábrica (Alta de
- * Variante): resuelve el `ProductoMaestro` a partir del segmento `[PRODUCTO]`
- * ya extraído del SKU escaneado (`extraerCodigoProducto()` en
- * `lib/utils/sku.ts`). Coincidencia EXACTA contra `codigo_producto` —
- * distinta de `buscarProductosActivos` (fuzzy), ver docstring de
- * `buscarProductosPorCodigo()` en `producto.service.ts`.
- */
-export async function buscarProductosPorCodigo(
-  codigoProducto: string,
-): Promise<BuscarProductosActivosResult> {
-  const session = await getServerSession();
-  if (!session) {
-    return {
-      data: null,
-      error: { code: "UNAUTHORIZED", message: "Sesión requerida para realizar esta operación." },
-    };
-  }
-
-  try {
-    const productos = await buscarProductosPorCodigoService(codigoProducto);
-    return { data: productos, error: null };
-  } catch (err) {
-    console.error("[buscarProductosPorCodigo action] Error inesperado:", err);
     return { data: null, error: { code: "INTERNAL_ERROR", message: "Error interno. Intentá nuevamente." } };
   }
 }

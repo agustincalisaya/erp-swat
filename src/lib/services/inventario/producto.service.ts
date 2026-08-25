@@ -17,7 +17,7 @@ import "server-only";
 import { prisma } from "@/lib/db/prisma";
 import { domainEventBus } from "@/lib/events/domain-event-bus";
 import { ServiceError } from "@/lib/errors/service-error";
-import { generarSku, generarEanQrPlaceholder, type Genero } from "@/lib/utils/sku";
+import { generarSku, claveCombinacionVariante, type Genero } from "@/lib/utils/sku";
 import type {
   CrearProductoMaestroInput,
   GenerarVariantesMatrizInput,
@@ -99,37 +99,6 @@ export async function buscarProductosActivos(query: string): Promise<ProductoMae
   });
 }
 
-/**
- * Búsqueda EXACTA de `ProductoMaestro` activos por `codigo_producto` — usada
- * por el escáner de código de fábrica (Alta de Variante): el segmento
- * `[PRODUCTO]` extraído del SKU escaneado (`extraerCodigoProducto()`, ya
- * normalizado a mayúsculas) debe resolver contra el `codigo_producto` real,
- * no contra `nombre`. `mode: "insensitive"` porque `codigo_producto` se
- * guarda tal cual lo tipeó el usuario en el alta (sin normalizar mayúsculas
- * server-side, ver `crearProductoMaestro()`), mientras que el segmento
- * escaneado siempre llega en mayúsculas.
- *
- * A diferencia de `buscarProductosActivos()` (fuzzy, `contains`), esta
- * devuelve TODAS las coincidencias exactas — puede ser 0, 1, o más de 1 fila:
- * `codigo_producto` no es único por diseño (ver `DICCIONARIO_DATOS.md`), y el
- * llamador decide qué hacer ante cada cardinalidad.
- */
-export async function buscarProductosPorCodigo(
-  codigoProducto: string,
-): Promise<ProductoMaestroActivoResumen[]> {
-  const codigo = codigoProducto.trim();
-  if (!codigo) return [];
-
-  return prisma.productoMaestro.findMany({
-    where: {
-      is_active: true,
-      codigo_producto: { equals: codigo, mode: "insensitive" },
-    },
-    select: { id: true, nombre: true, codigo_producto: true },
-    orderBy: { nombre: "asc" },
-  });
-}
-
 // ──────────────────────────────────────────────────────────────────────────────
 // Selector jerárquico de umbrales — listarProductosConVariantes
 // ──────────────────────────────────────────────────────────────────────────────
@@ -166,7 +135,7 @@ export async function listarProductosConVariantes(): Promise<ProductoConVariante
 export interface VarianteMatrizGenerada {
   id: string;
   sku: string;
-  ean_qr: string;
+  ean_qr: string | null;
 }
 
 export interface ResultadoGenerarVariantesMatriz {
@@ -177,11 +146,15 @@ export interface ResultadoGenerarVariantesMatriz {
 
 /**
  * Genera el producto cartesiano `talles × colores × generos`, construye el
- * `sku` determinístico de cada combinación con `generarSku()` y un `ean_qr`
- * placeholder con `generarEanQrPlaceholder()` (ver nota en `lib/utils/sku.ts`
- * sobre por qué es un marcador interno, no un EAN-13 real), e inserta todo en
- * lote con `skipDuplicates` para que reintentos no fallen ante SKUs ya
- * existentes (idempotencia).
+ * `sku` determinístico de cada combinación con `generarSku()` y resuelve su
+ * `ean_qr`: si `input.ean_por_combinacion` trae una entrada para la key de esa
+ * combinación (`claveCombinacionVariante()` — EAN-13 real, cargado por
+ * escaneo/tipeo en el preview de la Matriz de Variantes), se usa ese valor;
+ * si no, queda `NULL` — `VarianteSKU.ean_qr` es nullable justamente para no
+ * inventar un valor cuando el EAN-13 real todavía no se conoce (se completa
+ * después, por HU-A2 al primer ingreso a depósito).
+ * Inserta todo en lote con `skipDuplicates` para que reintentos no fallen
+ * ante SKUs ya existentes (idempotencia).
  *
  * No requiere `StockDeposito` — eso lo crea HU-A2 al primer ingreso.
  *
@@ -233,11 +206,12 @@ export async function generarVariantesMatriz(
       codigoColor: color,
       genero,
     });
+    const eanEscaneado = input.ean_por_combinacion?.[claveCombinacionVariante({ talle, color, genero })];
 
     return {
       producto_maestro_id: productoMaestro.id,
       sku,
-      ean_qr: generarEanQrPlaceholder(sku),
+      ean_qr: eanEscaneado ?? null,
       talle: talle.trim().toUpperCase(),
       color: color.trim().toUpperCase(),
       genero,
