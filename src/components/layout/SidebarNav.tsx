@@ -73,7 +73,7 @@ export function SidebarNav({ sections }: SidebarNavProps) {
         <div className={cn("px-4 mb-4 mt-14 lg:mt-0", colapsado ? "text-center px-0" : "")}>
           {!colapsado ? (
             <div className="whitespace-nowrap overflow-hidden">
-              <span className="text-sm font-bold text-gray-900 tracking-tight">ERP SWAT</span>
+              <span className="text-sm font-bold text-gray-900 tracking-tight">SWAT</span>
               <p className="text-xs text-muted-foreground">Indumentarias</p>
             </div>
           ) : (
