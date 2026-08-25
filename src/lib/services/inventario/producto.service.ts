@@ -125,6 +125,33 @@ export async function buscarProductosActivos(query: string): Promise<ProductoMae
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
+// Listado de Productos Maestro — listarProductosActivosParaListado
+// ──────────────────────────────────────────────────────────────────────────────
+
+export interface ProductoMaestroListado {
+  id: string;
+  codigo_producto: string;
+  nombre: string;
+  rubro: string;
+}
+
+/**
+ * Listado completo de `ProductoMaestro` activos para la pantalla
+ * `/inventario/productos` (Cod Producto / Nombre / Rubro). Distinta de
+ * `buscarProductosActivos()`: esa función tiene `take: 10` y busca por
+ * nombre/código pensada para un combobox de búsqueda — acá no hay límite de
+ * resultados ni filtro server-side, porque el filtrado (solo por nombre) se
+ * hace en el cliente sobre la lista completa ya cargada.
+ */
+export async function listarProductosActivosParaListado(): Promise<ProductoMaestroListado[]> {
+  return prisma.productoMaestro.findMany({
+    where: { is_active: true },
+    select: { id: true, codigo_producto: true, nombre: true, rubro: true },
+    orderBy: { nombre: "asc" },
+  });
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 // Selector jerárquico de umbrales — listarProductosConVariantes
 // ──────────────────────────────────────────────────────────────────────────────
 
