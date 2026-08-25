@@ -32,45 +32,19 @@ export function generarSku(params: {
 }
 
 /**
- * Placeholder interno de `ean_qr` para variantes generadas por matriz.
- *
- * `VarianteSKU.ean_qr` es NOT NULL en el schema y, en el resto del proyecto
- * (spec_modulo_A.md §2.1), se recibe como código de barras EAN-13 real de
- * fábrica provisto por el cliente — algo que no existe todavía para una
- * variante recién generada por combinatoria (talle × color × género), ya
- * que el código de barras físico se conoce recién cuando el producto llega
- * al depósito y se escanea.
- *
- * Se deriva del mismo `sku` ya calculado para esa combinación: determinístico
- * ante reintentos de la generación en lote, y nunca colisiona mientras el
- * `sku` sea único (garantizado por el constraint `@unique` de la BD).
- *
- * TODO(backlog, ninguna HU de este sprint lo resuelve todavía): reemplazar
- * este placeholder por el EAN-13 real cuando la unidad física se escanea por
- * primera vez (candidato natural: el endpoint de ingreso de HU-A2). Hasta
- * entonces, "PEND-<SKU>" NO es un código de barras válido — es un marcador
- * interno para satisfacer el constraint NOT NULL de la base.
+ * Key determinística para una combinación talle/color/género dentro de una
+ * misma matriz — usada para asociar un EAN-13 escaneado/tipeado (client-side,
+ * por fila del preview) con la combinación que le corresponde una vez que
+ * `generarVariantesMatriz()` (servicio) reconstruye el mismo cartesiano
+ * server-side. Normalizada igual que cada segmento en `generarSku()` (trim +
+ * mayúsculas) para que cliente y servidor calculen siempre la misma key ante
+ * los mismos valores.
  */
-export function generarEanQrPlaceholder(sku: string): string {
-  return `PEND-${sku.trim().toUpperCase()}`;
-}
-
-/**
- * Extrae el segmento `[PRODUCTO]` de un SKU completo (o de un código de
- * fábrica que sigue la misma convención) — el inverso parcial de
- * `generarSku()`: toma todo antes del primer `-`, normalizado igual que
- * cada segmento en `generarSku()` (trim + mayúsculas).
- *
- * Devuelve `null` cuando el código no tiene el separador `-` (formato
- * inesperado, no un SKU de este sistema) o cuando el primer segmento
- * queda vacío (ej. `"-ABC-DEF"`) — en ambos casos no hay nada válido que
- * buscar contra `ProductoMaestro.codigo_producto`, y el llamador decide
- * cómo comunicarlo (nunca se trunca ni se adivina el segmento a la fuerza).
- */
-export function extraerCodigoProducto(codigoEscaneado: string): string | null {
-  const partes = codigoEscaneado.split("-");
-  if (partes.length < 2) return null;
-
-  const segmento = partes[0].trim().toUpperCase();
-  return segmento.length > 0 ? segmento : null;
+export function claveCombinacionVariante(params: {
+  talle: string;
+  color: string;
+  genero: Genero;
+}): string {
+  const { talle, color, genero } = params;
+  return [talle, color, genero].map((segmento) => segmento.trim().toUpperCase()).join("|");
 }

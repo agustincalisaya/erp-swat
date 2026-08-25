@@ -35,9 +35,15 @@ export type CrearProductoMaestroInput = z.infer<typeof CrearProductoMaestroSchem
 /**
  * Genera variantes en lote mediante producto cartesiano talle × color × género.
  * "modelo" es el segmento [MODELO] del SKU (ej. "SS3" para Softshell Nivel III).
- * No incluye `ean_qr`: se genera server-side como placeholder determinístico
- * derivado del `sku` de cada combinación (ver `generarEanQrPlaceholder()` en
- * `lib/utils/sku.ts`), no se recibe del cliente.
+ *
+ * `ean_qr` sigue sin recibirse por variante individual — el default es
+ * `NULL` (`VarianteSKU.ean_qr` es nullable justamente para este caso, no se
+ * inventa ningún valor). `ean_por_combinacion` es un override opcional y
+ * aditivo: mapa `"TALLE|COLOR|GENERO"` (normalizado, ver
+ * `claveCombinacionVariante()`) → EAN-13 real, para las combinaciones donde
+ * el usuario escaneó/tipeó el código de fábrica de la unidad física antes de
+ * confirmar el lote (HU-A1, rediseño del escaneo por variante). Un cliente
+ * que no manda este campo obtiene el mismo comportamiento de siempre.
  */
 export const GenerarVariantesMatrizSchema = z.object({
   producto_maestro_id: z.string().uuid(),
@@ -45,6 +51,9 @@ export const GenerarVariantesMatrizSchema = z.object({
   talles: z.array(z.string().min(1)).min(1),
   colores: z.array(z.string().min(1)).min(1),
   generos: z.array(z.enum(["HOMBRE", "MUJER", "UNISEX"])).min(1),
+  ean_por_combinacion: z
+    .record(z.string(), z.string().regex(/^\d{13}$/, "EAN-13 debe tener 13 dígitos"))
+    .optional(),
 });
 
 export type GenerarVariantesMatrizInput = z.infer<typeof GenerarVariantesMatrizSchema>;
