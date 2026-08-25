@@ -16,11 +16,10 @@
  *  - Inventario (Productos / Depósitos / Movimientos): Módulo A todavía
  *    no tiene RBAC granular, solo verificación de sesión (`withAuth`) —
  *    sin filtro de permiso, fuera de alcance de HU-D10.
- *  - `/inventario/variantes` queda deliberadamente afuera: es un
- *    placeholder sin funcionalidad real (`<div>Variantes</div>`).
  */
 import type { LucideIcon } from "lucide-react";
-import { ScrollText, ShieldCheck, Users, Package, Warehouse, ScanBarcode } from "lucide-react";
+// 1. Agregamos el ícono "Layers" a la importación
+import { ScrollText, ShieldCheck, Users, Package, Warehouse, ScanBarcode, Layers } from "lucide-react";
 import { getServerSession } from "@/lib/auth/session";
 import { usuarioTienePermiso } from "@/lib/auth/with-permission";
 import { SidebarNav, type SidebarNavSection } from "@/components/layout/SidebarNav";
@@ -59,6 +58,8 @@ const SECCIONES: SeccionConfig[] = [
     icon: Package,
     items: [
       { label: "Productos", href: "/inventario/productos", icon: Package },
+      // 2. Agregamos "Variantes" justo debajo de Productos
+      { label: "Variantes", href: "/inventario/variantes", icon: Layers },
       { label: "Depósitos", href: "/inventario/depositos", icon: Warehouse },
       { label: "Movimientos", href: "/inventario/movimientos", icon: ScanBarcode },
     ],
@@ -68,16 +69,8 @@ const SECCIONES: SeccionConfig[] = [
 export async function Sidebar() {
   const session = await getServerSession();
 
-  // Defensa en profundidad: `src/proxy.ts` ya protege `/auditoria/:path*` y
-  // `/inventario/:path*`, pero si este componente se renderizara sin sesión
-  // (ej. sesión revocada entre el proxy y este render), no mostrar nada en
-  // vez de un sidebar con links a páginas que van a rechazar el request.
   if (!session) return null;
 
-  // Los íconos se renderizan ACÁ (todavía en el servidor) y se pasan como
-  // elemento ya construido — un Server Component no puede pasarle una
-  // referencia a componente/función cruda a un Client Component, solo
-  // elementos ya renderizados (ver SidebarNav.tsx).
   const secciones: SidebarNavSection[] = await Promise.all(
     SECCIONES.map(async (seccion) => {
       const SeccionIcon = seccion.icon;
