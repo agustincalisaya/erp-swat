@@ -9,6 +9,8 @@ import { revalidatePath } from "next/cache";
 import {
   ResolverCodigoEscaneoSchema,
   RegistrarIngresoPorEscaneoSchema,
+  CrearTransferenciaSchema,
+  TransferenciaIdSchema,
 } from "@/lib/schemas/inventario.schema";
 import {
   resolverCodigoEscaneo,
@@ -18,6 +20,9 @@ import {
 } from "@/lib/services/inventario/movimiento.service";
 import { getServerSession } from "@/lib/auth/session";
 import { ServiceError } from "@/lib/errors/service-error";
+import { crearTransferencia, confirmarRecepcionTransferencia } from "@/lib/services/inventario/transferencia.service";
+import { usuarioTienePermiso } from "@/lib/auth/with-permission";
+import { obtenerStockDisponible } from "@/lib/services/inventario/stock.service";
 
 export interface ActionResult<T = unknown> {
   success: boolean;
@@ -111,4 +116,50 @@ export async function registrarIngresoStockAction(
       error: { code: "INTERNAL_ERROR", message: "Error interno. Intentá nuevamente." },
     };
   }
+}
+
+export async function crearTransferenciaAction(input: unknown): Promise<ActionResult> {
+  const session = await getServerSession();
+  if (!session) return { success: false, error: { code: "UNAUTHORIZED", message: "Sesión requerida" } };
+  if (!(await usuarioTienePermiso(session.userId, "inventario:transferir_stock"))) return { success: false, error: { code: "FORBIDDEN", message: "Permiso requerido" } };
+  const parsed = CrearTransferenciaSchema.safeParse(input);
+  if (!parsed.success) return { success: false, error: { code: "VALIDATION_ERROR", message: parsed.error.issues[0]?.message ?? "Datos inválidos", fieldErrors: parsed.error.flatten().fieldErrors as Record<string, string[]> } };
+  try {
+    const data = await crearTransferencia(parsed.data, session.userId);
+    revalidatePath("/inventario/movimientos");
+    return { success: true, data };
+  } catch (error) {
+    if (error instanceof ServiceError) return { success: false, error: { code: error.code, message: error.message } };
+    return { success: false, error: { code: "INTERNAL_ERROR", message: "Error interno" } };
+  }
+}
+
+export async function confirmarRecepcionTransferenciaAction(transferenciaId: string): Promise<ActionResult> {
+  const session = await getServerSession();
+  if (!session) return { success: false, error: { code: "UNAUTHORIZED", message: "Sesión requerida" } };
+  if (!(await usuarioTienePermiso(session.userId, "inventario:confirmar_recepcion"))) return { success: false, error: { code: "FORBIDDEN", message: "Permiso requerido" } };
+  const parsedId = TransferenciaIdSchema.safeParse(transferenciaId);
+  if (!parsedId.success) return { success: false, error: { code: "VALIDATION_ERROR", message: parsedId.error.issues[0]?.message ?? "ID inválido" } };
+  try {
+    const data = await confirmarRecepcionTransferencia(parsedId.data, session.userId);
+    revalidatePath("/inventario/movimientos");
+    return { success: true, data };
+  } catch (error) {
+    if (error instanceof ServiceError) return { success: false, error: { code: error.code, message: error.message } };
+    return { success: false, error: { code: "INTERNAL_ERROR", message: "Error interno" } };
+  }
+}
+
+export async function obtenerStockDisponibleAction(
+  varianteSkuId: string,
+  depositoId: string,
+): Promise<ActionResult<{ cantidad: number }>> {
+  const session = await getServerSession();
+  if (!session) return { success: false, error: { code: "UNAUTHORIZED", message: "Sesión requerida" } };
+  if (!(await usuarioTienePermiso(session.userId, "inventario:transferir_stock"))) return { success: false, error: { code: "FORBIDDEN", message: "Permiso requerido" } };
+  const varianteParsed = TransferenciaIdSchema.safeParse(varianteSkuId);
+  const depositoParsed = TransferenciaIdSchema.safeParse(depositoId);
+  if (!varianteParsed.success || !depositoParsed.success) return { success: false, error: { code: "VALIDATION_ERROR", message: "SKU o depósito inválido" } };
+  const cantidad = await obtenerStockDisponible(varianteParsed.data, depositoParsed.data);
+  return { success: true, data: { cantidad } };
 }

@@ -8,6 +8,7 @@ import type {
   ActualizarUmbralesStockInput,
   CalcularPromedioMovilInput,
 } from "@/lib/schemas/inventario.schema";
+import { calcularResumenStock } from "@/lib/services/inventario/stock-calculos";
 
 /**
  * HU-7 — Sección 6.1: actualiza `punto_pedido` y `stock_seguridad` de una
@@ -57,6 +58,43 @@ export async function actualizarUmbrales(
  */
 const FACTOR_LEAD_TIME = 0.5; // ~2 semanas de cobertura sobre el promedio mensual
 const FACTOR_SEGURIDAD = 0.25;
+
+/** Stock vendible, siempre acotado a una variante y un depósito concretos. */
+export async function obtenerStockDisponible(varianteSkuId: string, depositoId: string): Promise<number> {
+  const stock = await prisma.stockDeposito.findFirst({
+    where: {
+      variante_sku_id: varianteSkuId,
+      deposito_id: depositoId,
+      is_active: true,
+      deleted_at: null,
+      variante_sku: { is_active: true, deleted_at: null },
+      deposito: { is_active: true, deleted_at: null },
+    },
+    select: { cantidad: true },
+  });
+  return stock?.cantidad ?? 0;
+}
+
+/** Total físico = disponible en depósitos + unidades actualmente en traslado. */
+export async function obtenerStockFisicoTotal(varianteSkuId: string): Promise<{
+  disponible: number;
+  en_transito: number;
+  total_fisico: number;
+}> {
+  const [disponible, transito] = await Promise.all([
+    prisma.stockDeposito.aggregate({
+      where: { variante_sku_id: varianteSkuId, is_active: true, deleted_at: null },
+      _sum: { cantidad: true },
+    }),
+    prisma.transferenciaStock.aggregate({
+      where: { variante_sku_id: varianteSkuId, estado: "EN_TRANSITO", is_active: true, deleted_at: null },
+      _sum: { cantidad: true },
+    }),
+  ]);
+  const cantidadDisponible = disponible._sum.cantidad ?? 0;
+  const cantidadTransito = transito._sum.cantidad ?? 0;
+  return calcularResumenStock(cantidadDisponible, cantidadTransito);
+}
 
 /**
  * HU-7 — Sección 6.2 / 3: promedio móvil mensual de egresos

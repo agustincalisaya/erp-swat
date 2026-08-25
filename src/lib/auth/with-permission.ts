@@ -32,6 +32,7 @@ export const PERMISO_ROLES_ADMINISTRAR = "roles:administrar";
 type AuthenticatedHandler = (
   req: NextRequest,
   session: { userId: string; nombreUsuario: string },
+  context?: unknown,
 ) => Promise<NextResponse>;
 
 /**
@@ -49,7 +50,7 @@ type AuthenticatedHandler = (
  * });
  */
 export function withAuth(handler: AuthenticatedHandler) {
-  return async (req: NextRequest, _ctx: unknown): Promise<NextResponse> => {
+  return async (req: NextRequest, ctx: unknown): Promise<NextResponse> => {
     const session = await getServerSession();
 
     if (!session) {
@@ -59,7 +60,7 @@ export function withAuth(handler: AuthenticatedHandler) {
       );
     }
 
-    return handler(req, session);
+    return handler(req, session, ctx);
   };
 }
 
@@ -110,7 +111,7 @@ export async function usuarioTienePermiso(usuarioId: string, codigo: string): Pr
  * @param handler - Handler autenticado y autorizado que recibe req y session.
  */
 export function withPermission(codigo: string, handler: AuthenticatedHandler) {
-  return withAuth(async (req, session) => {
+  return withAuth(async (req, session, context) => {
     const autorizado = await usuarioTienePermiso(session.userId, codigo);
 
     if (!autorizado) {
@@ -126,7 +127,7 @@ export function withPermission(codigo: string, handler: AuthenticatedHandler) {
       );
     }
 
-    return handler(req, session);
+    return handler(req, session, context);
   });
 }
 

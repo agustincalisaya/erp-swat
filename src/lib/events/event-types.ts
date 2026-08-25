@@ -67,6 +67,28 @@ export interface IngresoStockRegistradoPayload {
   usuario_id: string;
 }
 
+export interface TransferenciaStockPayload {
+  transferencia_id: string;
+  remito_id: string;
+  movimiento_id: string;
+  variante_sku_id: string;
+  deposito_origen_id: string;
+  deposito_destino_id: string;
+  cantidad: number;
+  usuario_id: string;
+}
+
+export interface TransferenciaStockRecibidaPayload extends TransferenciaStockPayload {
+  recibida_at: string;
+}
+
+export interface TransferenciaStockBajaPayload {
+  transferencia_id: string;
+  usuario_id: string;
+  deletion_reason: string;
+  deleted_at: string;
+}
+
 /**
  * HU-1 (Módulo D) — Payload emitido tras el alta atómica de `Usuario` + `UsuarioRol`.
  * No incluye `password`/`password_hash`/`password_salt` bajo NINGUNA
@@ -198,6 +220,9 @@ export interface DomainEventMap {
   "stock:umbral_critico_alcanzado": UmbralCriticoAlcanzadoPayload;
   /** HU-2: se emite tras registrar un ingreso de mercadería por escaneo. */
   "inventario:ingreso_stock_registrado": IngresoStockRegistradoPayload;
+  "stock:transferencia_iniciada": TransferenciaStockPayload;
+  "stock:transferencia_recibida": TransferenciaStockRecibidaPayload;
+  "stock:transferencia_baja_logica": TransferenciaStockBajaPayload;
   /** HU-1: se emite tras el alta atómica de Usuario + UsuarioRol. */
   "usuario:creado": UsuarioCreadoPayload;
   /** HU-2: se emite tras la baja lógica de Usuario. */

@@ -8,12 +8,16 @@
 import { Suspense } from "react";
 import { ScanBarcode, AlertTriangle } from "lucide-react";
 import { listarDepositosActivos } from "@/lib/services/inventario/deposito.service";
+import { listarTransferencias, listarVariantesTransferibles } from "@/lib/services/inventario/transferencia.service";
+import { getServerSession } from "@/lib/auth/session";
+import { usuarioTienePermiso } from "@/lib/auth/with-permission";
 import { IngresoEscaneoPanel } from "@/components/inventario/escaner/IngresoEscaneoPanel";
+import { TransferenciasPanel } from "@/components/inventario/TransferenciasPanel";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
 export const metadata = {
-  title: "Ingreso por Escaneo — ERP SWAT",
-  description: "Registro de ingresos de mercadería mediante escaneo de códigos de barras y QR.",
+  title: "Movimientos de Inventario — ERP SWAT",
+  description: "Ingresos y transferencias internas de mercadería.",
 };
 
 async function IngresoEscaneoData() {
@@ -35,7 +39,17 @@ async function IngresoEscaneoData() {
   return <IngresoEscaneoPanel depositos={depositos} />;
 }
 
-export default function MovimientosPage() {
+export default async function MovimientosPage() {
+  const session = await getServerSession();
+  const [puedeTransferir, puedeConfirmar] = await Promise.all([
+    session ? usuarioTienePermiso(session.userId, "inventario:transferir_stock") : false,
+    session ? usuarioTienePermiso(session.userId, "inventario:confirmar_recepcion") : false,
+  ]);
+  const [depositos, variantes, transferencias] = await Promise.all([
+    listarDepositosActivos(),
+    puedeTransferir ? listarVariantesTransferibles() : [],
+    puedeTransferir || puedeConfirmar ? listarTransferencias() : [],
+  ]);
   return (
     <main className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
       <div className="mx-auto max-w-6xl space-y-5">
@@ -45,14 +59,17 @@ export default function MovimientosPage() {
           </div>
           <div>
             <h1 className="text-xl font-bold text-gray-900 tracking-tight">
-              Ingreso de Mercadería por Escaneo
+              Movimientos de inventario
             </h1>
             <p className="text-sm text-muted-foreground">
-              Escaneá el código de cada unidad para registrar el ingreso al depósito.
+              Transferí stock entre depósitos y registrá ingresos por escaneo.
             </p>
           </div>
         </div>
 
+        <TransferenciasPanel variantes={variantes} depositos={depositos} transferencias={transferencias} puedeTransferir={puedeTransferir} puedeConfirmar={puedeConfirmar} />
+
+        <div className="border-t pt-6"><h2 className="mb-1 text-xl font-bold text-gray-900">Ingreso por escaneo</h2><p className="mb-5 text-sm text-muted-foreground">Registrá ingresos externos al sistema.</p></div>
         <Suspense
           fallback={
             <div className="flex items-center justify-center gap-3 py-12 text-sm text-muted-foreground">

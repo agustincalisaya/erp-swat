@@ -32,6 +32,45 @@ export function iniciarAuditLogListener(): void {
   if (registrado) return;
   registrado = true;
 
+  domainEventBus.on("stock:transferencia_iniciada", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "TRANSFERENCIA_DESPACHADA",
+      tabla_afectada: "transferencias_stock",
+      registro_id: payload.transferencia_id,
+      ip: "internal-event",
+      valor_nuevo: payload,
+    });
+  });
+
+  domainEventBus.on("stock:transferencia_recibida", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "TRANSFERENCIA_RECIBIDA",
+      tabla_afectada: "transferencias_stock",
+      registro_id: payload.transferencia_id,
+      ip: "internal-event",
+      valor_anterior: { estado: "EN_TRANSITO" },
+      valor_nuevo: { estado: "RECIBIDA", ...payload },
+    });
+  });
+
+  domainEventBus.on("stock:transferencia_baja_logica", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "DELETE_LOGICO",
+      tabla_afectada: "transferencias_stock",
+      registro_id: payload.transferencia_id,
+      ip: "internal-event",
+      valor_anterior: { is_active: true },
+      valor_nuevo: {
+        is_active: false,
+        deleted_at: payload.deleted_at,
+        deletion_reason: payload.deletion_reason,
+      },
+    });
+  });
+
   domainEventBus.on("usuario:creado", (payload) => {
     // `UsuarioCreadoPayload` ampliado (ronda de corrección post-unificación)
     // para recuperar el detalle forense completo que la llamada directa

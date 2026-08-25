@@ -133,7 +133,6 @@ const ESTADOS_DESTINO_INGRESO = [
   "VENDIDO",
   "DEVUELTO",
   "BAJA_MERMA",
-  "EN_TRANSITO",
 ] as const;
 
 export const RegistrarIngresoPorEscaneoSchema = z.object({
@@ -169,3 +168,25 @@ export const RegistrarIngresoPorEscaneoSchema = z.object({
 export type RegistrarIngresoPorEscaneoInput = z.infer<
   typeof RegistrarIngresoPorEscaneoSchema
 >;
+
+// HU-5 — Transferencia interna en dos fases
+export const CrearTransferenciaSchema = z
+  .object({
+    variante_sku_id: z.string().uuid(),
+    deposito_origen_id: z.string().uuid(),
+    deposito_destino_id: z.string().uuid(),
+    cantidad: z.number().int().positive(),
+  })
+  .refine((data) => data.deposito_origen_id !== data.deposito_destino_id, {
+    message: "El depósito de origen y destino no pueden ser iguales",
+    path: ["deposito_destino_id"],
+  });
+
+export const BajaTransferenciaSchema = z.object({
+  deletion_reason: z.string().trim().min(1, "El motivo de baja es obligatorio"),
+});
+
+export const TransferenciaIdSchema = z.string().uuid("El ID de transferencia es inválido");
+
+export type CrearTransferenciaInput = z.infer<typeof CrearTransferenciaSchema>;
+export type BajaTransferenciaInput = z.infer<typeof BajaTransferenciaSchema>;

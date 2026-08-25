@@ -63,8 +63,7 @@ type IngresoFormValues = {
     | "RESERVADO"
     | "VENDIDO"
     | "DEVUELTO"
-    | "BAJA_MERMA"
-    | "EN_TRANSITO";
+    | "BAJA_MERMA";
   es_serializado: boolean;
   numero_serie?: string;
 };
@@ -88,7 +87,6 @@ const ESTADOS_DESTINO: IngresoFormValues["estado_destino"][] = [
   "VENDIDO",
   "DEVUELTO",
   "BAJA_MERMA",
-  "EN_TRANSITO",
 ];
 
 const selectClassName =
