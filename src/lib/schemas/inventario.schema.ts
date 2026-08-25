@@ -35,9 +35,15 @@ export type CrearProductoMaestroInput = z.infer<typeof CrearProductoMaestroSchem
 /**
  * Genera variantes en lote mediante producto cartesiano talle × color × género.
  * "modelo" es el segmento [MODELO] del SKU (ej. "SS3" para Softshell Nivel III).
- * No incluye `ean_qr`: se genera server-side como placeholder determinístico
- * derivado del `sku` de cada combinación (ver `generarEanQrPlaceholder()` en
- * `lib/utils/sku.ts`), no se recibe del cliente.
+ *
+ * `ean_qr` sigue sin recibirse por variante individual — el default es
+ * `NULL` (`VarianteSKU.ean_qr` es nullable justamente para este caso, no se
+ * inventa ningún valor). `ean_por_combinacion` es un override opcional y
+ * aditivo: mapa `"TALLE|COLOR|GENERO"` (normalizado, ver
+ * `claveCombinacionVariante()`) → EAN-13 real, para las combinaciones donde
+ * el usuario escaneó/tipeó el código de fábrica de la unidad física antes de
+ * confirmar el lote (HU-A1, rediseño del escaneo por variante). Un cliente
+ * que no manda este campo obtiene el mismo comportamiento de siempre.
  */
 export const GenerarVariantesMatrizSchema = z.object({
   producto_maestro_id: z.string().uuid(),
@@ -45,6 +51,9 @@ export const GenerarVariantesMatrizSchema = z.object({
   talles: z.array(z.string().min(1)).min(1),
   colores: z.array(z.string().min(1)).min(1),
   generos: z.array(z.enum(["HOMBRE", "MUJER", "UNISEX"])).min(1),
+  ean_por_combinacion: z
+    .record(z.string(), z.string().regex(/^\d{13}$/, "EAN-13 debe tener 13 dígitos"))
+    .optional(),
 });
 
 export type GenerarVariantesMatrizInput = z.infer<typeof GenerarVariantesMatrizSchema>;
@@ -60,6 +69,20 @@ export const DesactivarProductoMaestroSchema = z.object({
 });
 
 export type DesactivarProductoMaestroInput = z.infer<typeof DesactivarProductoMaestroSchema>;
+
+/**
+ * HU-A6 — Baja lógica de una `VarianteSKU` (sección 3.5 de spec_modulo_A.md).
+ * Shape-only, mismo criterio que `DesactivarProductoMaestroSchema`:
+ * `deletion_reason` es opcional a nivel de forma — la obligatoriedad depende
+ * del stock remanente activo de la variante (`StockDeposito.cantidad > 0`),
+ * regla que evalúa la capa de servicio (`darDeBajaVariante()`), no el schema.
+ * Sin superRefine (decisión D4).
+ */
+export const BajaLogicaVarianteSchema = z.object({
+  deletion_reason: z.string().trim().min(1).optional(),
+});
+
+export type BajaLogicaVarianteInput = z.infer<typeof BajaLogicaVarianteSchema>;
 
 /**
  * Semántica: stock_seguridad (piso crítico) < punto_pedido (umbral de alerta)
@@ -134,6 +157,34 @@ const ESTADOS_DESTINO_INGRESO = [
   "DEVUELTO",
   "BAJA_MERMA",
 ] as const;
+
+export type IngresoEstadoDestino = (typeof ESTADOS_DESTINO_INGRESO)[number];
+
+export type ImpactoStockDestino = "SUMA" | "RESTA";
+
+/**
+ * Impacto de cada `estado_destino` sobre el stock DISPONIBLE/vendible del
+ * depósito (`StockDeposito.cantidad` — mismo criterio ya usado por
+ * `Reserva`, ver schema.prisma):
+ *  - SUMA — `DISPONIBLE` (ingreso estándar) y `DEVUELTO` (reingreso ya
+ *    validado como apto para reventa por quien lo selecciona: el modelo
+ *    actual no tiene un flag separado de "inspección favorable").
+ *  - RESTA — `RESERVADO`, `VENDIDO`, `BAJA_MERMA` y `EN_TRANSITO`: mercadería
+ *    que, aunque pasa por esta pantalla de ingreso, queda inmediatamente
+ *    comprometida/no vendible y se descuenta del disponible del mismo
+ *    depósito seleccionado (este flujo es de un solo depósito — no modela
+ *    origen/destino separados para `EN_TRANSITO`).
+ * `Record` exhaustivo a propósito: agregar un estado nuevo al enum rompe la
+ * compilación hasta decidir explícitamente su impacto acá.
+ */
+export const IMPACTO_STOCK_POR_ESTADO_DESTINO: Record<IngresoEstadoDestino, ImpactoStockDestino> = {
+  DISPONIBLE: "SUMA",
+  DEVUELTO: "SUMA",
+  RESERVADO: "RESTA",
+  VENDIDO: "RESTA",
+  BAJA_MERMA: "RESTA",
+  EN_TRANSITO: "RESTA",
+};
 
 export const RegistrarIngresoPorEscaneoSchema = z.object({
   variante_sku_id: z.string().uuid("Código no resuelto: variante inválida"),

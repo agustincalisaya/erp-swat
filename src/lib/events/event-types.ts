@@ -35,6 +35,24 @@ export interface ProductoMaestroDesactivadoPayload {
   usuario_id: string;
 }
 
+/**
+ * HU-A6 — Payload emitido tras la baja lógica de una `VarianteSKU`
+ * (`darDeBajaVariante()`, sección 3.5 de spec_modulo_A.md). El evento se
+ * emite SOLO después de que el `UPDATE` de soft delete resuelve
+ * exitosamente, nunca dentro de `prisma.$transaction` (regla de emisión de
+ * spec_modulo_A.md §4). `stock_total_al_momento` es el total de stock activo
+ * leído ANTES del update; `ip` mantiene `AuditLog.ip` NOT NULL con default
+ * `"unknown"`. El payload nunca incluye datos sensibles (regla de
+ * `event-types.ts` y spec_modulo_D.md §5.1).
+ */
+export interface VarianteBajaLogicaPayload {
+  variante_sku_id: string;
+  usuario_id: string;
+  deletion_reason: string | null;
+  stock_total_al_momento: number;
+  ip: string;
+}
+
 export interface UmbralesConfiguradosPayload {
   stock_deposito_id: string;
   variante_sku_id: string;
@@ -220,9 +238,18 @@ export interface DomainEventMap {
   "stock:umbral_critico_alcanzado": UmbralCriticoAlcanzadoPayload;
   /** HU-2: se emite tras registrar un ingreso de mercadería por escaneo. */
   "inventario:ingreso_stock_registrado": IngresoStockRegistradoPayload;
-  "stock:transferencia_iniciada": TransferenciaStockPayload;
-  "stock:transferencia_recibida": TransferenciaStockRecibidaPayload;
-  "stock:transferencia_baja_logica": TransferenciaStockBajaPayload;
+"inventario:ingreso_stock_registrado": IngresoStockRegistradoPayload;
+
+/** HU-A5: eventos de transferencia de stock entre depósitos. */
+"stock:transferencia_iniciada": TransferenciaStockPayload;
+"stock:transferencia_recibida": TransferenciaStockRecibidaPayload;
+"stock:transferencia_baja_logica": TransferenciaStockBajaPayload;
+
+/** HU-A6: baja lógica de una VarianteSKU. */
+"inventario:variante_baja_logica": VarianteBajaLogicaPayload;
+
+/** HU-D1: se emite tras el alta atómica de Usuario + UsuarioRol. */
+"usuario:creado": UsuarioCreadoPayload;
   /** HU-1: se emite tras el alta atómica de Usuario + UsuarioRol. */
   "usuario:creado": UsuarioCreadoPayload;
   /** HU-2: se emite tras la baja lógica de Usuario. */

@@ -17,6 +17,7 @@
  */
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { BrowserMultiFormatReader, type IScannerControls } from "@zxing/browser";
+import { BarcodeFormat, DecodeHintType } from "@zxing/library";
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Tipado mínimo de la Barcode Detection API (aún experimental — no forma
@@ -57,9 +58,37 @@ export interface UseBarcodeScannerResult {
   dispositivoId: string | null;
   /** Cambia la cámara activa; reinicia el flujo de video con el nuevo dispositivo. */
   seleccionarDispositivo: (deviceId: string) => void;
+  /** Refresca la lista de cámaras bajo demanda (ej. al abrir el selector). */
+  actualizarDispositivos: () => Promise<void>;
 }
 
 const FORMATOS_NATIVOS = ["ean_13", "code_128", "qr_code"];
+
+/** Equivalente de `FORMATOS_NATIVOS` para el motor de fallback `@zxing/library`. */
+const FORMATOS_ZXING = [BarcodeFormat.EAN_13, BarcodeFormat.CODE_128, BarcodeFormat.QR_CODE];
+
+/**
+ * `MultiFormatReader` (usado por el fallback ZXing) llama `console.warn` en
+ * CADA intento de decodificación fallido — varias veces por frame, muchos
+ * frames por segundo — sin exponer forma de configurar/silenciar ese logger
+ * (hardcodeado en la librería). Sin este filtro, tener el escaneo ZXing
+ * activo unos minutos deja miles de warnings en la consola, tapando errores
+ * reales. Se instala solo mientras el motor ZXing está efectivamente
+ * escaneando y se restaura al pausar/desmontar (ver `iniciarZxing` y el
+ * cleanup del efecto principal).
+ */
+const RUIDO_ZXING = /^MultiFormatReader: non-ReaderException/;
+
+function silenciarRuidoZxing(): () => void {
+  const originalWarn = console.warn;
+  console.warn = (...args: unknown[]) => {
+    if (typeof args[0] === "string" && RUIDO_ZXING.test(args[0])) return;
+    originalWarn(...args);
+  };
+  return () => {
+    console.warn = originalWarn;
+  };
+}
 
 /** Beep corto (Web Audio API) al decodificar un código exitosamente. */
 function reproducirBeep() {
@@ -149,6 +178,7 @@ export function useBarcodeScanner({
     let streamActivo: MediaStream | null = null;
     let controlesZxing: IScannerControls | null = null;
     let rafId: number | null = null;
+    let restaurarConsola: (() => void) | null = null;
 
     async function iniciarNativo(BarcodeDetectorCtor: BarcodeDetectorConstructor, stream: MediaStream) {
       const video = videoRef.current;
@@ -189,7 +219,11 @@ export function useBarcodeScanner({
       const video = videoRef.current;
       if (!video) return;
 
-      const reader = new BrowserMultiFormatReader();
+      const hints = new Map<DecodeHintType, unknown>();
+      hints.set(DecodeHintType.POSSIBLE_FORMATS, FORMATOS_ZXING);
+
+      restaurarConsola = silenciarRuidoZxing();
+      const reader = new BrowserMultiFormatReader(hints);
       controlesZxing = await reader.decodeFromVideoDevice(
         dispositivoId ?? undefined,
         video,
@@ -253,6 +287,7 @@ export function useBarcodeScanner({
       if (rafId !== null) cancelAnimationFrame(rafId);
       streamActivo?.getTracks().forEach((track) => track.stop());
       controlesZxing?.stop();
+      restaurarConsola?.();
     };
   }, [activo, dispositivoId, manejarDeteccion, actualizarDispositivos]);
 
@@ -264,5 +299,6 @@ export function useBarcodeScanner({
     dispositivos,
     dispositivoId,
     seleccionarDispositivo,
+    actualizarDispositivos,
   };
 }

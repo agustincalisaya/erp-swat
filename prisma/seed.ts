@@ -14,6 +14,7 @@
 
 import { PrismaClient } from "@prisma/client";
 import { hashPassword } from "@/lib/auth/password-hash-core";
+import { generarSku, type Genero } from "@/lib/utils/sku";
 import * as dotenv from "dotenv";
 
 dotenv.config();
@@ -79,11 +80,11 @@ const USUARIO_ROL_ENCARGADO_ID = "31827e93-6bdb-44ec-87e0-9607c51c1837";
 // --- Origen: Módulo A — catálogo adicional ---
 const PRODUCTO_CAMISA_TACTICA_ID = "9e717646-bd40-47d7-9bc3-1c5bf053becb";
 const PRODUCTO_BORCEGOS_ID = "cf6b1caa-ef43-4554-ade4-f9e225a2993a";
-const VARIANTE_CAMISA_TACTICA_1_ID = "407e729d-47c3-404d-a89a-0a9c1f85a3db"; // M, Verde, Masculino, Manga Larga
-const VARIANTE_CAMISA_TACTICA_2_ID = "6fbb4612-9e6d-4661-b250-0bc62579089e"; // L, Negro, Masculino, Manga Corta
-const VARIANTE_CAMISA_TACTICA_3_ID = "0929aab1-57fb-44bc-90b6-76417c76c016"; // S, Verde, Femenino, Manga Larga
-const VARIANTE_BORCEGOS_1_ID = "864c2765-cbdd-41eb-837a-e12814b62868"; // 42, Negro, Masculino, Combate
-const VARIANTE_BORCEGOS_2_ID = "79f41b7f-a667-4867-b3cc-2c73f6134086"; // 38, Negro, Femenino, Combate
+const VARIANTE_CAMISA_TACTICA_1_ID = "407e729d-47c3-404d-a89a-0a9c1f85a3db"; // M, Verde, HOMBRE, Manga Larga
+const VARIANTE_CAMISA_TACTICA_2_ID = "6fbb4612-9e6d-4661-b250-0bc62579089e"; // L, Negro, HOMBRE, Manga Corta
+const VARIANTE_CAMISA_TACTICA_3_ID = "0929aab1-57fb-44bc-90b6-76417c76c016"; // S, Verde, MUJER, Manga Larga
+const VARIANTE_BORCEGOS_1_ID = "864c2765-cbdd-41eb-837a-e12814b62868"; // 42, Negro, HOMBRE, Combate
+const VARIANTE_BORCEGOS_2_ID = "79f41b7f-a667-4867-b3cc-2c73f6134086"; // 38, Negro, MUJER, Combate
 const DEPOSITO_SHOWROOM_ID = "acafbd3f-3309-46f6-8199-3509ca1d37f9";
 const DEPOSITO_MOVIL_ID = "453a9cda-87ca-4ae4-82de-9e25dab04d16";
 const STOCK_CT1_CENTRAL_ID = "ec3dfab3-aae7-431f-a08d-c0aca9b21c5e";
@@ -103,50 +104,6 @@ function diasAtras(dias: number): Date {
   const fecha = new Date();
   fecha.setDate(fecha.getDate() - dias);
   return fecha;
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Helper — SKU determinístico (réplica de spec_modulo_A.md §2.1)
-// ──────────────────────────────────────────────────────────────────────────────
-
-/**
- * Réplica del algoritmo determinístico de `spec_modulo_A.md` §2.1:
- * `[PRODUCTO]-[MODELO]-[TALLE]-[COLOR]-[GENERO]`, normalizado a mayúsculas
- * y sin espacios. NO se importa desde producto.service.ts porque ese archivo
- * está vacío al momento de escribir este seed.
- */
-const RANGO_DIACRITICOS_COMBINANTES_DESDE = 0x0300;
-const RANGO_DIACRITICOS_COMBINANTES_HASTA = 0x036f;
-
-function normalizarSegmentoSku(valor: string): string {
-  const sinDiacriticos = Array.from(valor.normalize("NFD"))
-    .filter((caracter) => {
-      const codigo = caracter.codePointAt(0) ?? 0;
-      return (
-        codigo < RANGO_DIACRITICOS_COMBINANTES_DESDE ||
-        codigo > RANGO_DIACRITICOS_COMBINANTES_HASTA
-      );
-    })
-    .join("");
-  return sinDiacriticos.toUpperCase().replace(/\s+/g, "");
-}
-
-function calcularSkuDeterministico(params: {
-  nombreProducto: string;
-  modelo: string;
-  talle: string;
-  color: string;
-  genero: string;
-}): string {
-  return [
-    params.nombreProducto,
-    params.modelo,
-    params.talle,
-    params.color,
-    params.genero,
-  ]
-    .map(normalizarSegmentoSku)
-    .join("-");
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -192,17 +149,37 @@ async function main() {
     },
   });
 
+  const skuVarianteSeed = generarSku({
+    codigoProducto: productoMaestro.codigo_producto,
+    modelo: "Policía",
+    talle: "M",
+    codigoColor: "Azul",
+    genero: "HOMBRE",
+  });
+
   const varianteSku = await prisma.varianteSKU.upsert({
     where: { id: VARIANTE_SKU_SEED_ID },
-    update: {},
-    create: {
-      id: VARIANTE_SKU_SEED_ID,
-      producto_maestro_id: productoMaestro.id,
-      sku: "CAMISA-POLICIA-M-AZUL-MASCULINO",
+    // `update` no vacío: si la fila ya existe con un SKU huérfano de una
+    // versión anterior del seed (p.ej. generado con una función de SKU
+    // divergente de generarSku()), volver a correr el seed la corrige en
+    // vez de dejarla inconsistente.
+    update: {
+      sku: skuVarianteSeed,
       ean_qr: "7791234500017",
       talle: "M",
       color: "Azul",
-      genero: "Masculino",
+      genero: "HOMBRE",
+      modelo: "Policía",
+      is_active: true,
+    },
+    create: {
+      id: VARIANTE_SKU_SEED_ID,
+      producto_maestro_id: productoMaestro.id,
+      sku: skuVarianteSeed,
+      ean_qr: "7791234500017",
+      talle: "M",
+      color: "Azul",
+      genero: "HOMBRE",
       modelo: "Policía",
       is_active: true,
     },
@@ -541,12 +518,19 @@ async function main() {
     },
   });
 
-  const variantesCamisaTactica = [
+  const variantesCamisaTactica: {
+    id: string;
+    talle: string;
+    color: string;
+    genero: Genero;
+    modelo: string;
+    ean_qr: string;
+  }[] = [
     {
       id: VARIANTE_CAMISA_TACTICA_1_ID,
       talle: "M",
       color: "Verde",
-      genero: "Masculino",
+      genero: "HOMBRE",
       modelo: "Manga Larga",
       ean_qr: "7791234500024",
     },
@@ -554,7 +538,7 @@ async function main() {
       id: VARIANTE_CAMISA_TACTICA_2_ID,
       talle: "L",
       color: "Negro",
-      genero: "Masculino",
+      genero: "HOMBRE",
       modelo: "Manga Corta",
       ean_qr: "7791234500031",
     },
@@ -562,18 +546,25 @@ async function main() {
       id: VARIANTE_CAMISA_TACTICA_3_ID,
       talle: "S",
       color: "Verde",
-      genero: "Femenino",
+      genero: "MUJER",
       modelo: "Manga Larga",
       ean_qr: "7791234500048",
     },
   ];
 
-  const variantesBorcegos = [
+  const variantesBorcegos: {
+    id: string;
+    talle: string;
+    color: string;
+    genero: Genero;
+    modelo: string;
+    ean_qr: string;
+  }[] = [
     {
       id: VARIANTE_BORCEGOS_1_ID,
       talle: "42",
       color: "Negro",
-      genero: "Masculino",
+      genero: "HOMBRE",
       modelo: "Combate",
       ean_qr: "7791234500055",
     },
@@ -581,7 +572,7 @@ async function main() {
       id: VARIANTE_BORCEGOS_2_ID,
       talle: "38",
       color: "Negro",
-      genero: "Femenino",
+      genero: "MUJER",
       modelo: "Combate",
       ean_qr: "7791234500062",
     },
@@ -590,16 +581,27 @@ async function main() {
   const varianteSkuById = new Map<string, { id: string; sku: string }>();
 
   for (const v of variantesCamisaTactica) {
-    const sku = calcularSkuDeterministico({
-      nombreProducto: productoCamisaTactica.nombre,
+    const sku = generarSku({
+      codigoProducto: productoCamisaTactica.codigo_producto,
       modelo: v.modelo,
       talle: v.talle,
-      color: v.color,
+      codigoColor: v.color,
       genero: v.genero,
     });
     const creada = await prisma.varianteSKU.upsert({
-      where: { sku },
-      update: {},
+      where: { id: v.id },
+      // Ver comentario en el upsert de `varianteSku` más arriba: `update`
+      // no vacío para autocorregir filas con SKU huérfano de una versión
+      // previa del seed.
+      update: {
+        sku,
+        ean_qr: v.ean_qr,
+        talle: v.talle,
+        color: v.color,
+        genero: v.genero,
+        modelo: v.modelo,
+        is_active: true,
+      },
       create: {
         id: v.id,
         producto_maestro_id: productoCamisaTactica.id,
@@ -616,16 +618,24 @@ async function main() {
   }
 
   for (const v of variantesBorcegos) {
-    const sku = calcularSkuDeterministico({
-      nombreProducto: productoBorcegos.nombre,
+    const sku = generarSku({
+      codigoProducto: productoBorcegos.codigo_producto,
       modelo: v.modelo,
       talle: v.talle,
-      color: v.color,
+      codigoColor: v.color,
       genero: v.genero,
     });
     const creada = await prisma.varianteSKU.upsert({
-      where: { sku },
-      update: {},
+      where: { id: v.id },
+      update: {
+        sku,
+        ean_qr: v.ean_qr,
+        talle: v.talle,
+        color: v.color,
+        genero: v.genero,
+        modelo: v.modelo,
+        is_active: true,
+      },
       create: {
         id: v.id,
         producto_maestro_id: productoBorcegos.id,

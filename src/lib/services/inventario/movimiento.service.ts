@@ -8,9 +8,10 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { domainEventBus } from "@/lib/events/domain-event-bus";
 import { ServiceError } from "@/lib/errors/service-error";
-import type {
-  ResolverCodigoEscaneoInput,
-  RegistrarIngresoPorEscaneoInput,
+import {
+  IMPACTO_STOCK_POR_ESTADO_DESTINO,
+  type ResolverCodigoEscaneoInput,
+  type RegistrarIngresoPorEscaneoInput,
 } from "@/lib/schemas/inventario.schema";
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -37,7 +38,54 @@ export interface IngresoRegistrado {
   variante_sku_id: string;
   deposito_destino_id: string;
   cantidad: number;
+  estado_destino: string;
+  /** Dirección en la que este movimiento afectó el disponible — ver `IMPACTO_STOCK_POR_ESTADO_DESTINO`. */
+  impacto_stock: "SUMA" | "RESTA";
   stock_resultante: { cantidad: number };
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Autorización — ingreso de mercadería por escaneo
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Roles con autorización vigente para registrar ingreso de mercadería
+ * (Hallazgo 1 — RBAC). Mismo criterio y misma lista que
+ * `ROLES_AUTORIZADOS_BAJA_VARIANTE` en `variante.service.ts` (decisión D2,
+ * HU-A6): no se usa `withPermission("inventario:operar")` porque el seed
+ * solo otorga ese permiso a `ENCARGADO_DEPOSITO` y dejaría fuera a
+ * `ADMINISTRADOR`. Un rol de solo lectura (ej. `AUDITOR`) queda excluido
+ * por no figurar en esta lista.
+ */
+const ROLES_AUTORIZADOS_INGRESO_STOCK = ["ADMINISTRADOR", "ENCARGADO_DEPOSITO"] as const;
+
+/**
+ * Verifica si el usuario tiene al menos un rol activo autorizado para
+ * resolver códigos y registrar el ingreso de mercadería, con la relación
+ * `UsuarioRol → Rol` activa en ambos niveles (mismo patrón de
+ * `usuarioPuedeBajarVariante()` en `variante.service.ts` y
+ * `usuarioTienePermiso()` en `lib/auth/with-permission.ts`).
+ *
+ * Único punto de verdad reutilizado por la página, ambas Server Actions y
+ * el Route Handler REST — evita que alguno de esos caminos quede sin la
+ * misma verificación de rol (Hallazgo 1).
+ *
+ * @param usuarioId - `usuario_id` de la sesión autenticada.
+ */
+export async function usuarioPuedeRegistrarIngresoStock(usuarioId: string): Promise<boolean> {
+  const match = await prisma.usuarioRol.findFirst({
+    where: {
+      usuario_id: usuarioId,
+      is_active: true,
+      rol: {
+        is_active: true,
+        nombre: { in: [...ROLES_AUTORIZADOS_INGRESO_STOCK] },
+      },
+    },
+    select: { id: true },
+  });
+
+  return match !== null;
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -83,18 +131,33 @@ export async function resolverCodigoEscaneo(
 /**
  * Registra el ingreso de mercadería resuelta por escaneo:
  *  1. Verifica que la variante exista y esté activa.
- *  2. Incrementa (o crea) el `StockDeposito` correspondiente vía `upsert`
- *     sobre la clave compuesta `[variante_sku_id, deposito_id]`.
- *  3. Crea el `MovimientoStock` inmutable tipo INGRESO.
+ *  2. Según `IMPACTO_STOCK_POR_ESTADO_DESTINO[estado_destino]`:
+ *     - SUMA: incrementa (o crea) el `StockDeposito` vía `upsert` sobre la
+ *       clave compuesta `[variante_sku_id, deposito_id]`.
+ *     - RESTA (`RESERVADO`, `VENDIDO`, `BAJA_MERMA`, `EN_TRANSITO`):
+ *       decrementa el disponible del mismo depósito seleccionado, con el
+ *       mismo patrón atómico condicionado que `decrementarStockConAlerta()`
+ *       (`stock.service.ts`) — un `updateMany` con `cantidad: { gte }`
+ *       evaluado atómicamente por Postgres, para que el disponible nunca
+ *       quede negativo. Si no alcanza, aborta con `STOCK_INSUFICIENTE` y no
+ *       se crea ningún movimiento.
+ *  3. Crea el `MovimientoStock` inmutable tipo INGRESO (siempre — es lo que
+ *     da trazabilidad, incluso cuando el impacto es RESTA).
  *
- * FUERA de la transacción: emite `inventario:ingreso_stock_registrado`.
+ * FUERA de la transacción: emite `inventario:ingreso_stock_registrado` y,
+ * si el impacto fue RESTA y el resultado cayó al punto de pedido o por
+ * debajo, `stock:umbral_critico_alcanzado` (mismo criterio que
+ * `decrementarStockConAlerta()`).
  *
  * @throws {ServiceError} VARIANTE_NO_ENCONTRADA
+ * @throws {ServiceError} STOCK_INSUFICIENTE
  */
 export async function registrarIngresoStock(
   input: RegistrarIngresoPorEscaneoInput,
   usuarioId: string,
 ): Promise<IngresoRegistrado> {
+  const impacto = IMPACTO_STOCK_POR_ESTADO_DESTINO[input.estado_destino];
+
   const resultado = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     const variante = await tx.varianteSKU.findFirst({
       where: { id: input.variante_sku_id, is_active: true, deleted_at: null },
@@ -107,24 +170,74 @@ export async function registrarIngresoStock(
       );
     }
 
-    const stockActualizado = await tx.stockDeposito.upsert({
-      where: {
-        variante_sku_id_deposito_id: {
+    let stockDepositoId: string;
+    let cantidadResultante: number;
+    let puntoPedido: number;
+
+    if (impacto === "SUMA") {
+      const stockActualizado = await tx.stockDeposito.upsert({
+        where: {
+          variante_sku_id_deposito_id: {
+            variante_sku_id: input.variante_sku_id,
+            deposito_id: input.deposito_destino_id,
+          },
+        },
+        update: {
+          cantidad: { increment: input.cantidad },
+          is_active: true,
+          deleted_at: null,
+        },
+        create: {
           variante_sku_id: input.variante_sku_id,
           deposito_id: input.deposito_destino_id,
+          cantidad: input.cantidad,
         },
-      },
-      update: {
-        cantidad: { increment: input.cantidad },
-        is_active: true,
-        deleted_at: null,
-      },
-      create: {
-        variante_sku_id: input.variante_sku_id,
-        deposito_id: input.deposito_destino_id,
-        cantidad: input.cantidad,
-      },
-    });
+      });
+      stockDepositoId = stockActualizado.id;
+      cantidadResultante = stockActualizado.cantidad;
+      puntoPedido = stockActualizado.punto_pedido;
+    } else {
+      // Garantiza que exista la fila (en 0 si es la primera vez que se toca
+      // esta combinación variante/depósito) para poder aplicarle el
+      // decremento condicionado atómico de abajo.
+      const stockExistente = await tx.stockDeposito.upsert({
+        where: {
+          variante_sku_id_deposito_id: {
+            variante_sku_id: input.variante_sku_id,
+            deposito_id: input.deposito_destino_id,
+          },
+        },
+        update: {},
+        create: {
+          variante_sku_id: input.variante_sku_id,
+          deposito_id: input.deposito_destino_id,
+          cantidad: 0,
+        },
+      });
+
+      const decremento = await tx.stockDeposito.updateMany({
+        where: {
+          id: stockExistente.id,
+          is_active: true,
+          cantidad: { gte: input.cantidad }, // condición evaluada atómicamente por PostgreSQL
+        },
+        data: { cantidad: { decrement: input.cantidad } },
+      });
+
+      if (decremento.count === 0) {
+        throw new ServiceError(
+          "STOCK_INSUFICIENTE",
+          `Stock disponible insuficiente en el depósito para restar ${input.cantidad} unidades (hay ${stockExistente.cantidad}).`,
+        );
+      }
+
+      const stockActualizado = await tx.stockDeposito.findUniqueOrThrow({
+        where: { id: stockExistente.id },
+      });
+      stockDepositoId = stockActualizado.id;
+      cantidadResultante = stockActualizado.cantidad;
+      puntoPedido = stockActualizado.punto_pedido;
+    }
 
     const movimiento = await tx.movimientoStock.create({
       data: {
@@ -140,10 +253,12 @@ export async function registrarIngresoStock(
 
     return {
       movimiento_id: movimiento.id,
+      stock_deposito_id: stockDepositoId,
       variante_sku_id: input.variante_sku_id,
       deposito_destino_id: input.deposito_destino_id,
       cantidad: input.cantidad,
-      cantidad_resultante: stockActualizado.cantidad,
+      cantidad_resultante: cantidadResultante,
+      punto_pedido: puntoPedido,
     };
   });
 
@@ -156,11 +271,31 @@ export async function registrarIngresoStock(
     usuario_id: usuarioId,
   });
 
+  // Mismo criterio que `decrementarStockConAlerta()`: alerta de umbral
+  // crítico fuera de la transacción, y solo cuando el movimiento restó
+  // disponible (un ingreso que suma nunca dispara esta alerta).
+  if (
+    impacto === "RESTA" &&
+    resultado.punto_pedido > 0 &&
+    resultado.cantidad_resultante <= resultado.punto_pedido
+  ) {
+    domainEventBus.emit("stock:umbral_critico_alcanzado", {
+      stock_deposito_id: resultado.stock_deposito_id,
+      variante_sku_id: resultado.variante_sku_id,
+      deposito_id: resultado.deposito_destino_id,
+      cantidad_resultante: resultado.cantidad_resultante,
+      punto_pedido: resultado.punto_pedido,
+      movimiento_id_origen: resultado.movimiento_id,
+    });
+  }
+
   return {
     movimiento_id: resultado.movimiento_id,
     variante_sku_id: resultado.variante_sku_id,
     deposito_destino_id: resultado.deposito_destino_id,
     cantidad: resultado.cantidad,
+    estado_destino: input.estado_destino,
+    impacto_stock: impacto,
     stock_resultante: { cantidad: resultado.cantidad_resultante },
   };
 }

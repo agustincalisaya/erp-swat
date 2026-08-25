@@ -17,7 +17,7 @@ import "server-only";
 import { prisma } from "@/lib/db/prisma";
 import { domainEventBus } from "@/lib/events/domain-event-bus";
 import { ServiceError } from "@/lib/errors/service-error";
-import { generarSku, generarEanQrPlaceholder, type Genero } from "@/lib/utils/sku";
+import { generarSku, claveCombinacionVariante, type Genero } from "@/lib/utils/sku";
 import type {
   CrearProductoMaestroInput,
   GenerarVariantesMatrizInput,
@@ -35,11 +35,36 @@ const MAX_COMBINACIONES_POR_INVOCACION = 200;
  * Inserta un `ProductoMaestro` (sin variantes — eso es un paso explícito y
  * separado, `generarVariantesMatriz()`). Emite `producto_maestro:creado` tras
  * el commit.
+ *
+ * Nota: un ProductoMaestro con 0 variantes es un estado válido esperado
+ * (Paso 1 de 2 del wizard) — no se valida acá a propósito, ver HU-A1 para el
+ * análisis completo (decisión de negocio confirmada: no se bloquea).
+ *
+ * @throws {ServiceError} PRODUCTO_MAESTRO_NOMBRE_DUPLICADO
  */
 export async function crearProductoMaestro(
   input: CrearProductoMaestroInput,
   usuarioId: string,
 ) {
+  const nombreTrimmed = input.nombre.trim();
+
+  // Regla de negocio HU-A1: no puede haber dos ProductoMaestro activos con
+  // el mismo nombre (case-insensitive, trim). codigo_producto queda afuera
+  // a propósito — dos productos distintos pueden compartirlo (ver docstring
+  // del modelo en schema.prisma). Un producto dado de baja no bloquea la
+  // reutilización de su nombre, de ahí el filtro is_active: true.
+  const duplicado = await prisma.productoMaestro.findFirst({
+    where: { is_active: true, nombre: { equals: nombreTrimmed, mode: "insensitive" } },
+    select: { id: true },
+  });
+
+  if (duplicado) {
+    throw new ServiceError(
+      "PRODUCTO_MAESTRO_NOMBRE_DUPLICADO",
+      `Ya existe un Producto Maestro activo con el nombre "${nombreTrimmed}".`,
+    );
+  }
+
   const producto = await prisma.productoMaestro.create({
     data: {
       codigo_producto: input.codigo_producto,
@@ -100,13 +125,42 @@ export async function buscarProductosActivos(query: string): Promise<ProductoMae
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
+// Selector jerárquico de umbrales — listarProductosConVariantes
+// ──────────────────────────────────────────────────────────────────────────────
+
+export interface ProductoConVariantesResumen {
+  id: string;
+  nombre: string;
+}
+
+/**
+ * task_cali_selector_umbrales.md — sección 3: segundo nivel del selector
+ * jerárquico (Depósito → Producto → Variante). Lista **todos** los
+ * `ProductoMaestro` activos que tengan al menos una `VarianteSKU` activa —
+ * deliberadamente sin filtrar por si esas variantes ya tienen `StockDeposito`
+ * en el depósito elegido (permite configurar umbrales antes de que llegue
+ * mercadería nueva, decisión de negocio confirmada en la sección 1 de esa
+ * tarea).
+ */
+export async function listarProductosConVariantes(): Promise<ProductoConVariantesResumen[]> {
+  return prisma.productoMaestro.findMany({
+    where: {
+      is_active: true,
+      variantes: { some: { is_active: true } },
+    },
+    select: { id: true, nombre: true },
+    orderBy: { nombre: "asc" },
+  });
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 // 6.2 — generarVariantesMatriz
 // ──────────────────────────────────────────────────────────────────────────────
 
 export interface VarianteMatrizGenerada {
   id: string;
   sku: string;
-  ean_qr: string;
+  ean_qr: string | null;
 }
 
 export interface ResultadoGenerarVariantesMatriz {
@@ -117,11 +171,15 @@ export interface ResultadoGenerarVariantesMatriz {
 
 /**
  * Genera el producto cartesiano `talles × colores × generos`, construye el
- * `sku` determinístico de cada combinación con `generarSku()` y un `ean_qr`
- * placeholder con `generarEanQrPlaceholder()` (ver nota en `lib/utils/sku.ts`
- * sobre por qué es un marcador interno, no un EAN-13 real), e inserta todo en
- * lote con `skipDuplicates` para que reintentos no fallen ante SKUs ya
- * existentes (idempotencia).
+ * `sku` determinístico de cada combinación con `generarSku()` y resuelve su
+ * `ean_qr`: si `input.ean_por_combinacion` trae una entrada para la key de esa
+ * combinación (`claveCombinacionVariante()` — EAN-13 real, cargado por
+ * escaneo/tipeo en el preview de la Matriz de Variantes), se usa ese valor;
+ * si no, queda `NULL` — `VarianteSKU.ean_qr` es nullable justamente para no
+ * inventar un valor cuando el EAN-13 real todavía no se conoce (se completa
+ * después, por HU-A2 al primer ingreso a depósito).
+ * Inserta todo en lote con `skipDuplicates` para que reintentos no fallen
+ * ante SKUs ya existentes (idempotencia).
  *
  * No requiere `StockDeposito` — eso lo crea HU-A2 al primer ingreso.
  *
@@ -173,11 +231,12 @@ export async function generarVariantesMatriz(
       codigoColor: color,
       genero,
     });
+    const eanEscaneado = input.ean_por_combinacion?.[claveCombinacionVariante({ talle, color, genero })];
 
     return {
       producto_maestro_id: productoMaestro.id,
       sku,
-      ean_qr: generarEanQrPlaceholder(sku),
+      ean_qr: eanEscaneado ?? null,
       talle: talle.trim().toUpperCase(),
       color: color.trim().toUpperCase(),
       genero,

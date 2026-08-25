@@ -4,6 +4,14 @@
  * @module actions — movimientos (HU-2)
  * @description Server Actions para el flujo de escaneo/ingreso de mercadería.
  * Se invocan directamente desde `IngresoEscaneoPanel.tsx` sin fetch manual.
+ *
+ * Capa 2 de RBAC (Hallazgo 1) — ambas actions verifican, además de la
+ * sesión, que el rol activo esté autorizado
+ * (`usuarioPuedeRegistrarIngresoStock()`, mismo punto de verdad que
+ * `page.tsx` y el Route Handler REST) antes de tocar el service. Sin esto,
+ * la Server Action sería un segundo camino sin protección para la misma
+ * operación que la página ya bloquea (mismo criterio que
+ * `darDeBajaVarianteAction`, HU-A6).
  */
 import { revalidatePath } from "next/cache";
 import {
@@ -15,6 +23,7 @@ import {
 import {
   resolverCodigoEscaneo,
   registrarIngresoStock,
+  usuarioPuedeRegistrarIngresoStock,
   type CodigoResuelto,
   type IngresoRegistrado,
 } from "@/lib/services/inventario/movimiento.service";
@@ -43,6 +52,17 @@ export async function resolverCodigoEscaneoAction(
     return {
       success: false,
       error: { code: "UNAUTHORIZED", message: "Sesión requerida para realizar esta operación." },
+    };
+  }
+
+  const autorizado = await usuarioPuedeRegistrarIngresoStock(session.userId);
+  if (!autorizado) {
+    return {
+      success: false,
+      error: {
+        code: "FORBIDDEN",
+        message: "No tenés el permiso requerido para realizar esta operación.",
+      },
     };
   }
 
@@ -86,6 +106,17 @@ export async function registrarIngresoStockAction(
     return {
       success: false,
       error: { code: "UNAUTHORIZED", message: "Sesión requerida para realizar esta operación." },
+    };
+  }
+
+  const autorizado = await usuarioPuedeRegistrarIngresoStock(session.userId);
+  if (!autorizado) {
+    return {
+      success: false,
+      error: {
+        code: "FORBIDDEN",
+        message: "No tenés el permiso requerido para realizar esta operación.",
+      },
     };
   }
 

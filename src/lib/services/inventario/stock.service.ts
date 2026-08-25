@@ -11,28 +11,35 @@ import type {
 import { calcularResumenStock } from "@/lib/services/inventario/stock-calculos";
 
 /**
- * HU-7 — Sección 6.1: actualiza `punto_pedido` y `stock_seguridad` de una
- * combinación variante/depósito existente. No toca `cantidad`.
+ * HU-7 — Sección 6.1: configura `punto_pedido` y `stock_seguridad` de una
+ * combinación variante/depósito. Nunca toca `cantidad` salvo por su valor
+ * inicial (0) cuando la combinación no existe todavía.
+ *
+ * Selector jerárquico (task_cali_selector_umbrales.md, sección 2): permite
+ * elegir variantes sin stock cargado — por lo tanto ya no puede exigir que
+ * la fila de `StockDeposito` exista de antemano. `upsert` sobre la clave
+ * compuesta `[variante_sku_id, deposito_id]`, mismo patrón que
+ * `registrarIngresoStock()` en `movimiento.service.ts`.
  */
 export async function actualizarUmbrales(
   input: ActualizarUmbralesStockInput,
   usuarioId: string,
 ) {
-  const stockDeposito = await prisma.stockDeposito.findFirst({
+  const actualizado = await prisma.stockDeposito.upsert({
     where: {
+      variante_sku_id_deposito_id: {
+        variante_sku_id: input.variante_sku_id,
+        deposito_id: input.deposito_id,
+      },
+    },
+    update: {
+      punto_pedido: input.punto_pedido,
+      stock_seguridad: input.stock_seguridad,
+    },
+    create: {
       variante_sku_id: input.variante_sku_id,
       deposito_id: input.deposito_id,
-      is_active: true,
-    },
-  });
-
-  if (!stockDeposito) {
-    throw new ServiceError("STOCK_DEPOSITO_NO_ENCONTRADO");
-  }
-
-  const actualizado = await prisma.stockDeposito.update({
-    where: { id: stockDeposito.id },
-    data: {
+      cantidad: 0,
       punto_pedido: input.punto_pedido,
       stock_seguridad: input.stock_seguridad,
     },
@@ -48,6 +55,43 @@ export async function actualizarUmbrales(
   });
 
   return actualizado;
+}
+
+export interface StockDepositoCombinacion {
+  variante_sku_id: string;
+  deposito_id: string;
+  cantidad: number;
+  punto_pedido: number;
+  stock_seguridad: number;
+}
+
+/**
+ * Selector jerárquico (task_cali_selector_umbrales.md, sección 3): lectura
+ * de solo consulta para poblar `FormularioUmbralesStock` al completar los 3
+ * niveles del selector. Devuelve `null` cuando la combinación no tiene fila
+ * en `StockDeposito` todavía — el llamador lo interpreta como "sin stock
+ * cargado" (valores en 0, indicador visible en el formulario), no como error.
+ */
+export async function obtenerStockDepositoPorCombinacion(
+  varianteSkuId: string,
+  depositoId: string,
+): Promise<StockDepositoCombinacion | null> {
+  const stockDeposito = await prisma.stockDeposito.findFirst({
+    where: {
+      variante_sku_id: varianteSkuId,
+      deposito_id: depositoId,
+      is_active: true,
+    },
+    select: {
+      variante_sku_id: true,
+      deposito_id: true,
+      cantidad: true,
+      punto_pedido: true,
+      stock_seguridad: true,
+    },
+  });
+
+  return stockDeposito;
 }
 
 /**

@@ -258,12 +258,15 @@ model ProductoMaestro {
 /// 4 dimensiones tácticas: talle, color, genero y modelo.
 /// El campo `sku` es único y determinístico (generado a partir de las
 /// dimensiones); `ean_qr` es el código de trazabilidad unitaria
-/// (EAN-13/QR) usado en el escaneo físico de depósito.
+/// (EAN-13/QR) usado en el escaneo físico de depósito. Es opcional: queda
+/// NULL hasta que se conoce el EAN-13 real de la unidad física (por
+/// escaneo en el preview de la Matriz de Variantes o al primer ingreso a
+/// depósito) — no se rellena con ningún valor sintético mientras tanto.
 model VarianteSKU {
-  id                  String @id @default(uuid())
+  id                  String  @id @default(uuid())
   producto_maestro_id String
-  sku                 String @unique
-  ean_qr              String @unique
+  sku                 String  @unique
+  ean_qr              String? @unique
   talle               String
   color               String
   genero              String
