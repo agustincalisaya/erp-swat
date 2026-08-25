@@ -20,7 +20,8 @@ import { useState, useTransition } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter, useSearchParams } from "next/navigation";
-import { LogIn, Loader2, Mail, Lock } from "lucide-react";
+// 1. Agregamos Eye y EyeOff para el botón de mostrar contraseña
+import { LogIn, Loader2, Mail, Lock, Eye, EyeOff } from "lucide-react";
 
 import { LoginSchema } from "@/lib/schemas/auth.schema";
 
@@ -46,6 +47,9 @@ export function FormularioLogin() {
   const searchParams = useSearchParams();
   const [serverError, setServerError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  
+  // 2. Estado para alternar la visibilidad de la contraseña
+  const [showPassword, setShowPassword] = useState(false);
 
   const form = useForm<LoginFormValues>({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -71,8 +75,6 @@ export function FormularioLogin() {
       const body = await response.json().catch(() => null);
 
       if (!response.ok || !body?.data) {
-        // 401 CREDENCIALES_INVALIDAS y 403 CUENTA_SUSPENDIDA traen su propio
-        // `message` desde el backend — se muestra tal cual en ambos casos.
         setServerError(body?.error?.message ?? "No se pudo iniciar sesión.");
         return;
       }
@@ -129,12 +131,29 @@ export function FormularioLogin() {
                 Contraseña
               </FormLabel>
               <FormControl>
-                <Input
-                  {...field}
-                  type="password"
-                  autoComplete="current-password"
-                  className="focus-visible:border-blue-500 focus-visible:ring-blue-500/30"
-                />
+                {/* 3. Contenedor relativo y botón para alternar visibilidad */}
+                <div className="relative">
+                  <Input
+                    {...field}
+                    // Alternamos entre 'text' y 'password'
+                    type={showPassword ? "text" : "password"}
+                    autoComplete="current-password"
+                    // pr-10 asegura que el texto no quede oculto detrás del ícono
+                    className="focus-visible:border-blue-500 focus-visible:ring-blue-500/30 pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 hover:text-gray-600 focus:outline-none transition-colors"
+                    aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
+                  >
+                    {showPassword ? (
+                      <EyeOff className="size-4" aria-hidden="true" />
+                    ) : (
+                      <Eye className="size-4" aria-hidden="true" />
+                    )}
+                  </button>
+                </div>
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -144,7 +163,7 @@ export function FormularioLogin() {
         <Button
           type="submit"
           disabled={isPending}
-          className="w-full bg-blue-600 hover:bg-blue-700 text-white gap-2"
+          className="w-full bg-blue-600 hover:bg-blue-700 text-white gap-2 transition-colors"
         >
           {isPending ? (
             <>
