@@ -166,6 +166,7 @@ export function FormularioUmbralesStock({
                     type="number"
                     min={0}
                     {...field}
+                    className="max-w-[200px]"
                     value={
                       field.value === undefined ||
                       field.value === null ||
@@ -197,6 +198,7 @@ export function FormularioUmbralesStock({
                     type="number"
                     min={0}
                     {...field}
+                    className="max-w-[200px]"
                     value={
                       field.value === undefined ||
                       field.value === null ||

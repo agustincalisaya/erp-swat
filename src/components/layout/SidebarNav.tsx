@@ -68,16 +68,17 @@ export function SidebarNav({ sections }: SidebarNavProps) {
           {colapsado ? <ChevronRight className="size-3" /> : <ChevronLeft className="size-3" />}
         </button>
 
-        {/* HEADER DEL SIDEBAR - CORRECCIÓN MOBILE AQUÍ 👇 */}
-        {/* Agregamos `mt-14 lg:mt-0` para empujar el logo hacia abajo solo en celulares */}
+        {/* HEADER DEL SIDEBAR - LOGO RENOVADO CON AZUL RELUCIENTE */}
         <div className={cn("px-4 mb-4 mt-14 lg:mt-0", colapsado ? "text-center px-0" : "")}>
           {!colapsado ? (
             <div className="whitespace-nowrap overflow-hidden">
-              <span className="text-sm font-bold text-gray-900 tracking-tight">ERP SWAT</span>
-              <p className="text-xs text-muted-foreground">Indumentarias</p>
+              <span className="text-base font-extrabold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent tracking-tight">
+                SWAT
+              </span>
+              <p className="text-xs font-medium text-slate-400">Indumentarias</p>
             </div>
           ) : (
-            <div className="flex items-center justify-center h-8 w-8 mx-auto bg-gray-900 text-white font-bold text-xs rounded-md">
+            <div className="flex items-center justify-center h-8 w-8 mx-auto bg-gradient-to-tr from-blue-600 to-indigo-600 text-white font-bold text-xs rounded-md shadow-sm shadow-blue-500/30">
               SW
             </div>
           )}
@@ -92,14 +93,15 @@ export function SidebarNav({ sections }: SidebarNavProps) {
                 <hr className={cn("my-2 border-t border-gray-100", colapsado ? "mx-4" : "mx-2")} aria-hidden="true" />
               )}
 
+              {/* Título de sección sutil */}
               {!colapsado ? (
-                <div className="flex items-center gap-2 px-2 py-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground whitespace-nowrap">
-                  {section.icon}
+                <div className="flex items-center gap-2 px-2 py-1 text-xs font-semibold uppercase tracking-wider text-slate-700 whitespace-nowrap">
+                  <span className="text-slate-500">{section.icon}</span>
                   {section.label}
                 </div>
               ) : (
                 <div 
-                  className="flex justify-center text-muted-foreground py-1"
+                  className="flex justify-center text-slate-500 py-1"
                   title={section.label} 
                 >
                   {section.icon}
