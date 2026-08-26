@@ -158,6 +158,7 @@ export async function resolverCodigoEscaneo(
  * no se duplica acá.
  *
  * @throws {ServiceError} VARIANTE_NO_ENCONTRADA
+ * @throws {ServiceError} DEPOSITO_NO_ENCONTRADO
  * @throws {ServiceError} STOCK_INSUFICIENTE
  */
 export async function registrarIngresoStock(
@@ -176,6 +177,17 @@ export async function registrarIngresoStock(
         throw new ServiceError(
           "VARIANTE_NO_ENCONTRADA",
           `No se encontró la variante ${input.variante_sku_id} en el catálogo activo.`,
+        );
+      }
+
+      const deposito = await tx.deposito.findFirst({
+        where: { id: input.deposito_destino_id, is_active: true, deleted_at: null },
+      });
+
+      if (!deposito) {
+        throw new ServiceError(
+          "DEPOSITO_NO_ENCONTRADO",
+          `No se encontró el depósito ${input.deposito_destino_id}.`,
         );
       }
 
@@ -251,6 +263,17 @@ export async function registrarIngresoStock(
       throw new ServiceError(
         "VARIANTE_NO_ENCONTRADA",
         `No se encontró la variante ${input.variante_sku_id} en el catálogo activo.`,
+      );
+    }
+
+    const deposito = await tx.deposito.findFirst({
+      where: { id: input.deposito_destino_id, is_active: true, deleted_at: null },
+    });
+
+    if (!deposito) {
+      throw new ServiceError(
+        "DEPOSITO_NO_ENCONTRADO",
+        `No se encontró el depósito ${input.deposito_destino_id}.`,
       );
     }
 
