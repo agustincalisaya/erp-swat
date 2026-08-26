@@ -3,9 +3,15 @@
 /**
  * @component ControlEstadoUsuario
  * @description Control simple para el cambio de estado manual de Usuario
- * (Endpoint 2.2.3, task_cali_estado_usuario.md §6). Tres botones —
+ * (Endpoint 2.2.3, task_cali_estado_usuario.md §6). Tres ítems de menú —
  * ACTIVO/SUSPENDIDO/BLOQUEADO— con el estado actual deshabilitado
  * (soporte de la idempotencia del service también a nivel UI).
+ *
+ * Contenedor visual: `DropdownMenuItem` (task_modificacion.md — refactor de
+ * la columna Acciones). Se renderiza como hijo de `DropdownMenuContent` en
+ * `UsuarioAccionesMenu`; `closeOnClick={false}` para no cerrar el menú
+ * mientras la Server Action está pendiente o si devuelve un error, igual que
+ * antes no había ningún cierre involucrado al ser botones inline.
  *
  * Server Action `cambiarEstadoUsuarioAction` (re-valida en servidor).
  */
@@ -15,7 +21,7 @@ import { ShieldCheck, ShieldAlert, ShieldX, Loader2 } from "lucide-react";
 
 import { cambiarEstadoUsuarioAction } from "@/app/(dashboard)/auditoria/usuarios/actions";
 import type { UsuarioEstadoCambiado } from "@/lib/services/auditoria/usuario.service";
-import { Button } from "@/components/ui/button";
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
 type EstadoManual = "ACTIVO" | "SUSPENDIDO" | "BLOQUEADO";
@@ -78,36 +84,34 @@ export function ControlEstadoUsuario({
   };
 
   return (
-    <div className="flex flex-col items-end gap-1">
-      <div className="flex gap-1">
-        {OPCIONES.map(({ estado, label, icon: Icon, activeClass }) => {
-          const esActual = estado === estadoActual;
-          return (
-            <Button
-              key={estado}
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={esActual || isPending}
-              onClick={() => handleClick(estado)}
-              title={esActual ? `Ya está ${label.toLowerCase()}` : `Marcar como ${label}`}
-              className={`gap-1 text-xs px-2 ${esActual ? activeClass : ""}`}
-            >
-              {isPending ? (
-                <Loader2 className="size-3 animate-spin" aria-hidden="true" />
-              ) : (
-                <Icon className="size-3" aria-hidden="true" />
-              )}
-              {label}
-            </Button>
-          );
-        })}
-      </div>
+    <>
+      {OPCIONES.map(({ estado, label, icon: Icon, activeClass }) => {
+        const esActual = estado === estadoActual;
+        return (
+          <DropdownMenuItem
+            key={estado}
+            closeOnClick={false}
+            disabled={esActual || isPending}
+            onClick={() => handleClick(estado)}
+            title={esActual ? `Ya está ${label.toLowerCase()}` : `Marcar como ${label}`}
+            className={esActual ? activeClass : undefined}
+          >
+            {isPending ? (
+              <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+            ) : (
+              <Icon className="size-3.5" aria-hidden="true" />
+            )}
+            {label}
+          </DropdownMenuItem>
+        );
+      })}
       {serverError && (
-        <Alert variant="destructive" className="py-1.5 px-2">
-          <AlertDescription className="text-xs">{serverError}</AlertDescription>
-        </Alert>
+        <div className="px-1.5 py-1">
+          <Alert variant="destructive" className="py-1.5 px-2">
+            <AlertDescription className="text-xs">{serverError}</AlertDescription>
+          </Alert>
+        </div>
       )}
-    </div>
+    </>
   );
 }
