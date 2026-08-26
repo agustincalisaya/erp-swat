@@ -11,7 +11,7 @@
  * @hookform/resolvers/zod.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2, PackagePlus, CheckCircle2, RotateCcw } from "lucide-react";
@@ -22,23 +22,25 @@ import {
 } from "@/lib/schemas/inventario.schema";
 import {
   crearProductoMaestro,
+  obtenerRubrosYCategorias,
   type ProductoMaestroCreado,
 } from "@/app/(dashboard)/inventario/productos/actions";
 import { MatrizVariantes } from "@/components/inventario/MatrizVariantes";
+import { AutocompleteInput } from "@/components/inventario/AutocompleteInput";
 
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import {
   Form,
   FormField,
   FormItem,
   FormLabel,
   FormControl,
-  FormDescription,
   FormMessage,
 } from "@/components/ui/form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
 const DEFAULT_VALUES: CrearProductoMaestroInput = {
   codigo_producto: "",
@@ -46,7 +48,6 @@ const DEFAULT_VALUES: CrearProductoMaestroInput = {
   descripcion: "",
   rubro: "",
   categoria: "",
-  unidad_medida: "",
   proveedor_preferente: "",
   costo_estandar_referencia: 0,
 };
@@ -54,11 +55,23 @@ const DEFAULT_VALUES: CrearProductoMaestroInput = {
 export function FormularioProductoMaestro() {
   const [productoCreado, setProductoCreado] = useState<ProductoMaestroCreado | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
+  const [sugerencias, setSugerencias] = useState<{ rubros: string[]; categorias: string[] }>({
+    rubros: [],
+    categorias: [],
+  });
 
   const form = useForm<CrearProductoMaestroInput>({
     resolver: zodResolver(CrearProductoMaestroSchema) as unknown as Resolver<CrearProductoMaestroInput>,
     defaultValues: DEFAULT_VALUES,
   });
+
+  useEffect(() => {
+    // Sugerencias de autocompletado — no bloquean el alta si fallan, el
+    // formulario sigue funcionando como texto libre sin ellas.
+    obtenerRubrosYCategorias().then((respuesta) => {
+      if (respuesta.data) setSugerencias(respuesta.data);
+    });
+  }, []);
 
   async function onSubmit(values: CrearProductoMaestroInput) {
     setServerError(null);
@@ -113,9 +126,6 @@ export function FormularioProductoMaestro() {
           <PackagePlus className="size-4 text-blue-500" aria-hidden="true" />
           Datos del Producto Maestro
         </CardTitle>
-        <CardDescription>
-          El código de producto es el segmento [PRODUCTO] del SKU — no necesita ser único.
-        </CardDescription>
       </CardHeader>
 
       <CardContent>
@@ -134,10 +144,17 @@ export function FormularioProductoMaestro() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Código de producto</FormLabel>
-                    <FormControl>
-                      <Input {...field} placeholder="Ej: CAMP" maxLength={8} autoComplete="off" />
-                    </FormControl>
-                    <FormDescription>Solo letras y números, sin espacios ni guiones.</FormDescription>
+                    <Tooltip>
+                      <FormControl>
+                        <TooltipTrigger
+                          closeOnClick={false}
+                          render={
+                            <Input {...field} placeholder="Ej: CAMP" maxLength={8} autoComplete="off" />
+                          }
+                        />
+                      </FormControl>
+                      <TooltipContent>Solo letras y números, sin espacios ni guiones.</TooltipContent>
+                    </Tooltip>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -177,7 +194,7 @@ export function FormularioProductoMaestro() {
               )}
             />
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <FormField
                 control={form.control}
                 name="rubro"
@@ -185,7 +202,11 @@ export function FormularioProductoMaestro() {
                   <FormItem>
                     <FormLabel>Rubro</FormLabel>
                     <FormControl>
-                      <Input {...field} placeholder="Ej: Indumentaria" autoComplete="off" />
+                      <AutocompleteInput
+                        {...field}
+                        placeholder="Ej: Indumentaria"
+                        sugerencias={sugerencias.rubros}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -199,21 +220,11 @@ export function FormularioProductoMaestro() {
                   <FormItem>
                     <FormLabel>Categoría</FormLabel>
                     <FormControl>
-                      <Input {...field} placeholder="Ej: Camperas" autoComplete="off" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="unidad_medida"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Unidad de medida</FormLabel>
-                    <FormControl>
-                      <Input {...field} placeholder="Ej: UNIDAD" autoComplete="off" />
+                      <AutocompleteInput
+                        {...field}
+                        placeholder="Ej: Camperas"
+                        sugerencias={sugerencias.categorias}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

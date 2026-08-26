@@ -44,6 +44,7 @@ import { generarSku, claveCombinacionVariante, type Genero } from "@/lib/utils/s
 import { generarVariantesMatriz } from "@/app/(dashboard)/inventario/productos/actions";
 import type { ResultadoGenerarVariantesMatriz } from "@/lib/services/inventario/producto.service";
 import { CameraBarcodeScanner } from "@/components/inventario/escaner/CameraBarcodeScanner";
+import { SelectorTalles } from "@/components/inventario/SelectorTalles";
 
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -296,9 +297,7 @@ export function MatrizVariantes({
           />
         </div>
 
-        <TagList
-          label="Talles"
-          placeholder="Ej: M"
+        <SelectorTalles
           values={talles}
           onAdd={(v) => setTalles((p) => [...p, v])}
           onRemove={(v) => setTalles((p) => p.filter((t) => t !== v))}

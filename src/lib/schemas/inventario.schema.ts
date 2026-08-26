@@ -20,7 +20,14 @@ export const CrearProductoMaestroSchema = z.object({
   descripcion: z.string().optional(),
   rubro: z.string().min(1, "El rubro es obligatorio"),
   categoria: z.string().min(1, "La categoría es obligatoria"),
-  unidad_medida: z.string().min(1, "La unidad de medida es obligatoria"),
+  /**
+   * Ajuste post-HU-A1: se sacó del formulario de alta (decisión de
+   * negocio — la columna sigue existiendo y sigue siendo NOT NULL en la
+   * base). Opcional acá, con default "UNIDAD" resuelto en
+   * `crearProductoMaestro()` — un consumidor directo del API (Postman,
+   * otro cliente) todavía puede mandarlo explícito.
+   */
+  unidad_medida: z.string().min(1).optional(),
   proveedor_preferente: z.string().optional(),
   costo_estandar_referencia: z
     .number({
