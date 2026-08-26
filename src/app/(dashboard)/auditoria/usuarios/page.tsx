@@ -14,8 +14,7 @@ import { usuarioTienePermiso, PERMISO_ROLES_ADMINISTRAR } from "@/lib/auth/with-
 import { listarUsuarios, listarRolesActivos } from "@/lib/services/auditoria/usuario.service";
 import type { FiltroEstadoUsuario as TipoFiltroEstadoUsuario } from "@/lib/services/auditoria/usuario.service";
 import { FormularioAltaUsuario } from "@/components/auditoria/FormularioAltaUsuario";
-import { DialogBajaUsuario } from "@/components/auditoria/DialogBajaUsuario";
-import { ControlEstadoUsuario } from "@/components/auditoria/ControlEstadoUsuario";
+import { UsuarioAccionesMenu } from "@/components/auditoria/UsuarioAccionesMenu";
 import { FiltroEstadoUsuarios } from "@/components/auditoria/FiltroEstadoUsuarios";
 import { BuscadorUsuarios } from "@/components/auditoria/BuscadorUsuarios";
 import { DialogReactivarUsuario } from "@/components/auditoria/DialogReactivarUsuario";
@@ -263,7 +262,7 @@ async function UsuariosData({
                 </TableCell>
               )}
               <TableCell className="text-right">
-                <div className="flex flex-col items-end gap-2">
+                <div className="flex justify-end">
                   {usuario.estado === "INACTIVO" ? (
                     <DialogReactivarUsuario
                       usuarioId={usuario.id}
@@ -272,13 +271,11 @@ async function UsuariosData({
                       deletedAt={usuario.deleted_at}
                     />
                   ) : (
-                    <>
-                      <ControlEstadoUsuario usuarioId={usuario.id} estadoActual={usuario.estado} />
-                      <DialogBajaUsuario
-                        usuarioId={usuario.id}
-                        nombreUsuario={usuario.nombre_usuario}
-                      />
-                    </>
+                    <UsuarioAccionesMenu
+                      usuarioId={usuario.id}
+                      nombreUsuario={usuario.nombre_usuario}
+                      estadoActual={usuario.estado}
+                    />
                   )}
                 </div>
               </TableCell>

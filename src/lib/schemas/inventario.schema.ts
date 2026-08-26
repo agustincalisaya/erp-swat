@@ -20,7 +20,14 @@ export const CrearProductoMaestroSchema = z.object({
   descripcion: z.string().optional(),
   rubro: z.string().min(1, "El rubro es obligatorio"),
   categoria: z.string().min(1, "La categoría es obligatoria"),
-  unidad_medida: z.string().min(1, "La unidad de medida es obligatoria"),
+  /**
+   * Ajuste post-HU-A1: se sacó del formulario de alta (decisión de
+   * negocio — la columna sigue existiendo y sigue siendo NOT NULL en la
+   * base). Opcional acá, con default "UNIDAD" resuelto en
+   * `crearProductoMaestro()` — un consumidor directo del API (Postman,
+   * otro cliente) todavía puede mandarlo explícito.
+   */
+  unidad_medida: z.string().min(1).optional(),
   proveedor_preferente: z.string().optional(),
   costo_estandar_referencia: z
     .number({
@@ -236,5 +243,27 @@ export const BajaTransferenciaSchema = z.object({
 
 export const TransferenciaIdSchema = z.string().uuid("El ID de transferencia es inválido");
 
+const FechaCalendarioSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "La fecha debe tener formato AAAA-MM-DD")
+  .refine((valor) => {
+    const [year, month, day] = valor.split("-").map(Number);
+    const fecha = new Date(Date.UTC(year, month - 1, day));
+    return fecha.getUTCFullYear() === year && fecha.getUTCMonth() === month - 1 && fecha.getUTCDate() === day;
+  }, "La fecha no es válida");
+
+export const FiltrosHistorialTransferenciasSchema = z
+  .object({
+    remito: z.string().trim().max(120, "El remito no puede superar los 120 caracteres").default(""),
+    desde: z.preprocess((valor) => valor === "" ? undefined : valor, FechaCalendarioSchema.optional()),
+    hasta: z.preprocess((valor) => valor === "" ? undefined : valor, FechaCalendarioSchema.optional()),
+    page: z.coerce.number().int().min(1).default(1),
+  })
+  .refine((data) => !data.desde || !data.hasta || data.desde <= data.hasta, {
+    message: "La fecha Desde no puede ser posterior a Hasta",
+    path: ["desde"],
+  });
+
 export type CrearTransferenciaInput = z.infer<typeof CrearTransferenciaSchema>;
 export type BajaTransferenciaInput = z.infer<typeof BajaTransferenciaSchema>;
+export type FiltrosHistorialTransferenciasInput = z.infer<typeof FiltrosHistorialTransferenciasSchema>;

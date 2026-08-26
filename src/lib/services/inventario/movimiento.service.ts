@@ -13,6 +13,7 @@ import {
   type ResolverCodigoEscaneoInput,
   type RegistrarIngresoPorEscaneoInput,
 } from "@/lib/schemas/inventario.schema";
+import { decrementarStockConAlerta } from "@/lib/services/inventario/stock.service";
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Tipos de retorno públicos
@@ -133,23 +134,31 @@ export async function resolverCodigoEscaneo(
  *  1. Verifica que la variante exista y esté activa.
  *  2. Según `IMPACTO_STOCK_POR_ESTADO_DESTINO[estado_destino]`:
  *     - SUMA: incrementa (o crea) el `StockDeposito` vía `upsert` sobre la
- *       clave compuesta `[variante_sku_id, deposito_id]`.
- *     - RESTA (`RESERVADO`, `VENDIDO`, `BAJA_MERMA`):
- *       decrementa el disponible del mismo depósito seleccionado, con el
- *       mismo patrón atómico condicionado que `decrementarStockConAlerta()`
- *       (`stock.service.ts`) — un `updateMany` con `cantidad: { gte }`
- *       evaluado atómicamente por Postgres, para que el disponible nunca
- *       quede negativo. Si no alcanza, aborta con `STOCK_INSUFICIENTE` y no
- *       se crea ningún movimiento.
- *  3. Crea el `MovimientoStock` inmutable tipo INGRESO (siempre — es lo que
- *     da trazabilidad, incluso cuando el impacto es RESTA).
+ *       clave compuesta `[variante_sku_id, deposito_id]`, y crea el
+ *       `MovimientoStock` inmutable tipo INGRESO, todo en una única
+ *       transacción.
+ *     - RESTA (`RESERVADO`, `VENDIDO`, `BAJA_MERMA`, `EN_TRANSITO`):
+ *       delega el decremento condicionado y la alerta de umbral crítico en
+ *       `decrementarStockConAlerta()` (HU-5, `stock.service.ts`) — única
+ *       función autorizada a evaluar `punto_pedido` y emitir
+ *       `stock:umbral_critico_alcanzado`. Esa función corre su propia
+ *       transacción y exige el `movimiento_id` de origen ya creado, por lo
+ *       que acá el `MovimientoStock` se crea primero (en una transacción
+ *       corta junto con el `upsert` que garantiza la fila de
+ *       `StockDeposito`) y luego se invoca el decremento. Si no hay stock
+ *       suficiente, se compensa borrando el `MovimientoStock` recién creado
+ *       para preservar la garantía de HU-2: stock insuficiente no deja
+ *       rastro en `movimientos_stock`. Nota: esa compensación no es
+ *       atómica con la creación (dos transacciones separadas), a diferencia
+ *       del camino SUMA.
  *
- * FUERA de la transacción: emite `inventario:ingreso_stock_registrado` y,
- * si el impacto fue RESTA y el resultado cayó al punto de pedido o por
- * debajo, `stock:umbral_critico_alcanzado` (mismo criterio que
- * `decrementarStockConAlerta()`).
+ * FUERA de la transacción (o transacciones, en el caso RESTA): emite
+ * `inventario:ingreso_stock_registrado`. La alerta `stock:umbral_critico_alcanzado`
+ * para el caso RESTA la emite `decrementarStockConAlerta()` internamente —
+ * no se duplica acá.
  *
  * @throws {ServiceError} VARIANTE_NO_ENCONTRADA
+ * @throws {ServiceError} DEPOSITO_NO_ENCONTRADO
  * @throws {ServiceError} STOCK_INSUFICIENTE
  */
 export async function registrarIngresoStock(
@@ -158,23 +167,30 @@ export async function registrarIngresoStock(
 ): Promise<IngresoRegistrado> {
   const impacto = IMPACTO_STOCK_POR_ESTADO_DESTINO[input.estado_destino];
 
-  const resultado = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-    const variante = await tx.varianteSKU.findFirst({
-      where: { id: input.variante_sku_id, is_active: true, deleted_at: null },
-    });
+  if (impacto === "SUMA") {
+    const resultado = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      const variante = await tx.varianteSKU.findFirst({
+        where: { id: input.variante_sku_id, is_active: true, deleted_at: null },
+      });
 
-    if (!variante) {
-      throw new ServiceError(
-        "VARIANTE_NO_ENCONTRADA",
-        `No se encontró la variante ${input.variante_sku_id} en el catálogo activo.`,
-      );
-    }
+      if (!variante) {
+        throw new ServiceError(
+          "VARIANTE_NO_ENCONTRADA",
+          `No se encontró la variante ${input.variante_sku_id} en el catálogo activo.`,
+        );
+      }
 
-    let stockDepositoId: string;
-    let cantidadResultante: number;
-    let puntoPedido: number;
+      const deposito = await tx.deposito.findFirst({
+        where: { id: input.deposito_destino_id, is_active: true, deleted_at: null },
+      });
 
-    if (impacto === "SUMA") {
+      if (!deposito) {
+        throw new ServiceError(
+          "DEPOSITO_NO_ENCONTRADO",
+          `No se encontró el depósito ${input.deposito_destino_id}.`,
+        );
+      }
+
       const stockActualizado = await tx.stockDeposito.upsert({
         where: {
           variante_sku_id_deposito_id: {
@@ -193,51 +209,92 @@ export async function registrarIngresoStock(
           cantidad: input.cantidad,
         },
       });
-      stockDepositoId = stockActualizado.id;
-      cantidadResultante = stockActualizado.cantidad;
-      puntoPedido = stockActualizado.punto_pedido;
-    } else {
-      // Garantiza que exista la fila (en 0 si es la primera vez que se toca
-      // esta combinación variante/depósito) para poder aplicarle el
-      // decremento condicionado atómico de abajo.
-      const stockExistente = await tx.stockDeposito.upsert({
-        where: {
-          variante_sku_id_deposito_id: {
-            variante_sku_id: input.variante_sku_id,
-            deposito_id: input.deposito_destino_id,
-          },
+
+      const movimiento = await tx.movimientoStock.create({
+        data: {
+          variante_sku_id: input.variante_sku_id,
+          deposito_destino_id: input.deposito_destino_id,
+          tipo_movimiento: "INGRESO",
+          estado_destino: input.estado_destino,
+          cantidad: input.cantidad,
+          comprobante_referencia: input.comprobante_referencia || null,
+          registrado_por_id: usuarioId,
         },
-        update: {},
-        create: {
+      });
+
+      return {
+        movimiento_id: movimiento.id,
+        cantidad_resultante: stockActualizado.cantidad,
+      };
+    });
+
+    domainEventBus.emit("inventario:ingreso_stock_registrado", {
+      movimiento_id: resultado.movimiento_id,
+      variante_sku_id: input.variante_sku_id,
+      deposito_destino_id: input.deposito_destino_id,
+      cantidad: input.cantidad,
+      cantidad_resultante: resultado.cantidad_resultante,
+      usuario_id: usuarioId,
+    });
+
+    return {
+      movimiento_id: resultado.movimiento_id,
+      variante_sku_id: input.variante_sku_id,
+      deposito_destino_id: input.deposito_destino_id,
+      cantidad: input.cantidad,
+      estado_destino: input.estado_destino,
+      impacto_stock: impacto,
+      stock_resultante: { cantidad: resultado.cantidad_resultante },
+    };
+  }
+
+  // impacto === "RESTA": el decremento condicionado y la alerta de umbral
+  // crítico son responsabilidad exclusiva de `decrementarStockConAlerta()`
+  // (HU-5, stock.service.ts). Esa función corre su propia transacción y
+  // exige el `movimiento_id` de origen ya creado, así que acá se crea
+  // primero el `MovimientoStock` (junto con el `upsert` que garantiza la
+  // fila de `StockDeposito`) y luego se invoca el decremento.
+  const preparacion = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    const variante = await tx.varianteSKU.findFirst({
+      where: { id: input.variante_sku_id, is_active: true, deleted_at: null },
+    });
+
+    if (!variante) {
+      throw new ServiceError(
+        "VARIANTE_NO_ENCONTRADA",
+        `No se encontró la variante ${input.variante_sku_id} en el catálogo activo.`,
+      );
+    }
+
+    const deposito = await tx.deposito.findFirst({
+      where: { id: input.deposito_destino_id, is_active: true, deleted_at: null },
+    });
+
+    if (!deposito) {
+      throw new ServiceError(
+        "DEPOSITO_NO_ENCONTRADO",
+        `No se encontró el depósito ${input.deposito_destino_id}.`,
+      );
+    }
+
+    // Garantiza que exista la fila (en 0 si es la primera vez que se toca
+    // esta combinación variante/depósito) para que `decrementarStockConAlerta()`
+    // tenga un `stockDepositoId` sobre el cual aplicar su propio decremento
+    // condicionado.
+    const stockExistente = await tx.stockDeposito.upsert({
+      where: {
+        variante_sku_id_deposito_id: {
           variante_sku_id: input.variante_sku_id,
           deposito_id: input.deposito_destino_id,
-          cantidad: 0,
         },
-      });
-
-      const decremento = await tx.stockDeposito.updateMany({
-        where: {
-          id: stockExistente.id,
-          is_active: true,
-          cantidad: { gte: input.cantidad }, // condición evaluada atómicamente por PostgreSQL
-        },
-        data: { cantidad: { decrement: input.cantidad } },
-      });
-
-      if (decremento.count === 0) {
-        throw new ServiceError(
-          "STOCK_INSUFICIENTE",
-          `Stock disponible insuficiente en el depósito para restar ${input.cantidad} unidades (hay ${stockExistente.cantidad}).`,
-        );
-      }
-
-      const stockActualizado = await tx.stockDeposito.findUniqueOrThrow({
-        where: { id: stockExistente.id },
-      });
-      stockDepositoId = stockActualizado.id;
-      cantidadResultante = stockActualizado.cantidad;
-      puntoPedido = stockActualizado.punto_pedido;
-    }
+      },
+      update: {},
+      create: {
+        variante_sku_id: input.variante_sku_id,
+        deposito_id: input.deposito_destino_id,
+        cantidad: 0,
+      },
+    });
 
     const movimiento = await tx.movimientoStock.create({
       data: {
@@ -253,49 +310,53 @@ export async function registrarIngresoStock(
 
     return {
       movimiento_id: movimiento.id,
-      stock_deposito_id: stockDepositoId,
-      variante_sku_id: input.variante_sku_id,
-      deposito_destino_id: input.deposito_destino_id,
-      cantidad: input.cantidad,
-      cantidad_resultante: cantidadResultante,
-      punto_pedido: puntoPedido,
+      stock_deposito_id: stockExistente.id,
+      cantidad_antes: stockExistente.cantidad,
     };
   });
 
+  let decremento: Awaited<ReturnType<typeof decrementarStockConAlerta>>;
+  try {
+    decremento = await decrementarStockConAlerta({
+      stockDepositoId: preparacion.stock_deposito_id,
+      cantidadSolicitada: input.cantidad,
+      movimientoIdOrigen: preparacion.movimiento_id,
+    });
+  } catch (error) {
+    if (error instanceof ServiceError && error.code === "STOCK_INSUFICIENTE") {
+      // Compensación manual: `decrementarStockConAlerta()` corre en su
+      // propia transacción, separada de la que creó el `MovimientoStock`
+      // arriba, así que el rollback no es automático. Se borra el
+      // movimiento recién creado para preservar la garantía de HU-2: stock
+      // insuficiente no deja rastro en `movimientos_stock`.
+      await prisma.movimientoStock.delete({ where: { id: preparacion.movimiento_id } });
+      throw new ServiceError(
+        "STOCK_INSUFICIENTE",
+        `Stock disponible insuficiente en el depósito para restar ${input.cantidad} unidades (hay ${preparacion.cantidad_antes}).`,
+      );
+    }
+    throw error;
+  }
+
   domainEventBus.emit("inventario:ingreso_stock_registrado", {
-    movimiento_id: resultado.movimiento_id,
-    variante_sku_id: resultado.variante_sku_id,
-    deposito_destino_id: resultado.deposito_destino_id,
-    cantidad: resultado.cantidad,
-    cantidad_resultante: resultado.cantidad_resultante,
+    movimiento_id: preparacion.movimiento_id,
+    variante_sku_id: input.variante_sku_id,
+    deposito_destino_id: input.deposito_destino_id,
+    cantidad: input.cantidad,
+    cantidad_resultante: decremento.cantidad_resultante,
     usuario_id: usuarioId,
   });
 
-  // Mismo criterio que `decrementarStockConAlerta()`: alerta de umbral
-  // crítico fuera de la transacción, y solo cuando el movimiento restó
-  // disponible (un ingreso que suma nunca dispara esta alerta).
-  if (
-    impacto === "RESTA" &&
-    resultado.punto_pedido > 0 &&
-    resultado.cantidad_resultante <= resultado.punto_pedido
-  ) {
-    domainEventBus.emit("stock:umbral_critico_alcanzado", {
-      stock_deposito_id: resultado.stock_deposito_id,
-      variante_sku_id: resultado.variante_sku_id,
-      deposito_id: resultado.deposito_destino_id,
-      cantidad_resultante: resultado.cantidad_resultante,
-      punto_pedido: resultado.punto_pedido,
-      movimiento_id_origen: resultado.movimiento_id,
-    });
-  }
+  // `stock:umbral_critico_alcanzado` ya fue emitido, si correspondía, dentro
+  // de `decrementarStockConAlerta()` — no se duplica acá (Hallazgo 4).
 
   return {
-    movimiento_id: resultado.movimiento_id,
-    variante_sku_id: resultado.variante_sku_id,
-    deposito_destino_id: resultado.deposito_destino_id,
-    cantidad: resultado.cantidad,
+    movimiento_id: preparacion.movimiento_id,
+    variante_sku_id: input.variante_sku_id,
+    deposito_destino_id: input.deposito_destino_id,
+    cantidad: input.cantidad,
     estado_destino: input.estado_destino,
     impacto_stock: impacto,
-    stock_resultante: { cantidad: resultado.cantidad_resultante },
+    stock_resultante: { cantidad: decremento.cantidad_resultante },
   };
 }

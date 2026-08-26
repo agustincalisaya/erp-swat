@@ -29,7 +29,9 @@ import {
   crearProductoMaestro as crearProductoMaestroService,
   generarVariantesMatriz as generarVariantesMatrizService,
   buscarProductosActivos as buscarProductosActivosService,
+  obtenerRubrosYCategoriasDistintos as obtenerRubrosYCategoriasDistintosService,
   type ResultadoGenerarVariantesMatriz,
+  type RubrosYCategoriasDistintos,
 } from "@/lib/services/inventario/producto.service";
 
 type ActionError = { code: string; message: string; fieldErrors?: Record<string, string[]> };
@@ -93,6 +95,34 @@ export async function buscarProductosActivos(query: string): Promise<BuscarProdu
     return { data: productos, error: null };
   } catch (err) {
     console.error("[buscarProductosActivos action] Error inesperado:", err);
+    return { data: null, error: { code: "INTERNAL_ERROR", message: "Error interno. Intentá nuevamente." } };
+  }
+}
+
+type ObtenerRubrosYCategoriasResult =
+  | { data: RubrosYCategoriasDistintos; error: null }
+  | { data: null; error: ActionError };
+
+/**
+ * Server Action de lectura liviana — alimenta el autocompletado de Rubro y
+ * Categoría en el formulario de alta (son sugerencias, no una lista
+ * cerrada). Ver docstring de `obtenerRubrosYCategoriasDistintos()` en
+ * `producto.service.ts`.
+ */
+export async function obtenerRubrosYCategorias(): Promise<ObtenerRubrosYCategoriasResult> {
+  const session = await getServerSession();
+  if (!session) {
+    return {
+      data: null,
+      error: { code: "UNAUTHORIZED", message: "Sesión requerida para realizar esta operación." },
+    };
+  }
+
+  try {
+    const resultado = await obtenerRubrosYCategoriasDistintosService();
+    return { data: resultado, error: null };
+  } catch (err) {
+    console.error("[obtenerRubrosYCategorias action] Error inesperado:", err);
     return { data: null, error: { code: "INTERNAL_ERROR", message: "Error interno. Intentá nuevamente." } };
   }
 }

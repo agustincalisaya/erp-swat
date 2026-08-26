@@ -51,6 +51,7 @@ import {
   FormControl,
   FormMessage,
 } from "@/components/ui/form";
+import { toast } from "@/components/ui/toast";
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Tipos
@@ -230,15 +231,12 @@ export function IngresoEscaneoPanel({ depositos }: IngresoEscaneoPanelProps) {
   }
 
   const cantidad = useWatch({ control: form.control, name: "cantidad" });
-  const estadoDestinoSeleccionado = useWatch({ control: form.control, name: "estado_destino" });
   const esSerializado = resuelto?.es_serializado ?? false;
   // El botón solo debe mostrar cantidades válidas — `cantidad` puede ser
   // string (mientras se edita), negativa, decimal o vacía.
   const cantidadNumerica = typeof cantidad === "number" ? cantidad : Number(cantidad);
   const cantidadMostrada =
     Number.isInteger(cantidadNumerica) && cantidadNumerica > 0 ? cantidadNumerica : 1;
-  const impactoSeleccionado =
-    IMPACTO_STOCK_POR_ESTADO_DESTINO[estadoDestinoSeleccionado as IngresoEstadoDestino];
 
   return (
     <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.05fr_1fr] lg:items-start">
@@ -477,7 +475,23 @@ export function IngresoEscaneoPanel({ depositos }: IngresoEscaneoPanelProps) {
                           Estado
                         </FormLabel>
                         <FormControl>
-                          <select {...field} className={selectClassName}>
+                          <select
+                            {...field}
+                            className={selectClassName}
+                            onChange={(e) => {
+                              field.onChange(e);
+                              const nuevoImpacto =
+                                IMPACTO_STOCK_POR_ESTADO_DESTINO[
+                                  e.target.value as IngresoEstadoDestino
+                                ];
+                              if (nuevoImpacto === "RESTA") {
+                                toast.add({
+                                  title: "Este estado resta del stock disponible del depósito.",
+                                  type: "warning",
+                                });
+                              }
+                            }}
+                          >
                             {ESTADOS_DESTINO.map((estadoDestino) => (
                               <option key={estadoDestino} value={estadoDestino}>
                                 {estadoDestino.replaceAll("_", " ")}
@@ -485,11 +499,6 @@ export function IngresoEscaneoPanel({ depositos }: IngresoEscaneoPanelProps) {
                             ))}
                           </select>
                         </FormControl>
-                        {impactoSeleccionado === "RESTA" && (
-                          <p className="text-[11px] font-medium text-amber-600">
-                            Este estado resta del stock disponible del depósito.
-                          </p>
-                        )}
                         <FormMessage />
                       </FormItem>
                     )}

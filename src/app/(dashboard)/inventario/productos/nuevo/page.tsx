@@ -29,14 +29,9 @@ export default function NuevoProductoPage() {
             <div className="p-2 rounded-xl bg-blue-100 text-blue-600 shrink-0">
               <Package className="size-5" aria-hidden="true" />
             </div>
-            <div>
-              <h1 className="text-xl font-bold text-gray-900 tracking-tight">
-                Nuevo Producto Maestro
-              </h1>
-              <p className="text-sm text-muted-foreground">
-                Alta del producto y generación de la matriz de variantes (talle × color × género).
-              </p>
-            </div>
+            <h1 className="text-xl font-bold text-gray-900 tracking-tight">
+              Nuevo Producto Maestro
+            </h1>
           </div>
 
           <Link

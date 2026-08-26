@@ -72,7 +72,11 @@ export async function crearProductoMaestro(
       descripcion: input.descripcion,
       rubro: input.rubro,
       categoria: input.categoria,
-      unidad_medida: input.unidad_medida,
+      // Ajuste post-HU-A1: "Unidad de medida" salió del formulario de alta
+      // (decisión de negocio) — la columna sigue NOT NULL en la base, así
+      // que un caller que no la manda (el formulario) recibe este default.
+      // Un consumidor directo del API que sí la mande explícita conserva ese valor.
+      unidad_medida: input.unidad_medida?.trim() || "UNIDAD",
       proveedor_preferente: input.proveedor_preferente,
       costo_estandar_referencia: input.costo_estandar_referencia,
     },
@@ -122,6 +126,64 @@ export async function buscarProductosActivos(query: string): Promise<ProductoMae
     orderBy: { nombre: "asc" },
     take: 10,
   });
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Autocompletado de Rubro/Categoría — obtenerRubrosYCategoriasDistintos
+// ──────────────────────────────────────────────────────────────────────────────
+
+export interface RubrosYCategoriasDistintos {
+  rubros: string[];
+  categorias: string[];
+}
+
+/**
+ * `distinct` de Prisma/Postgres compara por igualdad exacta de bytes —
+ * "Indumentaria" e "indumentaria" cuentan como valores distintos ahí. La
+ * deduplicación real (case-insensitive, con trim) pasa acá, en memoria:
+ * conserva la primera variante de casing que aparece para cada clave
+ * normalizada — simple y determinístico dado el `orderBy` de la consulta,
+ * no hace falta elegir "la más usada" para que sea consistente.
+ */
+function deduplicarCaseInsensitive(valores: string[]): string[] {
+  const vistos = new Map<string, string>();
+  for (const valor of valores) {
+    const trimmed = valor.trim();
+    const clave = trimmed.toLowerCase();
+    if (!vistos.has(clave)) vistos.set(clave, trimmed);
+  }
+  return Array.from(vistos.values());
+}
+
+/**
+ * Valores distintos de `rubro` y `categoria` entre productos activos, para
+ * alimentar el autocompletado del formulario de alta — sugerencias, no una
+ * lista cerrada: el usuario sigue pudiendo tipear un valor nuevo. Selects
+ * `distinct` separados por columna en vez de reutilizar
+ * `listarProductosActivosParaListado()` — ese trae la fila completa
+ * (id/codigo/nombre/rubro) pensada para la tabla del listado; acá alcanza
+ * con dos columnas.
+ */
+export async function obtenerRubrosYCategoriasDistintos(): Promise<RubrosYCategoriasDistintos> {
+  const [rubros, categorias] = await Promise.all([
+    prisma.productoMaestro.findMany({
+      where: { is_active: true },
+      select: { rubro: true },
+      distinct: ["rubro"],
+      orderBy: { rubro: "asc" },
+    }),
+    prisma.productoMaestro.findMany({
+      where: { is_active: true },
+      select: { categoria: true },
+      distinct: ["categoria"],
+      orderBy: { categoria: "asc" },
+    }),
+  ]);
+
+  return {
+    rubros: deduplicarCaseInsensitive(rubros.map((r) => r.rubro)),
+    categorias: deduplicarCaseInsensitive(categorias.map((c) => c.categoria)),
+  };
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

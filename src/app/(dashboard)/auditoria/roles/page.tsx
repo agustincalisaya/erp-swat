@@ -14,10 +14,10 @@ import { usuarioTienePermiso } from "@/lib/auth/with-permission";
 import { listarRoles, listarPermisos } from "@/lib/services/auditoria/rol.service";
 import { FormularioAltaRol } from "@/components/auditoria/FormularioAltaRol";
 import { EditorPermisosRol } from "@/components/auditoria/EditorPermisosRol";
+import { RolPermisosModal } from "@/components/auditoria/RolPermisosModal";
 
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import {
   Table,
   TableHeader,
@@ -111,20 +111,7 @@ async function RolesData() {
                 </div>
               </TableCell>
               <TableCell>
-                <div className="flex flex-wrap gap-1 max-w-md">
-                  {rol.permisos && rol.permisos.length > 0 ? (
-                    rol.permisos.map((permiso) => (
-                      <Badge
-                        key={permiso.id}
-                        className="bg-blue-100 text-blue-700 border border-blue-200 hover:bg-blue-100 font-mono text-[10px]"
-                      >
-                        {permiso.codigo}
-                      </Badge>
-                    ))
-                  ) : (
-                    <span className="text-xs text-muted-foreground italic">Sin permisos</span>
-                  )}
-                </div>
+                <RolPermisosModal nombreRol={rol.nombre} permisos={rol.permisos ?? []} />
               </TableCell>
               <TableCell className="text-right">
                 <EditorPermisosRol

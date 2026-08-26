@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
-import { CrearTransferenciaSchema, BajaTransferenciaSchema, RegistrarIngresoPorEscaneoSchema, TransferenciaIdSchema } from "../../schemas/inventario.schema.ts";
+import { CrearTransferenciaSchema, BajaTransferenciaSchema, FiltrosHistorialTransferenciasSchema, RegistrarIngresoPorEscaneoSchema, TransferenciaIdSchema } from "../../schemas/inventario.schema.ts";
 import { calcularResumenStock } from "./stock-calculos.ts";
 
 const variante = "11111111-1111-4111-8111-111111111111";
@@ -69,6 +69,32 @@ test("un ingreso común no puede declarar stock EN_TRANSITO", () => {
 test("recepción y baja exigen un UUID de transferencia válido", () => {
   assert.equal(TransferenciaIdSchema.safeParse("no-es-uuid").success, false);
   assert.equal(TransferenciaIdSchema.safeParse(variante).success, true);
+});
+
+test("los filtros del historial aceptan remito parcial, fechas y página", () => {
+  const resultado = FiltrosHistorialTransferenciasSchema.parse({
+    remito: "  TR-123  ",
+    desde: "2026-08-01",
+    hasta: "2026-08-31",
+    page: "2",
+  });
+  assert.deepEqual(resultado, { remito: "TR-123", desde: "2026-08-01", hasta: "2026-08-31", page: 2 });
+});
+
+test("los filtros del historial rechazan fechas inexistentes y rangos invertidos", () => {
+  assert.equal(FiltrosHistorialTransferenciasSchema.safeParse({ desde: "2026-02-30" }).success, false);
+  assert.equal(FiltrosHistorialTransferenciasSchema.safeParse({ desde: "2026-08-20", hasta: "2026-08-10" }).success, false);
+});
+
+test("el historial consulta sólo recibidas activas, pagina en servidor y usa Hasta inclusivo", () => {
+  const fuente = readFileSync(new URL("./transferencia.service.ts", import.meta.url), "utf8");
+  assert.match(fuente, /estado: "RECIBIDA"/);
+  assert.match(fuente, /is_active: true/);
+  assert.match(fuente, /deleted_at: null/);
+  assert.match(fuente, /contains: filtros\.remito, mode: "insensitive"/);
+  assert.match(fuente, /skip: \(filtros\.page - 1\) \* HISTORIAL_PAGE_SIZE/);
+  assert.match(fuente, /take: HISTORIAL_PAGE_SIZE/);
+  assert.match(fuente, /\{ lt: hastaExclusivo \}/);
 });
 
 test("el servicio protege stock insuficiente, entidades inactivas y doble recepción con operaciones condicionadas", () => {
