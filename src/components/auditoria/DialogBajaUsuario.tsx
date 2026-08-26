@@ -8,7 +8,16 @@
  * el Zod schema server-side (`BajaLogicaUsuarioSchema`) la segunda
  * (spec_modulo_D.md — Componentes UI).
  *
- * UI Stack: Shadcn UI AlertDialog + Textarea + Button.
+ * UI Stack: Shadcn UI AlertDialog + Textarea + Button. `open`/`onOpenChange`
+ * son props controladas por `UsuarioAccionesMenu` — el ítem "Dar de baja"
+ * vive en el `DropdownMenu` (task_modificacion.md), pero este diálogo se
+ * renderiza como hermano del menú, no anidado dentro de `DropdownMenuContent`.
+ * Es necesario: mientras el diálogo estuvo anidado en el menú (con el menú
+ * forzado a permanecer abierto vía `closeOnClick={false}` para no perder su
+ * estado al desmontarse), ambos overlays competían por el foco y el
+ * `<textarea>` de motivo no podía recibir texto — el menú se lo devolvía a su
+ * ítem resaltado en cada tecla. Como hermano, cerrar el menú no afecta a este
+ * diálogo y no hay conflicto de foco.
  * Server Action `desactivarUsuarioAction` (re-valida en servidor).
  */
 
@@ -25,7 +34,6 @@ import {
   AlertDialogTitle,
   AlertDialogDescription,
   AlertDialogFooter,
-  AlertDialogTrigger,
   AlertDialogCancel,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
@@ -34,20 +42,27 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 interface DialogBajaUsuarioProps {
   usuarioId: string;
   nombreUsuario: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   onSuccess?: (data: UsuarioDadoDeBaja) => void;
 }
 
-export function DialogBajaUsuario({ usuarioId, nombreUsuario, onSuccess }: DialogBajaUsuarioProps) {
-  const [open, setOpen] = useState(false);
+export function DialogBajaUsuario({
+  usuarioId,
+  nombreUsuario,
+  open,
+  onOpenChange,
+  onSuccess,
+}: DialogBajaUsuarioProps) {
   const [motivo, setMotivo] = useState("");
   const [serverError, setServerError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   const handleClose = useCallback(() => {
-    setOpen(false);
+    onOpenChange(false);
     setMotivo("");
     setServerError(null);
-  }, []);
+  }, [onOpenChange]);
 
   const handleConfirm = () => {
     setServerError(null);
@@ -68,21 +83,7 @@ export function DialogBajaUsuario({ usuarioId, nombreUsuario, onSuccess }: Dialo
   const motivoValido = motivo.trim().length > 0;
 
   return (
-    <AlertDialog open={open} onOpenChange={(o) => (o ? setOpen(true) : handleClose())}>
-      <AlertDialogTrigger
-        render={
-          <Button
-            id={`btn-baja-usuario-${usuarioId}`}
-            variant="destructive"
-            size="sm"
-            className="gap-1.5"
-          />
-        }
-      >
-        <UserX className="size-3.5" />
-        Dar de baja
-      </AlertDialogTrigger>
-
+    <AlertDialog open={open} onOpenChange={(o) => (o ? onOpenChange(true) : handleClose())}>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle className="flex items-center gap-2 text-destructive">
