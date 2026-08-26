@@ -36,6 +36,7 @@ interface ComboboxFiltrableProps<T> {
   cargando?: boolean;
   cargandoLabel?: string;
   emptyMessage?: string;
+  pageSize?: number;
 }
 
 interface PosicionListbox {
@@ -56,10 +57,12 @@ export function ComboboxFiltrable<T>({
   cargando = false,
   cargandoLabel = "Cargando…",
   emptyMessage = "Sin coincidencias.",
+  pageSize,
 }: ComboboxFiltrableProps<T>) {
   const [query, setQuery] = useState("");
   const [abierto, setAbierto] = useState(false);
   const [posicion, setPosicion] = useState<PosicionListbox | null>(null);
+  const [pagina, setPagina] = useState(1);
   const inputWrapperRef = useRef<HTMLDivElement>(null);
   const listaRef = useRef<HTMLUListElement>(null);
 
@@ -122,6 +125,10 @@ export function ComboboxFiltrable<T>({
   const itemsFiltrados = textoFiltro
     ? items.filter((item) => getLabel(item).toLowerCase().includes(textoFiltro))
     : items;
+  const totalPaginas = pageSize ? Math.max(1, Math.ceil(itemsFiltrados.length / pageSize)) : 1;
+  const itemsVisibles = pageSize
+    ? itemsFiltrados.slice((pagina - 1) * pageSize, pagina * pageSize)
+    : itemsFiltrados;
 
   const valorMostrado = abierto ? query : seleccionado ? getLabel(seleccionado) : "";
 
@@ -136,6 +143,7 @@ export function ComboboxFiltrable<T>({
         value={valorMostrado}
         onChange={(e) => {
           if (!abierto) abrirListbox();
+          setPagina(1);
           setQuery(e.target.value);
         }}
         onFocus={abrirListbox}
@@ -160,7 +168,7 @@ export function ComboboxFiltrable<T>({
             {itemsFiltrados.length === 0 && (
               <li className="px-3 py-2 text-sm text-muted-foreground">{emptyMessage}</li>
             )}
-            {itemsFiltrados.map((item) => {
+            {itemsVisibles.map((item) => {
               const itemId = getId(item);
               return (
                 <li key={itemId} role="option" aria-selected={itemId === value}>
@@ -174,6 +182,15 @@ export function ComboboxFiltrable<T>({
                 </li>
               );
             })}
+            {pageSize && itemsFiltrados.length > 0 && (
+              <li className="flex items-center justify-between gap-2 border-t px-3 py-2" role="presentation">
+                <span className="text-xs text-muted-foreground">Página {pagina} de {totalPaginas}</span>
+                <div className="flex gap-2">
+                  <button type="button" className="rounded border px-2 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-50" disabled={pagina <= 1} onClick={() => setPagina((actual) => Math.max(1, actual - 1))}>Anterior</button>
+                  <button type="button" className="rounded border px-2 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-50" disabled={pagina >= totalPaginas} onClick={() => setPagina((actual) => Math.min(totalPaginas, actual + 1))}>Siguiente</button>
+                </div>
+              </li>
+            )}
           </ul>,
           document.body,
         )}

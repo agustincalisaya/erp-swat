@@ -174,6 +174,7 @@ export async function confirmarRecepcionTransferenciaAction(transferenciaId: str
   try {
     const data = await confirmarRecepcionTransferencia(parsedId.data, session.userId);
     revalidatePath("/inventario/movimientos");
+    revalidatePath("/inventario/movimientos/historial-transferencias");
     return { success: true, data };
   } catch (error) {
     if (error instanceof ServiceError) return { success: false, error: { code: error.code, message: error.message } };

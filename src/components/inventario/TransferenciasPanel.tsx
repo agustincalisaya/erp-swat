@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowRight, CheckCircle2, PackageCheck, Truck } from "lucide-react";
+import { ArrowRight, CheckCircle2, History, PackageCheck, Search, Truck } from "lucide-react";
 import { crearTransferenciaAction, confirmarRecepcionTransferenciaAction, obtenerStockDisponibleAction } from "@/app/(dashboard)/inventario/movimientos/actions";
 import type { DepositoActivo } from "@/lib/services/inventario/deposito.service";
 import type { TransferenciaListado, VarianteTransferible } from "@/lib/services/inventario/transferencia.service";
@@ -14,6 +15,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "@/components/ui/toast";
+import { ComboboxFiltrable } from "@/components/inventario/ComboboxFiltrable";
+import { buttonVariants } from "@/components/ui/button";
 
 interface Props {
   variantes: VarianteTransferible[];
@@ -62,6 +65,8 @@ export function TransferenciasPanel({ variantes, depositos, transferencias, pued
   const [cantidad, setCantidad] = useState(1);
   const [disponible, setDisponible] = useState<number | null>(null);
   const [remito, setRemito] = useState<RemitoGenerado | null>(null);
+  const [busquedaPendientes, setBusquedaPendientes] = useState("");
+  const [paginaPendientes, setPaginaPendientes] = useState(1);
   const [pending, startTransition] = useTransition();
 
   useEffect(() => {
@@ -108,14 +113,26 @@ export function TransferenciasPanel({ variantes, depositos, transferencias, pued
   }
 
   const pendientes = transferencias.filter((item) => item.estado === "EN_TRANSITO");
-  const recibidas = transferencias.filter((item) => item.estado === "RECIBIDA");
+  const terminoPendientes = busquedaPendientes.trim().toLocaleLowerCase("es");
+  const pendientesFiltrados = terminoPendientes
+    ? pendientes.filter((item) => [item.numero_remito, item.sku, item.producto_nombre, item.deposito_origen, item.deposito_destino]
+        .some((valor) => valor.toLocaleLowerCase("es").includes(terminoPendientes)))
+    : pendientes;
+  const totalPaginasPendientes = Math.max(1, Math.ceil(pendientesFiltrados.length / 10));
+  const paginaPendientesValida = Math.min(paginaPendientes, totalPaginasPendientes);
+  const pendientesVisibles = pendientesFiltrados.slice((paginaPendientesValida - 1) * 10, paginaPendientesValida * 10);
   const remitoVisible = remito && pendientes.some((item) => item.id === remito.transferencia_id) ? remito : null;
 
   return (
     <section className="space-y-5" aria-labelledby="transferencias-title">
-      <div>
-        <h2 id="transferencias-title" className="text-xl font-bold text-gray-900">Transferencias entre depósitos</h2>
-        <p className="text-sm text-muted-foreground">El stock despachado queda fuera de la disponibilidad comercial hasta confirmar su recepción.</p>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h2 id="transferencias-title" className="text-xl font-bold text-gray-900">Transferencias entre depósitos</h2>
+          <p className="text-sm text-muted-foreground">El stock despachado queda fuera de la disponibilidad comercial hasta confirmar su recepción.</p>
+        </div>
+        <Link href="/inventario/movimientos/historial-transferencias" className={buttonVariants({ variant: "outline" })}>
+          <History className="size-4" /> Historial de Transferencias
+        </Link>
       </div>
 
       {puedeTransferir ? (
@@ -128,9 +145,17 @@ export function TransferenciasPanel({ variantes, depositos, transferencias, pued
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
               <div className="space-y-2 lg:col-span-2">
                 <Label htmlFor="transferencia-sku">SKU</Label>
-                <select id="transferencia-sku" className={selectClass} value={varianteId} onChange={(event) => { setDisponible(null); setVarianteId(event.target.value); }}>
-                  {variantes.map((variante) => <option key={variante.id} value={variante.id}>{variante.sku} — {variante.nombre} ({variante.detalle})</option>)}
-                </select>
+                <ComboboxFiltrable
+                  id="transferencia-sku"
+                  items={variantes}
+                  getId={(variante) => variante.id}
+                  getLabel={(variante) => `${variante.sku} — ${variante.nombre} (${variante.detalle})`}
+                  value={varianteId}
+                  onChange={(variante) => { setDisponible(null); setVarianteId(variante.id); }}
+                  placeholder="Buscar por SKU, producto, talle o color"
+                  emptyMessage="No hay SKU que coincidan con la búsqueda."
+                  pageSize={5}
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="transferencia-origen">Depósito origen</Label>
@@ -172,19 +197,41 @@ export function TransferenciasPanel({ variantes, depositos, transferencias, pued
 
       <Card>
         <CardHeader><CardTitle>Remitos pendientes</CardTitle><CardDescription>Mercadería despachada que todavía no integra el disponible del destino.</CardDescription></CardHeader>
-        <CardContent><TablaTransferencias items={pendientes} puedeConfirmar={puedeConfirmar} pending={pending} onConfirmar={confirmar} /></CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader><CardTitle className="flex items-center gap-2"><PackageCheck className="size-5" /> Transferencias recibidas</CardTitle></CardHeader>
-        <CardContent><TablaTransferencias items={recibidas} puedeConfirmar={false} pending={pending} onConfirmar={confirmar} /></CardContent>
+        <CardContent className="space-y-4">
+          <div className="relative max-w-md">
+            <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+            <Input
+              value={busquedaPendientes}
+              onChange={(event) => { setBusquedaPendientes(event.target.value); setPaginaPendientes(1); }}
+              placeholder="Buscar por remito, SKU, producto o depósito"
+              aria-label="Buscar remitos pendientes"
+              className="pl-9"
+            />
+          </div>
+          <TablaTransferencias
+            items={pendientesVisibles}
+            puedeConfirmar={puedeConfirmar}
+            pending={pending}
+            onConfirmar={confirmar}
+            emptyMessage={terminoPendientes ? "No hay remitos que coincidan con la búsqueda." : "No hay remitos pendientes."}
+          />
+          {pendientesFiltrados.length > 0 && (
+            <Paginacion
+              pagina={paginaPendientesValida}
+              totalPaginas={totalPaginasPendientes}
+              total={pendientesFiltrados.length}
+              onAnterior={() => setPaginaPendientes(Math.max(1, paginaPendientesValida - 1))}
+              onSiguiente={() => setPaginaPendientes(Math.min(totalPaginasPendientes, paginaPendientesValida + 1))}
+            />
+          )}
+        </CardContent>
       </Card>
     </section>
   );
 }
 
-function TablaTransferencias({ items, puedeConfirmar, pending, onConfirmar }: { items: TransferenciaListado[]; puedeConfirmar: boolean; pending: boolean; onConfirmar: (id: string) => void }) {
-  if (items.length === 0) return <p className="py-6 text-center text-sm text-muted-foreground">No hay remitos en este estado.</p>;
+export function TablaTransferencias({ items, puedeConfirmar, pending, onConfirmar, emptyMessage = "No hay remitos en este estado." }: { items: TransferenciaListado[]; puedeConfirmar: boolean; pending: boolean; onConfirmar: (id: string) => void; emptyMessage?: string }) {
+  if (items.length === 0) return <p className="py-6 text-center text-sm text-muted-foreground">{emptyMessage}</p>;
   return (
     <Table>
       <TableHeader><TableRow><TableHead>Remito</TableHead><TableHead>SKU</TableHead><TableHead>Ruta</TableHead><TableHead>Cantidad</TableHead><TableHead>Estado</TableHead><TableHead>Fecha</TableHead>{puedeConfirmar && <TableHead />}</TableRow></TableHeader>
@@ -200,5 +247,17 @@ function TablaTransferencias({ items, puedeConfirmar, pending, onConfirmar }: { 
         </TableRow>
       ))}</TableBody>
     </Table>
+  );
+}
+
+function Paginacion({ pagina, totalPaginas, total, onAnterior, onSiguiente }: { pagina: number; totalPaginas: number; total: number; onAnterior: () => void; onSiguiente: () => void }) {
+  return (
+    <div className="flex flex-col gap-3 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+      <span>Página {pagina} de {totalPaginas} — {total} remito{total === 1 ? "" : "s"}</span>
+      <div className="flex gap-2">
+        <Button type="button" variant="outline" size="sm" onClick={onAnterior} disabled={pagina <= 1}>Anterior</Button>
+        <Button type="button" variant="outline" size="sm" onClick={onSiguiente} disabled={pagina >= totalPaginas}>Siguiente</Button>
+      </div>
+    </div>
   );
 }
