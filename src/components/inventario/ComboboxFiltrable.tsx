@@ -98,12 +98,25 @@ export function ComboboxFiltrable<T>({
   // sigue al input si la página scrollea o la ventana se redimensiona, así
   // que directamente se cierra en cualquiera de los dos casos (mismo
   // criterio que `BuscadorProductoExistente.tsx`).
+  //
+  // El listener de scroll va en captura sobre `window` porque "scroll" no
+  // burbujea — pero por eso mismo también se dispara cuando lo que scrollea
+  // es el propio `<ul>` del listbox (la fase de captura recorre el árbol
+  // completo hasta el target, sin importar si el evento burbujea después).
+  // Sin el chequeo de `listaRef`, hacer scroll DENTRO de la lista cerraba
+  // el combobox solo — invisible con pocas opciones (nunca aparece
+  // scrollbar interno), pero reproducible en cuanto la lista excede
+  // `max-h-64` (ej. el filtro de Usuario de Auditoría Forense).
   useEffect(() => {
     if (!abierto) return;
-    window.addEventListener("scroll", cerrarListbox, true);
+    function handleScroll(e: Event) {
+      if (listaRef.current?.contains(e.target as Node)) return;
+      cerrarListbox();
+    }
+    window.addEventListener("scroll", handleScroll, true);
     window.addEventListener("resize", cerrarListbox);
     return () => {
-      window.removeEventListener("scroll", cerrarListbox, true);
+      window.removeEventListener("scroll", handleScroll, true);
       window.removeEventListener("resize", cerrarListbox);
     };
   }, [abierto]);

@@ -21,14 +21,24 @@ import { Filter, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ComboboxFiltrable } from "@/components/inventario/ComboboxFiltrable";
+import type { UsuarioParaFiltro } from "@/lib/services/auditoria/audit-log.service";
 
 const TABLAS_CONOCIDAS = ["usuarios", "sesiones"];
 
+/** Sentinel para "sin selección" en el combobox de Usuario — mismo criterio
+ * que la opción "Todas" del `<select>` de Tabla afectada/Acción. */
+const TODOS_LOS_USUARIOS: UsuarioParaFiltro = { id: "", nombre_completo: "Todos los usuarios" };
+
 interface FiltrosAuditoriaProps {
   mostrarFiltroUsuario: boolean;
+  /** Valores DISTINCT de `AuditLog.accion` existentes hoy en la base (armados en `page.tsx`). */
+  acciones: string[];
+  /** Usuarios del sistema para el combobox — solo se recibe con contenido si `mostrarFiltroUsuario` es `true`. */
+  usuarios: UsuarioParaFiltro[];
 }
 
-export function FiltrosAuditoria({ mostrarFiltroUsuario }: FiltrosAuditoriaProps) {
+export function FiltrosAuditoria({ mostrarFiltroUsuario, acciones, usuarios }: FiltrosAuditoriaProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -115,24 +125,34 @@ export function FiltrosAuditoria({ mostrarFiltroUsuario }: FiltrosAuditoriaProps
         <Label htmlFor="filtro-accion" className="text-xs">
           Acción
         </Label>
-        <Input
+        <select
           id="filtro-accion"
-          placeholder="Ej: CREATE"
           value={accion}
           onChange={(e) => setAccion(e.target.value)}
-        />
+          className="w-full h-9 rounded-lg border border-input bg-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+        >
+          <option value="">Todas</option>
+          {acciones.map((valorAccion) => (
+            <option key={valorAccion} value={valorAccion}>
+              {valorAccion}
+            </option>
+          ))}
+        </select>
       </div>
 
       {mostrarFiltroUsuario && (
         <div className="space-y-1.5">
           <Label htmlFor="filtro-usuario" className="text-xs">
-            Usuario (UUID)
+            Usuario
           </Label>
-          <Input
+          <ComboboxFiltrable
             id="filtro-usuario"
-            placeholder="usuario_id"
+            items={[TODOS_LOS_USUARIOS, ...usuarios]}
+            getId={(usuario) => usuario.id}
+            getLabel={(usuario) => usuario.nombre_completo}
             value={usuarioId}
-            onChange={(e) => setUsuarioId(e.target.value)}
+            onChange={(usuario) => setUsuarioId(usuario.id)}
+            placeholder="Todos los usuarios"
           />
         </div>
       )}

@@ -207,6 +207,46 @@ export async function listarAuditLog(
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
+// Lectura — opciones de filtro dinámicas (task de filtros Acción/Usuario)
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Valores DISTINCT de `AuditLog.accion` realmente presentes en el ledger,
+ * para poblar el `<select>` de "Acción" en `FiltrosAuditoria` — nunca un
+ * enum hardcodeado, así una acción nueva aparece sola en cuanto se registra
+ * el primer evento con ese valor.
+ */
+export async function listarAccionesDistintas(): Promise<string[]> {
+  const filas = await prisma.auditLog.findMany({
+    distinct: ["accion"],
+    select: { accion: true },
+    orderBy: { accion: "asc" },
+  });
+
+  return filas.map((fila) => fila.accion);
+}
+
+export interface UsuarioParaFiltro {
+  id: string;
+  nombre_completo: string;
+}
+
+/**
+ * Todos los `Usuario` del sistema (activos o no — el ledger forense debe
+ * seguir siendo filtrable por un usuario ya dado de baja) para poblar el
+ * combobox de "Usuario" en `FiltrosAuditoria`. Solo se llama cuando quien
+ * consulta tiene `auditoria:leer_forense` (gate en `page.tsx`) — sin ese
+ * permiso, la regla de segregación de `listarAuditLog()` fuerza igual el
+ * filtro a la sesión actual, así que exponer esta lista no tendría sentido.
+ */
+export async function listarUsuariosParaFiltro(): Promise<UsuarioParaFiltro[]> {
+  return prisma.usuario.findMany({
+    select: { id: true, nombre_completo: true },
+    orderBy: { nombre_completo: "asc" },
+  });
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 // Lectura — verificarCadenaIntegridad
 // ──────────────────────────────────────────────────────────────────────────────
 
