@@ -25,7 +25,7 @@ import { usuarioTienePermiso } from "@/lib/auth/with-permission";
 import { listarDepositosActivos } from "@/lib/services/inventario/deposito.service";
 import { usuarioPuedeRegistrarIngresoStock } from "@/lib/services/inventario/movimiento.service";
 import {
-  listarTransferencias,
+  listarTransferenciasPendientes,
   listarVariantesTransferibles,
 } from "@/lib/services/inventario/transferencia.service";
 
@@ -87,7 +87,7 @@ export default async function MovimientosPage() {
   const [depositos, variantes, transferencias] = await Promise.all([
     listarDepositosActivos(),
     puedeTransferir ? listarVariantesTransferibles() : [],
-    puedeTransferir || puedeConfirmar ? listarTransferencias() : [],
+    puedeTransferir || puedeConfirmar ? listarTransferenciasPendientes() : [],
   ]);
 
   return (

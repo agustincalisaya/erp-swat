@@ -6,6 +6,7 @@ import { prisma } from "@/lib/db/prisma";
 import { domainEventBus } from "@/lib/events/domain-event-bus";
 import { ServiceError } from "@/lib/errors/service-error";
 import type { CrearTransferenciaInput } from "@/lib/schemas/inventario.schema";
+import type { FiltrosHistorialTransferenciasInput } from "@/lib/schemas/inventario.schema";
 
 export interface TransferenciaCreada {
   transferencia_id: string;
@@ -36,6 +37,42 @@ export interface TransferenciaListado {
   recibida_at: string | null;
 }
 
+export interface HistorialTransferenciasListado {
+  registros: TransferenciaListado[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+const TRANSFERENCIA_LISTADO_SELECT = {
+  id: true,
+  numero_remito: true,
+  cantidad: true,
+  estado: true,
+  despachada_at: true,
+  recibida_at: true,
+  variante_sku: { select: { sku: true, producto_maestro: { select: { nombre: true } } } },
+  deposito_origen: { select: { nombre: true } },
+  deposito_destino: { select: { nombre: true } },
+} satisfies Prisma.TransferenciaStockSelect;
+
+type TransferenciaListadoDb = Prisma.TransferenciaStockGetPayload<{ select: typeof TRANSFERENCIA_LISTADO_SELECT }>;
+
+function mapearTransferencia(transferencia: TransferenciaListadoDb): TransferenciaListado {
+  return {
+    id: transferencia.id,
+    numero_remito: transferencia.numero_remito,
+    sku: transferencia.variante_sku.sku,
+    producto_nombre: transferencia.variante_sku.producto_maestro.nombre,
+    deposito_origen: transferencia.deposito_origen.nombre,
+    deposito_destino: transferencia.deposito_destino.nombre,
+    cantidad: transferencia.cantidad,
+    estado: transferencia.estado,
+    despachada_at: transferencia.despachada_at.toISOString(),
+    recibida_at: transferencia.recibida_at?.toISOString() ?? null,
+  };
+}
+
 export async function listarVariantesTransferibles(): Promise<VarianteTransferible[]> {
   const variantes = await prisma.varianteSKU.findMany({
     where: {
@@ -60,34 +97,59 @@ export async function listarVariantesTransferibles(): Promise<VarianteTransferib
   }));
 }
 
-export async function listarTransferencias(): Promise<TransferenciaListado[]> {
+export async function listarTransferenciasPendientes(): Promise<TransferenciaListado[]> {
   const transferencias = await prisma.transferenciaStock.findMany({
-    where: { is_active: true, deleted_at: null },
-    select: {
-      id: true,
-      numero_remito: true,
-      cantidad: true,
-      estado: true,
-      despachada_at: true,
-      recibida_at: true,
-      variante_sku: { select: { sku: true, producto_maestro: { select: { nombre: true } } } },
-      deposito_origen: { select: { nombre: true } },
-      deposito_destino: { select: { nombre: true } },
-    },
-    orderBy: [{ estado: "asc" }, { despachada_at: "desc" }],
+    where: { estado: "EN_TRANSITO", is_active: true, deleted_at: null },
+    select: TRANSFERENCIA_LISTADO_SELECT,
+    orderBy: [{ despachada_at: "desc" }, { id: "desc" }],
   });
-  return transferencias.map((transferencia) => ({
-    id: transferencia.id,
-    numero_remito: transferencia.numero_remito,
-    sku: transferencia.variante_sku.sku,
-    producto_nombre: transferencia.variante_sku.producto_maestro.nombre,
-    deposito_origen: transferencia.deposito_origen.nombre,
-    deposito_destino: transferencia.deposito_destino.nombre,
-    cantidad: transferencia.cantidad,
-    estado: transferencia.estado,
-    despachada_at: transferencia.despachada_at.toISOString(),
-    recibida_at: transferencia.recibida_at?.toISOString() ?? null,
-  }));
+  return transferencias.map(mapearTransferencia);
+}
+
+const HISTORIAL_PAGE_SIZE = 10;
+
+function inicioDiaArgentina(fecha: string): Date {
+  return new Date(`${fecha}T00:00:00-03:00`);
+}
+
+export async function listarTransferenciasRecibidas(
+  filtros: FiltrosHistorialTransferenciasInput,
+): Promise<HistorialTransferenciasListado> {
+  const where: Prisma.TransferenciaStockWhereInput = {
+    estado: "RECIBIDA",
+    is_active: true,
+    deleted_at: null,
+  };
+
+  if (filtros.remito) {
+    where.numero_remito = { contains: filtros.remito, mode: "insensitive" };
+  }
+  if (filtros.desde || filtros.hasta) {
+    const hastaExclusivo = filtros.hasta ? inicioDiaArgentina(filtros.hasta) : null;
+    if (hastaExclusivo) hastaExclusivo.setUTCDate(hastaExclusivo.getUTCDate() + 1);
+    where.recibida_at = {
+      ...(filtros.desde ? { gte: inicioDiaArgentina(filtros.desde) } : {}),
+      ...(hastaExclusivo ? { lt: hastaExclusivo } : {}),
+    };
+  }
+
+  const [registros, total] = await Promise.all([
+    prisma.transferenciaStock.findMany({
+      where,
+      select: TRANSFERENCIA_LISTADO_SELECT,
+      orderBy: [{ recibida_at: "desc" }, { id: "desc" }],
+      skip: (filtros.page - 1) * HISTORIAL_PAGE_SIZE,
+      take: HISTORIAL_PAGE_SIZE,
+    }),
+    prisma.transferenciaStock.count({ where }),
+  ]);
+
+  return {
+    registros: registros.map(mapearTransferencia),
+    total,
+    page: filtros.page,
+    page_size: HISTORIAL_PAGE_SIZE,
+  };
 }
 
 export async function crearTransferencia(
