@@ -3,9 +3,9 @@
  * @route /inventario/productos/variantes/nueva
  * @description Mejora post-HU-A1: pantalla independiente para agregar
  * variantes a un `ProductoMaestro` activo ya existente — separada del
- * wizard de alta de HU-A1 (`/inventario/productos`), no una rama
+ * wizard de alta de HU-A1 (`/inventario/productos/nuevo`), no una rama
  * condicional de esa pantalla. Server Component simple, sin datos que
- * precargar (mismo criterio que `productos/page.tsx`): delega todo el
+ * precargar (mismo criterio que `productos/nuevo/page.tsx`): delega todo el
  * flujo interactivo a `NuevaVariante`.
  */
 import Link from "next/link";
@@ -32,7 +32,7 @@ export default function NuevaVariantePage() {
         <NuevaVariante />
 
         <Link
-          href="/inventario/productos"
+          href="/inventario/productos/nuevo"
           className={buttonVariants({ variant: "ghost" }) + " gap-2"}
         >
           <ArrowLeft className="size-4" aria-hidden="true" />

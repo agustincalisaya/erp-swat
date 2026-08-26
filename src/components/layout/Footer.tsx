@@ -9,7 +9,7 @@ export function Footer() {
   return (
     <footer className="shrink-0 border-t border-border bg-white px-4 sm:px-6 py-3">
       <p className="text-xs text-muted-foreground text-center">
-        ERP SWAT Indumentarias &copy; {anioActual} — Uso interno.
+        SWAT Indumentarias &copy; {anioActual} — Uso interno.
       </p>
     </footer>
   );
