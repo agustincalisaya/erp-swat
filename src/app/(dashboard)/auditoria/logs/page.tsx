@@ -12,7 +12,12 @@ import { Suspense } from "react";
 import { ScrollText, AlertTriangle } from "lucide-react";
 import { getServerSession } from "@/lib/auth/session";
 import { usuarioTienePermiso } from "@/lib/auth/with-permission";
-import { listarAuditLog } from "@/lib/services/auditoria/audit-log.service";
+import {
+  listarAuditLog,
+  listarAccionesDistintas,
+  listarUsuariosParaFiltro,
+  type UsuarioParaFiltro,
+} from "@/lib/services/auditoria/audit-log.service";
 import { FiltrosAuditoriaSchema } from "@/lib/schemas/auditoria.schema";
 import { FiltrosAuditoria } from "@/components/auditoria/FiltrosAuditoria";
 import { TablaAuditLog } from "@/components/auditoria/TablaAuditLog";
@@ -79,6 +84,19 @@ export default async function LogsPage({ searchParams }: LogsPageProps) {
     resultado = { registros: [], total: 0, page: filtros.page, page_size: filtros.page_size };
   }
 
+  // Opciones de los filtros dinámicos — `usuarios` solo se consulta con el
+  // permiso ampliado (ver docstring de `listarUsuariosParaFiltro`).
+  let acciones: string[] = [];
+  let usuarios: UsuarioParaFiltro[] = [];
+  try {
+    [acciones, usuarios] = await Promise.all([
+      listarAccionesDistintas(),
+      tieneLeerForense ? listarUsuariosParaFiltro() : Promise.resolve([]),
+    ]);
+  } catch (err) {
+    console.error("[LogsPage] Error al obtener opciones de filtro:", err);
+  }
+
   // Query string de los filtros activos (sin `page`) para que la paginación
   // de TablaAuditLog no los pierda al navegar de página.
   const queryBase = new URLSearchParams();
@@ -113,7 +131,11 @@ export default async function LogsPage({ searchParams }: LogsPageProps) {
 
         {/* ── Filtros ──────────────────────────────────────────────────── */}
         <Suspense fallback={null}>
-          <FiltrosAuditoria mostrarFiltroUsuario={tieneLeerForense} />
+          <FiltrosAuditoria
+            mostrarFiltroUsuario={tieneLeerForense}
+            acciones={acciones}
+            usuarios={usuarios}
+          />
         </Suspense>
 
         {/* ── Tabla en Card ────────────────────────────────────────────── */}
