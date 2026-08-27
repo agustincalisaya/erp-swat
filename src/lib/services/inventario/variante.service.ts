@@ -23,9 +23,11 @@
  */
 import "server-only";
 
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { domainEventBus } from "@/lib/events/domain-event-bus";
 import { ServiceError } from "@/lib/errors/service-error";
+import type { ListarVariantesInput } from "@/lib/schemas/inventario.schema";
 
 export interface VariantePorProducto {
   id: string;
@@ -168,4 +170,158 @@ export async function darDeBajaVariante(
   });
 
   return varianteDadaDeBaja;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// HU-A6 Ajustes — UI de Variantes (listado paginado + reporte inactivo)
+// Funciones NUEVAS de solo lectura (add-only): no alteran la lógica aprobada
+// `darDeBajaVariante()` ni ningún otro export existente de este archivo
+// (criterio 8 — el backend de baja queda byte-idéntico).
+// ──────────────────────────────────────────────────────────────────────────────
+
+/** Tamaño de página fijo del listado de variantes (R2: máx. 10 por página). */
+const PAGE_SIZE = 10;
+
+/** Fila del listado paginado de `VarianteSKU` (vista Variantes, HU-A6). */
+export interface VariantePaginada {
+  id: string;
+  sku: string;
+  talle: string;
+  color: string;
+  genero: string;
+  modelo: string;
+  producto: string;
+  stockTotal: number;
+  deleted_at: Date | null;
+  deleted_by: string | null;
+  deleted_by_nombre: string | null;
+  deletion_reason: string | null;
+}
+
+/** Resultado completo de `listarVariantesPaginadas()` — shape para el RSC. */
+export interface ListadoVariantesPaginado {
+  variantes: VariantePaginada[];
+  total: number;
+  page: number;
+  page_size: number;
+  tab: "activas" | "inactivas";
+}
+
+/**
+ * Listado paginado de `VarianteSKU` según la pestaña activa (solo lectura).
+ *
+ * Cumplimiento normativo:
+ *  - RULES.md §1 — los SELECT filtran inactivos por defecto; la pestaña
+ *    "Inactivas" es el reporte de inventario inactivo del Criterio 2, bajo
+ *    excepción documentada en `docs/specs/excepcion-criterio2-inactivas-variantes.md`
+ *    (alcance SOLO LECTURA: ninguna mutación acá).
+ *  - Búsqueda general parcial case-insensitive sobre `sku`, `talle`, `color`,
+ *    `genero` y `modelo` (R3); combinable con `producto_maestro_id` (nunca
+ *    por SKU) y ambos aplican sobre la pestaña activa.
+ *  - Una única `Promise.all([findMany + count])` con el mismo `where` para
+ *    consistencia del conteo; stock remanente = suma de `cantidad` sobre
+ *    `StockDeposito` ACTIVOS (mismo criterio que `darDeBajaVariante` y el
+ *    page.tsx anterior), agregado con reduce JS (10 filas/pág, una query).
+ *  - `deleted_by` → `nombre_completo` resuelto con una 2ª query batch
+ *    (`usuario.findMany`), evitando N+1 (no existe relación directa, decisión
+ *    D9); si el id no resuelve → `null` y el render muestra "—" (escenario
+ *    "Missing operator name").
+ *
+ * @param f - Filtros ya validados por `ListarVariantesSchema` (fallback del
+ *            RSC cuando el safeParse falla: `parse({})`).
+ */
+export async function listarVariantesPaginadas(
+  f: ListarVariantesInput,
+): Promise<ListadoVariantesPaginado> {
+  const where: Prisma.VarianteSKUWhereInput = {
+    is_active: f.tab === "activas",
+    ...(f.producto_maestro_id ? { producto_maestro_id: f.producto_maestro_id } : {}),
+  };
+
+  const q = f.q?.trim();
+  if (q) {
+    where.OR = [
+      { sku: { contains: q, mode: "insensitive" } },
+      { talle: { contains: q, mode: "insensitive" } },
+      { color: { contains: q, mode: "insensitive" } },
+      { genero: { contains: q, mode: "insensitive" } },
+      { modelo: { contains: q, mode: "insensitive" } },
+    ];
+  }
+
+  const skip = (f.page - 1) * PAGE_SIZE;
+
+  const [variantes, total] = await Promise.all([
+    prisma.varianteSKU.findMany({
+      where,
+      skip,
+      take: PAGE_SIZE,
+      orderBy: { sku: "asc" },
+      select: {
+        id: true,
+        sku: true,
+        talle: true,
+        color: true,
+        genero: true,
+        modelo: true,
+        deleted_at: true,
+        deleted_by: true,
+        deletion_reason: true,
+        producto_maestro: { select: { nombre: true } },
+        stock_depositos: {
+          where: { is_active: true },
+          select: { cantidad: true },
+        },
+      },
+    }),
+    prisma.varianteSKU.count({ where }),
+  ]);
+
+  // Resolución batch de `deleted_by` → `nombre_completo` (evita N+1).
+  const deletedByIds = [
+    ...new Set(variantes.map((v) => v.deleted_by).filter((id): id is string => Boolean(id))),
+  ];
+  let nombresPorId = new Map<string, string>();
+  if (deletedByIds.length > 0) {
+    const usuarios = await prisma.usuario.findMany({
+      where: { id: { in: deletedByIds } },
+      select: { id: true, nombre_completo: true },
+    });
+    nombresPorId = new Map(usuarios.map((u) => [u.id, u.nombre_completo]));
+  }
+
+  return {
+    variantes: variantes.map((v) => ({
+      id: v.id,
+      sku: v.sku,
+      talle: v.talle,
+      color: v.color,
+      genero: v.genero,
+      modelo: v.modelo,
+      producto: v.producto_maestro.nombre,
+      stockTotal: v.stock_depositos.reduce((acumulado, stock) => acumulado + stock.cantidad, 0),
+      deleted_at: v.deleted_at,
+      deleted_by: v.deleted_by,
+      deleted_by_nombre: v.deleted_by ? (nombresPorId.get(v.deleted_by) ?? null) : null,
+      deletion_reason: v.deletion_reason,
+    })),
+    total,
+    page: f.page,
+    page_size: PAGE_SIZE,
+    tab: f.tab,
+  };
+}
+
+/**
+ * Productos Maestro ACTIVOS para poblar el `ComboboxFiltrable` del filtro por
+ * nombre (R3 — nunca por SKU). Solo lectura, ordenado por nombre.
+ */
+export async function listarProductosMaestroParaFiltro(): Promise<
+  { id: string; nombre: string }[]
+> {
+  return prisma.productoMaestro.findMany({
+    where: { is_active: true },
+    select: { id: true, nombre: true },
+    orderBy: { nombre: "asc" },
+  });
 }
