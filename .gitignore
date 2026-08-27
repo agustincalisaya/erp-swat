@@ -59,3 +59,7 @@ CLAUDE.md
 
 # Alcance Funcional (copia personal de referencia, no versionada)
 docs/Alcance_Funcional_Tecnico.md
+
+# Workspace local de Postman (generado por la app, no es contenido del equipo)
+postman/
+.postman/
