@@ -14,12 +14,18 @@
  *    sigue visible para cualquier sesión — la página degrada su propio
  *    contenido según `auditoria:leer_forense` (sin cambios,
  *    task_cali_bloqueo_url_auditoria.md §2).
- *  - Auditoría Forense — Inventario (`/inventario/auditoria`, Módulo A,
- *    FIX 5 de la ronda de corrección post-HU-A7) SÍ lleva
- *    `permiso: "auditoria:leer_forense"` — a diferencia de la de arriba,
- *    esa pantalla bloquea el acceso por completo sin el permiso (no
- *    degrada), así que no tenía sentido dejar el link visible para quien
- *    de todos modos se iba a encontrar con la pantalla de "no autorizado".
+ *  - Auditoría del Inventario (`/inventario/auditoria`, Módulo A) — hasta
+ *    la reorganización de navegación post-HU-A7 era una entrada de primer
+ *    nivel aparte, bajo "Inventario", con el mismo texto "Auditoría
+ *    Forense" que la de Módulo D (confuso). Ahora vive como sub-ítem
+ *    anidado bajo la entrada "Auditoría Forense" de arriba (mismo href,
+ *    solo cambia dónde cuelga en el árbol) y con texto propio "Auditoría
+ *    del Inventario" para distinguirla. SIGUE llevando
+ *    `permiso: "auditoria:leer_forense"` sin cambios — a diferencia de la
+ *    de Módulo D, esa pantalla bloquea el acceso por completo sin el
+ *    permiso (no degrada), así que no tiene sentido dejar el sub-ítem
+ *    visible para quien de todos modos se va a encontrar con la pantalla
+ *    de "no autorizado".
  *  - Inventario (Productos / Depósitos / Movimientos): Módulo A todavía
  *    no tiene RBAC granular, solo verificación de sesión (`withAuth`) —
  *    sin filtro de permiso, fuera de alcance de HU-D10.
@@ -35,8 +41,10 @@ interface ItemConfig {
   label: string;
   href: string;
   icon: LucideIcon;
-  /** Código de permiso requerido para mostrar el ítem. Ninguno lo usa hoy. */
+  /** Código de permiso requerido para mostrar el ítem. */
   permiso?: string;
+  /** Sub-ítems anidados debajo de este (ver docstring del componente). */
+  children?: ItemConfig[];
 }
 
 interface SeccionConfig {
@@ -57,7 +65,23 @@ const SECCIONES: SeccionConfig[] = [
         icon: ShieldCheck,
         permiso: "roles:administrar",
       },
-      { label: "Auditoría Forense", href: "/auditoria/logs", icon: ScrollText },
+      {
+        label: "Auditoría Forense",
+        href: "/auditoria/logs",
+        icon: ScrollText,
+        // Reorganización de navegación post-HU-A7: la consola de
+        // Inventario cuelga acá como sub-ítem en vez de vivir como
+        // entrada de primer nivel aparte en "Inventario" (evita el
+        // nombre duplicado "Auditoría Forense" en dos lugares del menú).
+        children: [
+          {
+            label: "Auditoría del Inventario",
+            href: "/inventario/auditoria",
+            icon: FileSearch,
+            permiso: "auditoria:leer_forense",
+          },
+        ],
+      },
     ],
   },
   {
@@ -69,16 +93,6 @@ const SECCIONES: SeccionConfig[] = [
       { label: "Variantes", href: "/inventario/variantes", icon: Layers },
       { label: "Depósitos", href: "/inventario/depositos", icon: Warehouse },
       { label: "Movimientos", href: "/inventario/movimientos", icon: ScanBarcode },
-      // FIX 5 (ronda de corrección post-HU-A7): antes solo alcanzable
-      // escribiendo la URL a mano. `permiso` acá SÍ filtra acceso real
-      // (a diferencia del resto de esta sección) porque la página bloquea
-      // por completo sin `auditoria:leer_forense` — ver docstring arriba.
-      {
-        label: "Auditoría Forense",
-        href: "/inventario/auditoria",
-        icon: FileSearch,
-        permiso: "auditoria:leer_forense",
-      },
     ],
   },
 ];
@@ -99,10 +113,29 @@ export async function Sidebar() {
               if (!visible) return null;
             }
             const ItemIcon = item.icon;
+            const children = item.children
+              ? (
+                  await Promise.all(
+                    item.children.map(async (child) => {
+                      if (child.permiso) {
+                        const visible = await usuarioTienePermiso(session.userId, child.permiso);
+                        if (!visible) return null;
+                      }
+                      const ChildIcon = child.icon;
+                      return {
+                        label: child.label,
+                        href: child.href,
+                        icon: <ChildIcon className="size-3.5 shrink-0" aria-hidden="true" />,
+                      };
+                    }),
+                  )
+                ).filter((child): child is NonNullable<typeof child> => child !== null)
+              : undefined;
             return {
               label: item.label,
               href: item.href,
               icon: <ItemIcon className="size-4 shrink-0" aria-hidden="true" />,
+              ...(children && children.length > 0 ? { children } : {}),
             };
           }),
         )

@@ -44,7 +44,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 export const dynamic = "force-dynamic";
 
 export const metadata = {
-  title: "Auditoría Forense — Módulo A (Inventario) | ERP SWAT",
+  title: "Auditoría del Inventario — ERP SWAT",
   description:
     "Consola de auditoría forense de movimientos de inventario con verificación de integridad SHA-256.",
 };
@@ -239,7 +239,7 @@ export default async function AuditoriaInventarioPage({
                 className="size-4 text-indigo-500"
                 aria-hidden="true"
               />
-              Log de eventos — Módulo A
+              Log de eventos — Inventario
             </CardTitle>
             <CardDescription>
               Movimientos de stock, altas y bajas del catálogo de productos, y

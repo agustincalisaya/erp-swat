@@ -11,6 +11,14 @@ export interface SidebarNavItem {
   label: string;
   href: string;
   icon: ReactNode;
+  /**
+   * Sub-ítems anidados debajo de este ítem (ej.: "Auditoría del Inventario"
+   * bajo "Auditoría Forense" — reorganización de navegación post-HU-A7).
+   * Sin patrón previo de anidamiento en el sidebar; este es el primero.
+   * Se renderizan siempre expandidos (sin acordeón) para no sumar estado ni
+   * complejidad de interacción a un menú con muy pocos niveles.
+   */
+  children?: SidebarNavItem[];
 }
 
 export interface SidebarNavSection {
@@ -114,27 +122,60 @@ export function SidebarNav({ sections }: SidebarNavProps) {
                 {section.items.map((item) => {
                   const activo = esRutaActiva(pathname, item.href);
                   return (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      onClick={() => setAbiertoMobile(false)}
-                      title={colapsado ? item.label : undefined}
-                      className={cn(
-                        "flex items-center rounded-lg transition-colors group",
-                        colapsado ? "justify-center py-2.5 px-0 mx-1" : "gap-3 px-3 py-2",
-                        activo
-                          ? "bg-blue-50 text-blue-700 font-semibold"
-                          : "text-gray-600 hover:bg-gray-100 hover:text-gray-900 font-medium",
+                    <div key={item.href} className="flex flex-col gap-1">
+                      <Link
+                        href={item.href}
+                        onClick={() => setAbiertoMobile(false)}
+                        title={colapsado ? item.label : undefined}
+                        className={cn(
+                          "flex items-center rounded-lg transition-colors group",
+                          colapsado ? "justify-center py-2.5 px-0 mx-1" : "gap-3 px-3 py-2",
+                          activo
+                            ? "bg-blue-50 text-blue-700 font-semibold"
+                            : "text-gray-600 hover:bg-gray-100 hover:text-gray-900 font-medium",
+                        )}
+                        aria-current={activo ? "page" : undefined}
+                      >
+                        {item.icon}
+                        {!colapsado && (
+                          <span className="text-sm whitespace-nowrap overflow-hidden transition-all">
+                            {item.label}
+                          </span>
+                        )}
+                      </Link>
+
+                      {/* Sub-ítems anidados — siempre expandidos, sin acordeón */}
+                      {item.children && item.children.length > 0 && (
+                        <div className={cn("flex flex-col gap-1", colapsado ? "mx-1" : "ml-4 border-l border-gray-100 pl-2")}>
+                          {item.children.map((child) => {
+                            const childActivo = esRutaActiva(pathname, child.href);
+                            return (
+                              <Link
+                                key={child.href}
+                                href={child.href}
+                                onClick={() => setAbiertoMobile(false)}
+                                title={colapsado ? child.label : undefined}
+                                className={cn(
+                                  "flex items-center rounded-lg transition-colors group",
+                                  colapsado ? "justify-center py-2 px-0" : "gap-3 px-3 py-1.5",
+                                  childActivo
+                                    ? "bg-blue-50 text-blue-700 font-semibold"
+                                    : "text-gray-500 hover:bg-gray-100 hover:text-gray-900 font-medium",
+                                )}
+                                aria-current={childActivo ? "page" : undefined}
+                              >
+                                {child.icon}
+                                {!colapsado && (
+                                  <span className="text-sm whitespace-nowrap overflow-hidden transition-all">
+                                    {child.label}
+                                  </span>
+                                )}
+                              </Link>
+                            );
+                          })}
+                        </div>
                       )}
-                      aria-current={activo ? "page" : undefined}
-                    >
-                      {item.icon}
-                      {!colapsado && (
-                        <span className="text-sm whitespace-nowrap overflow-hidden transition-all">
-                          {item.label}
-                        </span>
-                      )}
-                    </Link>
+                    </div>
                   );
                 })}
               </div>
