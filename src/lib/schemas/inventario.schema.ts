@@ -267,3 +267,27 @@ export const FiltrosHistorialTransferenciasSchema = z
 export type CrearTransferenciaInput = z.infer<typeof CrearTransferenciaSchema>;
 export type BajaTransferenciaInput = z.infer<typeof BajaTransferenciaSchema>;
 export type FiltrosHistorialTransferenciasInput = z.infer<typeof FiltrosHistorialTransferenciasSchema>;
+
+// ──────────────────────────────────────────────────────────────────────────────
+// HU-A6 Ajustes — UI de Variantes (listado paginado + reporte inactivo)
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Filtros del listado paginado de `VarianteSKU` (vista Variantes, HU-A6).
+ * Shape-only y aditivo: NO toca `BajaLogicaVarianteSchema` (criterio 8 — el
+ * backend de baja aprobado queda byte-idéntico).
+ *
+ * `tab` define la vista (Activas por defecto / Inactivas, solo lectura);
+ * `q` es la búsqueda general (parcial, case-insensitive) y
+ * `producto_maestro_id` el filtro por Producto Maestro (por nombre, nunca
+ * por SKU); ambos aplican sobre la pestaña activa. `page` es 1-based y se
+ * resetea al buscar o filtrar (el cliente borra el param antes de navegar).
+ */
+export const ListarVariantesSchema = z.object({
+  tab: z.enum(["activas", "inactivas"]).default("activas"),
+  q: z.string().max(200).optional(),
+  producto_maestro_id: z.string().uuid().optional(),
+  page: z.coerce.number().int().min(1).default(1),
+});
+
+export type ListarVariantesInput = z.infer<typeof ListarVariantesSchema>;
