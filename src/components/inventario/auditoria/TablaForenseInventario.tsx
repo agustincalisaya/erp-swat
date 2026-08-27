@@ -29,19 +29,24 @@ import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Label } from "@/components/ui/label";
 import { verificarIntegridadAction } from "@/app/(dashboard)/inventario/auditoria/actions";
+import { ComboboxFiltrable } from "@/components/inventario/ComboboxFiltrable";
 import type {
   RegistroAuditoriaInventario,
   ResultadoVerificacionInventario,
 } from "@/lib/services/inventario/auditoria.service";
+import type { UsuarioParaFiltro } from "@/lib/services/auditoria/audit-log.service";
 
 interface TablaForenseInventarioProps {
   registros: RegistroAuditoriaInventario[];
   total: number;
   page: number;
   page_size: number;
+  /** FIX 2 (TC-HU7-04) — usuarios del sistema para el combo de "Usuario responsable". */
+  usuarios: UsuarioParaFiltro[];
   /** Valores iniciales de los filtros activos (hidratados desde la URL). */
   filtrosIniciales?: {
     q?: string;
+    usuario_id?: string;
     sku_referencia?: string;
     tipo_movimiento?: string;
     tabla_afectada?: string;
@@ -50,20 +55,34 @@ interface TablaForenseInventarioProps {
   };
 }
 
+/** Sentinel para "sin selección" del combo de Usuario — mismo criterio que
+ * la opción "Todas" de los `<select>` nativos de esta misma pantalla. */
+const TODOS_LOS_USUARIOS: UsuarioParaFiltro = { id: "", nombre_completo: "Todos los usuarios" };
+
+// Colores del badge de "Acción" — deben matchear el `accion` REAL que
+// escribe `audit-log.listener.ts`, no las etiquetas de `tipo_movimiento`
+// del filtro (que son distintas a propósito, ver `TIPOS_MOVIMIENTO` y
+// `ACCIONES_POR_TIPO_MOVIMIENTO` en `auditoria.service.ts`). Antes de este
+// fix, "TRANSFERENCIA"/"DELETE" nunca matcheaban ningún registro real
+// (siempre caían al gris por defecto) porque el `accion` real es
+// "TRANSFERENCIA_DESPACHADA"/"TRANSFERENCIA_RECIBIDA"/"DELETE_LOGICO".
 const ACCION_COLOR: Record<string, string> = {
   CREATE: "bg-green-100 text-green-800 border-green-200",
   UPDATE: "bg-blue-100 text-blue-800 border-blue-200",
-  EGRESO: "bg-orange-100 text-orange-800 border-orange-200",
   INGRESO: "bg-emerald-100 text-emerald-800 border-emerald-200",
-  AJUSTE: "bg-yellow-100 text-yellow-800 border-yellow-200",
-  TRANSFERENCIA: "bg-cyan-100 text-cyan-800 border-cyan-200",
-  DELETE: "bg-red-100 text-red-800 border-red-200",
+  TRANSFERENCIA_DESPACHADA: "bg-cyan-100 text-cyan-800 border-cyan-200",
+  TRANSFERENCIA_RECIBIDA: "bg-cyan-100 text-cyan-800 border-cyan-200",
+  DELETE_LOGICO: "bg-red-100 text-red-800 border-red-200",
 };
 
+// FIX 4 (TC-HU7-07) — "Egreso" y "Ajuste" se sacaron: no existe ningún
+// evento de dominio que escriba esas acciones hoy (huérfanas, siempre 0
+// resultados) — funcionalidad pendiente de otra HU, no un bug de esta.
+// "Transferencia" y "Eliminación" se mantienen: el bug ahí era de
+// comparación (corregido server-side vía `ACCIONES_POR_TIPO_MOVIMIENTO`),
+// no de datos inexistentes.
 const TIPOS_MOVIMIENTO = [
   { value: "INGRESO", label: "Ingreso" },
-  { value: "EGRESO", label: "Egreso" },
-  { value: "AJUSTE", label: "Ajuste" },
   { value: "TRANSFERENCIA", label: "Transferencia" },
   { value: "CREATE", label: "Creación" },
   { value: "UPDATE", label: "Actualización" },
@@ -72,10 +91,18 @@ const TIPOS_MOVIMIENTO = [
 
 const TABLAS_MODULO_A = [
   { value: "movimientos_stock", label: "Movimientos de Stock" },
+  { value: "transferencias_stock", label: "Transferencias de Stock" },
   { value: "stock_depositos", label: "Stock por Depósito" },
   { value: "variantes_sku", label: "Variantes SKU" },
   { value: "depositos", label: "Depósitos" },
   { value: "productos_maestros", label: "Productos Maestros" },
+  // `reservas` es la 7ª tabla de Módulo A (`schema.prisma`) — se lista acá
+  // por completitud de dominio aunque hoy no tenga eventos: la
+  // funcionalidad de negocio de Reservas todavía no está construida (0
+  // filas reales, no un problema de auditoría), a diferencia de las
+  // demás opciones de este selector. Ver docstring de `TABLAS_MODULO_A`
+  // en `auditoria.service.ts` para la verificación completa.
+  { value: "reservas", label: "Reservas" },
 ];
 
 export function TablaForenseInventario({
@@ -83,6 +110,7 @@ export function TablaForenseInventario({
   total,
   page,
   page_size,
+  usuarios,
   filtrosIniciales = {},
 }: TablaForenseInventarioProps) {
   const router = useRouter();
@@ -94,6 +122,7 @@ export function TablaForenseInventario({
 
   // Estado local de filtros (se sincronizan con la URL al aplicar)
   const [q, setQ] = useState(filtrosIniciales.q ?? "");
+  const [usuarioId, setUsuarioId] = useState(filtrosIniciales.usuario_id ?? "");
   const [sku, setSku] = useState(filtrosIniciales.sku_referencia ?? "");
   const [tipoMov, setTipoMov] = useState(filtrosIniciales.tipo_movimiento ?? "");
   const [tabla, setTabla] = useState(filtrosIniciales.tabla_afectada ?? "");
@@ -108,6 +137,7 @@ export function TablaForenseInventario({
       const params = new URLSearchParams(searchParams.toString());
       const values: Record<string, string> = {
         q,
+        usuario_id: usuarioId,
         sku_referencia: sku,
         tipo_movimiento: tipoMov,
         tabla_afectada: tabla,
@@ -126,7 +156,7 @@ export function TablaForenseInventario({
       params.delete("page");
       router.push(`?${params.toString()}`);
     },
-    [router, searchParams, q, sku, tipoMov, tabla, fechaDesde, fechaHasta],
+    [router, searchParams, q, usuarioId, sku, tipoMov, tabla, fechaDesde, fechaHasta],
   );
 
   // Búsqueda libre con debounce 350ms
@@ -139,7 +169,7 @@ export function TablaForenseInventario({
   };
 
   const limpiarFiltros = () => {
-    setQ(""); setSku(""); setTipoMov(""); setTabla("");
+    setQ(""); setUsuarioId(""); setSku(""); setTipoMov(""); setTabla("");
     setFechaDesde(""); setFechaHasta("");
     router.push("?");
   };
@@ -155,7 +185,9 @@ export function TablaForenseInventario({
     });
   };
 
-  const hayFiltrosActivos = [q, sku, tipoMov, tabla, fechaDesde, fechaHasta].some(Boolean);
+  const hayFiltrosActivos = [q, usuarioId, sku, tipoMov, tabla, fechaDesde, fechaHasta].some(
+    Boolean,
+  );
 
   return (
     <div className="space-y-4">
@@ -184,12 +216,33 @@ export function TablaForenseInventario({
             </div>
           </div>
 
-          {/* SKU */}
+          {/* Usuario responsable — FIX 2 (TC-HU7-04) */}
+          <div className="space-y-1">
+            <Label htmlFor="filtro-usuario" className="text-xs">Usuario responsable</Label>
+            <ComboboxFiltrable
+              id="filtro-usuario"
+              items={[TODOS_LOS_USUARIOS, ...usuarios]}
+              getId={(usuario) => usuario.id}
+              getLabel={(usuario) => usuario.nombre_completo}
+              value={usuarioId}
+              onChange={(usuario) => {
+                setUsuarioId(usuario.id);
+                aplicarFiltros({ usuario_id: usuario.id });
+              }}
+              placeholder="Todos los usuarios"
+            />
+          </div>
+
+          {/* SKU — FIX 3 (TC-HU7-05): ahora resuelve contra el código real
+              de VarianteSKU/ProductoMaestro antes de filtrar (ver
+              `obtenerLogsInventario()`); el ILIKE crudo sobre un
+              identificador interno queda como fallback, no como el uso
+              principal — de ahí el cambio de placeholder. */}
           <div className="space-y-1">
             <Label htmlFor="filtro-sku" className="text-xs">SKU / Variante</Label>
             <Input
               id="filtro-sku"
-              placeholder="UUID o fragmento de SKU"
+              placeholder="Código de SKU o de producto"
               value={sku}
               onChange={(e) => setSku(e.target.value)}
               onBlur={() => aplicarFiltros({ sku_referencia: sku })}
