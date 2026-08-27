@@ -10,16 +10,23 @@
  * `roles:administrar` — el bloqueo real de acceso por URL vive en cada
  * `page.tsx` (`redirect("/no-autorizado")`), el filtro acá es solo la
  * capa de navegación, no la de seguridad.
- *  - Auditoría Forense NO lleva `permiso`: sigue visible para cualquier
- *    sesión — la página degrada su propio contenido según
- *    `auditoria:leer_forense` (sin cambios, task_cali_bloqueo_url_auditoria.md §2).
+ *  - Auditoría Forense (`/auditoria/logs`, Módulo D) NO lleva `permiso`:
+ *    sigue visible para cualquier sesión — la página degrada su propio
+ *    contenido según `auditoria:leer_forense` (sin cambios,
+ *    task_cali_bloqueo_url_auditoria.md §2).
+ *  - Auditoría Forense — Inventario (`/inventario/auditoria`, Módulo A,
+ *    FIX 5 de la ronda de corrección post-HU-A7) SÍ lleva
+ *    `permiso: "auditoria:leer_forense"` — a diferencia de la de arriba,
+ *    esa pantalla bloquea el acceso por completo sin el permiso (no
+ *    degrada), así que no tenía sentido dejar el link visible para quien
+ *    de todos modos se iba a encontrar con la pantalla de "no autorizado".
  *  - Inventario (Productos / Depósitos / Movimientos): Módulo A todavía
  *    no tiene RBAC granular, solo verificación de sesión (`withAuth`) —
  *    sin filtro de permiso, fuera de alcance de HU-D10.
  */
 import type { LucideIcon } from "lucide-react";
 // 1. Agregamos el ícono "Layers" a la importación
-import { ScrollText, ShieldCheck, Users, Package, Warehouse, ScanBarcode, Layers } from "lucide-react";
+import { ScrollText, ShieldCheck, Users, Package, Warehouse, ScanBarcode, Layers, FileSearch } from "lucide-react";
 import { getServerSession } from "@/lib/auth/session";
 import { usuarioTienePermiso } from "@/lib/auth/with-permission";
 import { SidebarNav, type SidebarNavSection } from "@/components/layout/SidebarNav";
@@ -62,6 +69,16 @@ const SECCIONES: SeccionConfig[] = [
       { label: "Variantes", href: "/inventario/variantes", icon: Layers },
       { label: "Depósitos", href: "/inventario/depositos", icon: Warehouse },
       { label: "Movimientos", href: "/inventario/movimientos", icon: ScanBarcode },
+      // FIX 5 (ronda de corrección post-HU-A7): antes solo alcanzable
+      // escribiendo la URL a mano. `permiso` acá SÍ filtra acceso real
+      // (a diferencia del resto de esta sección) porque la página bloquea
+      // por completo sin `auditoria:leer_forense` — ver docstring arriba.
+      {
+        label: "Auditoría Forense",
+        href: "/inventario/auditoria",
+        icon: FileSearch,
+        permiso: "auditoria:leer_forense",
+      },
     ],
   },
 ];

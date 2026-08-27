@@ -24,6 +24,12 @@ import { usuarioTienePermiso } from "@/lib/auth/with-permission";
 import { obtenerLogsInventario } from "@/lib/services/inventario/auditoria.service";
 import { FiltrosAuditoriaInventarioSchema } from "@/lib/schemas/inventario-auditoria.schema";
 import { TablaForenseInventario } from "@/components/inventario/auditoria/TablaForenseInventario";
+// FIX 2 (TC-HU7-04) — reusa el mismo query de Módulo D en vez de escribir
+// uno nuevo: acceso a esta pantalla ya exige `auditoria:leer_forense` (el
+// bloqueo total de más abajo, no una degradación), así que a diferencia de
+// `/auditoria/logs` acá el combo no necesita gate propio de visibilidad —
+// todo el que llega hasta acá ya tiene el permiso.
+import { listarUsuariosParaFiltro, type UsuarioParaFiltro } from "@/lib/services/auditoria/audit-log.service";
 
 import {
   Card,
@@ -84,9 +90,20 @@ async function AuditoriaData({
     );
   }
 
+  // FIX 2 (TC-HU7-04) — `usuarios` se trae en paralelo con el listado; si
+  // esta consulta puntual fallara no tiene sentido tirar abajo toda la
+  // pantalla (el listado principal ya se resolvió o falló por su cuenta),
+  // así que se degrada a lista vacía en vez de propagar el error.
   let listado;
+  let usuarios: UsuarioParaFiltro[] = [];
   try {
-    listado = await obtenerLogsInventario(filtrosParsed.data, sesion, q);
+    [listado, usuarios] = await Promise.all([
+      obtenerLogsInventario(filtrosParsed.data, sesion, q),
+      listarUsuariosParaFiltro().catch((err) => {
+        console.error("[AuditoriaInventarioPage] Error al obtener usuarios para filtro:", err);
+        return [];
+      }),
+    ]);
   } catch (err) {
     console.error("[AuditoriaInventarioPage] Error al obtener logs:", err);
     return (
@@ -106,8 +123,10 @@ async function AuditoriaData({
       total={listado.total}
       page={listado.page}
       page_size={listado.page_size}
+      usuarios={usuarios}
       filtrosIniciales={{
         q: q ?? "",
+        usuario_id: typeof searchParams.usuario_id === "string" ? searchParams.usuario_id : "",
         sku_referencia: typeof searchParams.sku_referencia === "string" ? searchParams.sku_referencia : "",
         tipo_movimiento: typeof searchParams.tipo_movimiento === "string" ? searchParams.tipo_movimiento : "",
         tabla_afectada: typeof searchParams.tabla_afectada === "string" ? searchParams.tabla_afectada : "",
