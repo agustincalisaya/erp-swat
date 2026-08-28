@@ -37,12 +37,14 @@ export function TabsActivasInactivas({ tab }: TabsActivasInactivasProps) {
       <TabsList aria-label="Estado de las variantes">
         <TabsTab
           value="activas"
+          nativeButton={false}
           render={<Link href={hrefPara("activas")} />}
         >
           Activas
         </TabsTab>
         <TabsTab
           value="inactivas"
+          nativeButton={false}
           render={<Link href={hrefPara("inactivas")} />}
         >
           Inactivas
