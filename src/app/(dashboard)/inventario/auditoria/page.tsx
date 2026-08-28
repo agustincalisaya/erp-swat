@@ -30,6 +30,7 @@ import { TablaForenseInventario } from "@/components/inventario/auditoria/TablaF
 // `/auditoria/logs` acá el combo no necesita gate propio de visibilidad —
 // todo el que llega hasta acá ya tiene el permiso.
 import { listarUsuariosParaFiltro, type UsuarioParaFiltro } from "@/lib/services/auditoria/audit-log.service";
+import { USUARIO_PRUEBA_EXCLUIDO_ID } from "@/lib/services/inventario/auditoria.service";
 
 import {
   Card,
@@ -104,6 +105,12 @@ async function AuditoriaData({
         return [];
       }),
     ]);
+    // Corrección urgente pre Sprint Review (28/08): el combo de esta
+    // pantalla no ofrece al usuario de prueba como opción — ver
+    // USUARIO_PRUEBA_EXCLUIDO_ID. `listarUsuariosParaFiltro()` es
+    // compartida con /auditoria/logs (Módulo D), así que el filtro se
+    // aplica acá y no en el service, para no afectar esa otra pantalla.
+    usuarios = usuarios.filter((u) => u.id !== USUARIO_PRUEBA_EXCLUIDO_ID);
   } catch (err) {
     console.error("[AuditoriaInventarioPage] Error al obtener logs:", err);
     return (

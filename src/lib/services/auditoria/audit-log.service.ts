@@ -25,6 +25,11 @@ import { calcularHashEncadenado, HASH_GENESIS } from "@/lib/crypto/hash-chain";
 import { usuarioTienePermiso } from "@/lib/auth/with-permission";
 import type { ServerSession } from "@/lib/auth/session";
 import type { FiltrosAuditoriaInput } from "@/lib/schemas/auditoria.schema";
+// Constante definida en el service de Inventario (primera pantalla donde se
+// necesitó excluir al usuario de prueba) y reutilizada acá — mismo id, mismo
+// criterio, corrección urgente pre Sprint Review (28/08) — ver docstring
+// completo junto a la constante.
+import { USUARIO_PRUEBA_EXCLUIDO_ID } from "@/lib/services/inventario/auditoria.service";
 
 const PERMISO_LEER_FORENSE = "auditoria:leer_forense";
 
@@ -163,7 +168,11 @@ export async function listarAuditLog(
 
   const usuarioIdEfectivo = tienePermisoAmpliado ? filtros.usuario_id : sesion.userId;
 
-  const where: Prisma.AuditLogWhereInput = {};
+  const where: Prisma.AuditLogWhereInput = {
+    // Excluye al usuario de prueba (ver USUARIO_PRUEBA_EXCLUIDO_ID) por
+    // defecto — se pisa abajo si el filtro/segregación pide justo ese id.
+    usuario_id: { not: USUARIO_PRUEBA_EXCLUIDO_ID },
+  };
   if (usuarioIdEfectivo) where.usuario_id = usuarioIdEfectivo;
   if (filtros.tabla_afectada) where.tabla_afectada = filtros.tabla_afectada;
   if (filtros.registro_id) where.registro_id = filtros.registro_id;

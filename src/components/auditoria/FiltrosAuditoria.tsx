@@ -23,6 +23,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ComboboxFiltrable } from "@/components/inventario/ComboboxFiltrable";
 import type { UsuarioParaFiltro } from "@/lib/services/auditoria/audit-log.service";
+import { limpiarNombreUsuario } from "@/lib/utils/nombre-usuario";
 
 const TABLAS_CONOCIDAS = ["usuarios", "sesiones"];
 
@@ -149,7 +150,7 @@ export function FiltrosAuditoria({ mostrarFiltroUsuario, acciones, usuarios }: F
             id="filtro-usuario"
             items={[TODOS_LOS_USUARIOS, ...usuarios]}
             getId={(usuario) => usuario.id}
-            getLabel={(usuario) => usuario.nombre_completo}
+            getLabel={(usuario) => limpiarNombreUsuario(usuario.nombre_completo)}
             value={usuarioId}
             onChange={(usuario) => setUsuarioId(usuario.id)}
             placeholder="Todos los usuarios"

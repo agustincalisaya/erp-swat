@@ -18,6 +18,7 @@ import {
   listarUsuariosParaFiltro,
   type UsuarioParaFiltro,
 } from "@/lib/services/auditoria/audit-log.service";
+import { USUARIO_PRUEBA_EXCLUIDO_ID } from "@/lib/services/inventario/auditoria.service";
 import { FiltrosAuditoriaSchema } from "@/lib/schemas/auditoria.schema";
 import { FiltrosAuditoria } from "@/components/auditoria/FiltrosAuditoria";
 import { TablaAuditLog } from "@/components/auditoria/TablaAuditLog";
@@ -93,6 +94,12 @@ export default async function LogsPage({ searchParams }: LogsPageProps) {
       listarAccionesDistintas(),
       tieneLeerForense ? listarUsuariosParaFiltro() : Promise.resolve([]),
     ]);
+    // Corrección urgente pre Sprint Review (28/08): el combo de esta
+    // pantalla no ofrece al usuario de prueba como opción — ver
+    // USUARIO_PRUEBA_EXCLUIDO_ID. Filtrado acá y no en
+    // `listarUsuariosParaFiltro()` porque esa función también la consume
+    // `/inventario/auditoria`, que ya la filtra por su cuenta.
+    usuarios = usuarios.filter((u) => u.id !== USUARIO_PRUEBA_EXCLUIDO_ID);
   } catch (err) {
     console.error("[LogsPage] Error al obtener opciones de filtro:", err);
   }

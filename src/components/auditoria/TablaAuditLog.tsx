@@ -20,6 +20,7 @@ import {
   TableCell,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { limpiarNombreUsuario } from "@/lib/utils/nombre-usuario";
 
 function formatFechaHora(date: Date): string {
   return new Intl.DateTimeFormat("es-AR", {
@@ -96,7 +97,9 @@ export function TablaAuditLog({ resultado, mostrarDetalle, queryBase }: TablaAud
                 <TableCell>
                   <div className="flex flex-col gap-0.5">
                     <span className="text-xs font-semibold">
-                      {registro.usuario_nombre ?? "—"}
+                      {registro.usuario_nombre
+                        ? limpiarNombreUsuario(registro.usuario_nombre)
+                        : "—"}
                     </span>
                     <span className="text-[10px] text-muted-foreground font-mono">
                       {registro.usuario_id ?? "sistema"}

@@ -26,6 +26,24 @@ import type { FiltrosAuditoriaInventarioInput } from "@/lib/schemas/inventario-a
 
 const PERMISO_LEER_FORENSE = "auditoria:leer_forense";
 
+/**
+ * `usuario_id` del "Usuario Seed" original (`prisma/seed.ts`,
+ * `USUARIO_SEED_ID` / `nombre_usuario: "seed.deposito"`) — creado como
+ * prueba inicial durante el desarrollo, distinto de los 3 usuarios
+ * "oficiales" de demo (Administrador, Auditor, Encargado de Depósito
+ * `encargado.seed`). Corrección urgente pre Sprint Review (28/08): se
+ * excluye de la Consola de Auditoría Forense de Inventario (combo de
+ * filtro y tabla de resultados) por este id fijo — nunca por coincidencia
+ * de texto en el nombre, para no excluir por error a otro usuario futuro
+ * que también incluya "Encargado de Depósito" en su nombre.
+ *
+ * Es puramente de presentación: el usuario NO se desactiva ni se borra en
+ * base, y sigue apareciendo sin filtrar en cualquier otra pantalla (p.ej.
+ * `/auditoria/logs` de Módulo D, que usa `listarUsuariosParaFiltro()` sin
+ * pasar por acá).
+ */
+export const USUARIO_PRUEBA_EXCLUIDO_ID = "8c682c21-d075-4665-9cd2-ed0285c80f91";
+
 // ──────────────────────────────────────────────────────────────────────────────
 // Constantes del dominio
 // ──────────────────────────────────────────────────────────────────────────────
@@ -176,6 +194,10 @@ export async function obtenerLogsInventario(
   const where: Prisma.AuditLogWhereInput = {
     // Restricción principal: solo tablas del Módulo A
     tabla_afectada: { in: [...TABLAS_MODULO_A] },
+    // Excluye al usuario de prueba (ver USUARIO_PRUEBA_EXCLUIDO_ID) — por
+    // defecto, salvo que el filtro explícito pida justo ese id (no ocurre
+    // desde la UI: el combo ya no lo ofrece como opción).
+    usuario_id: { not: USUARIO_PRUEBA_EXCLUIDO_ID },
   };
 
   if (filtros.usuario_id) where.usuario_id = filtros.usuario_id;

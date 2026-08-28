@@ -14,6 +14,7 @@ import { getServerSession } from "@/lib/auth/session";
 import { obtenerIdentidadUsuario } from "@/lib/services/auditoria/usuario.service";
 import { LogoutButton } from "@/components/layout/LogoutButton";
 import { Badge } from "@/components/ui/badge";
+import { limpiarNombreUsuario } from "@/lib/utils/nombre-usuario";
 
 export async function Navbar() {
   const session = await getServerSession();
@@ -43,7 +44,7 @@ export async function Navbar() {
           <UserCircle2 className="size-6 text-gray-400 ml-2" aria-hidden="true" />
           <div className="flex flex-col leading-tight">
             <span className="text-sm font-semibold text-gray-900">
-              {identidad?.nombre_completo ?? session.nombreUsuario}
+              {limpiarNombreUsuario(identidad?.nombre_completo ?? session.nombreUsuario)}
             </span>
             <div className="flex flex-wrap gap-1">
               {(identidad?.roles ?? []).length > 0 ? (

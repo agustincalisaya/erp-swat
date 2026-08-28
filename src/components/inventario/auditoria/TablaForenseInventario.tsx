@@ -30,6 +30,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Label } from "@/components/ui/label";
 import { verificarIntegridadAction } from "@/app/(dashboard)/inventario/auditoria/actions";
 import { ComboboxFiltrable } from "@/components/inventario/ComboboxFiltrable";
+import { limpiarNombreUsuario } from "@/lib/utils/nombre-usuario";
 import type {
   RegistroAuditoriaInventario,
   ResultadoVerificacionInventario,
@@ -223,7 +224,7 @@ export function TablaForenseInventario({
               id="filtro-usuario"
               items={[TODOS_LOS_USUARIOS, ...usuarios]}
               getId={(usuario) => usuario.id}
-              getLabel={(usuario) => usuario.nombre_completo}
+              getLabel={(usuario) => limpiarNombreUsuario(usuario.nombre_completo)}
               value={usuarioId}
               onChange={(usuario) => {
                 setUsuarioId(usuario.id);
@@ -444,7 +445,9 @@ export function TablaForenseInventario({
 
                     <td className="px-4 py-3 text-xs">
                       <div className="font-medium">
-                        {registro.usuario_nombre ?? "Sistema"}
+                        {registro.usuario_nombre
+                          ? limpiarNombreUsuario(registro.usuario_nombre)
+                          : "Sistema"}
                       </div>
                       <div className="text-muted-foreground font-mono text-[10px] mt-0.5">
                         {registro.ip}

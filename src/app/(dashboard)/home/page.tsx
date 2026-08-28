@@ -10,6 +10,7 @@ import { Sparkles, Activity, Info, Calendar } from "lucide-react";
 import { getServerSession } from "@/lib/auth/session";
 import { obtenerIdentidadUsuario } from "@/lib/services/auditoria/usuario.service";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
+import { limpiarNombreUsuario } from "@/lib/utils/nombre-usuario";
 
 export const metadata = {
   title: "Inicio — ERP SWAT",
@@ -21,7 +22,7 @@ export default async function HomePage() {
   if (!session) redirect("/login");
 
   const identidad = await obtenerIdentidadUsuario(session.userId);
-  const nombre = identidad?.nombre_completo ?? session.nombreUsuario;
+  const nombre = limpiarNombreUsuario(identidad?.nombre_completo ?? session.nombreUsuario);
 
   // Formatear la fecha actual (ej: "martes, 25 de agosto de 2026")
   const fechaActual = new Intl.DateTimeFormat('es-AR', { 
