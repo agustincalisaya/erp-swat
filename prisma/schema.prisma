@@ -62,6 +62,7 @@ model Usuario {
   ordenes_compra_creadas   OrdenCompra[]         @relation("OrdenCompraCreadaPor")
   recepciones_registradas  Recepcion[]           @relation("RecepcionRecibidaPor")
   evaluaciones_registradas EvaluacionProveedor[] @relation("EvaluacionRegistradaPor")
+  listas_precio_aprobadas  ListaPrecioVersion[]  @relation("ListaPrecioVersionAprobadaPor")
 
   @@map("usuarios")
 }
@@ -300,6 +301,7 @@ model VarianteSKU {
 
   // --- Relación Sprint 2 (Módulo H) ---
   orden_compra_items OrdenCompraItem[]
+  lista_precio_items ListaPrecioItem[]
 
   @@map("variantes_sku")
 }
@@ -533,6 +535,18 @@ model Proveedor {
   contacto_email    String?
   contacto_telefono String?
 
+  /// Ciphertext AES-256 de los datos bancarios del legajo (CBU / alias /
+  /// banco). NUNCA se persiste el CBU ni el alias en texto plano
+  /// (RULES.md Regla N.° 2 · Ley N.° 25.326). El cifrado/descifrado vive
+  /// exclusivamente en `lib/crypto/aes.ts`, invocado solo por la capa de
+  /// servicios (spec_modulo_H.md §3.3). Nullable: `datos_bancarios` es
+  /// opcional en `CrearProveedorSchema` (spec §2.1).
+  datos_bancarios_cifrado String?
+  /// Vector de inicialización (IV) asociado al ciphertext de
+  /// `datos_bancarios_cifrado`. Se genera aleatorio por cada operación de
+  /// cifrado y se almacena junto al ciphertext para permitir el descifrado.
+  datos_bancarios_iv      String?
+
   // --- Soft delete estricto ---
   is_active       Boolean   @default(true)
   deleted_at      DateTime?
@@ -545,6 +559,7 @@ model Proveedor {
   // --- Relaciones ---
   ordenes_compra OrdenCompra[]
   evaluaciones   EvaluacionProveedor[]
+  listas_precio  ListaPrecio[]
 
   @@index([estado, is_active])
   @@map("proveedores")
@@ -554,6 +569,105 @@ enum EstadoProveedor {
   PENDIENTE
   HOMOLOGADO
   SUSPENDIDO
+}
+
+/// Cabecera lógica de la lista de precios de un Proveedor (HU-H2). No
+/// almacena precios: es el ancla estable (1:N) sobre la que se apilan las
+/// `ListaPrecioVersion` inmutables. La "versión vigente" jamás se marca
+/// aquí con un flag — se resuelve por consulta sobre `ListaPrecioVersion`
+/// (`publicada = true AND fecha_inicio_vigencia <= now()`, orden `desc`,
+/// `take(1)`), conforme a spec_modulo_H.md §3.4. Baja lógica estándar: una
+/// lista dada de baja se preserva para reconstrucción forense (§3.6).
+model ListaPrecio {
+  id           String @id @default(uuid())
+  proveedor_id String
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  proveedor Proveedor            @relation(fields: [proveedor_id], references: [id], onDelete: Restrict)
+  versiones ListaPrecioVersion[]
+
+  @@index([proveedor_id])
+  @@map("listas_precio")
+}
+
+/// Versión inmutable de una `ListaPrecio` (HU-H2, spec_modulo_H.md §3.4).
+/// Una vez creada NO admite `UPDATE`: toda corrección de precio —incluido
+/// un error de tipeo— nace como una versión nueva con nueva
+/// `fecha_inicio_vigencia`. `variacion_porcentual_maxima` se calcula una
+/// sola vez, al crear la versión, contra la versión previamente vigente;
+/// nunca se recalcula después. `publicada = false` únicamente mientras la
+/// versión espera aprobación por superar el umbral crítico de variación
+/// (spec §2.3); en ese estado no es seleccionable para nuevas OrdenCompra
+/// hasta que un Supervisor de Compras la apruebe (`aprobada_por_id` /
+/// `aprobada_at`).
+model ListaPrecioVersion {
+  id                          String    @id @default(uuid())
+  lista_precio_id             String
+  fecha_inicio_vigencia       DateTime
+  variacion_porcentual_maxima Decimal   @db.Decimal(5, 2)
+  requiere_aprobacion         Boolean   @default(false)
+  publicada                   Boolean   @default(true)
+  aprobada_por_id             String?
+  aprobada_at                 DateTime?
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  lista_precio ListaPrecio       @relation(fields: [lista_precio_id], references: [id], onDelete: Restrict)
+  aprobada_por Usuario?          @relation("ListaPrecioVersionAprobadaPor", fields: [aprobada_por_id], references: [id], onDelete: Restrict)
+  items        ListaPrecioItem[]
+
+  /// Índice de la consulta de "versión vigente" (spec §2.3 / §3.4):
+  /// filtra por lista + `publicada` y ordena por `fecha_inicio_vigencia`.
+  @@index([lista_precio_id, publicada, fecha_inicio_vigencia])
+  @@map("listas_precio_version")
+}
+
+/// Línea de precio de una `ListaPrecioVersion`: `precio_unitario` pactado
+/// para una `VarianteSKU`. Inmutable igual que su versión padre — nunca se
+/// ejecuta `UPDATE` sobre el precio; un cambio implica una
+/// `ListaPrecioVersion` nueva. `OrdenCompraItem.precio_unitario` congela
+/// este valor al emitirse la orden y no se recalcula si la lista cambia
+/// después (regla de no-retroactividad, spec §3.4).
+model ListaPrecioItem {
+  id                      String  @id @default(uuid())
+  lista_precio_version_id String
+  variante_sku_id         String
+  precio_unitario         Decimal @db.Decimal(10, 2)
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  lista_precio_version ListaPrecioVersion @relation(fields: [lista_precio_version_id], references: [id], onDelete: Restrict)
+  variante_sku         VarianteSKU        @relation(fields: [variante_sku_id], references: [id], onDelete: Restrict)
+
+  /// La comparativa de precios (spec §2.8) y el costo de reposición
+  /// (spec §2.9) filtran frecuentemente por SKU.
+  @@index([variante_sku_id])
+  @@map("listas_precio_item")
 }
 
 /// Orden de compra a un Proveedor (HU-H3). Cubre múltiples variantes a
