@@ -96,6 +96,33 @@ const STOCK_CT1_SHOWROOM_ID = "7bcdc606-fef2-443c-b501-8859c49ae7ad";
 const STOCK_B1_SHOWROOM_ID = "9c1c70af-b0c6-4188-8771-3ad4e3a90940";
 const STOCK_CT2_MOVIL_ID = "724c48d5-ea9d-4fb8-b44a-315a683bb0c1";
 
+// --- Origen: Sprint 2 — Módulo H (Compras/Proveedores) y Módulo G (Cuentas por Pagar) ---
+const PERMISO_PROVEEDORES_ADMINISTRAR_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000001";
+const PERMISO_COMPRAS_OPERAR_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000002";
+const PERMISO_RECEPCION_CONFIRMAR_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000003";
+const PERMISO_TESORERIA_OPERAR_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000004";
+const ROL_COMPRADOR_ID = "1a2b3c4d-2222-4a1a-8a1a-000000000001";
+const ROL_TESORERO_ID = "1a2b3c4d-2222-4a1a-8a1a-000000000002";
+const ROL_PERMISO_PROVEEDORES_ADMINISTRAR_ID = "1a2b3c4d-3333-4a1a-8a1a-000000000001";
+const ROL_PERMISO_COMPRAS_OPERAR_ID = "1a2b3c4d-3333-4a1a-8a1a-000000000002";
+const ROL_PERMISO_RECEPCION_CONFIRMAR_ID = "1a2b3c4d-3333-4a1a-8a1a-000000000003";
+const ROL_PERMISO_TESORERIA_OPERAR_ID = "1a2b3c4d-3333-4a1a-8a1a-000000000004";
+const USUARIO_COMPRADOR_SEED_ID = "1a2b3c4d-4444-4a1a-8a1a-000000000001";
+const USUARIO_TESORERO_SEED_ID = "1a2b3c4d-4444-4a1a-8a1a-000000000002";
+const USUARIO_ROL_COMPRADOR_ID = "1a2b3c4d-5555-4a1a-8a1a-000000000001";
+const USUARIO_ROL_TESORERO_ID = "1a2b3c4d-5555-4a1a-8a1a-000000000002";
+
+const PROVEEDOR_HOMOLOGADO_ID = "1a2b3c4d-6666-4a1a-8a1a-000000000001";
+const PROVEEDOR_PENDIENTE_ID = "1a2b3c4d-6666-4a1a-8a1a-000000000002";
+const ORDEN_COMPRA_CONFIRMADA_ID = "1a2b3c4d-7777-4a1a-8a1a-000000000001";
+const ORDEN_COMPRA_ITEM_1_ID = "1a2b3c4d-7778-4a1a-8a1a-000000000001";
+const ORDEN_COMPRA_ITEM_2_ID = "1a2b3c4d-7778-4a1a-8a1a-000000000002";
+const RECEPCION_SEED_ID = "1a2b3c4d-8888-4a1a-8a1a-000000000001";
+const RECEPCION_ITEM_1_ID = "1a2b3c4d-8889-4a1a-8a1a-000000000001";
+const RECEPCION_DISCREPANCIA_1_ID = "1a2b3c4d-8890-4a1a-8a1a-000000000001";
+const CUENTA_POR_PAGAR_PROVISORIA_ID = "1a2b3c4d-9999-4a1a-8a1a-000000000001";
+const EVALUACION_PROVEEDOR_SEED_ID = "1a2b3c4d-aaaa-4a1a-8a1a-000000000001";
+
 // ──────────────────────────────────────────────────────────────────────────────
 // Helpers — Fechas
 // ──────────────────────────────────────────────────────────────────────────────
@@ -767,6 +794,355 @@ async function main() {
     });
   }
 
+  // ── Módulo D — RBAC: Sprint 2 (Compras/Proveedores — Módulo H, Tesorería — Módulo G) ─
+  //
+  // Mismo patrón placeholder que permisoInventarioOperar: permisos genéricos
+  // por ahora, a reemplazar por RBAC granular cuando el equipo lo defina.
+
+  const permisoProveedoresAdministrar = await prisma.permiso.upsert({
+    where: { id: PERMISO_PROVEEDORES_ADMINISTRAR_ID },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: {
+      id: PERMISO_PROVEEDORES_ADMINISTRAR_ID,
+      codigo: "proveedores:administrar",
+      descripcion:
+        "PLACEHOLDER — alta, homologación y suspensión de proveedores (HU-H1). " +
+        "Reemplazar por permisos granulares reales si el equipo lo define en Planning.",
+      modulo: "MODULO_H",
+    },
+  });
+
+  const permisoComprasOperar = await prisma.permiso.upsert({
+    where: { id: PERMISO_COMPRAS_OPERAR_ID },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: {
+      id: PERMISO_COMPRAS_OPERAR_ID,
+      codigo: "compras:operar",
+      descripcion:
+        "PLACEHOLDER — crear y hacer seguimiento de órdenes de compra (HU-H3).",
+      modulo: "MODULO_H",
+    },
+  });
+
+  const permisoRecepcionConfirmar = await prisma.permiso.upsert({
+    where: { id: PERMISO_RECEPCION_CONFIRMAR_ID },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: {
+      id: PERMISO_RECEPCION_CONFIRMAR_ID,
+      codigo: "compras:confirmar_recepcion",
+      descripcion:
+        "PLACEHOLDER — registrar recepción física de mercadería contra una OC (HU-H4).",
+      modulo: "MODULO_H",
+    },
+  });
+
+  const permisoTesoreriaOperar = await prisma.permiso.upsert({
+    where: { id: PERMISO_TESORERIA_OPERAR_ID },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: {
+      id: PERMISO_TESORERIA_OPERAR_ID,
+      codigo: "tesoreria:operar",
+      descripcion:
+        "PLACEHOLDER — gestionar compromisos de pago y Cuentas por Pagar (HU-G8).",
+      modulo: "MODULO_G",
+    },
+  });
+
+  const rolComprador = await prisma.rol.upsert({
+    where: { id: ROL_COMPRADOR_ID },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: {
+      id: ROL_COMPRADOR_ID,
+      nombre: "COMPRADOR",
+      descripcion:
+        "Gestión de proveedores y órdenes de compra (Módulo H) — permisos placeholder",
+    },
+  });
+
+  const rolTesorero = await prisma.rol.upsert({
+    where: { id: ROL_TESORERO_ID },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: {
+      id: ROL_TESORERO_ID,
+      nombre: "TESORERO_CENTRAL",
+      descripcion:
+        "Gestión de compromisos de pago y Cuentas por Pagar (Módulo G) — permisos placeholder",
+    },
+  });
+
+  for (const permiso of [
+    permisoProveedoresAdministrar,
+    permisoComprasOperar,
+    permisoRecepcionConfirmar,
+  ]) {
+    await prisma.rolPermiso.upsert({
+      where: {
+        rol_id_permiso_id: { rol_id: rolComprador.id, permiso_id: permiso.id },
+      },
+      update: REACTIVAR_REFERENCIA_RBAC,
+      create: { rol_id: rolComprador.id, permiso_id: permiso.id },
+    });
+  }
+
+  await prisma.rolPermiso.upsert({
+    where: {
+      rol_id_permiso_id: {
+        rol_id: rolTesorero.id,
+        permiso_id: permisoTesoreriaOperar.id,
+      },
+    },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: {
+      id: ROL_PERMISO_TESORERIA_OPERAR_ID,
+      rol_id: rolTesorero.id,
+      permiso_id: permisoTesoreriaOperar.id,
+    },
+  });
+
+  // ── Módulo D — Usuarios de ejemplo Sprint 2 (Comprador, Tesorero) ──────────
+
+  const usuarioComprador = await prisma.usuario.upsert({
+    where: { nombre_usuario: "comprador.seed" },
+    update: {},
+    create: {
+      id: USUARIO_COMPRADOR_SEED_ID,
+      nombre_usuario: "comprador.seed",
+      email: "comprador.seed@erp-swat.local",
+      password_hash: passwordSeed.hash,
+      password_salt: passwordSeed.salt,
+      nombre_completo: "Comprador Seed (Módulo H)",
+      estado: "ACTIVO",
+      is_active: true,
+    },
+  });
+
+  await prisma.usuarioRol.upsert({
+    where: {
+      usuario_id_rol_id: {
+        usuario_id: usuarioComprador.id,
+        rol_id: rolComprador.id,
+      },
+    },
+    update: {},
+    create: {
+      id: USUARIO_ROL_COMPRADOR_ID,
+      usuario_id: usuarioComprador.id,
+      rol_id: rolComprador.id,
+    },
+  });
+
+  const usuarioTesorero = await prisma.usuario.upsert({
+    where: { nombre_usuario: "tesorero.seed" },
+    update: {},
+    create: {
+      id: USUARIO_TESORERO_SEED_ID,
+      nombre_usuario: "tesorero.seed",
+      email: "tesorero.seed@erp-swat.local",
+      password_hash: passwordSeed.hash,
+      password_salt: passwordSeed.salt,
+      nombre_completo: "Tesorero Central Seed (Módulo G)",
+      estado: "ACTIVO",
+      is_active: true,
+    },
+  });
+
+  await prisma.usuarioRol.upsert({
+    where: {
+      usuario_id_rol_id: {
+        usuario_id: usuarioTesorero.id,
+        rol_id: rolTesorero.id,
+      },
+    },
+    update: {},
+    create: {
+      id: USUARIO_ROL_TESORERO_ID,
+      usuario_id: usuarioTesorero.id,
+      rol_id: rolTesorero.id,
+    },
+  });
+
+  // ── Módulo H — Proveedores (HU-H1) ─────────────────────────────────────────
+  //
+  // Dos proveedores: uno HOMOLOGADO (destraba a Tomás/HU-H3 sin esperar que
+  // Rama termine la lógica real de homologación) y uno PENDIENTE (para poder
+  // probar que un proveedor no homologado queda excluido de la selección en
+  // una nueva OC).
+
+  const proveedorHomologado = await prisma.proveedor.upsert({
+    where: { id: PROVEEDOR_HOMOLOGADO_ID },
+    update: {
+      estado: "HOMOLOGADO",
+      is_active: true,
+    },
+    create: {
+      id: PROVEEDOR_HOMOLOGADO_ID,
+      razon_social: "Indumentaria Táctica del Sur S.A.",
+      nombre_fantasia: "InduSur",
+      cuit: "30-71234567-8",
+      condiciones_pago: "30 días FF",
+      categorias: ["Textil Táctico", "Calzado"],
+      estado: "HOMOLOGADO",
+      contacto_nombre: "Marcela Ibáñez",
+      contacto_email: "compras@indusur.example.com",
+      contacto_telefono: "+54 387 400-1234",
+      is_active: true,
+    },
+  });
+
+  const proveedorPendiente = await prisma.proveedor.upsert({
+    where: { id: PROVEEDOR_PENDIENTE_ID },
+    update: {},
+    create: {
+      id: PROVEEDOR_PENDIENTE_ID,
+      razon_social: "Calzado Norte SRL",
+      nombre_fantasia: "Calzado Norte",
+      cuit: "30-70987654-3",
+      condiciones_pago: "Contado",
+      categorias: ["Calzado"],
+      estado: "PENDIENTE",
+      contacto_nombre: "Julián Reyes",
+      contacto_email: "ventas@calzadonorte.example.com",
+      is_active: true,
+    },
+  });
+
+  // ── Módulo H — Orden de Compra confirmada (HU-H3) ──────────────────────────
+  //
+  // Estado CONFIRMADA: destraba a Emir/HU-H4 sin esperar que Tomás tenga el
+  // wizard de creación de OC funcionando de punta a punta. Dos ítems, contra
+  // variantes de Camisa Táctica y Borcegos que ya existen en el seed de
+  // Módulo A.
+
+  const ordenCompraConfirmada = await prisma.ordenCompra.upsert({
+    where: { id: ORDEN_COMPRA_CONFIRMADA_ID },
+    update: {},
+    create: {
+      id: ORDEN_COMPRA_CONFIRMADA_ID,
+      numero_orden: "OC-2026-0001",
+      proveedor_id: proveedorHomologado.id,
+      estado: "CONFIRMADA",
+      fecha_envio: diasAtras(5),
+      fecha_confirmacion: diasAtras(4),
+      observaciones: "OC de prueba — seed Sprint 2",
+      creada_por_id: usuarioComprador.id,
+      is_active: true,
+    },
+  });
+
+  const ordenCompraItem1 = await prisma.ordenCompraItem.upsert({
+    where: { id: ORDEN_COMPRA_ITEM_1_ID },
+    update: {},
+    create: {
+      id: ORDEN_COMPRA_ITEM_1_ID,
+      orden_compra_id: ordenCompraConfirmada.id,
+      variante_sku_id: VARIANTE_CAMISA_TACTICA_1_ID,
+      cantidad_solicitada: 20,
+      precio_unitario: 15800.0,
+      is_active: true,
+    },
+  });
+
+  const ordenCompraItem2 = await prisma.ordenCompraItem.upsert({
+    where: { id: ORDEN_COMPRA_ITEM_2_ID },
+    update: {},
+    create: {
+      id: ORDEN_COMPRA_ITEM_2_ID,
+      orden_compra_id: ordenCompraConfirmada.id,
+      variante_sku_id: VARIANTE_BORCEGOS_1_ID,
+      cantidad_solicitada: 10,
+      precio_unitario: 42000.0,
+      is_active: true,
+    },
+  });
+
+  // ── Módulo H — Recepción con discrepancia (HU-H4) ──────────────────────────
+  //
+  // Recepción parcial del ítem de Camisa Táctica (18 de 20 solicitadas, con
+  // una discrepancia de CANTIDAD documentada). Destraba a Adriel/HU-H5 sin
+  // esperar que Emir tenga la lógica real de recepción funcionando.
+
+  const recepcionSeed = await prisma.recepcion.upsert({
+    where: { id: RECEPCION_SEED_ID },
+    update: {},
+    create: {
+      id: RECEPCION_SEED_ID,
+      orden_compra_id: ordenCompraConfirmada.id,
+      numero_remito_proveedor: "REM-0001-00012345",
+      fecha_recepcion: diasAtras(2),
+      recibida_por_id: usuarioEncargado.id,
+      observaciones: "Recepción parcial — seed Sprint 2",
+      is_active: true,
+    },
+  });
+
+  const recepcionItem1 = await prisma.recepcionItem.upsert({
+    where: { id: RECEPCION_ITEM_1_ID },
+    update: {},
+    create: {
+      id: RECEPCION_ITEM_1_ID,
+      recepcion_id: recepcionSeed.id,
+      orden_compra_item_id: ordenCompraItem1.id,
+      cantidad_recibida: 18,
+      is_active: true,
+    },
+  });
+
+  await prisma.recepcionDiscrepancia.upsert({
+    where: { id: RECEPCION_DISCREPANCIA_1_ID },
+    update: {},
+    create: {
+      id: RECEPCION_DISCREPANCIA_1_ID,
+      recepcion_item_id: recepcionItem1.id,
+      tipo: "CANTIDAD",
+      detalle: "Faltaron 2 unidades respecto de lo solicitado (20 → 18) — seed Sprint 2",
+      is_active: true,
+    },
+  });
+
+  // ── Módulo G — Cuenta por Pagar provisoria (HU-G8) ─────────────────────────
+  //
+  // Nace en PROVISORIO al enviarse la OC (ver decisión de diseño reportada
+  // por Claude Code: "aprobarse la OC" se interpreta como el paso a ENVIADA
+  // hasta que el equipo defina si hace falta un estado de aprobación
+  // separado). Todavía sin recepcion_id definitivo porque la recepción de
+  // arriba es parcial, no total.
+
+  await prisma.cuentaPorPagar.upsert({
+    where: { id: CUENTA_POR_PAGAR_PROVISORIA_ID },
+    update: {},
+    create: {
+      id: CUENTA_POR_PAGAR_PROVISORIA_ID,
+      orden_compra_id: ordenCompraConfirmada.id,
+      monto: 736000.0, // 20 × 15800 + 10 × 42000, sobre lo solicitado (no lo recibido)
+      estado: "PROVISORIO",
+      is_active: true,
+    },
+  });
+
+  // ── Módulo H — Evaluación de proveedor (HU-H5) ─────────────────────────────
+  //
+  // Un registro de evaluación ya cargado contra el proveedor homologado, para
+  // que Adriel pueda programar el cálculo del puntaje ponderado sin esperar
+  // más recepciones reales.
+
+  await prisma.evaluacionProveedor.upsert({
+    where: { id: EVALUACION_PROVEEDOR_SEED_ID },
+    update: {},
+    create: {
+      id: EVALUACION_PROVEEDOR_SEED_ID,
+      proveedor_id: proveedorHomologado.id,
+      puntaje_cumplimiento_plazos: 90,
+      puntaje_calidad_recepcion: 80,
+      puntaje_documentacion: 100,
+      puntaje_total: 88.5,
+      devoluciones_fabricacion: null, // insumo de Módulo I, todavía no existe
+      observaciones: "Evaluación de prueba — seed Sprint 2",
+      evaluado_por_id: usuarioComprador.id,
+      fecha_evaluacion: diasAtras(1),
+      is_active: true,
+    },
+  });
+
   // ── Resumen final ───────────────────────────────────────────────────────────
 
   console.log("\nSeed HU-7 completado:");
@@ -815,6 +1191,20 @@ async function main() {
     ),
   });
 
+  console.log(
+    `\nSeed Sprint 2 — Módulo H / Módulo G completado (password: "${PASSWORD_SEED}"):`,
+  );
+  console.table({
+    comprador_seed: `${usuarioComprador.nombre_usuario}  <${usuarioComprador.email}>`,
+    tesorero_seed: `${usuarioTesorero.nombre_usuario}   <${usuarioTesorero.email}>`,
+    proveedor_homologado_id: proveedorHomologado.id,
+    proveedor_pendiente_id: proveedorPendiente.id,
+    orden_compra_confirmada_id: ordenCompraConfirmada.id,
+    orden_compra_numero: ordenCompraConfirmada.numero_orden,
+    recepcion_id: recepcionSeed.id,
+    cuenta_por_pagar_id: CUENTA_POR_PAGAR_PROVISORIA_ID,
+    evaluacion_proveedor_id: EVALUACION_PROVEEDOR_SEED_ID,
+  });
 }
 
 main()
