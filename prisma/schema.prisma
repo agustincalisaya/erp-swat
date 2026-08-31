@@ -58,6 +58,11 @@ model Usuario {
   reservas_registradas       Reserva[]            @relation("ReservaRegistradaPor")
   sesiones                   Sesion[]
 
+  // --- Relaciones Sprint 2 (Módulo H / G) ---
+  ordenes_compra_creadas   OrdenCompra[]         @relation("OrdenCompraCreadaPor")
+  recepciones_registradas  Recepcion[]           @relation("RecepcionRecibidaPor")
+  evaluaciones_registradas EvaluacionProveedor[] @relation("EvaluacionRegistradaPor")
+
   @@map("usuarios")
 }
 
@@ -293,6 +298,9 @@ model VarianteSKU {
   transferencias   TransferenciaStock[]
   reservas         Reserva[]
 
+  // --- Relación Sprint 2 (Módulo H) ---
+  orden_compra_items OrdenCompraItem[]
+
   @@map("variantes_sku")
 }
 
@@ -462,6 +470,12 @@ model Reserva {
   /// Opcional pero recomendado para trazabilidad.
   motivo String?
 
+  /// Origen estructurado de la reserva (HU-A10, Sprint 2). Complementa a
+  /// `motivo` (texto libre) sin reemplazarlo — permite filtrar/reportar por
+  /// tipo de origen. Opcional y agregado con NULL por defecto para no
+  /// romper las reservas creadas en Sprint 1 antes de este campo.
+  origen_reserva OrigenReserva?
+
   /// ID del vendedor o usuario que creó la reserva.
   registrado_por_id String
 
@@ -483,4 +497,322 @@ model Reserva {
   /// dentro de una ventana temporal (fecha_inicio_reserva < umbral).
   @@index([is_active, fecha_fin_reserva, fecha_inicio_reserva])
   @@map("reservas")
+}
+
+/// Origen estructurado de una Reserva (HU-A10, Sprint 2): distingue los 3
+/// orígenes válidos definidos por la HU. Campo opcional en Reserva — ver
+/// comentario en el modelo.
+enum OrigenReserva {
+  SENIA
+  LICITACION
+  PEDIDO_INSTITUCIONAL
+}
+
+// ============================================================================
+// --- MÓDULO H: COMPRAS Y PROVEEDORES (SPRINT 2) ---
+// ============================================================================
+
+/// Legajo comercial de un Proveedor (HU-H1). Solo los proveedores en estado
+/// HOMOLOGADO son seleccionables al crear una nueva OrdenCompra — esta
+/// validación es responsabilidad de la capa de aplicación, no de este
+/// modelo. No se elimina físicamente ningún proveedor: su historial de
+/// órdenes de compra y evaluaciones se preserva vía baja lógica.
+model Proveedor {
+  id                String          @id @default(uuid())
+  razon_social      String
+  nombre_fantasia   String?
+  /// CUIT u otro identificador impositivo equivalente.
+  cuit              String          @unique
+  /// Ej: "Contado", "30 días", "60 días FF". Texto libre: la variedad de
+  /// condiciones comerciales reales no se presta a un enum cerrado.
+  condiciones_pago  String?
+  /// Categorías de producto que abastece (ej: ["Calzado", "Textil Táctico"]).
+  categorias        String[]
+  estado            EstadoProveedor @default(PENDIENTE)
+  contacto_nombre   String?
+  contacto_email    String?
+  contacto_telefono String?
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  ordenes_compra OrdenCompra[]
+  evaluaciones   EvaluacionProveedor[]
+
+  @@index([estado, is_active])
+  @@map("proveedores")
+}
+
+enum EstadoProveedor {
+  PENDIENTE
+  HOMOLOGADO
+  SUSPENDIDO
+}
+
+/// Orden de compra a un Proveedor (HU-H3). Cubre múltiples variantes a
+/// través de OrdenCompraItem. Una vez en estado ENVIADA la orden queda
+/// bloqueada para edición de ítems y cantidades — esta validación es
+/// responsabilidad de la capa de aplicación, no de este modelo. La
+/// cancelación (estado CANCELADA) exige motivo obligatorio: se registra en
+/// el campo estándar `deletion_reason` del bloque de baja lógica, siguiendo
+/// el mismo patrón que el resto del sistema.
+model OrdenCompra {
+  id                 String            @id @default(uuid())
+  numero_orden       String            @unique
+  proveedor_id       String
+  estado             EstadoOrdenCompra @default(BORRADOR)
+  fecha_emision      DateTime          @default(now())
+  fecha_envio        DateTime?
+  fecha_confirmacion DateTime?
+  fecha_cierre       DateTime?
+  observaciones      String?
+  creada_por_id      String
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  proveedor         Proveedor         @relation(fields: [proveedor_id], references: [id], onDelete: Restrict)
+  creada_por        Usuario           @relation("OrdenCompraCreadaPor", fields: [creada_por_id], references: [id], onDelete: Restrict)
+  items             OrdenCompraItem[]
+  recepciones       Recepcion[]
+  cuentas_por_pagar CuentaPorPagar[]
+
+  @@index([proveedor_id, estado])
+  @@index([estado, is_active])
+  @@map("ordenes_compra")
+}
+
+enum EstadoOrdenCompra {
+  BORRADOR
+  ENVIADA
+  CONFIRMADA
+  RECEPCION_PARCIAL
+  RECIBIDA_COMPLETA
+  CERRADA
+  CANCELADA
+}
+
+/// Línea de ítem de una OrdenCompra: cantidad solicitada de una VarianteSKU
+/// puntual a un precio unitario pactado. Una OC cubre múltiples variantes
+/// mediante múltiples OrdenCompraItem.
+model OrdenCompraItem {
+  id                  String  @id @default(uuid())
+  orden_compra_id     String
+  variante_sku_id     String
+  cantidad_solicitada Int
+  precio_unitario     Decimal @db.Decimal(10, 2)
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  orden_compra    OrdenCompra     @relation(fields: [orden_compra_id], references: [id], onDelete: Restrict)
+  variante_sku    VarianteSKU     @relation(fields: [variante_sku_id], references: [id], onDelete: Restrict)
+  recepcion_items RecepcionItem[]
+
+  @@index([orden_compra_id])
+  @@map("orden_compra_items")
+}
+
+/// Recepción de mercadería contra una OrdenCompra (HU-H4). Puede existir
+/// más de una Recepcion por OrdenCompra para soportar recepción parcial
+/// (OrdenCompra.estado = RECEPCION_PARCIAL hasta que la suma de cantidades
+/// recibidas cubra lo solicitado, y RECIBIDA_COMPLETA cuando se completa).
+/// Al confirmar la recepción, el Módulo A registra el alta de stock como un
+/// MovimientoStock de tipo INGRESO cuyo `comprobante_referencia` apunta al
+/// id de esta Recepcion — se optó por esto en vez de agregar una FK directa
+/// en MovimientoStock para no reestructurar ese modelo de Sprint 1 (ver
+/// resumen de decisiones de diseño).
+model Recepcion {
+  id                      String   @id @default(uuid())
+  orden_compra_id         String
+  numero_remito_proveedor String?
+  fecha_recepcion         DateTime @default(now())
+  recibida_por_id         String
+  observaciones           String?
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  orden_compra      OrdenCompra      @relation(fields: [orden_compra_id], references: [id], onDelete: Restrict)
+  recibida_por      Usuario          @relation("RecepcionRecibidaPor", fields: [recibida_por_id], references: [id], onDelete: Restrict)
+  items             RecepcionItem[]
+  cuentas_por_pagar CuentaPorPagar[]
+
+  @@index([orden_compra_id])
+  @@map("recepciones")
+}
+
+/// Línea de recepción: cantidad efectivamente recibida para un
+/// OrdenCompraItem puntual. Las discrepancias contra lo solicitado (HU-H4)
+/// se registran en RecepcionDiscrepancia como observaciones — no bloquean
+/// el alta de stock.
+model RecepcionItem {
+  id                   String @id @default(uuid())
+  recepcion_id         String
+  orden_compra_item_id String
+  cantidad_recibida    Int
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  recepcion         Recepcion               @relation(fields: [recepcion_id], references: [id], onDelete: Restrict)
+  orden_compra_item OrdenCompraItem         @relation(fields: [orden_compra_item_id], references: [id], onDelete: Restrict)
+  discrepancias     RecepcionDiscrepancia[]
+
+  @@index([recepcion_id])
+  @@map("recepcion_items")
+}
+
+/// Observación estructurada de discrepancia detectada durante una recepción
+/// (HU-H4): cantidad, talle, color o calidad. Es informativa — no bloquea
+/// el alta de stock — y sirve como insumo para HU-H5 (evaluación de
+/// proveedores) y eventuales reclamos/devoluciones.
+model RecepcionDiscrepancia {
+  id                String           @id @default(uuid())
+  recepcion_item_id String
+  tipo              TipoDiscrepancia
+  detalle           String
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  recepcion_item RecepcionItem @relation(fields: [recepcion_item_id], references: [id], onDelete: Restrict)
+
+  @@index([tipo])
+  @@map("recepcion_discrepancias")
+}
+
+enum TipoDiscrepancia {
+  CANTIDAD
+  TALLE
+  COLOR
+  CALIDAD
+}
+
+/// Evaluación de desempeño de un Proveedor (HU-H5). Cada evaluación es un
+/// registro nuevo e inmutable: el historial nunca se sobreescribe y queda
+/// consultable de forma permanente.
+model EvaluacionProveedor {
+  id                          String  @id @default(uuid())
+  proveedor_id                String
+  puntaje_cumplimiento_plazos Int // 0-100
+  puntaje_calidad_recepcion   Int // 0-100
+  puntaje_documentacion       Int // 0-100
+  /// Puntaje ponderado final (combinación de los 3 puntajes anteriores
+  /// según la fórmula que defina el negocio).
+  puntaje_total               Decimal @db.Decimal(5, 2)
+
+  /// Insumo opcional de devoluciones por defecto de fabricación,
+  /// coordinado con el Módulo I (todavía no existe). Se carga manualmente
+  /// por ahora; se automatiza cuando ese módulo exista.
+  devoluciones_fabricacion Int?
+
+  observaciones    String?
+  evaluado_por_id  String
+  fecha_evaluacion DateTime @default(now())
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  proveedor    Proveedor @relation(fields: [proveedor_id], references: [id], onDelete: Restrict)
+  evaluado_por Usuario   @relation("EvaluacionRegistradaPor", fields: [evaluado_por_id], references: [id], onDelete: Restrict)
+
+  @@index([proveedor_id, fecha_evaluacion])
+  @@map("evaluaciones_proveedor")
+}
+
+// ============================================================================
+// --- MÓDULO G: CUENTAS POR PAGAR (SPRINT 2) ---
+// ============================================================================
+
+/// Compromiso de pago / Cuenta por Pagar generado a partir de una
+/// OrdenCompra (HU-G8). Nace en estado PROVISORIO cuando la orden se envía
+/// al proveedor y pasa a DEFINITIVA cuando la recepción total se cierra
+/// (OrdenCompra.estado = RECIBIDA_COMPLETA/CERRADA). El monto PROVISORIO
+/// nunca se contabiliza como deuda cerrada — es responsabilidad de la capa
+/// de aplicación excluirlo de los reportes de deuda exigible. Cada
+/// transición de estado se audita vía el AuditLog ya existente (hash
+/// SHA-256 encadenado); este modelo no replica un mecanismo de hashing
+/// propio.
+model CuentaPorPagar {
+  id                String               @id @default(uuid())
+  orden_compra_id   String
+  recepcion_id      String?
+  monto             Decimal              @db.Decimal(12, 2)
+  estado            EstadoCuentaPorPagar @default(PROVISORIO)
+  fecha_vencimiento DateTime?
+  fecha_pago        DateTime?
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  orden_compra OrdenCompra @relation(fields: [orden_compra_id], references: [id], onDelete: Restrict)
+  recepcion    Recepcion?  @relation(fields: [recepcion_id], references: [id], onDelete: Restrict)
+
+  @@index([estado, is_active])
+  @@index([orden_compra_id, estado])
+  @@map("cuentas_por_pagar")
+}
+
+enum EstadoCuentaPorPagar {
+  PROVISORIO
+  DEFINITIVA
+  PAGADA
+  CANCELADA
 }
