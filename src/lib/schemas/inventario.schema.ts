@@ -269,6 +269,43 @@ export type BajaTransferenciaInput = z.infer<typeof BajaTransferenciaSchema>;
 export type FiltrosHistorialTransferenciasInput = z.infer<typeof FiltrosHistorialTransferenciasSchema>;
 
 // ──────────────────────────────────────────────────────────────────────────────
+// HU-A10 — Servicio centralizado de Reserva (congelamiento y liberación)
+// spec_modulo_A.md §2.9. Backend puro, sin UI: consumido internamente por
+// Módulo B (HU-B3, cotización institucional) y Módulo E (HU-E1, checkout web)
+// a futuro — ninguno de los dos implementa lógica de reserva propia.
+// ──────────────────────────────────────────────────────────────────────────────
+
+/** Los 3 orígenes válidos de una Reserva (enum `OrigenReserva` en schema.prisma). */
+export const ORIGENES_RESERVA = ["SENIA", "LICITACION", "PEDIDO_INSTITUCIONAL"] as const;
+
+/**
+ * Congelamiento de stock (spec §2.9). `ttl_horas` es opcional: si se omite,
+ * la capa de servicios resuelve el default por `origen_reserva` (72h para los
+ * 3 orígenes generales). El canal e-commerce SIEMPRE provee `ttl_horas`
+ * explícito y acotado (< 72h) — nunca depende del default.
+ */
+export const CrearReservaSchema = z.object({
+  variante_sku_id: z.string().uuid(),
+  deposito_id: z.string().uuid(),
+  cantidad: z.number().int().positive(),
+  origen_reserva: z.enum(ORIGENES_RESERVA),
+  motivo: z.string().optional(),
+  ttl_horas: z.number().int().positive().optional(),
+});
+
+export type CrearReservaInput = z.infer<typeof CrearReservaSchema>;
+
+/** Liberación por venta confirmada (spec §2.9). `venta_id` es la referencia
+ * externa del Módulo B/E que originó la confirmación. */
+export const ConfirmarReservaSchema = z.object({
+  venta_id: z.string().uuid(),
+});
+
+export type ConfirmarReservaInput = z.infer<typeof ConfirmarReservaSchema>;
+
+export const ReservaIdSchema = z.string().uuid("El ID de reserva es inválido");
+
+// ──────────────────────────────────────────────────────────────────────────────
 // HU-A6 Ajustes — UI de Variantes (listado paginado + reporte inactivo)
 // ──────────────────────────────────────────────────────────────────────────────
 
