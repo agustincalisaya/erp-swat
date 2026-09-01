@@ -1,8 +1,8 @@
-# HU-5 — Configuración de Umbrales de Stock (Módulo A)
+# HU-A5 — Configuración de Umbrales de Stock + Consola de Depósito (Módulo A)
 
-**Estado:** Implementado y verificado — incluida la fórmula de cálculo de sugerencia, confirmada con datos de fixture. Ver sección 1.7 para el detalle exacto de qué está confirmado, qué está fuera de alcance por depender de trabajo de otro integrante del equipo, y qué queda como limitación conocida.
+**Estado:** Implementado y verificado en dos etapas — Sprint 1 (configuración de umbrales, incluida la fórmula de cálculo de sugerencia, confirmada con datos de fixture) y Sprint 2 (ampliación: Consola de Depósito con tabla paginada/buscador, y modal de configuración de umbrales, ambos verificados en navegador real). Ver sección 1.7 para el detalle exacto de qué está confirmado, qué está fuera de alcance por depender de trabajo de otro integrante del equipo, y qué queda como limitación conocida.
 **Metodología:** Specification-Driven Development (SDD) con Claude Code.
-**Documentos fuente:** `RULES.md`, `spec_modulo_A.md`, `contexto_sprint_1.md`
+**Documentos fuente:** `RULES.md`, `spec_modulo_A.md`, `contexto_sprint_1.md`, `task_HU-A5-ampliacion.md`, `task_UI_modal_umbrales_deposito.md`
 
 ---
 
@@ -79,10 +79,15 @@ Adicionalmente, `event-types.ts` define el evento `stock:umbral_critico_alcanzad
 | Alerta automática al cruzar umbral | ⛔ Lógica completa pero desconectada — requiere coordinación de equipo, fuera de este alcance |
 | UI de configuración desde el dashboard | ✅ Verificado con navegador real (sesión auténtica, sin mocks) |
 | Selector jerárquico Depósito → Producto → Variante | ✅ Verificado en navegador real (Chrome), 7/7 casos del plan de prueba, incluida creación de `StockDeposito` con umbrales reales (no ceros) para combinaciones sin stock previo |
+| Consola de Depósito — endpoint paginado + buscador (Sprint 2) | ✅ Verificado en runtime, ver 1.10.1 |
+| Componente compartido `TablaFiltroPaginada` (Sprint 2) | ✅ Construido, montado y verificado en esta HU, ver 1.10.2 |
+| Modal de configuración de umbrales, ambas entradas (Sprint 2) | ✅ Verificado en navegador real, ver 1.10.3 |
 
 ## 1.8. Ubicación de la UI
 
 El formulario de configuración de umbrales vive en `inventario/depositos/`, no en `inventario/variantes/`. Justificación: `punto_pedido`/`stock_seguridad` son propiedades de la combinación variante+depósito, no de la variante en sí — la misma variante puede tener umbrales distintos en depósitos distintos. El rol dueño de la HU (Encargado de Depósito) opera pensando en términos de "mi depósito".
+
+**Actualización Sprint 2 (ver 1.10.3):** dentro de esa misma ruta, el formulario dejó de estar fijo en pantalla y pasó a vivir en un modal, con la Consola de Depósito (tabla) como contenido principal visible por defecto. La justificación de ubicación de ruta no cambia — solo cambió la disposición visual dentro de ella.
 
 ## 1.9. Selector jerárquico Depósito → Producto → Variante
 
@@ -98,6 +103,60 @@ Ampliación posterior a la verificación inicial: el formulario ya no opera sobr
 Cambiar la selección de un nivel resetea automáticamente los niveles posteriores (verificado: cambiar el depósito con producto y variante ya elegidos hace desaparecer el formulario, no deja una selección obsoleta visible).
 
 **Doble validación de la regla semántica** (`punto_pedido >= stock_seguridad`): verificado tanto client-side (react-hook-form, bloquea antes del submit) como server-side (rechazo real del endpoint REST vía fetch directo, esquivando la UI) — el backend nunca crea una fila espuria aunque se evada la validación del formulario.
+
+## 1.10. Consola de Depósito y modal de configuración de umbrales (ampliación, Sprint 2)
+
+Ampliación de la HU-A5 original, confirmada por Product Backlog Consolidado y Sprint 2 planning sheet. Cubre dos entregables construidos en secuencia: primero una tabla de consulta paginada por depósito, luego una reestructuración de UI que mueve la configuración de umbrales a un modal.
+
+**Objetivo funcional:** permitir al Encargado de Depósito ubicar rápidamente cualquier producto dentro de un depósito específico (buscador + paginación), y configurar umbrales sin que el formulario compita permanentemente por espacio en pantalla con la tabla de consulta.
+
+### 1.10.1. Endpoint de consulta paginada
+
+| Endpoint | Método | Estado | Verificación |
+|---|---|---|---|
+| `/api/inventario/depositos/[id]/productos` | `GET` | ✅ Implementado | Filtro por texto libre (SKU y nombre, `ILIKE`/`insensitive`), paginación server-side (tope 20/vista), metadatos de paginación completos |
+
+Lógica de negocio en `listarProductosPorDeposito()` (`stock.service.ts`), Route Handler como capa delgada (Zod → service → `{ data, error }`). Filtra `is_active: true` en `StockDeposito` y en `variante_sku` (Regla N.° 1, soft delete). Sin `$transaction` ni eventos de dominio — operación de solo lectura.
+
+**Contrato de respuesta:**
+```json
+{
+  "items": [ /* ProductoPorDepositoItem[] */ ],
+  "paginacion": { "total": 137, "pagina_actual": 1, "total_paginas": 7, "por_pagina": 20 }
+}
+```
+
+Contrato estable por diseño: es el mismo shape que consumirá HU-A11 (historial de movimientos) desde el componente compartido descrito en 1.10.2 — coordinado explícitamente entre ambos responsables antes de implementar, para evitar dos implementaciones divergentes del mismo patrón de tabla/filtro/paginación.
+
+### 1.10.2. Componente compartido `TablaFiltroPaginada`
+
+Componente genérico (`<T>`), sin conocimiento de ningún endpoint específico — recibe columnas y función de fetch (`cargarPagina`) inyectadas por props. Resuelve, de forma reutilizable entre HU-A5 y HU-A11: debounce del buscador (350ms), paginación dibujada solo con los metadatos ya incluidos en la respuesta (sin segunda request de tipo `COUNT`), guarda contra respuestas obsoletas por `requestId`, y `revalidarCuando?` para forzar recarga desde página 1 cuando cambia una dependencia externa.
+
+Montado en esta HU dentro de `ConsolaDepositoProductos.tsx`, que resuelve la selección de depósito y arma el `cargarPagina` específico contra `GET /api/inventario/depositos/[id]/productos`.
+
+### 1.10.3. Modal de configuración de umbrales
+
+Reestructuración de UI posterior: el formulario de umbrales (`FormularioUmbralesStock` + `SelectorJerarquicoStock`), antes fijo en la parte superior de la pantalla, pasa a vivir dentro de un modal (`ModalConfigurarUmbrales`, sobre `Dialog` sin componente base de UI existente) con fondo desenfocado. La Consola de Depósito pasa a ser el contenido visible por defecto de la pantalla.
+
+**Dos puntos de entrada al modal:**
+- Botón "Configurar umbrales" en la cabecera → cascada vacía (Depósito → Producto Maestro → Variante), mismo flujo que 1.9.
+- Acción de edición por fila en la tabla → modal precargado con esa variante puntual, sin pasar por la cascada manual.
+
+Ambas entradas convergen en el mismo `FormularioUmbralesStock`, con el mismo patrón de `key` ya usado en 1.9 para forzar remount entre combinaciones — no existen dos implementaciones de formulario, solo dos formas de inicializarlo.
+
+Tras un guardado exitoso, la tabla se revalida automáticamente (contador de revalidación incluido en `revalidarCuando`) sin recarga manual de página. **Limitación conocida, documentada en código:** la revalidación reinicia la paginación a la página 1 — no se extendió `TablaFiltroPaginada` para preservar la página actual, por decisión explícita de no reescribir su lógica interna ya validada por HU-A5 original.
+
+**Verificación:** confirmada en navegador real — ambos puntos de entrada, cierre del modal por los tres caminos (botón "x", "Cancelar", guardado exitoso), y reflejo de los valores actualizados en la tabla tras guardar.
+
+### 1.10.4. Resumen de verificación — ampliación Sprint 2
+
+| Pieza | Estado |
+|---|---|
+| Endpoint de consulta paginada por depósito | ✅ Verificado — filtro server-side, paginación, tope 20 |
+| Componente compartido `TablaFiltroPaginada` | ✅ Construido y montado en esta HU; consumo por HU-A11 pendiente de esa HU, no de esta |
+| Modal de configuración de umbrales (ambas entradas) | ✅ Verificado en navegador real |
+| Revalidación de la tabla tras guardado exitoso | ✅ Verificado, con limitación conocida (reinicia a página 1) |
+| Filtros en cascada Depósito → Producto → Variante (dentro del modal) | ✅ Reutilizados sin cambios de 1.9 |
 
 ---
 
@@ -175,3 +234,44 @@ Al integrar esta rama con `develop`, se detectó un conflicto de merge real (no 
 **Resolución:** se fusionó el archivo para que ambas funciones coexistan, deduplicando los `import` compartidos (`server-only`, cliente de Prisma) sin modificar el contenido ni los comentarios de ninguna de las dos funciones originales. Verificado que el archivo resultante compila sin errores (`tsc --noEmit`) y no contiene marcadores de conflicto residuales.
 
 **Hallazgo colateral durante este proceso, no relacionado a HU-5:** al traer los cambios de `develop`, se detectó que el mismo integrante de HU-A6 había reintroducido código relacionado a la funcionalidad "Stock En Prueba" (`lib/crypto/aes.ts`, entre otros archivos de una nueva auditoría de inventario con datos cifrados), construido sobre una versión del Product Backlog anterior a su corrección — la funcionalidad había sido cancelada por el Product Owner y eliminada del código en una tarea previa (ver `MODULO_D.md`, hallazgo de Sprint Review). Se coordinó directamente con ese integrante, quien confirmó que se encargará de esa limpieza en su propio trabajo; esos archivos no fueron tocados como parte de esta tarea, mergeados tal como llegaron de `develop`, sin intervención.
+
+## 2.10. Ampliación Sprint 2 — relevamiento previo y desalineamientos de nombres con la spec
+
+Antes de implementar la Consola de Depósito, se ejecutó un relevamiento obligatorio del estado real del repositorio (paso exigido explícitamente por `task_HU-A5-ampliacion.md`, sección 5), en lugar de asumir que la spec `spec_modulo_A.md` §2.6 describía nombres y rutas ya existentes en el código. Resultado: la base de Sprint 1 estaba entregada y funcional, pero bajo nombres distintos a los que la spec documentaba.
+
+| La spec/task asumía | Estado real en el repo |
+|---|---|
+| `PATCH /api/inventario/stock-depositos/[id]/umbrales` | `PATCH /api/inventario/stock/umbrales` (body con `variante_sku_id` + `deposito_id`, no `[id]`) |
+| Server Action `actualizarUmbralesStockDeposito()` | `actualizarUmbrales(formData)` en `depositos/actions.ts` |
+| Evento `stock:umbrales_actualizados` con `valor_anterior`/`valor_nuevo` | `stock:umbrales_configurados`, sin esos campos en el payload |
+| `withPermission(...)` | `withAuth` (Módulo A no tenía, a esa fecha, ningún permiso `inventario:*` wireado a un Route Handler) |
+
+**Decisión tomada:** no renombrar ni mover nada de Sprint 1 — se trató como el entregable ya testeado (`TC-A5-02`) y se construyó lo nuevo al lado. El desalineamiento entre nombres reales y spec queda documentado acá, no resuelto por esta ampliación.
+
+**Filtros en cascada:** verificados como ya completos en `SelectorJerarquicoStock.tsx` (de `task_cali_selector_umbrales.md`) — el criterio de aceptación correspondiente del Backlog se cumplía de antes, sin cambios necesarios.
+
+## 2.11. Construcción del componente compartido — coordinación con HU-A11
+
+No existía en el repo ningún componente de tabla genérico/reutilizable — cada listado (`ListadoProductos`, `PaginadorVariantes`/`BuscadorFiltrosVariantes`, `HistorialTransferencias`) reimplementaba su propia paginación y búsqueda con columnas hardcodeadas. Se construyó `TablaFiltroPaginada.tsx` desde cero, tomando como referencia de servicio (no de componente) los precedentes de `listarVariantesPaginadas()` y `listarHistorialTransferencias()` para el patrón `contains` + `mode: "insensitive"` + `skip`/`take` + `count` con el mismo `where`.
+
+**Decisión de equipo, previa a la implementación:** coordinado explícitamente con el responsable de HU-A11 (que reutiliza el mismo componente para el historial de movimientos) que HU-A5 genera el componente y HU-A11 únicamente lo consume, sin reimplementarlo por separado — evitando el escenario de que ambas HUs programen la misma tabla en paralelo sin saberlo.
+
+**Divergencia de contrato aceptada conscientemente:** los servicios existentes (`listarVariantesPaginadas`, `listarHistorialTransferencias`) devuelven `{ registros|variantes, total, page, page_size }` con `PAGE_SIZE = 10`. El endpoint nuevo usa `{ items, paginacion: { total, pagina_actual, total_paginas, por_pagina } }` con tope 20, por ser el contrato que cruza con HU-A11. No se retrofiteó ningún servicio existente a este nuevo shape.
+
+**Convención de ubicación y nombrado confirmada contra el repo real, no asumida:** `src/components/inventario/TablaFiltroPaginada.tsx`, PascalCase — siguiendo la convención dominante del directorio (`SelectorJerarquicoStock.tsx`, `FormularioUmbralesStock.tsx`), no el nombre en kebab-case originalmente sugerido en la task antes de verificar contra el código.
+
+**RBAC — hallazgo no resuelto por esta ampliación:** no existe ningún permiso de lectura de inventario (`inventario:depositos:leer` u otro) en el seed. El endpoint nuevo usa `withAuth`, siguiendo el mismo precedente que el resto de los Route Handlers de consulta de Módulo A. Queda reportado como deuda técnica transversal de RBAC, no exclusiva de esta HU.
+
+## 2.12. Reestructuración a modal — hallazgo bloqueante de secuencia y resolución
+
+Al iniciar la task de UI/UX (`task_UI_modal_umbrales_deposito.md`), el relevamiento previo detectó que la premisa de la task ("HU-A5 ampliada ya mergeada") no era cierta contra `develop` en ese momento — el entregable de 2.10/2.11 vivía todavía en una rama feature sin mergear. Se optó por ramificar la nueva task a partir de esa rama feature (no de `develop`), para que ambas entregas confluyeran juntas — decisión revisada y corregida una vez que el merge de la ampliación (PR #93) se concretó, recreando la rama de esta task desde `develop` ya actualizado.
+
+**Hallazgo de shape de datos, resuelto de forma aditiva:** para permitir que cada fila de la tabla abra el modal precargado con su propia variante (sin repetir la cascada manual), el item de la tabla necesitaba `variante_sku_id`, campo que no estaba expuesto en el contrato original de 2.11. Se agregó de forma estrictamente aditiva a `ProductoPorDepositoItem` — sin alterar el shape `{ items, paginacion }` ni ningún campo ya consumido por HU-A11.
+
+**Extensión aditiva de `FormularioUmbralesStock`:** se agregó el prop opcional `onSuccess?: () => void` (mismo patrón ya usado por `ModalJustificacionBaja.onSuccess` en otro componente de dominio de Inventario), para que el contenedor del modal supiera cuándo cerrar y disparar la revalidación de la tabla. Evaluado explícitamente como extensión de interfaz pública, no como reescritura de la lógica interna del formulario — la restricción de "no reescribir" de la task apuntaba a esto último.
+
+**Trade-off de revalidación, documentado y aceptado:** `TablaFiltroPaginada` solo expone `revalidarCuando?`, que siempre resetea a página 1 al disparar. Cumplir el requisito de "reflejar valores actualizados sin recarga manual" con este mecanismo implica perder la posición de paginación del usuario tras guardar un umbral. Se aceptó el trade-off en vez de extender la lógica interna del componente compartido — decisión tomada considerando que modificar `TablaFiltroPaginada` para este caso puntual introduciría acoplamiento no deseado con un consumidor específico (HU-A5), cuando el componente está pensado para ser agnóstico también de HU-A11.
+
+## 2.13. Verificación en navegador real — ambas entradas del modal
+
+Verificación ejecutada en navegador tras el build limpio (`tsc --noEmit`, `eslint`, `next build`, todos sin errores): apertura del modal desde el botón de cabecera con cascada vacía (Entrada A), apertura precargada desde una fila de la tabla (Entrada B), cierre por los tres caminos disponibles (botón "x", "Cancelar", guardado exitoso), y confirmación de que la tabla refleja los valores nuevos tras guardar — incluyendo el reinicio a página 1 documentado en 2.12.
