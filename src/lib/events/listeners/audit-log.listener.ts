@@ -402,4 +402,38 @@ export function iniciarAuditLogListener(): void {
       },
     });
   });
+
+  // HU-H5 — transición de estado de Proveedor (spec_modulo_H.md §3.2
+  // automático; §2.2 manual reutiliza el mismo evento, se distingue por
+  // `origen`). Emitido post-COMMIT desde `evaluacion.service.ts` cuando el
+  // puntaje de evaluación cae por debajo del umbral y el proveedor se
+  // suspende automáticamente.
+  //
+  // SIEMPRE mapea a `UPDATE_ESTADO`, nunca a `DELETE_LOGICO`: suspender un
+  // proveedor NO es baja lógica — `is_active` no cambia, el proveedor sigue
+  // existiendo y consultable, solo cambia `estado`. A diferencia de
+  // `orden_compra:estado_cambiado` (donde `CANCELAR` sí es baja lógica), acá
+  // ninguna transición lo es, así que no hay ternario: todo valor de
+  // `estado_nuevo` va a `UPDATE_ESTADO`.
+  //
+  // `usuario_id` puede ser `null` (`origen: "AUTOMATICO"`, sin un usuario
+  // humano que dispare la acción); `registrarAuditLog` y `AuditLog.usuario_id`
+  // ya lo aceptan (`string | null`). `ip: "internal-event"` — mismo sentinel
+  // que `orden_compra:*`, que también emite post-COMMIT desde un service sin
+  // request HTTP directo asociado.
+  domainEventBus.on("proveedor:estado_cambiado", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "UPDATE_ESTADO",
+      tabla_afectada: "proveedores",
+      registro_id: payload.proveedor_id,
+      ip: "internal-event",
+      valor_anterior: { estado: payload.estado_anterior },
+      valor_nuevo: {
+        estado: payload.estado_nuevo,
+        origen: payload.origen,
+        motivo: payload.motivo,
+      },
+    });
+  });
 }
