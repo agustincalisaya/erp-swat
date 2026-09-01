@@ -278,6 +278,14 @@ const PRODUCTOS_POR_DEPOSITO_MAX = 20;
 /** Fila del listado de "productos por depósito" (contrato estable spec §2.6). */
 export interface ProductoPorDepositoItem {
   stock_deposito_id: string;
+  /**
+   * UUID de la `VarianteSKU` de la fila. Campo aditivo
+   * (task_UI_modal_umbrales_deposito.md, hallazgo 2): habilita la precarga
+   * del modal de umbrales desde una fila de la tabla sin re-consultar la
+   * cascada Depósito → Producto → Variante. No altera el shape
+   * `{ items, paginacion }` ni el contrato genérico que reutiliza HU-A11.
+   */
+  variante_sku_id: string;
   variante_sku: string;
   producto_nombre: string;
   cantidad: number;
@@ -369,6 +377,7 @@ export async function listarProductosPorDeposito(
         stock_seguridad: true,
         variante_sku: {
           select: {
+            id: true,
             sku: true,
             producto_maestro: { select: { nombre: true } },
           },
@@ -381,6 +390,7 @@ export async function listarProductosPorDeposito(
   return {
     items: filas.map((fila) => ({
       stock_deposito_id: fila.id,
+      variante_sku_id: fila.variante_sku.id,
       variante_sku: fila.variante_sku.sku,
       producto_nombre: fila.variante_sku.producto_maestro.nombre,
       cantidad: fila.cantidad,

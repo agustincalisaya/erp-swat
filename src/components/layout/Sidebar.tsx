@@ -73,14 +73,12 @@ const SECCIONES: SeccionConfig[] = [
         // Inventario cuelga acá como sub-ítem en vez de vivir como
         // entrada de primer nivel aparte en "Inventario" (evita el
         // nombre duplicado "Auditoría Forense" en dos lugares del menú).
-        children: [
-          {
-            label: "Auditoría del Inventario",
-            href: "/inventario/auditoria",
-            icon: FileSearch,
-            permiso: "auditoria:leer_forense",
-          },
-        ],
+      },
+      {
+        label: "Auditoría del Inventario",
+        href: "/inventario/auditoria",
+        icon: FileSearch,
+        permiso: "auditoria:leer_forense",
       },
     ],
   },

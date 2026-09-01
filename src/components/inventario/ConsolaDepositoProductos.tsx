@@ -14,12 +14,26 @@
  * `TablaFiltroPaginada` no conoce esta ruta (task §3.2), de modo que HU-A11
  * pueda reutilizar el componente con su propio endpoint sin tocarlo.
  *
- * Vista de solo lectura, distinta del selector jerárquico de umbrales de esta
- * misma pantalla (task §3.3: la cascada habilita la edición puntual; esta
- * tabla es visualización/búsqueda masiva — no se unifican).
+ * Vista de visualización/búsqueda masiva, distinta del selector jerárquico de
+ * umbrales de esta misma pantalla (task §3.3: la cascada habilita la edición
+ * manual; esta tabla es búsqueda masiva — no se unifican).
+ *
+ * task_UI_modal_umbrales_deposito.md §2.2 — Entrada B: si el contenedor pasa
+ * `onConfigurarUmbrales`, cada fila suma una acción (ícono de edición) que
+ * entrega esa variante ya resuelta al modal de umbrales, sin re-consultar la
+ * cascada. Tras un guardado exitoso, el contenedor llama `revalidar()` (handle
+ * imperativo) para refrescar la tabla.
  */
-import { useEffect, useState } from "react"
+import {
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useState,
+  type Ref,
+} from "react"
+import { Pencil, SlidersHorizontal } from "lucide-react"
 
+import { Button } from "@/components/ui/button"
 import {
   Card,
   CardContent,
@@ -33,6 +47,7 @@ import {
   TablaFiltroPaginada,
   type ColumnaTabla,
 } from "@/components/inventario/TablaFiltroPaginada"
+import type { PrecargaUmbrales } from "@/components/inventario/ModalConfigurarUmbrales"
 import { listarDepositosActivos } from "@/app/(dashboard)/inventario/depositos/actions"
 import type { DepositoActivo } from "@/lib/services/inventario/deposito.service"
 import type {
@@ -50,7 +65,7 @@ interface RespuestaProductosPorDeposito {
   error: { code: string; message: string } | null
 }
 
-const COLUMNAS: ColumnaTabla<ProductoPorDepositoItem>[] = [
+const COLUMNAS_BASE: ColumnaTabla<ProductoPorDepositoItem>[] = [
   {
     clave: "variante_sku",
     encabezado: "SKU",
@@ -81,10 +96,74 @@ const COLUMNAS: ColumnaTabla<ProductoPorDepositoItem>[] = [
   },
 ]
 
-export function ConsolaDepositoProductos() {
+/** Handle imperativo expuesto al contenedor que aloja esta Consola. */
+export interface ConsolaDepositoProductosHandle {
+  /**
+   * Fuerza un refetch de la tabla tras un guardado externo (el modal de
+   * umbrales). Reinicia a la página 1 — trade-off asumido (task hallazgo H-A):
+   * `TablaFiltroPaginada` solo expone `revalidarCuando`, sin refetch in situ.
+   */
+  revalidar: () => void
+}
+
+interface ConsolaDepositoProductosProps {
+  ref?: Ref<ConsolaDepositoProductosHandle>
+  /**
+   * Entrada B (task §2.2): la acción por fila entrega al contenedor del modal
+   * la variante ya resuelta, sin pasar por la cascada. Ausente → no se
+   * renderiza la columna de acción (uso de solo lectura).
+   */
+  onConfigurarUmbrales?: (precarga: PrecargaUmbrales) => void
+}
+
+export function ConsolaDepositoProductos({
+  ref,
+  onConfigurarUmbrales,
+}: ConsolaDepositoProductosProps) {
   const [depositos, setDepositos] = useState<DepositoActivo[]>([])
   const [depositoId, setDepositoId] = useState("")
   const [cargandoDepositos, setCargandoDepositos] = useState(true)
+
+  // Contador de revalidación (task hallazgo H-A): cada guardado exitoso desde
+  // el modal lo incrementa vía `revalidar()`, y entra en `revalidarCuando` para
+  // forzar el refetch de la tabla sin recarga de página.
+  const [revalidacionNonce, setRevalidacionNonce] = useState(0)
+  useImperativeHandle(
+    ref,
+    () => ({ revalidar: () => setRevalidacionNonce((n) => n + 1) }),
+    [],
+  )
+
+  const columnas = useMemo<ColumnaTabla<ProductoPorDepositoItem>[]>(() => {
+    if (!onConfigurarUmbrales) return COLUMNAS_BASE
+    return [
+      ...COLUMNAS_BASE,
+      {
+        clave: "acciones",
+        encabezado: "",
+        alinear: "derecha",
+        render: (fila) => (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label={`Configurar umbrales de ${fila.variante_sku}`}
+            onClick={() =>
+              onConfigurarUmbrales({
+                variante_sku_id: fila.variante_sku_id,
+                deposito_id: depositoId,
+                punto_pedido_actual: fila.punto_pedido,
+                stock_seguridad_actual: fila.stock_seguridad,
+                variante_sku: fila.variante_sku,
+                producto_nombre: fila.producto_nombre,
+              })
+            }
+          >
+            <Pencil className="size-4" aria-hidden="true" />
+          </Button>
+        ),
+      },
+    ]
+  }, [onConfigurarUmbrales, depositoId])
 
   useEffect(() => {
     listarDepositosActivos().then((respuesta) => {
@@ -161,10 +240,10 @@ export function ConsolaDepositoProductos() {
 
         {depositoId && (
           <TablaFiltroPaginada<ProductoPorDepositoItem>
-            columnas={COLUMNAS}
+            columnas={columnas}
             obtenerClaveFila={(fila) => fila.stock_deposito_id}
             cargarPagina={cargarPagina}
-            revalidarCuando={[depositoId]}
+            revalidarCuando={[depositoId, revalidacionNonce]}
             busquedaPlaceholder="Buscar por nombre de producto o SKU…"
             mensajeVacio="Este depósito no tiene productos con stock configurado."
             etiquetaRegistros={{ singular: "producto", plural: "productos" }}

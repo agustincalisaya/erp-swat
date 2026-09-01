@@ -36,6 +36,14 @@ interface FormularioUmbralesStockProps {
    * este flag es solo para el indicador visual, no cambia el submit.
    */
   tiene_stock_cargado: boolean
+  /**
+   * Callback opcional disparado tras un guardado exitoso, después del toast
+   * de confirmación (task_UI_modal_umbrales_deposito.md §2.3, hallazgo 3 —
+   * mismo patrón que `ModalJustificacionBaja.onSuccess`). Lo usa el
+   * contenedor de modal para cerrarse y revalidar la Consola de Depósito.
+   * Ausente en el uso legacy fuera de modal: el submit se comporta igual.
+   */
+  onSuccess?: () => void
 }
 
 interface SugerenciaUmbralesResponse {
@@ -55,6 +63,7 @@ export function FormularioUmbralesStock({
   punto_pedido_actual,
   stock_seguridad_actual,
   tiene_stock_cargado,
+  onSuccess,
 }: FormularioUmbralesStockProps) {
   const [calculandoSugerencia, setCalculandoSugerencia] = React.useState(false)
 
@@ -91,6 +100,8 @@ export function FormularioUmbralesStock({
       description: `Punto de pedido: ${resultado.data.punto_pedido} · Stock de seguridad: ${resultado.data.stock_seguridad}`,
       type: "success",
     })
+
+    onSuccess?.()
   }
 
   async function calcularSugerencia() {
@@ -166,7 +177,7 @@ export function FormularioUmbralesStock({
                     type="number"
                     min={0}
                     {...field}
-                    className="max-w-[200px]"
+                    
                     value={
                       field.value === undefined ||
                       field.value === null ||
@@ -198,7 +209,7 @@ export function FormularioUmbralesStock({
                     type="number"
                     min={0}
                     {...field}
-                    className="max-w-[200px]"
+                    
                     value={
                       field.value === undefined ||
                       field.value === null ||
@@ -220,24 +231,24 @@ export function FormularioUmbralesStock({
           />
         </div>
 
-        <div className="flex flex-col-reverse sm:flex-row sm:justify-between sm:items-center mt-8 pt-6 border-t border-slate-100 gap-4">
+        <div className="flex flex-col-reverse sm:flex-row sm:items-center mt-8 pt-6 border-t border-slate-100 gap-4">
           <Button
             type="button"
             variant="outline"
             onClick={calcularSugerencia}
             disabled={calculandoSugerencia}
-            className="bg-white text-blue-600 border border-blue-200 hover:bg-blue-50"
+            className="bg-white text-blue-600 border border-blue-200 hover:bg-blue-50 w-[190px]"
           >
-            <Calculator className="mr-2 h-4 w-4" />
+            <Calculator className="mr-2 h-4 w-4 shrink-0" />
             {calculandoSugerencia ? "Calculando..." : "Calcular sugerencia"}
           </Button>
 
           <Button
             type="submit"
             disabled={form.formState.isSubmitting}
-            className="bg-blue-600 text-white hover:bg-blue-700"
+            className="bg-blue-600 text-white hover:bg-blue-700 w-[120px]"
           >
-            <Save className="mr-2 h-4 w-4" />
+            <Save className="mr-2 h-4 w-4 shrink-0" />
             {form.formState.isSubmitting ? "Guardando..." : "Guardar"}
           </Button>
         </div>

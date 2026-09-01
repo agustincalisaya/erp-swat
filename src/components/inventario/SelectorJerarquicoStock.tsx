@@ -51,7 +51,20 @@ function etiquetaVariante(variante: VariantePorProducto): string {
   return `${variante.talle} · ${variante.color} · ${variante.genero} (${variante.sku})`
 }
 
-export function SelectorJerarquicoStock() {
+interface SelectorJerarquicoStockProps {
+  /**
+   * Passthrough opcional hacia `FormularioUmbralesStock.onSuccess`
+   * (task_UI_modal_umbrales_deposito.md §2.3, hallazgo 3). No cambia la
+   * lógica de cascada/reseteo/fetch: solo reenvía la señal de guardado
+   * exitoso al contenedor que aloja este selector (el modal de Entrada A).
+   * Ausente en el uso legacy en flujo de página: comportamiento idéntico.
+   */
+  onGuardadoExitoso?: () => void
+}
+
+export function SelectorJerarquicoStock({
+  onGuardadoExitoso,
+}: SelectorJerarquicoStockProps) {
   const [depositos, setDepositos] = useState<DepositoActivo[]>([])
   const [productos, setProductos] = useState<ProductoConVariantesResumen[]>([])
   const [variantes, setVariantes] = useState<VariantePorProducto[]>([])
@@ -260,6 +273,7 @@ export function SelectorJerarquicoStock() {
               punto_pedido_actual={stockCombinacion?.punto_pedido ?? 0}
               stock_seguridad_actual={stockCombinacion?.stock_seguridad ?? 0}
               tiene_stock_cargado={stockCombinacion !== null}
+              onSuccess={onGuardadoExitoso}
             />
           </CardContent>
         </Card>
