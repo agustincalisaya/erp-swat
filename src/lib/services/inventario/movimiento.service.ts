@@ -12,6 +12,7 @@ import {
   IMPACTO_STOCK_POR_ESTADO_DESTINO,
   type ResolverCodigoEscaneoInput,
   type RegistrarIngresoPorEscaneoInput,
+  type HistorialMovimientosQuery,
 } from "@/lib/schemas/inventario.schema";
 import { decrementarStockConAlerta } from "@/lib/services/inventario/stock.service";
 
@@ -358,5 +359,158 @@ export async function registrarIngresoStock(
     estado_destino: input.estado_destino,
     impacto_stock: impacto,
     stock_resultante: { cantidad: decremento.cantidad_resultante },
+  };
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// HU-A11 — Historial operativo de movimientos (spec_modulo_A.md §2.10)
+//
+// Query de solo lectura sobre `MovimientoStock`, distinta de la Consola de
+// Auditoría Forense (HU-A6/Módulo D): no expone ni calcula hashes de
+// integridad, es una vista de conveniencia operativa. No abre `$transaction`
+// ni emite eventos de dominio.
+// ──────────────────────────────────────────────────────────────────────────────
+
+/** Fila del historial de movimientos (contrato estable `{ items, paginacion }`). */
+export interface MovimientoHistorialItem {
+  movimiento_id: string;
+  tipo_movimiento: string;
+  variante_sku: string;
+  producto_nombre: string;
+  deposito_origen: string | null;
+  deposito_destino: string | null;
+  cantidad: number;
+  estado_origen: string | null;
+  estado_destino: string | null;
+  comprobante_referencia: string | null;
+  registrado_por: string;
+  created_at: string;
+}
+
+export interface ListadoHistorialMovimientos {
+  items: MovimientoHistorialItem[];
+  paginacion: {
+    total: number;
+    pagina_actual: number;
+    total_paginas: number;
+    por_pagina: number;
+  };
+}
+
+const HISTORIAL_MOVIMIENTOS_POR_PAGINA_MAX = 10;
+
+/** Convierte una fecha `AAAA-MM-DD` al inicio del día en horario de Argentina (mismo criterio que `transferencia.service.ts`). */
+function inicioDiaArgentina(fecha: string): Date {
+  return new Date(`${fecha}T00:00:00-03:00`);
+}
+
+const MOVIMIENTO_HISTORIAL_SELECT = {
+  id: true,
+  tipo_movimiento: true,
+  cantidad: true,
+  estado_origen: true,
+  estado_destino: true,
+  comprobante_referencia: true,
+  created_at: true,
+  variante_sku: { select: { sku: true, producto_maestro: { select: { nombre: true } } } },
+  deposito_origen: { select: { nombre: true } },
+  deposito_destino: { select: { nombre: true } },
+  registrado_por: { select: { email: true } },
+} satisfies Prisma.MovimientoStockSelect;
+
+type MovimientoHistorialDb = Prisma.MovimientoStockGetPayload<{ select: typeof MOVIMIENTO_HISTORIAL_SELECT }>;
+
+function mapearMovimientoHistorial(movimiento: MovimientoHistorialDb): MovimientoHistorialItem {
+  return {
+    movimiento_id: movimiento.id,
+    tipo_movimiento: movimiento.tipo_movimiento,
+    variante_sku: movimiento.variante_sku.sku,
+    producto_nombre: movimiento.variante_sku.producto_maestro.nombre,
+    deposito_origen: movimiento.deposito_origen?.nombre ?? null,
+    deposito_destino: movimiento.deposito_destino?.nombre ?? null,
+    cantidad: movimiento.cantidad,
+    estado_origen: movimiento.estado_origen,
+    estado_destino: movimiento.estado_destino,
+    comprobante_referencia: movimiento.comprobante_referencia,
+    registrado_por: movimiento.registrado_por.email,
+    created_at: movimiento.created_at.toISOString(),
+  };
+}
+
+/**
+ * Listado paginado server-side de `MovimientoStock`, ordenado por
+ * `created_at DESC`, con buscador de texto libre (mismo contrato de filtro
+ * que HU-A5, sección 2.6) y filtros de depósito (origen U destino — un único
+ * filtro simple), variante, tipo de movimiento y rango de fechas.
+ *
+ * `where: { is_active: true }` por defecto (Regla N.° 1 de RULES.md — ningún
+ * SELECT operativo expone filas dadas de baja).
+ */
+export async function listarHistorialMovimientos(
+  input: HistorialMovimientosQuery,
+): Promise<ListadoHistorialMovimientos> {
+  const porPagina = Math.min(input.por_pagina, HISTORIAL_MOVIMIENTOS_POR_PAGINA_MAX);
+
+  const and: Prisma.MovimientoStockWhereInput[] = [];
+
+  if (input.deposito_id) {
+    and.push({
+      OR: [{ deposito_origen_id: input.deposito_id }, { deposito_destino_id: input.deposito_id }],
+    });
+  }
+
+  const busqueda = input.busqueda?.trim();
+  if (busqueda) {
+    and.push({
+      OR: [
+        { variante_sku: { sku: { contains: busqueda, mode: "insensitive" } } },
+        {
+          variante_sku: {
+            producto_maestro: { nombre: { contains: busqueda, mode: "insensitive" } },
+          },
+        },
+      ],
+    });
+  }
+
+  if (input.fecha_desde || input.fecha_hasta) {
+    const hastaExclusivo = input.fecha_hasta ? inicioDiaArgentina(input.fecha_hasta) : null;
+    if (hastaExclusivo) hastaExclusivo.setUTCDate(hastaExclusivo.getUTCDate() + 1);
+    and.push({
+      created_at: {
+        ...(input.fecha_desde ? { gte: inicioDiaArgentina(input.fecha_desde) } : {}),
+        ...(hastaExclusivo ? { lt: hastaExclusivo } : {}),
+      },
+    });
+  }
+
+  const where: Prisma.MovimientoStockWhereInput = {
+    is_active: true,
+    ...(input.variante_sku_id ? { variante_sku_id: input.variante_sku_id } : {}),
+    ...(input.tipo_movimiento ? { tipo_movimiento: input.tipo_movimiento } : {}),
+    ...(and.length > 0 ? { AND: and } : {}),
+  };
+
+  const skip = (input.pagina - 1) * porPagina;
+
+  const [filas, total] = await Promise.all([
+    prisma.movimientoStock.findMany({
+      where,
+      skip,
+      take: porPagina,
+      orderBy: { created_at: "desc" },
+      select: MOVIMIENTO_HISTORIAL_SELECT,
+    }),
+    prisma.movimientoStock.count({ where }),
+  ]);
+
+  return {
+    items: filas.map(mapearMovimientoHistorial),
+    paginacion: {
+      total,
+      pagina_actual: input.pagina,
+      total_paginas: Math.max(1, Math.ceil(total / porPagina)),
+      por_pagina: porPagina,
+    },
   };
 }

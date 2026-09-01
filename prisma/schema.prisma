@@ -397,6 +397,11 @@ model MovimientoStock {
   deposito_destino Deposito?   @relation("MovimientoDestino", fields: [deposito_destino_id], references: [id], onDelete: Restrict)
   registrado_por   Usuario     @relation("MovimientoRegistradoPor", fields: [registrado_por_id], references: [id], onDelete: Restrict)
 
+  @@index([variante_sku_id])
+  @@index([deposito_origen_id])
+  @@index([deposito_destino_id])
+  @@index([tipo_movimiento])
+  @@index([created_at])
   @@map("movimientos_stock")
 }
 

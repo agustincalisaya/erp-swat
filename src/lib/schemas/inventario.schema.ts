@@ -243,7 +243,13 @@ export const BajaTransferenciaSchema = z.object({
 
 export const TransferenciaIdSchema = z.string().uuid("El ID de transferencia es inválido");
 
-const FechaCalendarioSchema = z
+/**
+ * Exportado (originalmente privado de este módulo) para que
+ * `HistorialMovimientosQuerySchema` (HU-A11, sección 2.10) reutilice la misma
+ * validación de fecha en vez de duplicar el regex — sin alterar su
+ * comportamiento para `FiltrosHistorialTransferenciasSchema`.
+ */
+export const FechaCalendarioSchema = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, "La fecha debe tener formato AAAA-MM-DD")
   .refine((valor) => {
@@ -354,3 +360,28 @@ export const ListarProductosPorDepositoQuerySchema = z.object({
 export type ListarProductosPorDepositoQuery = z.infer<
   typeof ListarProductosPorDepositoQuerySchema
 >;
+
+// ──────────────────────────────────────────────────────────────────────────────
+// HU-A11 — Historial operativo de movimientos (spec_modulo_A.md §2.10)
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Query de `GET /api/inventario/movimientos/historial`. `deposito_id` filtra
+ * por depósito de origen O destino (ver `listarHistorialMovimientos()`) — un
+ * único filtro simple en vez de dos separados, decisión de UX de esta HU.
+ *
+ * `por_pagina` con tope y default 10 (requisito confirmado de HU-A11, distinto
+ * del tope 20 de HU-A5/HU-A6 en este mismo archivo).
+ */
+export const HistorialMovimientosQuerySchema = z.object({
+  deposito_id: z.string().uuid().optional(),
+  variante_sku_id: z.string().uuid().optional(),
+  tipo_movimiento: z.enum(["INGRESO", "EGRESO", "TRANSFERENCIA", "AJUSTE"]).optional(),
+  fecha_desde: z.preprocess((valor) => (valor === "" ? undefined : valor), FechaCalendarioSchema.optional()),
+  fecha_hasta: z.preprocess((valor) => (valor === "" ? undefined : valor), FechaCalendarioSchema.optional()),
+  busqueda: z.string().trim().optional(),
+  pagina: z.coerce.number().int().positive().default(1),
+  por_pagina: z.coerce.number().int().positive().max(10).default(10),
+});
+
+export type HistorialMovimientosQuery = z.infer<typeof HistorialMovimientosQuerySchema>;

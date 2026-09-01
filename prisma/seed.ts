@@ -65,6 +65,7 @@ const PERMISO_TRANSFERIR_STOCK_ID = "3e87e12f-091f-4a18-a645-8916fca01379";
 const PERMISO_CONFIRMAR_RECEPCION_ID = "90cfd9eb-e6f1-47c5-a570-d7f92dc21d04";
 const PERMISO_RESERVAR_STOCK_ID = "b1f7c2a4-3d9e-4c1b-8a6f-0e2d4c6a8b10";
 const PERMISO_CONFIRMAR_RESERVA_ID = "c2e8d3b5-4a1f-4d2c-9b7a-1f3e5d7b9c21";
+const PERMISO_MOVIMIENTOS_LEER_HISTORICO_ID = "e4a6f1d8-7c2b-4e9a-9d5f-3b8c1a6e4d02";
 const ROL_AUDITOR_ID = "cfe51d79-332c-4217-8906-481f2a94a1cc";
 const ROL_ADMINISTRADOR_ID = "2998bb21-960c-474c-8941-848d1f20038e";
 const ROL_ENCARGADO_DEPOSITO_ID = "1ce2f5fc-8b66-4496-82de-36d434bc79aa";
@@ -421,6 +422,15 @@ async function main() {
     create: { id: PERMISO_CONFIRMAR_RESERVA_ID, codigo: "inventario:confirmar_reserva", descripcion: "Liberar una Reserva por venta confirmada (RESERVADO → VENDIDO)", modulo: "MODULO_A" },
   });
 
+  // HU-A11 — historial operativo de movimientos (spec_modulo_A.md §2.10).
+  // Distinto de `auditoria:leer_historico` (Consola Forense, Módulo D): este
+  // permiso es de uso operativo, sin verificación de cadena SHA-256.
+  const permisoMovimientosLeerHistorico = await prisma.permiso.upsert({
+    where: { id: PERMISO_MOVIMIENTOS_LEER_HISTORICO_ID },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: { id: PERMISO_MOVIMIENTOS_LEER_HISTORICO_ID, codigo: "inventario:movimientos:leer_historico", descripcion: "Consultar el historial operativo de movimientos de stock", modulo: "MODULO_A" },
+  });
+
   const rolEncargadoDeposito = await prisma.rol.upsert({
     where: { id: ROL_ENCARGADO_DEPOSITO_ID },
     update: REACTIVAR_REFERENCIA_RBAC,
@@ -448,7 +458,7 @@ async function main() {
   });
 
   for (const rol of [rolEncargadoDeposito, rolAdministrador]) {
-    for (const permiso of [permisoTransferirStock, permisoConfirmarRecepcion, permisoReservarStock, permisoConfirmarReserva]) {
+    for (const permiso of [permisoTransferirStock, permisoConfirmarRecepcion, permisoReservarStock, permisoConfirmarReserva, permisoMovimientosLeerHistorico]) {
       await prisma.rolPermiso.upsert({
         where: { rol_id_permiso_id: { rol_id: rol.id, permiso_id: permiso.id } },
         update: REACTIVAR_REFERENCIA_RBAC,
