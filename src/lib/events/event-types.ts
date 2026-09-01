@@ -226,6 +226,55 @@ export interface RolPermisosActualizadosPayload {
   ip: string;
 }
 
+/**
+ * HU-H3 (Módulo H) — Payload emitido tras el alta de una `OrdenCompra` en
+ * estado `BORRADOR` (`crearOrdenCompra()`, spec_modulo_H.md §2.4). Se emite
+ * SOLO después del `COMMIT` de la transacción de alta, nunca dentro de ella
+ * (spec §3.4, mismo patrón fire-and-forget que Módulo D — deuda técnica
+ * conocida documentada en el PR).
+ *
+ * spec §4 no enumera un evento propio de OrdenCompra en su tabla (se enfoca
+ * en `proveedor:estado_cambiado` y `stock:recepcion_confirmada`), pero
+ * RULES.md §2 exige que toda acción que modifica el sistema quede encadenada
+ * en el `AuditLog`. Se sigue el precedente ya establecido para `usuario:*`
+ * (`usuario:creado` / `usuario:estado_cambiado`).
+ *
+ * `precio_unitario` viaja como string (serialización de `Prisma.Decimal`).
+ */
+export interface OrdenCompraCreadaPayload {
+  orden_compra_id: string;
+  numero_orden: string;
+  proveedor_id: string;
+  estado: "BORRADOR";
+  creada_por_id: string;
+  lista_precio_version_id: string;
+  items: {
+    variante_sku_id: string;
+    cantidad_solicitada: number;
+    precio_unitario: string;
+  }[];
+}
+
+/**
+ * HU-H3 (Módulo H) — Payload emitido tras una transición de estado de una
+ * `OrdenCompra` (`cambiarEstadoOrdenCompra()`, spec_modulo_H.md §2.5). Cubre
+ * `ENVIAR` / `CONFIRMAR` / `CERRAR` / `CANCELAR`. `CANCELAR` es baja lógica
+ * (spec §2.5): el listener de auditoría lo registra como `DELETE_LOGICO`, el
+ * resto como `UPDATE_ESTADO`. Emisión post-`COMMIT` (spec §3.4).
+ */
+export interface OrdenCompraEstadoCambiadoPayload {
+  orden_compra_id: string;
+  numero_orden: string;
+  estado_anterior: string;
+  estado_nuevo: string;
+  accion: "ENVIAR" | "CONFIRMAR" | "CERRAR" | "CANCELAR";
+  cambiado_por: string;
+  /** Presente solo en `CONFIRMAR`. ISO 8601. */
+  fecha_entrega_comprometida: string | null;
+  /** Presente solo en `CANCELAR` (baja lógica). */
+  deletion_reason: string | null;
+}
+
 /** Mapa evento → payload, usado por `domain-event-bus.ts` para tipar `emit`/`on`. */
 export interface DomainEventMap {
   /** HU-A1: se emite tras el alta de un ProductoMaestro. */
@@ -262,6 +311,10 @@ export interface DomainEventMap {
   "rol:creado": RolCreadoPayload;
   /** Endpoint 2.2.6: se emite tras actualizar los permisos de un Rol. */
   "rol:permisos_actualizados": RolPermisosActualizadosPayload;
+  /** HU-H3: se emite tras el alta de una OrdenCompra en estado BORRADOR. */
+  "orden_compra:creada": OrdenCompraCreadaPayload;
+  /** HU-H3: se emite tras una transición de estado de una OrdenCompra. */
+  "orden_compra:estado_cambiado": OrdenCompraEstadoCambiadoPayload;
 }
 
 export type DomainEventName = keyof DomainEventMap;

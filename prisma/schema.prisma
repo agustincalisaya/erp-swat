@@ -685,6 +685,12 @@ model OrdenCompra {
   fecha_emision      DateTime          @default(now())
   fecha_envio        DateTime?
   fecha_confirmacion DateTime?
+  /// Fecha de entrega comprometida por el proveedor, capturada en la
+  /// transición ENVIADA → CONFIRMADA (spec_modulo_H.md §2.5 / §3.1;
+  /// Alcance §2.1: "base del seguimiento de cumplimiento"). Nullable: solo
+  /// se setea al CONFIRMAR; una orden en BORRADOR/ENVIADA todavía no la tiene.
+  /// Distinta de `fecha_confirmacion`, que es el instante en que se confirmó.
+  fecha_entrega_comprometida DateTime?
   fecha_cierre       DateTime?
   observaciones      String?
   creada_por_id      String

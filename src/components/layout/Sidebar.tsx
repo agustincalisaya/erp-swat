@@ -32,7 +32,7 @@
  */
 import type { LucideIcon } from "lucide-react";
 // 1. Agregamos el ícono "Layers" a la importación
-import { ScrollText, ShieldCheck, Users, Package, Warehouse, ScanBarcode, Layers, FileSearch } from "lucide-react";
+import { ScrollText, ShieldCheck, Users, Package, Warehouse, ScanBarcode, Layers, FileSearch, ShoppingCart, ClipboardList } from "lucide-react";
 import { getServerSession } from "@/lib/auth/session";
 import { usuarioTienePermiso } from "@/lib/auth/with-permission";
 import { SidebarNav, type SidebarNavSection } from "@/components/layout/SidebarNav";
@@ -93,6 +93,23 @@ const SECCIONES: SeccionConfig[] = [
       { label: "Variantes", href: "/inventario/variantes", icon: Layers },
       { label: "Depósitos", href: "/inventario/depositos", icon: Warehouse },
       { label: "Movimientos", href: "/inventario/movimientos", icon: ScanBarcode },
+    ],
+  },
+  {
+    label: "Compras",
+    icon: ShoppingCart,
+    items: [
+      // Gate por `ordenes_compra:crear` para esta pantalla — el split
+      // Comprador/Supervisor de Compras (Alcance §2.1 / §5) se aplica en la
+      // tarea de permisos finales; el rol Supervisor todavía no existe en el
+      // seed. El botón "Enviar" del detalle se gateará ahí por
+      // `ordenes_compra:enviar`.
+      {
+        label: "Órdenes de Compra",
+        href: "/compras/ordenes",
+        icon: ClipboardList,
+        permiso: "ordenes_compra:crear",
+      },
     ],
   },
 ];

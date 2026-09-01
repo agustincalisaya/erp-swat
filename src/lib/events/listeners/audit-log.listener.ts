@@ -334,4 +334,53 @@ export function iniciarAuditLogListener(): void {
       },
     });
   });
+
+  // HU-H3 — alta de OrdenCompra en BORRADOR (spec_modulo_H.md §2.4). El
+  // service nunca llama `registrarAuditLog()` directo: emite el evento y este
+  // listener reacciona (misma regla de unificación que el resto del módulo).
+  // `tabla_afectada` usa el `@@map` en minúsculas (`ordenes_compra`).
+  // `ip: "internal-event"` — mismo sentinel que los listeners de
+  // transferencia, que también emiten post-COMMIT desde un service sin
+  // request HTTP directo asociado.
+  domainEventBus.on("orden_compra:creada", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.creada_por_id,
+      accion: "CREATE",
+      tabla_afectada: "ordenes_compra",
+      registro_id: payload.orden_compra_id,
+      ip: "internal-event",
+      valor_anterior: null,
+      valor_nuevo: {
+        numero_orden: payload.numero_orden,
+        proveedor_id: payload.proveedor_id,
+        estado: payload.estado,
+        lista_precio_version_id: payload.lista_precio_version_id,
+        items: payload.items,
+      },
+    });
+  });
+
+  // HU-H3 — transición de estado de OrdenCompra (spec_modulo_H.md §2.5).
+  // `CANCELAR` es baja lógica → `DELETE_LOGICO`; el resto → `UPDATE_ESTADO`,
+  // mismo criterio que `usuario:estado_cambiado` / `stock:transferencia_baja_logica`.
+  domainEventBus.on("orden_compra:estado_cambiado", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.cambiado_por,
+      accion: payload.accion === "CANCELAR" ? "DELETE_LOGICO" : "UPDATE_ESTADO",
+      tabla_afectada: "ordenes_compra",
+      registro_id: payload.orden_compra_id,
+      ip: "internal-event",
+      valor_anterior: { estado: payload.estado_anterior },
+      valor_nuevo: {
+        estado: payload.estado_nuevo,
+        accion: payload.accion,
+        ...(payload.fecha_entrega_comprometida
+          ? { fecha_entrega_comprometida: payload.fecha_entrega_comprometida }
+          : {}),
+        ...(payload.deletion_reason
+          ? { deletion_reason: payload.deletion_reason }
+          : {}),
+      },
+    });
+  });
 }
