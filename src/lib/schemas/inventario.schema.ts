@@ -291,3 +291,29 @@ export const ListarVariantesSchema = z.object({
 });
 
 export type ListarVariantesInput = z.infer<typeof ListarVariantesSchema>;
+
+// ──────────────────────────────────────────────────────────────────────────────
+// HU-A5 ampliada (Sprint 2) — Consola de Depósito: listado paginado de
+// "productos por depósito" con buscador de texto libre (spec_modulo_A.md §2.6 /
+// task_HU-A5-ampliacion.md §2)
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Query de `GET /api/inventario/depositos/[id]/productos`.
+ *
+ * `deposito_id` NO llega como search param: el Route Handler lo compone a
+ * partir del segmento `[id]` de la URL antes del `safeParse`. `por_pagina`
+ * tiene tope duro 20 (regla de negocio de spec §2.6: la tabla no admite más
+ * de 20 artículos por vista); el `.max(20)` lo impone acá para que ningún
+ * camino de código pueda superarlo.
+ */
+export const ListarProductosPorDepositoQuerySchema = z.object({
+  deposito_id: z.string().uuid(),
+  busqueda: z.string().trim().optional(),
+  pagina: z.coerce.number().int().positive().default(1),
+  por_pagina: z.coerce.number().int().positive().max(20).default(20),
+});
+
+export type ListarProductosPorDepositoQuery = z.infer<
+  typeof ListarProductosPorDepositoQuerySchema
+>;
