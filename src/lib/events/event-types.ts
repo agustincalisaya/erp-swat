@@ -303,6 +303,24 @@ export interface OrdenCompraItemsEditadosPayload {
   }[];
 }
 
+/**
+ * HU-H5 (Módulo H) — Payload emitido tras la transición automática de
+ * `Proveedor.estado` a `SUSPENDIDO` por caída de puntaje
+ * (`evaluacion.service.ts`, `registrarEvaluacionDesdeRecepcion()`).
+ * `usuario_id` es `null` porque el origen es automático, no una acción de un
+ * usuario. Reutiliza el mismo evento que el endpoint manual de
+ * `spec_modulo_H.md` §2.2 — el listener distingue por `origen`. Emisión
+ * post-`COMMIT` (mismo patrón que el resto de eventos de este módulo).
+ */
+export interface ProveedorEstadoCambiadoPayload {
+  proveedor_id: string;
+  usuario_id: string | null;
+  estado_anterior: string;
+  estado_nuevo: string;
+  origen: "MANUAL" | "AUTOMATICO";
+  motivo: string;
+}
+
 /** Mapa evento → payload, usado por `domain-event-bus.ts` para tipar `emit`/`on`. */
 export interface DomainEventMap {
   /** HU-A1: se emite tras el alta de un ProductoMaestro. */
@@ -345,6 +363,8 @@ export interface DomainEventMap {
   "orden_compra:estado_cambiado": OrdenCompraEstadoCambiadoPayload;
   /** HU-H3: se emite tras editar los ítems de una OrdenCompra en BORRADOR. */
   "orden_compra:items_editados": OrdenCompraItemsEditadosPayload;
+  /** HU-H5 (y HU-H1 2.2): se emite tras un cambio de estado de Proveedor, manual o automático. */
+  "proveedor:estado_cambiado": ProveedorEstadoCambiadoPayload;
 }
 
 export type DomainEventName = keyof DomainEventMap;
