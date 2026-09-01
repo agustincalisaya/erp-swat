@@ -7,6 +7,7 @@ import { ServiceError } from "@/lib/errors/service-error";
 import type {
   ActualizarUmbralesStockInput,
   CalcularPromedioMovilInput,
+  ListarProductosPorDepositoQuery,
 } from "@/lib/schemas/inventario.schema";
 import { calcularResumenStock } from "@/lib/services/inventario/stock-calculos";
 
@@ -258,4 +259,139 @@ export async function decrementarStockConAlerta(params: {
   }
 
   return resultado;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// HU-A5 ampliada (Sprint 2) — Consola de Depósito: listado paginado de
+// "productos por depósito" con buscador de texto libre (spec_modulo_A.md §2.6 /
+// task_HU-A5-ampliacion.md §2)
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Tope duro de ítems por vista de la Consola de Depósito (spec §2.6: "la
+ * tabla no admite más de 20 artículos por vista"). El Zod schema ya impone
+ * `.max(20)`; esta constante es el segundo cinturón por si el service se
+ * invocara desde otro camino sin pasar por el schema.
+ */
+const PRODUCTOS_POR_DEPOSITO_MAX = 20;
+
+/** Fila del listado de "productos por depósito" (contrato estable spec §2.6). */
+export interface ProductoPorDepositoItem {
+  stock_deposito_id: string;
+  variante_sku: string;
+  producto_nombre: string;
+  cantidad: number;
+  punto_pedido: number;
+  stock_seguridad: number;
+}
+
+/** Respuesta de `listarProductosPorDeposito()` — shape `{ items, paginacion }`. */
+export interface ListadoProductosPorDeposito {
+  items: ProductoPorDepositoItem[];
+  paginacion: {
+    total: number;
+    pagina_actual: number;
+    total_paginas: number;
+    por_pagina: number;
+  };
+}
+
+/**
+ * HU-A5 ampliada — listado paginado server-side de las variantes con fila de
+ * `StockDeposito` en un depósito, con buscador de texto libre. Solo lectura:
+ * no abre `$transaction` ni emite eventos de dominio.
+ *
+ * Reglas no negociables (spec §2.6 / task §2):
+ *  - `where` sobre `StockDeposito`: `deposito_id` + `is_active: true`. Se
+ *    agrega `variante_sku: { is_active: true }` como guarda de RULES.md
+ *    Regla N.° 1 (ningún SELECT operativo expone filas dadas de baja) — mismo
+ *    criterio que `obtenerStockDisponible()` en este archivo. No se expone
+ *    ningún flag `incluirInactivos` (exclusivo de Auditoría).
+ *  - `busqueda`, si viene, se traduce a una condición `OR` con `contains` +
+ *    `mode: "insensitive"` sobre `producto_maestro.nombre` Y `variante_sku.sku`,
+ *    evaluada en la MISMA query paginada — nunca se trae el dataset a memoria
+ *    para filtrar con `.filter()` de JS.
+ *  - Paginación: `skip = (pagina - 1) * por_pagina`, `take = por_pagina`
+ *    (tope 20). `findMany` + `count` con el mismo `where` para `total` y
+ *    `total_paginas = ceil(total / por_pagina)`.
+ *  - `deposito_id` inexistente o `is_active: false` → `ServiceError`
+ *    `DEPOSITO_NO_ENCONTRADO` (el Route Handler lo mapea a 404).
+ *
+ * @param input - Query ya validada por `ListarProductosPorDepositoQuerySchema`.
+ */
+export async function listarProductosPorDeposito(
+  input: ListarProductosPorDepositoQuery,
+): Promise<ListadoProductosPorDeposito> {
+  const deposito = await prisma.deposito.findFirst({
+    where: { id: input.deposito_id, is_active: true },
+    select: { id: true },
+  });
+
+  if (!deposito) {
+    throw new ServiceError(
+      "DEPOSITO_NO_ENCONTRADO",
+      "El depósito indicado no existe o no está activo",
+    );
+  }
+
+  const porPagina = Math.min(input.por_pagina, PRODUCTOS_POR_DEPOSITO_MAX);
+
+  const where: Prisma.StockDepositoWhereInput = {
+    deposito_id: input.deposito_id,
+    is_active: true,
+    variante_sku: { is_active: true },
+  };
+
+  const busqueda = input.busqueda?.trim();
+  if (busqueda) {
+    where.OR = [
+      {
+        variante_sku: {
+          producto_maestro: { nombre: { contains: busqueda, mode: "insensitive" } },
+        },
+      },
+      { variante_sku: { sku: { contains: busqueda, mode: "insensitive" } } },
+    ];
+  }
+
+  const skip = (input.pagina - 1) * porPagina;
+
+  const [filas, total] = await Promise.all([
+    prisma.stockDeposito.findMany({
+      where,
+      skip,
+      take: porPagina,
+      orderBy: { variante_sku: { sku: "asc" } },
+      select: {
+        id: true,
+        cantidad: true,
+        punto_pedido: true,
+        stock_seguridad: true,
+        variante_sku: {
+          select: {
+            sku: true,
+            producto_maestro: { select: { nombre: true } },
+          },
+        },
+      },
+    }),
+    prisma.stockDeposito.count({ where }),
+  ]);
+
+  return {
+    items: filas.map((fila) => ({
+      stock_deposito_id: fila.id,
+      variante_sku: fila.variante_sku.sku,
+      producto_nombre: fila.variante_sku.producto_maestro.nombre,
+      cantidad: fila.cantidad,
+      punto_pedido: fila.punto_pedido,
+      stock_seguridad: fila.stock_seguridad,
+    })),
+    paginacion: {
+      total,
+      pagina_actual: input.pagina,
+      total_paginas: Math.max(1, Math.ceil(total / porPagina)),
+      por_pagina: porPagina,
+    },
+  };
 }

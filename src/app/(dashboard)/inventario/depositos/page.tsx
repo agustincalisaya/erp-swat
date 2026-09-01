@@ -1,5 +1,6 @@
 import { Warehouse } from "lucide-react"
 import { SelectorJerarquicoStock } from "@/components/inventario/SelectorJerarquicoStock"
+import { ConsolaDepositoProductos } from "@/components/inventario/ConsolaDepositoProductos"
 
 export default function DepositosPage() {
   return (
@@ -24,6 +25,8 @@ export default function DepositosPage() {
       </div>
 
       <SelectorJerarquicoStock />
+
+      <ConsolaDepositoProductos />
     </div>
   )
 }
