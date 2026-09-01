@@ -200,3 +200,155 @@ test("el listener de auditoría cubre los dos eventos de Reserva sobre la tabla 
   assert.match(listener, /accion: "RESERVA_LIBERADA"/);
   assert.match(listener, /tabla_afectada: "reservas"/);
 });
+
+// ── Ampliación HU-A10 (task_testing_HU-A10.md §1) — tests A–L ──────────────────
+// Mismo molde que los 16 de arriba: asserts sobre el texto fuente del service
+// (no se puede importar `reserva.service.ts` en Node por `import "server-only"`)
+// + safeParse de los schemas Zod.
+
+const leerServicio = () =>
+  readFileSync(new URL("./reserva.service.ts", import.meta.url), "utf8");
+
+const sliceCrearReserva = (fuente: string) =>
+  fuente.slice(
+    fuente.indexOf("export async function crearReserva"),
+    fuente.indexOf("export async function confirmarReservaPorVenta"),
+  );
+
+const sliceConfirmarReserva = (fuente: string) =>
+  fuente.slice(
+    fuente.indexOf("export async function confirmarReservaPorVenta"),
+    fuente.indexOf("export async function liberarReservasVencidas"),
+  );
+
+const sliceLiberarVencidas = (fuente: string) =>
+  fuente.slice(fuente.indexOf("export async function liberarReservasVencidas"));
+
+// crearReserva() ──────────────────────────────────────────────────────────────
+
+test("A — crearReserva persiste origen_reserva y la Reserva nace con fecha_fin_reserva null", () => {
+  const bloque = sliceCrearReserva(leerServicio());
+  assert.match(bloque, /tx\.reserva\.create\(\{/);
+  assert.match(bloque, /origen_reserva: input\.origen_reserva/);
+  assert.match(bloque, /fecha_fin_reserva: null/);
+});
+
+test("B — crearReserva resuelve el TTL con resolverTtlHoras(origen, ttl_horas) y lo devuelve en ttl_horas", () => {
+  const fuente = leerServicio();
+  assert.match(
+    fuente,
+    /const ttlHoras = resolverTtlHoras\(input\.origen_reserva, input\.ttl_horas\)/,
+  );
+  assert.match(fuente, /ttl_horas: ttlHoras/);
+});
+
+test("C — TTL_POR_ORIGEN cubre los 3 orígenes contra la constante 72h, sin número mágico", () => {
+  const fuente = leerServicio();
+  const inicio = fuente.indexOf("const TTL_POR_ORIGEN");
+  const bloque = fuente.slice(inicio, fuente.indexOf("};", inicio) + 2);
+  assert.match(bloque, /SENIA: TTL_RESERVA_DEFAULT_HORAS/);
+  assert.match(bloque, /LICITACION: TTL_RESERVA_DEFAULT_HORAS/);
+  assert.match(bloque, /PEDIDO_INSTITUCIONAL: TTL_RESERVA_DEFAULT_HORAS/);
+  assert.doesNotMatch(bloque, /:\s*72\b/);
+});
+
+test("D — el MovimientoStock del congelamiento referencia la Reserva vía comprobante RESERVA-<id>", () => {
+  const bloque = sliceCrearReserva(leerServicio());
+  assert.match(bloque, /comprobante_referencia: `RESERVA-\$\{creada\.id\}`/);
+});
+
+// confirmarReservaPorVenta() ──────────────────────────────────────────────────
+
+test("E — el cierre por venta usa updateMany condicionado (id + is_active + deleted_at + fecha_fin_reserva null), no update por PK", () => {
+  const bloque = sliceConfirmarReserva(leerServicio());
+  assert.match(
+    bloque,
+    /tx\.reserva\.updateMany\(\{\s*where: \{ id: reservaId, is_active: true, deleted_at: null, fecha_fin_reserva: null \}/,
+  );
+  assert.doesNotMatch(bloque, /tx\.reserva\.update\(\{/);
+});
+
+test("F — confirmarReservaPorVenta distingue RESERVA_INACTIVA (baja lógica) de RESERVA_NO_ACTIVA (ya cerrada) y no regresó a AJUSTE", () => {
+  const bloque = sliceConfirmarReserva(leerServicio());
+  assert.match(bloque, /if \(!actual\.is_active \|\| actual\.deleted_at\)/);
+  assert.match(bloque, /new ServiceError\("RESERVA_INACTIVA"/);
+  assert.match(bloque, /if \(cambio\.count === 0\)/);
+  assert.match(bloque, /new ServiceError\("RESERVA_NO_ACTIVA"/);
+  assert.doesNotMatch(bloque, /tipo_movimiento: "AJUSTE"/);
+});
+
+test("G — confirmarReservaPorVenta emite stock:reserva_liberada con motivo_liberacion VENTA, tras abrir la $transaction", () => {
+  const bloque = sliceConfirmarReserva(leerServicio());
+  const tx = bloque.indexOf("await prisma.$transaction");
+  const emit = bloque.indexOf('domainEventBus.emit("stock:reserva_liberada"');
+  assert.ok(tx > -1 && emit > tx);
+  assert.match(bloque, /motivo_liberacion: "VENTA"/);
+});
+
+// liberarReservasVencidas() ───────────────────────────────────────────────────
+
+test("H — liberarReservasVencidas selecciona sólo reservas activas, sin cierre y anteriores al umbral", () => {
+  const bloque = sliceLiberarVencidas(leerServicio());
+  assert.match(
+    bloque,
+    /prisma\.reserva\.findMany\(\{\s*where: \{\s*is_active: true,\s*deleted_at: null,\s*fecha_fin_reserva: null,\s*fecha_inicio_reserva: \{ lt: umbral \},/,
+  );
+});
+
+test("I — el umbral del cron se calcula restando TTL_RESERVA_DEFAULT_HORAS y el bloque no regresó a AJUSTE", () => {
+  const bloque = sliceLiberarVencidas(leerServicio());
+  assert.match(bloque, /const ttlHoras = TTL_RESERVA_DEFAULT_HORAS/);
+  assert.match(bloque, /umbral\.setHours\(umbral\.getHours\(\) - ttlHoras\)/);
+  assert.doesNotMatch(bloque, /tipo_movimiento: "AJUSTE"/);
+});
+
+test("J — se emite un stock:reserva_liberada con motivo TTL_VENCIDO por cada reserva liberada, tras el loop transaccional", () => {
+  const bloque = sliceLiberarVencidas(leerServicio());
+  const loopTx = bloque.indexOf("for (const reserva of vencidas)");
+  const loopEmit = bloque.indexOf("for (const reserva of liberadas)");
+  assert.ok(loopTx > -1 && loopEmit > loopTx);
+  const bloqueEmit = bloque.slice(loopEmit);
+  assert.match(bloqueEmit, /domainEventBus\.emit\("stock:reserva_liberada", \{/);
+  assert.match(bloqueEmit, /motivo_liberacion: "TTL_VENCIDO"/);
+});
+
+test("K — cada $transaction del cron va dentro de un try/catch por reserva: una falla no aborta el resto", () => {
+  const bloque = sliceLiberarVencidas(leerServicio());
+  const cuerpoLoop = bloque.slice(
+    bloque.indexOf("for (const reserva of vencidas)"),
+    bloque.indexOf("for (const reserva of liberadas)"),
+  );
+  assert.match(cuerpoLoop, /try \{[\s\S]*await prisma\.\$transaction\([\s\S]*\} catch \(error\) \{/);
+  assert.match(cuerpoLoop, /console\.error\(`\[liberarReservasVencidas\] Error al liberar reserva/);
+});
+
+// Schemas Zod ─────────────────────────────────────────────────────────────────
+
+test("L — CrearReservaSchema rechaza UUIDs inválidos y la ausencia de origen_reserva", () => {
+  assert.equal(
+    CrearReservaSchema.safeParse({
+      variante_sku_id: "no-es-uuid",
+      deposito_id: deposito,
+      cantidad: 1,
+      origen_reserva: "SENIA",
+    }).success,
+    false,
+  );
+  assert.equal(
+    CrearReservaSchema.safeParse({
+      variante_sku_id: variante,
+      deposito_id: "no-es-uuid",
+      cantidad: 1,
+      origen_reserva: "SENIA",
+    }).success,
+    false,
+  );
+  assert.equal(
+    CrearReservaSchema.safeParse({
+      variante_sku_id: variante,
+      deposito_id: deposito,
+      cantidad: 1,
+    }).success,
+    false,
+  );
+});
