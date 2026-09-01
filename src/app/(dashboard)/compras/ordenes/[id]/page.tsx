@@ -6,16 +6,22 @@
  * Alcance Funcional §2.1 / §5). RSC: resuelve sesión + permisos, trae el
  * detalle y el historial de estado (leído del ledger de auditoría, Módulo D).
  *
- * Acciones de esta pantalla:
- *  - "Enviar orden" (BORRADOR → ENVIADA): exclusivo del rol Supervisor de
- *    Compras (`ordenes_compra:enviar`). Un Comprador NO ve el botón — en su
- *    lugar ve un indicador de solo lectura "Pendiente de aprobación del
- *    Supervisor de Compras" ("Comprador Solicita / Supervisor Emite").
- *  - "Cancelar orden" (baja lógica): exclusivo del Supervisor de Compras
- *    (`ordenes_compra:cancelar`), en BORRADOR o ENVIADA. Sin ese permiso el
- *    usuario ve un chip de solo lectura, nunca el botón.
+ * Acciones de esta pantalla (cada una: botón solo con el permiso granular
+ * correspondiente y en el estado válido; el endpoint revalida igual):
+ *  - "Enviar orden" (BORRADOR → ENVIADA): `ordenes_compra:enviar`, exclusivo
+ *    del Supervisor de Compras. Un Comprador ve el chip "Pendiente de
+ *    aprobación del Supervisor de Compras" ("Comprador Solicita / Supervisor
+ *    Emite").
+ *  - "Confirmar orden" (ENVIADA → CONFIRMADA): `ordenes_compra:confirmar`
+ *    (ambos roles). Captura la `fecha_entrega_comprometida` (obligatoria).
+ *  - "Cerrar orden" (RECIBIDA_COMPLETA → CERRADA): `ordenes_compra:cerrar`
+ *    (ambos roles). Hoy inejercitable end-to-end: nada produce
+ *    RECIBIDA_COMPLETA hasta la integración con HU-H4 (Emir).
+ *  - "Cancelar orden" (baja lógica): `ordenes_compra:cancelar`, exclusivo del
+ *    Supervisor de Compras, en BORRADOR o ENVIADA. Sin permiso, chip de solo
+ *    lectura.
  *
- * Fuera de alcance a propósito (ver PR): las acciones de recepción
+ * Fuera de alcance a propósito (ver PR): las transiciones de recepción
  * (CONFIRMADA → RECEPCION_PARCIAL → RECIBIDA_COMPLETA), HU-H4 (Emir).
  */
 
@@ -29,6 +35,7 @@ import {
   Ban,
   Hourglass,
   Lock,
+  AlertTriangle,
 } from "lucide-react";
 
 import { getServerSession } from "@/lib/auth/session";
@@ -36,11 +43,15 @@ import { usuarioTienePermiso } from "@/lib/auth/with-permission";
 import {
   obtenerOrdenCompra,
   obtenerHistorialOrdenCompra,
+  listarVariantesParaOrden,
   PERMISO_POR_ACCION_ORDEN_COMPRA,
 } from "@/lib/services/proveedores/orden-compra.service";
 import { EstadoOrdenCompraBadge } from "@/components/compras/EstadoOrdenCompraBadge";
 import { DialogEnviarOrdenCompra } from "@/components/compras/DialogEnviarOrdenCompra";
+import { DialogConfirmarOrdenCompra } from "@/components/compras/DialogConfirmarOrdenCompra";
+import { DialogCerrarOrdenCompra } from "@/components/compras/DialogCerrarOrdenCompra";
 import { DialogCancelarOrdenCompra } from "@/components/compras/DialogCancelarOrdenCompra";
+import { EditorItemsOrdenCompra } from "@/components/compras/EditorItemsOrdenCompra";
 
 import {
   Card,
@@ -71,6 +82,22 @@ function formatFecha(fecha: Date | null): string | null {
   }).format(new Date(fecha));
 }
 
+/**
+ * Formatea una fecha-solo (sin componente horario relevante). Fija `timeZone:
+ * "UTC"` para no correr el día: `fecha_entrega_comprometida` se escribe desde
+ * un `<input type="date">` y se persiste como medianoche UTC; renderizarla en
+ * la TZ local (UTC-3) la mostraría un día antes.
+ */
+function formatFechaSolo(fecha: Date | null): string | null {
+  if (!fecha) return null;
+  return new Intl.DateTimeFormat("es-AR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(new Date(fecha));
+}
+
 function formatFechaHora(fecha: Date): string {
   return new Intl.DateTimeFormat("es-AR", {
     dateStyle: "short",
@@ -94,22 +121,38 @@ export default async function DetalleOrdenCompraPage({
   if (!autorizado) redirect("/no-autorizado");
 
   const { id } = await params;
-  const [orden, puedeEnviar, puedeCancelar] = await Promise.all([
-    obtenerOrdenCompra(id),
-    usuarioTienePermiso(session.userId, PERMISO_POR_ACCION_ORDEN_COMPRA.ENVIAR),
-    usuarioTienePermiso(session.userId, PERMISO_POR_ACCION_ORDEN_COMPRA.CANCELAR),
-  ]);
+  const [orden, puedeEnviar, puedeConfirmar, puedeCerrar, puedeCancelar] =
+    await Promise.all([
+      obtenerOrdenCompra(id),
+      usuarioTienePermiso(session.userId, PERMISO_POR_ACCION_ORDEN_COMPRA.ENVIAR),
+      usuarioTienePermiso(session.userId, PERMISO_POR_ACCION_ORDEN_COMPRA.CONFIRMAR),
+      usuarioTienePermiso(session.userId, PERMISO_POR_ACCION_ORDEN_COMPRA.CERRAR),
+      usuarioTienePermiso(session.userId, PERMISO_POR_ACCION_ORDEN_COMPRA.CANCELAR),
+    ]);
 
   if (!orden) notFound();
 
-  const historial = await obtenerHistorialOrdenCompra(id);
-
   const enBorrador = orden.is_active && orden.estado === "BORRADOR";
+
+  // Las variantes del selector solo hacen falta si la orden es editable.
+  const [historial, variantesParaEditar] = await Promise.all([
+    obtenerHistorialOrdenCompra(id),
+    enBorrador ? listarVariantesParaOrden() : Promise.resolve([]),
+  ]);
+
   // "Comprador Solicita / Supervisor Emite" (Alcance §2.1 / §5): el botón solo
   // para quien tiene `ordenes_compra:enviar` (Supervisor de Compras). El
   // Comprador ve el indicador de solo lectura, nunca el botón.
   const mostrarBotonEnviar = enBorrador && puedeEnviar;
   const mostrarPendienteAprobacion = enBorrador && !puedeEnviar;
+
+  // Confirmar (ENVIADA → CONFIRMADA) y Cerrar (RECIBIDA_COMPLETA → CERRADA):
+  // ambos roles, cada uno solo en su estado válido. Cerrar hoy no es
+  // ejercitable — nada produce RECIBIDA_COMPLETA sin HU-H4.
+  const mostrarBotonConfirmar =
+    orden.is_active && orden.estado === "ENVIADA" && puedeConfirmar;
+  const mostrarBotonCerrar =
+    orden.is_active && orden.estado === "RECIBIDA_COMPLETA" && puedeCerrar;
 
   // Cancelar (baja lógica) es exclusivo del Supervisor de Compras (decisión
   // final del equipo — revertir una orden impacta la negociación). El
@@ -119,7 +162,7 @@ export default async function DetalleOrdenCompraPage({
   const mostrarBotonCancelar = puedeCancelar && cancelablePorEstado;
   const mostrarCancelarBloqueado = !puedeCancelar && cancelablePorEstado;
 
-  const entregaComprometida = formatFecha(orden.fecha_entrega_comprometida);
+  const entregaComprometida = formatFechaSolo(orden.fecha_entrega_comprometida);
   const entregaPendiente =
     !entregaComprometida && ESTADOS_CANCELABLES.has(orden.estado);
 
@@ -156,12 +199,26 @@ export default async function DetalleOrdenCompraPage({
           </div>
 
           {(mostrarBotonEnviar ||
+            mostrarBotonConfirmar ||
+            mostrarBotonCerrar ||
             mostrarBotonCancelar ||
             mostrarPendienteAprobacion ||
             mostrarCancelarBloqueado) && (
             <div className="flex flex-wrap items-center gap-2 shrink-0">
               {mostrarBotonEnviar && (
                 <DialogEnviarOrdenCompra
+                  ordenCompraId={orden.id}
+                  numeroOrden={orden.numero_orden}
+                />
+              )}
+              {mostrarBotonConfirmar && (
+                <DialogConfirmarOrdenCompra
+                  ordenCompraId={orden.id}
+                  numeroOrden={orden.numero_orden}
+                />
+              )}
+              {mostrarBotonCerrar && (
+                <DialogCerrarOrdenCompra
                   ordenCompraId={orden.id}
                   numeroOrden={orden.numero_orden}
                 />
@@ -199,6 +256,17 @@ export default async function DetalleOrdenCompraPage({
           </Alert>
         )}
 
+        {/* ── Alerta CA3: incumplimiento de fecha de entrega comprometida ── */}
+        {orden.entrega_vencida && (
+          <Alert variant="destructive">
+            <AlertTriangle className="size-4" aria-hidden="true" />
+            <AlertDescription>
+              La fecha de entrega comprometida ({entregaComprometida}) venció y
+              la orden todavía no se recibió por completo.
+            </AlertDescription>
+          </Alert>
+        )}
+
         {/* ── Fechas clave ────────────────────────────────────────────── */}
         <Card>
           <CardHeader className="border-b border-border">
@@ -221,8 +289,19 @@ export default async function DetalleOrdenCompraPage({
                 <dt className="text-xs text-muted-foreground uppercase tracking-wide">
                   Entrega comprometida
                 </dt>
-                <dd className="mt-0.5">
-                  {entregaComprometida ?? (
+                <dd
+                  className={`mt-0.5 ${orden.entrega_vencida ? "font-semibold text-red-700" : ""}`}
+                >
+                  {entregaComprometida ? (
+                    <>
+                      {entregaComprometida}
+                      {orden.entrega_vencida && (
+                        <span className="ml-1.5 text-xs font-semibold text-red-700">
+                          · vencida
+                        </span>
+                      )}
+                    </>
+                  ) : (
                     <span className="text-muted-foreground italic">
                       {entregaPendiente ? "Pendiente de confirmación" : "—"}
                     </span>
@@ -245,10 +324,23 @@ export default async function DetalleOrdenCompraPage({
               Ítems ({orden.items.length})
             </CardTitle>
             <CardDescription>
-              El precio unitario quedó congelado al emitir la orden.
+              {enBorrador
+                ? "Podés editar los ítems mientras la orden esté en borrador. Una vez enviada quedan bloqueados."
+                : "El precio unitario quedó congelado al emitir la orden."}
             </CardDescription>
           </CardHeader>
-          <CardContent className="pt-0">
+          <CardContent className={enBorrador ? "pt-5" : "pt-0"}>
+            {enBorrador ? (
+              <EditorItemsOrdenCompra
+                ordenCompraId={orden.id}
+                itemsIniciales={orden.items.map((it) => ({
+                  variante_sku_id: it.variante_sku_id,
+                  sku: it.sku,
+                  cantidad_solicitada: it.cantidad_solicitada,
+                }))}
+                variantes={variantesParaEditar}
+              />
+            ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="border-b border-border">
@@ -300,6 +392,7 @@ export default async function DetalleOrdenCompraPage({
                 </tfoot>
               </table>
             </div>
+            )}
           </CardContent>
         </Card>
 

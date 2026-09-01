@@ -383,4 +383,23 @@ export function iniciarAuditLogListener(): void {
       },
     });
   });
+
+  // HU-H3 — edición de ítems de una OrdenCompra en BORRADOR (CA2). Los ítems
+  // quitados se dan de baja lógica en el service (nunca DELETE físico); acá
+  // solo se registra el diff completo en el ledger como `UPDATE`.
+  domainEventBus.on("orden_compra:items_editados", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.editada_por,
+      accion: "UPDATE",
+      tabla_afectada: "ordenes_compra",
+      registro_id: payload.orden_compra_id,
+      ip: "internal-event",
+      valor_anterior: { items: payload.items_anteriores },
+      valor_nuevo: {
+        numero_orden: payload.numero_orden,
+        lista_precio_version_id: payload.lista_precio_version_id,
+        items: payload.items_nuevos,
+      },
+    });
+  });
 }

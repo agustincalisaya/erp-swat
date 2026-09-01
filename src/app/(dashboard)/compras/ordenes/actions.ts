@@ -19,15 +19,18 @@ import { ServiceError } from "@/lib/errors/service-error";
 import {
   CambiarEstadoOrdenCompraSchema,
   CrearOrdenCompraSchema,
+  EditarItemsOrdenCompraSchema,
   OrdenCompraIdSchema,
 } from "@/lib/schemas/ordenes-compra.schema";
 import {
   cambiarEstadoOrdenCompra,
   crearOrdenCompra,
+  editarItemsOrdenCompra,
   PERMISO_CREAR_ORDEN_COMPRA,
   PERMISO_POR_ACCION_ORDEN_COMPRA,
   type OrdenCompraCreada,
   type OrdenCompraEstadoCambiado,
+  type OrdenCompraItemsEditados,
 } from "@/lib/services/proveedores/orden-compra.service";
 
 const ORDENES_PATH = "/compras/ordenes";
@@ -96,6 +99,42 @@ export async function cambiarEstadoOrdenCompraAction(
   } catch (err) {
     if (err instanceof ServiceError) return fallo(err.code, err.message);
     console.error("[cambiarEstadoOrdenCompraAction] Error inesperado:", err);
+    return fallo("INTERNAL_ERROR", "Error interno. Intentá nuevamente.");
+  }
+}
+
+/**
+ * Server Action equivalente a `PUT /api/ordenes-compra/[id]/items` (HU-H3
+ * CA2). Reemplazo total de los ítems de una orden en BORRADOR. El precio lo
+ * resuelve el servicio — este wrapper no lo toca.
+ */
+export async function editarItemsOrdenCompraAction(
+  ordenCompraId: unknown,
+  input: unknown,
+): Promise<ActionResult<OrdenCompraItemsEditados>> {
+  const session = await getServerSession();
+  if (!session) return fallo("UNAUTHORIZED", "Sesión requerida");
+  if (!(await usuarioTienePermiso(session.userId, PERMISO_CREAR_ORDEN_COMPRA))) {
+    return fallo("FORBIDDEN", `No tenés el permiso "${PERMISO_CREAR_ORDEN_COMPRA}"`);
+  }
+
+  const parsedId = OrdenCompraIdSchema.safeParse(ordenCompraId);
+  if (!parsedId.success) {
+    return fallo("VALIDATION_ERROR", parsedId.error.issues[0]?.message ?? "ID inválido");
+  }
+
+  const parsed = EditarItemsOrdenCompraSchema.safeParse(input);
+  if (!parsed.success) {
+    return fallo("VALIDATION_ERROR", parsed.error.issues[0]?.message ?? "Datos inválidos");
+  }
+
+  try {
+    const data = await editarItemsOrdenCompra(parsedId.data, parsed.data, session.userId);
+    revalidatePath(ORDENES_PATH);
+    return { data, error: null };
+  } catch (err) {
+    if (err instanceof ServiceError) return fallo(err.code, err.message);
+    console.error("[editarItemsOrdenCompraAction] Error inesperado:", err);
     return fallo("INTERNAL_ERROR", "Error interno. Intentá nuevamente.");
   }
 }

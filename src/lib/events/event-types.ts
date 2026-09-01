@@ -275,6 +275,34 @@ export interface OrdenCompraEstadoCambiadoPayload {
   deletion_reason: string | null;
 }
 
+/**
+ * HU-H3 (Módulo H) — Payload emitido tras editar los ítems de una
+ * `OrdenCompra` en estado `BORRADOR` (`editarItemsOrdenCompra()`, CA2 del
+ * Backlog Sprint 2). Emisión post-`COMMIT` (mismo patrón que el resto de
+ * `orden_compra:*`). El listener lo registra como `UPDATE` sobre
+ * `ordenes_compra`.
+ *
+ * `precio_unitario` viaja como string (serialización de `Prisma.Decimal`).
+ * Se incluyen los ítems antes y después para que el ledger forense pueda
+ * reconstruir el diff (altas, bajas lógicas, cambios de cantidad/precio).
+ */
+export interface OrdenCompraItemsEditadosPayload {
+  orden_compra_id: string;
+  numero_orden: string;
+  editada_por: string;
+  lista_precio_version_id: string;
+  items_anteriores: {
+    variante_sku_id: string;
+    cantidad_solicitada: number;
+    precio_unitario: string;
+  }[];
+  items_nuevos: {
+    variante_sku_id: string;
+    cantidad_solicitada: number;
+    precio_unitario: string;
+  }[];
+}
+
 /** Mapa evento → payload, usado por `domain-event-bus.ts` para tipar `emit`/`on`. */
 export interface DomainEventMap {
   /** HU-A1: se emite tras el alta de un ProductoMaestro. */
@@ -315,6 +343,8 @@ export interface DomainEventMap {
   "orden_compra:creada": OrdenCompraCreadaPayload;
   /** HU-H3: se emite tras una transición de estado de una OrdenCompra. */
   "orden_compra:estado_cambiado": OrdenCompraEstadoCambiadoPayload;
+  /** HU-H3: se emite tras editar los ítems de una OrdenCompra en BORRADOR. */
+  "orden_compra:items_editados": OrdenCompraItemsEditadosPayload;
 }
 
 export type DomainEventName = keyof DomainEventMap;

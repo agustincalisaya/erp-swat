@@ -14,7 +14,7 @@
 
 import { useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Filter, ClipboardList } from "lucide-react";
+import { Filter, ClipboardList, AlertTriangle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -208,7 +208,18 @@ export function TablaOrdenesCompra({
                     </td>
                     <td className="px-4 py-3">{orden.proveedor_razon_social}</td>
                     <td className="px-4 py-3">
-                      <EstadoOrdenCompraBadge estado={orden.estado} />
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <EstadoOrdenCompraBadge estado={orden.estado} />
+                        {orden.entrega_vencida && (
+                          <span
+                            className="inline-flex items-center gap-1 rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[10px] font-semibold text-red-700"
+                            title="La fecha de entrega comprometida venció y la orden todavía no se recibió por completo"
+                          >
+                            <AlertTriangle className="size-3" aria-hidden="true" />
+                            Entrega vencida
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap text-xs text-muted-foreground">
                       {formatFecha(orden.fecha_emision)}

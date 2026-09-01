@@ -30,6 +30,7 @@ import type {
   AccionOrdenCompra,
   CambiarEstadoOrdenCompraInput,
   CrearOrdenCompraInput,
+  EditarItemsOrdenCompraInput,
 } from "@/lib/schemas/ordenes-compra.schema";
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -128,6 +129,115 @@ async function generarNumeroOrden(tx: Prisma.TransactionClient): Promise<string>
   return `${prefijo}${String(emitidasEsteAnio + 1).padStart(6, "0")}`;
 }
 
+/**
+ * Precondiciones + resolución de precios de una OrdenCompra (Camino A, spec
+ * §2.4 / §3.4). Punto único de verdad compartido por `crearOrdenCompra()` y
+ * `editarItemsOrdenCompra()` — garantiza que la edición de ítems resuelve el
+ * precio EXACTAMENTE igual que el alta: el cliente nunca lo envía.
+ *
+ * Valida, en este orden: proveedor HOMOLOGADO y activo · lista de precios
+ * vigente publicada · variantes activas · todas con precio en la versión
+ * vigente. Lanza `ServiceError` con el código correspondiente ante la primera
+ * falla.
+ */
+async function resolverContextoPrecios(
+  tx: Prisma.TransactionClient,
+  proveedorId: string,
+  skuIds: string[],
+): Promise<{
+  listaPrecioVersionId: string;
+  precioPorSku: Map<string, Prisma.Decimal>;
+}> {
+  // 1. Precondición: proveedor HOMOLOGADO y activo.
+  const proveedor = await tx.proveedor.findFirst({
+    where: { id: proveedorId },
+    select: { id: true, estado: true, is_active: true, deleted_at: true },
+  });
+  if (!proveedor) {
+    throw new ServiceError(
+      "PROVEEDOR_NO_ENCONTRADO",
+      "El proveedor indicado no existe",
+    );
+  }
+  if (
+    proveedor.estado !== "HOMOLOGADO" ||
+    !proveedor.is_active ||
+    proveedor.deleted_at !== null
+  ) {
+    throw new ServiceError(
+      "PROVEEDOR_NO_HOMOLOGADO",
+      "Solo un proveedor HOMOLOGADO y activo puede recibir una nueva orden de compra",
+    );
+  }
+
+  // 2. ListaPrecioVersion vigente: `publicada = true AND fecha_inicio_vigencia
+  //    <= now()`, ordenada desc, take(1).
+  const versionVigente = await tx.listaPrecioVersion.findFirst({
+    where: {
+      publicada: true,
+      is_active: true,
+      deleted_at: null,
+      fecha_inicio_vigencia: { lte: new Date() },
+      lista_precio: {
+        proveedor_id: proveedorId,
+        is_active: true,
+        deleted_at: null,
+      },
+    },
+    orderBy: { fecha_inicio_vigencia: "desc" },
+    select: { id: true },
+  });
+  if (!versionVigente) {
+    throw new ServiceError(
+      "PROVEEDOR_SIN_LISTA_VIGENTE",
+      "El proveedor no tiene una lista de precios vigente publicada; no es posible resolver los precios de la orden",
+    );
+  }
+
+  // 3. Las variantes solicitadas deben estar activas.
+  const variantesActivas = await tx.varianteSKU.findMany({
+    where: {
+      id: { in: skuIds },
+      is_active: true,
+      deleted_at: null,
+      producto_maestro: { is_active: true, deleted_at: null },
+    },
+    select: { id: true },
+  });
+  const skuActivos = new Set(variantesActivas.map((v) => v.id));
+  const skuInvalidos = skuIds.filter((id) => !skuActivos.has(id));
+  if (skuInvalidos.length > 0) {
+    throw new ServiceError(
+      "SKU_INVALIDO",
+      `Una o más variantes no existen o están inactivas: ${skuInvalidos.join(", ")}`,
+    );
+  }
+
+  // 4. ...y tener precio en la lista vigente. El cliente NUNCA envía el precio:
+  //    se congela acá el de la lista.
+  const preciosVigentes = await tx.listaPrecioItem.findMany({
+    where: {
+      lista_precio_version_id: versionVigente.id,
+      variante_sku_id: { in: skuIds },
+      is_active: true,
+      deleted_at: null,
+    },
+    select: { variante_sku_id: true, precio_unitario: true },
+  });
+  const precioPorSku = new Map(
+    preciosVigentes.map((p) => [p.variante_sku_id, p.precio_unitario]),
+  );
+  const skuSinPrecio = skuIds.filter((id) => !precioPorSku.has(id));
+  if (skuSinPrecio.length > 0) {
+    throw new ServiceError(
+      "SKU_SIN_PRECIO_VIGENTE",
+      `No hay precio vigente para una o más variantes: ${skuSinPrecio.join(", ")}`,
+    );
+  }
+
+  return { listaPrecioVersionId: versionVigente.id, precioPorSku };
+}
+
 export async function crearOrdenCompra(
   input: CrearOrdenCompraInput,
   usuarioId: string,
@@ -148,96 +258,14 @@ export async function crearOrdenCompra(
     try {
       const { orden, listaPrecioVersionId } = await prisma.$transaction(
         async (tx) => {
-          // 1. Precondición: proveedor HOMOLOGADO y activo (spec §2.4).
-          const proveedor = await tx.proveedor.findFirst({
-            where: { id: input.proveedor_id },
-            select: { id: true, estado: true, is_active: true, deleted_at: true },
-          });
-          if (!proveedor) {
-            throw new ServiceError(
-              "PROVEEDOR_NO_ENCONTRADO",
-              "El proveedor indicado no existe",
-            );
-          }
-          if (
-            proveedor.estado !== "HOMOLOGADO" ||
-            !proveedor.is_active ||
-            proveedor.deleted_at !== null
-          ) {
-            throw new ServiceError(
-              "PROVEEDOR_NO_HOMOLOGADO",
-              "Solo un proveedor HOMOLOGADO y activo puede recibir una nueva orden de compra",
-            );
-          }
+          // Precondiciones + precios (Camino A): proveedor HOMOLOGADO, lista
+          // vigente, variantes activas con precio. Mismo punto de verdad que
+          // usa la edición de ítems.
+          const { listaPrecioVersionId, precioPorSku } =
+            await resolverContextoPrecios(tx, input.proveedor_id, skuIds);
 
-          // 2. Resolver la ListaPrecioVersion vigente del proveedor (Camino A,
-          //    spec §2.4 / §3.4): `publicada = true AND fecha_inicio_vigencia
-          //    <= now()`, ordenada desc, take(1).
-          const versionVigente = await tx.listaPrecioVersion.findFirst({
-            where: {
-              publicada: true,
-              is_active: true,
-              deleted_at: null,
-              fecha_inicio_vigencia: { lte: new Date() },
-              lista_precio: {
-                proveedor_id: input.proveedor_id,
-                is_active: true,
-                deleted_at: null,
-              },
-            },
-            orderBy: { fecha_inicio_vigencia: "desc" },
-            select: { id: true },
-          });
-          if (!versionVigente) {
-            throw new ServiceError(
-              "PROVEEDOR_SIN_LISTA_VIGENTE",
-              "El proveedor no tiene una lista de precios vigente publicada; no es posible resolver los precios de la orden",
-            );
-          }
-
-          // 3. Las variantes solicitadas deben estar activas...
-          const variantesActivas = await tx.varianteSKU.findMany({
-            where: {
-              id: { in: skuIds },
-              is_active: true,
-              deleted_at: null,
-              producto_maestro: { is_active: true, deleted_at: null },
-            },
-            select: { id: true },
-          });
-          const skuActivos = new Set(variantesActivas.map((v) => v.id));
-          const skuInvalidos = skuIds.filter((id) => !skuActivos.has(id));
-          if (skuInvalidos.length > 0) {
-            throw new ServiceError(
-              "SKU_INVALIDO",
-              `Una o más variantes no existen o están inactivas: ${skuInvalidos.join(", ")}`,
-            );
-          }
-
-          // 4. ...y tener precio en la lista vigente. El cliente NUNCA envía el
-          //    precio: se congela acá el de la lista (spec §2.4).
-          const preciosVigentes = await tx.listaPrecioItem.findMany({
-            where: {
-              lista_precio_version_id: versionVigente.id,
-              variante_sku_id: { in: skuIds },
-              is_active: true,
-              deleted_at: null,
-            },
-            select: { variante_sku_id: true, precio_unitario: true },
-          });
-          const precioPorSku = new Map(
-            preciosVigentes.map((p) => [p.variante_sku_id, p.precio_unitario]),
-          );
-          const skuSinPrecio = skuIds.filter((id) => !precioPorSku.has(id));
-          if (skuSinPrecio.length > 0) {
-            throw new ServiceError(
-              "SKU_SIN_PRECIO_VIGENTE",
-              `No hay precio vigente para una o más variantes: ${skuSinPrecio.join(", ")}`,
-            );
-          }
-
-          // 5. Alta transaccional: OrdenCompra (BORRADOR, default de schema) +
-          //    sus N OrdenCompraItem con el precio congelado.
+          // Alta transaccional: OrdenCompra (BORRADOR, default de schema) +
+          // sus N OrdenCompraItem con el precio congelado.
           const numeroOrden = await generarNumeroOrden(tx);
           const creada = await tx.ordenCompra.create({
             data: {
@@ -269,7 +297,7 @@ export async function crearOrdenCompra(
             },
           });
 
-          return { orden: creada, listaPrecioVersionId: versionVigente.id };
+          return { orden: creada, listaPrecioVersionId };
         },
       );
 
@@ -424,6 +452,185 @@ export async function cambiarEstadoOrdenCompra(
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
+// CA2 (Backlog Sprint 2) — Edición de ítems de una orden en BORRADOR
+// ──────────────────────────────────────────────────────────────────────────────
+
+export interface OrdenCompraItemsEditados {
+  orden_compra_id: string;
+  numero_orden: string;
+}
+
+/**
+ * Reemplaza el set de ítems de una orden **en estado BORRADOR** (agregar,
+ * quitar, cambiar cantidad). Semántica de reemplazo total: `input.items` es
+ * el conjunto que debe quedar.
+ *
+ * Reglas transversales aplicadas:
+ *  - El precio se resuelve server-side vía `resolverContextoPrecios()` — el
+ *    mismo punto de verdad que `crearOrdenCompra()`. El cliente NUNCA lo envía.
+ *  - Los ítems quitados se dan de **baja lógica** (`is_active=false` +
+ *    `deleted_*`), nunca `DELETE` físico.
+ *  - Cualquier estado distinto de BORRADOR → `409 ORDEN_ITEMS_BLOQUEADOS`
+ *    (regla ya existente `asegurarItemsEditables`, no se reescribe).
+ *  - Evento de dominio post-COMMIT → `audit-log.listener.ts` (`UPDATE`).
+ */
+export async function editarItemsOrdenCompra(
+  ordenCompraId: string,
+  input: EditarItemsOrdenCompraInput,
+  usuarioId: string,
+): Promise<OrdenCompraItemsEditados> {
+  const skuIds = input.items.map((it) => it.variante_sku_id);
+  if (new Set(skuIds).size !== skuIds.length) {
+    throw new ServiceError(
+      "ITEMS_DUPLICADOS",
+      "La orden no puede incluir la misma variante en más de un ítem",
+    );
+  }
+
+  const ahora = new Date();
+
+  const resultado = await prisma.$transaction(async (tx) => {
+    const orden = await tx.ordenCompra.findFirst({
+      where: { id: ordenCompraId },
+      select: {
+        id: true,
+        numero_orden: true,
+        estado: true,
+        proveedor_id: true,
+        is_active: true,
+        deleted_at: true,
+        items: {
+          where: { is_active: true },
+          select: {
+            id: true,
+            variante_sku_id: true,
+            cantidad_solicitada: true,
+            precio_unitario: true,
+          },
+        },
+      },
+    });
+    if (!orden) {
+      throw new ServiceError(
+        "ORDEN_NO_ENCONTRADA",
+        "La orden de compra indicada no existe",
+      );
+    }
+    if (!orden.is_active || orden.deleted_at !== null) {
+      throw new ServiceError(
+        "ORDEN_ITEMS_BLOQUEADOS",
+        `Los ítems de la orden ${orden.numero_orden} no se pueden editar: la orden está cancelada`,
+      );
+    }
+    // Regla ya existente: solo BORRADOR admite edición de ítems (409).
+    asegurarItemsEditables(orden.estado, orden.numero_orden);
+
+    // Guarda de concurrencia (mismo criterio que las transiciones de estado):
+    // si otra request movió la orden fuera de BORRADOR en el interín, abortar.
+    const guarda = await tx.ordenCompra.updateMany({
+      where: {
+        id: orden.id,
+        estado: "BORRADOR",
+        is_active: true,
+        deleted_at: null,
+      },
+      data: { updated_at: ahora },
+    });
+    if (guarda.count === 0) {
+      throw new ServiceError(
+        "ORDEN_ITEMS_BLOQUEADOS",
+        `El estado de la orden ${orden.numero_orden} cambió durante la edición; recargá y reintentá`,
+      );
+    }
+
+    // Precios resueltos EXACTAMENTE igual que al crear.
+    const { listaPrecioVersionId, precioPorSku } = await resolverContextoPrecios(
+      tx,
+      orden.proveedor_id,
+      skuIds,
+    );
+
+    const itemsActuales = new Map(
+      orden.items.map((it) => [it.variante_sku_id, it]),
+    );
+    const skuPayload = new Set(skuIds);
+
+    // Quitados → baja lógica (NUNCA delete físico).
+    const quitados = orden.items.filter(
+      (it) => !skuPayload.has(it.variante_sku_id),
+    );
+    if (quitados.length > 0) {
+      await tx.ordenCompraItem.updateMany({
+        where: { id: { in: quitados.map((it) => it.id) } },
+        data: {
+          is_active: false,
+          deleted_at: ahora,
+          deleted_by: usuarioId,
+          deletion_reason:
+            "Ítem quitado de la orden durante la edición en estado BORRADOR",
+        },
+      });
+    }
+
+    // Nuevos + actualizados. El precio se re-congela contra la lista vigente
+    // en cada guardado (spec §3.4: no-retroactividad al emitir, pero mientras
+    // es BORRADOR la orden todavía no se emitió).
+    for (const item of input.items) {
+      const actual = itemsActuales.get(item.variante_sku_id);
+      const precio = precioPorSku.get(item.variante_sku_id)!;
+      if (actual) {
+        await tx.ordenCompraItem.update({
+          where: { id: actual.id },
+          data: {
+            cantidad_solicitada: item.cantidad_solicitada,
+            precio_unitario: precio,
+          },
+        });
+      } else {
+        await tx.ordenCompraItem.create({
+          data: {
+            orden_compra_id: orden.id,
+            variante_sku_id: item.variante_sku_id,
+            cantidad_solicitada: item.cantidad_solicitada,
+            precio_unitario: precio,
+          },
+        });
+      }
+    }
+
+    return {
+      numeroOrden: orden.numero_orden,
+      listaPrecioVersionId,
+      itemsAnteriores: orden.items.map((it) => ({
+        variante_sku_id: it.variante_sku_id,
+        cantidad_solicitada: it.cantidad_solicitada,
+        precio_unitario: it.precio_unitario.toString(),
+      })),
+      itemsNuevos: input.items.map((it) => ({
+        variante_sku_id: it.variante_sku_id,
+        cantidad_solicitada: it.cantidad_solicitada,
+        precio_unitario: precioPorSku.get(it.variante_sku_id)!.toString(),
+      })),
+    };
+  });
+
+  // Post-COMMIT: evento de dominio → Módulo D (auditoría SHA-256).
+  domainEventBus.emit("orden_compra:items_editados", {
+    orden_compra_id: ordenCompraId,
+    numero_orden: resultado.numeroOrden,
+    editada_por: usuarioId,
+    lista_precio_version_id: resultado.listaPrecioVersionId,
+    items_anteriores: resultado.itemsAnteriores,
+    items_nuevos: resultado.itemsNuevos,
+  });
+
+  return {
+    orden_compra_id: ordenCompraId,
+    numero_orden: resultado.numeroOrden,
+  };
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 // Lecturas para la UI (listado / detalle / selectores del formulario de alta).
 //
 // Solo lectura: no aplican reglas de negocio, resuelven proyecciones para las
@@ -437,6 +644,29 @@ export interface FiltrosListadoOrdenesCompra {
   proveedor_id?: string;
 }
 
+/**
+ * CA3 (Backlog Sprint 2): "el sistema alerta ante incumplimiento de la fecha
+ * de entrega comprometida". Alerta **calculada al leer** (decisión del
+ * equipo): sin persistencia ni cron. Una orden está vencida si tiene fecha
+ * comprometida, ese día ya pasó, y todavía no se recibió toda la mercadería
+ * (estados CONFIRMADA / RECEPCION_PARCIAL — RECIBIDA_COMPLETA y CERRADA ya
+ * cumplieron; BORRADOR/ENVIADA aún no tienen fecha; CANCELADA es terminal).
+ *
+ * `fecha_entrega_comprometida` se persiste como fecha-solo (medianoche UTC);
+ * se compara contra el inicio del día de hoy en UTC para que el propio día
+ * de entrega no cuente como vencido.
+ */
+export function estaEntregaVencida(
+  fechaEntregaComprometida: Date | null,
+  estado: EstadoOrdenCompra,
+): boolean {
+  if (!fechaEntregaComprometida) return false;
+  if (estado !== "CONFIRMADA" && estado !== "RECEPCION_PARCIAL") return false;
+  const inicioDeHoyUTC = new Date();
+  inicioDeHoyUTC.setUTCHours(0, 0, 0, 0);
+  return new Date(fechaEntregaComprometida) < inicioDeHoyUTC;
+}
+
 export interface OrdenCompraResumen {
   id: string;
   numero_orden: string;
@@ -446,6 +676,8 @@ export interface OrdenCompraResumen {
   fecha_emision: Date;
   cantidad_items: number;
   total: number;
+  /** CA3 — true si la fecha de entrega comprometida ya venció sin recepción completa. */
+  entrega_vencida: boolean;
 }
 
 /**
@@ -470,6 +702,7 @@ export async function listarOrdenesCompra(
       proveedor_id: true,
       estado: true,
       fecha_emision: true,
+      fecha_entrega_comprometida: true,
       proveedor: { select: { razon_social: true } },
       items: {
         where: { is_active: true },
@@ -490,6 +723,7 @@ export async function listarOrdenesCompra(
       (acc, it) => acc + it.cantidad_solicitada * it.precio_unitario.toNumber(),
       0,
     ),
+    entrega_vencida: estaEntregaVencida(oc.fecha_entrega_comprometida, oc.estado),
   }));
 }
 
@@ -583,6 +817,8 @@ export interface OrdenCompraDetalle {
   deletion_reason: string | null;
   items: OrdenCompraItemDetalle[];
   total: number;
+  /** CA3 — true si la fecha de entrega comprometida ya venció sin recepción completa. */
+  entrega_vencida: boolean;
 }
 
 /** Detalle completo de una OC para `/compras/ordenes/[id]`. `null` si no existe. */
@@ -667,6 +903,10 @@ export async function obtenerOrdenCompra(
     deletion_reason: oc.deletion_reason,
     items,
     total: items.reduce((acc, it) => acc + it.subtotal, 0),
+    entrega_vencida: estaEntregaVencida(
+      oc.fecha_entrega_comprometida,
+      oc.estado,
+    ),
   };
 }
 
@@ -735,9 +975,11 @@ export async function obtenerHistorialOrdenCompra(
     if (nuevo?.deletion_reason) {
       detalle = `Motivo: ${nuevo.deletion_reason}`;
     } else if (nuevo?.fecha_entrega_comprometida) {
+      // `timeZone: "UTC"` — es una fecha-solo persistida como medianoche UTC;
+      // sin fijar la TZ se mostraría un día antes en UTC-3.
       detalle = `Entrega comprometida: ${new Date(
         nuevo.fecha_entrega_comprometida,
-      ).toLocaleDateString("es-AR")}`;
+      ).toLocaleDateString("es-AR", { timeZone: "UTC" })}`;
     }
 
     return {
