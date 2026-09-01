@@ -131,3 +131,18 @@
     @apply font-sans;
   }
 }
+
+/*
+ * El viewport de toasts (components/ui/toast.tsx) sale con z-50, el mismo
+ * z-index que el backdrop con blur de Dialog (components/ui/dialog.tsx). Como
+ * el portal del Dialog se monta después en el DOM, su backdrop gana el empate
+ * y los toasts quedan pintados debajo del blur: aparecen difuminados e
+ * ilegibles cuando hay un modal abierto (ej. "Sugerencia aplicada" al tocar
+ * "Calcular sugerencia" en ModalConfigurarUmbrales). Un toast es una
+ * notificación efímera y siempre debe verse por encima de cualquier modal.
+ * Se sube el viewport acá y no en el componente porque toast.tsx / dialog.tsx
+ * son compartidos por todo el equipo.
+ */
+[data-slot="toast-viewport"] {
+  z-index: 1000;
+}

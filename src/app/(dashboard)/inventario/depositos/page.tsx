@@ -1,10 +1,9 @@
 import { Warehouse } from "lucide-react"
-import { SelectorJerarquicoStock } from "@/components/inventario/SelectorJerarquicoStock"
-import { ConsolaDepositoProductos } from "@/components/inventario/ConsolaDepositoProductos"
+import { SeccionUmbralesDeposito } from "@/components/inventario/SeccionUmbralesDeposito"
 
 export default function DepositosPage() {
   return (
-    <div className="mx-auto max-w-4xl space-y-6 p-4 sm:p-6 lg:p-8 pb-20 lg:pb-24">
+    <div className="mx-auto max-w-7xl space-y-6 p-4 sm:p-6 lg:p-8 pb-20 lg:pb-24">
       <div className="space-y-1">
         {/* Cabecera alineada estrictamente a la izquierda (flex-row fijo) */}
         <div className="flex items-start gap-3.5 text-left">
@@ -16,17 +15,20 @@ export default function DepositosPage() {
               Gestión Operativa de Depósito
             </h1>
             <p className="text-sm text-slate-500">
-              Configurá el punto de pedido y el stock de seguridad de cada
-              variante en este depósito para recibir alertas automáticas de
-              reposición antes de llegar al nivel crítico.
+              Consultá el stock por depósito y configurá el punto de pedido y el stock de seguridad de cada
+              variante para recibir alertas automáticas.
             </p>
           </div>
         </div>
       </div>
 
-      <SelectorJerarquicoStock />
-
-      <ConsolaDepositoProductos />
+      {/*
+        task_UI_modal_umbrales_deposito.md §2.1 — la Consola de Depósito es el
+        contenido por defecto; el formulario de umbrales ya no vive en el flujo
+        de la página, se abre bajo demanda desde `SeccionUmbralesDeposito`
+        (límite cliente: estado `open` del modal + fila precargada).
+      */}
+      <SeccionUmbralesDeposito />
     </div>
   )
 }
