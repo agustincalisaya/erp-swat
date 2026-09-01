@@ -107,13 +107,34 @@ const ROL_PERMISO_PROVEEDORES_ADMINISTRAR_ID = "1a2b3c4d-3333-4a1a-8a1a-00000000
 const ROL_PERMISO_COMPRAS_OPERAR_ID = "1a2b3c4d-3333-4a1a-8a1a-000000000002";
 const ROL_PERMISO_RECEPCION_CONFIRMAR_ID = "1a2b3c4d-3333-4a1a-8a1a-000000000003";
 const ROL_PERMISO_TESORERIA_OPERAR_ID = "1a2b3c4d-3333-4a1a-8a1a-000000000004";
+const ROL_SUPERVISOR_COMPRAS_ID = "1a2b3c4d-2222-4a1a-8a1a-000000000003";
 const USUARIO_COMPRADOR_SEED_ID = "1a2b3c4d-4444-4a1a-8a1a-000000000001";
 const USUARIO_TESORERO_SEED_ID = "1a2b3c4d-4444-4a1a-8a1a-000000000002";
+const USUARIO_SUPERVISOR_COMPRAS_SEED_ID = "1a2b3c4d-4444-4a1a-8a1a-000000000003";
 const USUARIO_ROL_COMPRADOR_ID = "1a2b3c4d-5555-4a1a-8a1a-000000000001";
 const USUARIO_ROL_TESORERO_ID = "1a2b3c4d-5555-4a1a-8a1a-000000000002";
+const USUARIO_ROL_SUPERVISOR_COMPRAS_ID = "1a2b3c4d-5555-4a1a-8a1a-000000000003";
+
+// HU-H3 — permisos granulares por acción de OrdenCompra (spec_modulo_H.md
+// §2.5: un permiso independiente por acción, NO un único `ordenes_compra:administrar`).
+const PERMISO_OC_CREAR_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000005";
+const PERMISO_OC_ENVIAR_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000006";
+const PERMISO_OC_CONFIRMAR_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000007";
+const PERMISO_OC_CERRAR_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000008";
+const PERMISO_OC_CANCELAR_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000009";
 
 const PROVEEDOR_HOMOLOGADO_ID = "1a2b3c4d-6666-4a1a-8a1a-000000000001";
 const PROVEEDOR_PENDIENTE_ID = "1a2b3c4d-6666-4a1a-8a1a-000000000002";
+
+// HU-H3 — Camino A (spec_modulo_H.md §2.4): lista de precios sembrada
+// directo por Prisma Client para el proveedor HOMOLOGADO, sin pasar por
+// ningún endpoint (HU-H2 diferida). HU-H3 resuelve `precio_unitario` contra
+// esta versión publicada.
+const LISTA_PRECIO_HOMOLOGADO_ID = "1a2b3c4d-bbbb-4a1a-8a1a-000000000001";
+const LISTA_PRECIO_VERSION_ID = "1a2b3c4d-cccc-4a1a-8a1a-000000000001";
+const LISTA_PRECIO_ITEM_CAMISA_1_ID = "1a2b3c4d-dddd-4a1a-8a1a-000000000001";
+const LISTA_PRECIO_ITEM_CAMISA_2_ID = "1a2b3c4d-dddd-4a1a-8a1a-000000000002";
+const LISTA_PRECIO_ITEM_BORCEGOS_1_ID = "1a2b3c4d-dddd-4a1a-8a1a-000000000003";
 const ORDEN_COMPRA_CONFIRMADA_ID = "1a2b3c4d-7777-4a1a-8a1a-000000000001";
 const ORDEN_COMPRA_ITEM_1_ID = "1a2b3c4d-7778-4a1a-8a1a-000000000001";
 const ORDEN_COMPRA_ITEM_2_ID = "1a2b3c4d-7778-4a1a-8a1a-000000000002";
@@ -870,11 +891,74 @@ async function main() {
     },
   });
 
-  for (const permiso of [
+  // ── HU-H3 — permisos granulares de OrdenCompra (spec_modulo_H.md §2.5) ─────
+  //
+  // Un permiso independiente por acción (NO un `ordenes_compra:administrar`).
+  const permisosOrdenCompra = await Promise.all(
+    (
+      [
+        [PERMISO_OC_CREAR_ID, "ordenes_compra:crear", "Crear/solicitar una orden de compra en estado BORRADOR (HU-H3 §2.4)"],
+        [PERMISO_OC_ENVIAR_ID, "ordenes_compra:enviar", "Emitir (enviar) una orden BORRADOR → ENVIADA al proveedor — exclusivo Supervisor de Compras (Alcance §2.1/§5)"],
+        [PERMISO_OC_CONFIRMAR_ID, "ordenes_compra:confirmar", "Confirmar una orden ENVIADA → CONFIRMADA con fecha de entrega (HU-H3 §2.5)"],
+        [PERMISO_OC_CERRAR_ID, "ordenes_compra:cerrar", "Cerrar una orden RECIBIDA_COMPLETA → CERRADA (HU-H3 §2.5)"],
+        [PERMISO_OC_CANCELAR_ID, "ordenes_compra:cancelar", "Cancelar (baja lógica) una orden BORRADOR/ENVIADA (HU-H3 §2.5)"],
+      ] as const
+    ).map(([id, codigo, descripcion]) =>
+      prisma.permiso.upsert({
+        where: { id },
+        update: REACTIVAR_REFERENCIA_RBAC,
+        create: { id, codigo, descripcion, modulo: "MODULO_H" },
+      }),
+    ),
+  );
+  const [
+    permisoOcCrear,
+    permisoOcEnviar,
+    permisoOcConfirmar,
+    permisoOcCerrar,
+    permisoOcCancelar,
+  ] = permisosOrdenCompra;
+
+  // ── Rol Supervisor de Compras (Alcance Funcional §2.1 / §5) ───────────────
+  // Decisión "Comprador Solicita / Supervisor Emite": el paso
+  // BORRADOR → ENVIADA es exclusivo de este rol. Antes de esta tarea el rol
+  // NO existía en el seed — se crea acá.
+  const rolSupervisorCompras = await prisma.rol.upsert({
+    where: { id: ROL_SUPERVISOR_COMPRAS_ID },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: {
+      id: ROL_SUPERVISOR_COMPRAS_ID,
+      nombre: "SUPERVISOR_COMPRAS",
+      descripcion:
+        "Supervisión del circuito de compras (Módulo H) — emite (envía) órdenes al proveedor; segregación de funciones frente al Comprador (Alcance §5)",
+    },
+  });
+
+  // Reparto de permisos del circuito de OC entre Comprador y Supervisor.
+  // Decisión final del equipo (Alcance §5 + acuerdo posterior):
+  //   - ordenes_compra:crear     → Comprador Y Supervisor (ambos crean/solicitan)
+  //   - ordenes_compra:enviar    → SOLO Supervisor de Compras
+  //   - ordenes_compra:confirmar → Comprador Y Supervisor (registro de seguimiento)
+  //   - ordenes_compra:cerrar    → Comprador Y Supervisor (conciliación administrativa)
+  //   - ordenes_compra:cancelar  → SOLO Supervisor de Compras (revertir una orden
+  //                                impacta la negociación — mismo criterio que enviar)
+  const permisosComprador = [
     permisoProveedoresAdministrar,
     permisoComprasOperar,
     permisoRecepcionConfirmar,
-  ]) {
+    permisoOcCrear,
+    permisoOcConfirmar,
+    permisoOcCerrar,
+  ];
+  const permisosSupervisorCompras = [
+    permisoOcCrear,
+    permisoOcEnviar,
+    permisoOcConfirmar,
+    permisoOcCerrar,
+    permisoOcCancelar,
+  ];
+
+  for (const permiso of permisosComprador) {
     await prisma.rolPermiso.upsert({
       where: {
         rol_id_permiso_id: { rol_id: rolComprador.id, permiso_id: permiso.id },
@@ -883,6 +967,30 @@ async function main() {
       create: { rol_id: rolComprador.id, permiso_id: permiso.id },
     });
   }
+
+  for (const permiso of permisosSupervisorCompras) {
+    await prisma.rolPermiso.upsert({
+      where: {
+        rol_id_permiso_id: {
+          rol_id: rolSupervisorCompras.id,
+          permiso_id: permiso.id,
+        },
+      },
+      update: REACTIVAR_REFERENCIA_RBAC,
+      create: { rol_id: rolSupervisorCompras.id, permiso_id: permiso.id },
+    });
+  }
+
+  // El Comprador ya NO puede emitir (enviar) NI cancelar una orden — ambas
+  // exclusivas del Supervisor de Compras. Si una corrida previa del seed dejó
+  // los vínculos viejos, se eliminan (este seed es dueño de RolPermiso — ver
+  // cabecera del archivo).
+  await prisma.rolPermiso.deleteMany({
+    where: {
+      rol_id: rolComprador.id,
+      permiso_id: { in: [permisoOcEnviar.id, permisoOcCancelar.id] },
+    },
+  });
 
   await prisma.rolPermiso.upsert({
     where: {
@@ -928,6 +1036,36 @@ async function main() {
       id: USUARIO_ROL_COMPRADOR_ID,
       usuario_id: usuarioComprador.id,
       rol_id: rolComprador.id,
+    },
+  });
+
+  const usuarioSupervisorCompras = await prisma.usuario.upsert({
+    where: { nombre_usuario: "supervisor.compras.seed" },
+    update: {},
+    create: {
+      id: USUARIO_SUPERVISOR_COMPRAS_SEED_ID,
+      nombre_usuario: "supervisor.compras.seed",
+      email: "supervisor.compras.seed@erp-swat.local",
+      password_hash: passwordSeed.hash,
+      password_salt: passwordSeed.salt,
+      nombre_completo: "Supervisor de Compras Seed (Módulo H)",
+      estado: "ACTIVO",
+      is_active: true,
+    },
+  });
+
+  await prisma.usuarioRol.upsert({
+    where: {
+      usuario_id_rol_id: {
+        usuario_id: usuarioSupervisorCompras.id,
+        rol_id: rolSupervisorCompras.id,
+      },
+    },
+    update: {},
+    create: {
+      id: USUARIO_ROL_SUPERVISOR_COMPRAS_ID,
+      usuario_id: usuarioSupervisorCompras.id,
+      rol_id: rolSupervisorCompras.id,
     },
   });
 
@@ -1005,6 +1143,58 @@ async function main() {
       is_active: true,
     },
   });
+
+  // ── Módulo H — Lista de precios vigente del proveedor HOMOLOGADO (HU-H3, Camino A) ─
+  //
+  // spec_modulo_H.md §2.4: HU-H2 (publicación de listas por endpoint) quedó
+  // fuera de Sprint 2, así que la "lista de precios vigente" contra la que
+  // HU-H3 arma la orden se siembra acá directo por Prisma Client. Una
+  // ListaPrecio ancla + una ListaPrecioVersion `publicada = true` con
+  // `fecha_inicio_vigencia` en el pasado + N ListaPrecioItem (precio por
+  // VarianteSKU). HU-H3 resuelve el precio con:
+  //   publicada = true AND fecha_inicio_vigencia <= now(), orden desc, take(1).
+
+  const listaPrecioHomologado = await prisma.listaPrecio.upsert({
+    where: { id: LISTA_PRECIO_HOMOLOGADO_ID },
+    update: {},
+    create: {
+      id: LISTA_PRECIO_HOMOLOGADO_ID,
+      proveedor_id: proveedorHomologado.id,
+      is_active: true,
+    },
+  });
+
+  const listaPrecioVersion = await prisma.listaPrecioVersion.upsert({
+    where: { id: LISTA_PRECIO_VERSION_ID },
+    update: { publicada: true, is_active: true },
+    create: {
+      id: LISTA_PRECIO_VERSION_ID,
+      lista_precio_id: listaPrecioHomologado.id,
+      fecha_inicio_vigencia: diasAtras(30),
+      variacion_porcentual_maxima: 0,
+      requiere_aprobacion: false,
+      publicada: true,
+      is_active: true,
+    },
+  });
+
+  for (const [id, varianteSkuId, precio] of [
+    [LISTA_PRECIO_ITEM_CAMISA_1_ID, VARIANTE_CAMISA_TACTICA_1_ID, 15800.0],
+    [LISTA_PRECIO_ITEM_CAMISA_2_ID, VARIANTE_CAMISA_TACTICA_2_ID, 16250.0],
+    [LISTA_PRECIO_ITEM_BORCEGOS_1_ID, VARIANTE_BORCEGOS_1_ID, 42000.0],
+  ] as const) {
+    await prisma.listaPrecioItem.upsert({
+      where: { id },
+      update: { precio_unitario: precio, is_active: true },
+      create: {
+        id,
+        lista_precio_version_id: listaPrecioVersion.id,
+        variante_sku_id: varianteSkuId,
+        precio_unitario: precio,
+        is_active: true,
+      },
+    });
+  }
 
   // ── Módulo H — Orden de Compra confirmada (HU-H3) ──────────────────────────
   //
@@ -1196,9 +1386,11 @@ async function main() {
   );
   console.table({
     comprador_seed: `${usuarioComprador.nombre_usuario}  <${usuarioComprador.email}>`,
+    supervisor_compras_seed: `${usuarioSupervisorCompras.nombre_usuario}  <${usuarioSupervisorCompras.email}>`,
     tesorero_seed: `${usuarioTesorero.nombre_usuario}   <${usuarioTesorero.email}>`,
     proveedor_homologado_id: proveedorHomologado.id,
     proveedor_pendiente_id: proveedorPendiente.id,
+    lista_precio_version_vigente_id: listaPrecioVersion.id,
     orden_compra_confirmada_id: ordenCompraConfirmada.id,
     orden_compra_numero: ordenCompraConfirmada.numero_orden,
     recepcion_id: recepcionSeed.id,
