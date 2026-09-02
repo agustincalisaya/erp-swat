@@ -881,17 +881,26 @@ async function main() {
     },
   });
 
+  // Descripción compartida entre `create` y `update`: en bases de dev que ya
+  // tenían la fila `tesoreria:operar` (con el texto PLACEHOLDER viejo), re-correr
+  // el seed también reescribe la descripción al texto SUPERSEDIDO — no solo en
+  // una base fresca.
+  const DESCRIPCION_TESORERIA_OPERAR_SUPERSEDIDO =
+    "SUPERSEDIDO (HU-G8) — reemplazado por los permisos granulares " +
+    "cuentas_por_pagar:leer y cuentas_por_pagar:pagar. La fila Permiso se " +
+    "conserva para no orfanar referencias históricas del AuditLog; su " +
+    "vínculo con TESORERO_CENTRAL fue retirado.";
+
   const permisoTesoreriaOperar = await prisma.permiso.upsert({
     where: { id: PERMISO_TESORERIA_OPERAR_ID },
-    update: REACTIVAR_REFERENCIA_RBAC,
+    update: {
+      ...REACTIVAR_REFERENCIA_RBAC,
+      descripcion: DESCRIPCION_TESORERIA_OPERAR_SUPERSEDIDO,
+    },
     create: {
       id: PERMISO_TESORERIA_OPERAR_ID,
       codigo: "tesoreria:operar",
-      descripcion:
-        "SUPERSEDIDO (HU-G8) — reemplazado por los permisos granulares " +
-        "cuentas_por_pagar:leer y cuentas_por_pagar:pagar. La fila Permiso se " +
-        "conserva para no orfanar referencias históricas del AuditLog; su " +
-        "vínculo con TESORERO_CENTRAL fue retirado.",
+      descripcion: DESCRIPCION_TESORERIA_OPERAR_SUPERSEDIDO,
       modulo: "MODULO_G",
     },
   });
