@@ -1355,6 +1355,7 @@ async function main() {
     create: {
       id: EVALUACION_PROVEEDOR_SEED_ID,
       proveedor_id: proveedorHomologado.id,
+      recepcion_id: recepcionSeed.id,
       puntaje_cumplimiento_plazos: 90,
       puntaje_calidad_recepcion: 80,
       puntaje_documentacion: 100,
