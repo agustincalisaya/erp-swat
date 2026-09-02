@@ -52,10 +52,13 @@ async function ProveedoresData({
   searchParams: Record<string, string | string[] | undefined>;
   userId: string;
 }) {
-  const filtros = FiltrosListadoProveedoresSchema.parse({
+  const parseFiltros = FiltrosListadoProveedoresSchema.safeParse({
     estado:
       typeof searchParams.estado === "string" ? searchParams.estado : undefined,
   });
+  const filtros = parseFiltros.success
+    ? parseFiltros.data
+    : { estado: undefined };
 
   const [proveedores, crear, editar, homologar, baja] = await Promise.all([
     listarProveedores(filtros),
