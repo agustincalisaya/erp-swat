@@ -338,6 +338,18 @@ export interface OrdenCompraItemsEditadosPayload {
   }[];
 }
 
+/** HU-H4: recepción física persistida y estado físico de la OC actualizado. */
+export interface RecepcionRegistradaPayload {
+  recepcion_id: string;
+  orden_compra_id: string;
+  numero_orden: string;
+  deposito_destino_id: string;
+  recibida_por_id: string;
+  fecha_recepcion: string;
+  estado_anterior_oc: "CONFIRMADA" | "RECEPCION_PARCIAL";
+  estado_nuevo_oc: "RECEPCION_PARCIAL" | "RECIBIDA_COMPLETA";
+}
+
 /**
  * HU-H5 (Módulo H) — Payload emitido tras la transición automática de
  * `Proveedor.estado` a `SUSPENDIDO` por caída de puntaje
@@ -428,6 +440,8 @@ export interface DomainEventMap {
   "orden_compra:estado_cambiado": OrdenCompraEstadoCambiadoPayload;
   /** HU-H3: se emite tras editar los ítems de una OrdenCompra en BORRADOR. */
   "orden_compra:items_editados": OrdenCompraItemsEditadosPayload;
+  /** HU-H4: se emite una vez, post-commit, por cada recepción física nueva. */
+  "recepcion:registrada": RecepcionRegistradaPayload;
   /** HU-H5 (y HU-H1 2.2): se emite tras un cambio de estado de Proveedor, manual o automático. */
   "proveedor:estado_cambiado": ProveedorEstadoCambiadoPayload;
   /** HU-A10: se emite tras el congelamiento de una Reserva (DISPONIBLE → RESERVADO). */

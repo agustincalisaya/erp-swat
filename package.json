@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --experimental-strip-types --test src/lib/utils/sku.test.ts src/lib/services/inventario/transferencia.test.ts src/lib/services/inventario/reserva.test.ts src/lib/services/proveedores/evaluacion.calculo.test.ts src/lib/services/proveedores/evaluacion.service.test.ts"
+    "test": "node --experimental-strip-types --test src/lib/utils/sku.test.ts src/lib/services/inventario/transferencia.test.ts src/lib/services/inventario/reserva.test.ts src/lib/services/proveedores/evaluacion.calculo.test.ts src/lib/services/proveedores/evaluacion.service.test.ts src/lib/services/proveedores/recepcion.test.ts",
+    "test:integration:h4": "node --conditions=react-server --import tsx --test --test-concurrency=1 src/lib/services/proveedores/recepcion.integration.test.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
