@@ -4,16 +4,32 @@
  * @component PasoIngreso
  * @description HU-A11 — paso 3 del wizard para tipo "Ingreso". Adapta la
  * lógica de la ex `IngresoEscaneoPanel.tsx` (HU-A2): cámara → resolución de
- * código → confirmación → registro transaccional, en lote. Reutiliza
+ * código → confirmación → registro transaccional. Reutiliza
  * `CameraBarcodeScanner`/`useBarcodeScanner`, `resolverCodigoEscaneoAction` y
  * `registrarIngresoStockAction` (`movimientos/actions.ts`) sin modificarlos.
+ *
+ * Multi-ítem (HU-A11): cada escaneo/código manual ya no dispara un submit
+ * individual — arma un carrito local (editable/eliminable) y un único botón
+ * "Confirmar ingreso" envía TODOS los ítems juntos en un solo llamado a
+ * `registrarIngresoStockAction`, que ahora recibe `{ deposito_destino_id,
+ * comprobante_referencia, items[] }` en vez de un ítem suelto —
+ * `comprobante_referencia` pasa a ser un campo de cabecera del carrito
+ * completo, no de cada ítem escaneado.
  *
  * Diferencia con el panel original: el depósito destino ya no se elige acá
  * — viene fijo del paso 1 del wizard (`deposito_destino_id` inyectado como
  * prop), spec_modulo_A.md §2.10.
+ *
+ * Tercera forma de agregar un ítem (mejora post-HU-A11): además de escaneo
+ * QR/código de barras y código manual, un buscador por nombre/SKU con
+ * `ComboboxFiltrable` — mismo componente y mismo patrón client-side que ya
+ * usa `PasoTransferencia.tsx` sobre el catálogo `variantes` (prop, cargado
+ * una sola vez por `movimientos/page.tsx`, compartido entre ambos pasos). Al
+ * seleccionar, alimenta el mismo `resuelto`/mini-formulario de confirmación
+ * que usan escaneo y manual — no hay una ruta de submit distinta.
  */
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { useForm, useWatch } from "react-hook-form";
+import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
   ScanBarcode,
@@ -21,16 +37,17 @@ import {
   PackageSearch,
   Loader2,
   CircleAlert,
-  CheckCircle2,
   Building2,
   Hash,
   FileText,
   BadgeCheck,
   Keyboard,
+  ShoppingCart,
+  Trash2,
 } from "lucide-react";
 
 import {
-  RegistrarIngresoPorEscaneoSchema,
+  IngresoItemSchema,
   IMPACTO_STOCK_POR_ESTADO_DESTINO,
   type IngresoEstadoDestino,
 } from "@/lib/schemas/inventario.schema";
@@ -38,14 +55,17 @@ import {
   resolverCodigoEscaneoAction,
   registrarIngresoStockAction,
 } from "@/app/(dashboard)/inventario/movimientos/actions";
-import type { CodigoResuelto, IngresoRegistrado } from "@/lib/services/inventario/movimiento.service";
+import type { CodigoResuelto } from "@/lib/services/inventario/movimiento.service";
+import type { VarianteTransferible } from "@/lib/services/inventario/transferencia.service";
 
 import { CameraBarcodeScanner } from "@/components/inventario/escaner/CameraBarcodeScanner";
+import { ComboboxFiltrable } from "@/components/inventario/ComboboxFiltrable";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Form,
   FormField,
@@ -56,35 +76,34 @@ import {
 } from "@/components/ui/form";
 import { toast } from "@/components/ui/toast";
 
-type Estado = "escaneando" | "resolviendo" | "confirmando" | "registrando" | "exito";
+type Estado = "escaneando" | "resolviendo" | "confirmando" | "registrando";
 
-type IngresoFormValues = {
-  variante_sku_id: string;
-  deposito_destino_id: string;
+type ItemConfirmValues = {
   cantidad: number | string;
-  comprobante_referencia: string;
-  estado_destino: "DISPONIBLE" | "RESERVADO" | "VENDIDO" | "DEVUELTO" | "BAJA_MERMA";
-  es_serializado: boolean;
+  estado_destino: IngresoEstadoDestino;
   numero_serie?: string;
 };
 
-interface ItemHistorial {
-  id: string;
+interface CarritoItem {
+  key: string;
+  variante_sku_id: string;
   sku: string;
   producto_nombre: string;
+  talle: string;
+  color: string;
   cantidad: number;
-  estado_destino: string;
-  impacto_stock: "SUMA" | "RESTA";
-  stock_resultante: number;
-  ts: number;
+  estado_destino: IngresoEstadoDestino;
+  es_serializado: boolean;
+  numero_serie?: string;
 }
 
 interface PasoIngresoProps {
   depositoDestinoId: string;
   depositoDestinoNombre: string;
+  variantes: VarianteTransferible[];
 }
 
-const ESTADOS_DESTINO: IngresoFormValues["estado_destino"][] = [
+const ESTADOS_DESTINO: IngresoEstadoDestino[] = [
   "DISPONIBLE",
   "RESERVADO",
   "VENDIDO",
@@ -95,40 +114,48 @@ const ESTADOS_DESTINO: IngresoFormValues["estado_destino"][] = [
 const selectClassName =
   "h-8 w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50";
 
-export function PasoIngreso({ depositoDestinoId, depositoDestinoNombre }: PasoIngresoProps) {
+const ItemConfirmSchema = IngresoItemSchema.omit({ variante_sku_id: true });
+
+function avisarSiResta(estadoDestino: IngresoEstadoDestino) {
+  if (IMPACTO_STOCK_POR_ESTADO_DESTINO[estadoDestino] === "RESTA") {
+    toast.add({
+      title: "Este estado resta del stock disponible del depósito.",
+      type: "warning",
+    });
+  }
+}
+
+export function PasoIngreso({ depositoDestinoId, depositoDestinoNombre, variantes }: PasoIngresoProps) {
   const [estado, setEstado] = useState<Estado>("escaneando");
   const [resuelto, setResuelto] = useState<CodigoResuelto | null>(null);
   const [errorResolucion, setErrorResolucion] = useState<string | null>(null);
   const [errorRegistro, setErrorRegistro] = useState<string | null>(null);
-  const [ultimoResultado, setUltimoResultado] = useState<IngresoRegistrado | null>(null);
-  const [historial, setHistorial] = useState<ItemHistorial[]>([]);
+  const [carrito, setCarrito] = useState<CarritoItem[]>([]);
+  const [comprobanteReferencia, setComprobanteReferencia] = useState("");
   const [codigoManual, setCodigoManual] = useState("");
+  const [busquedaVarianteId, setBusquedaVarianteId] = useState("");
 
   const estadoRef = useRef(estado);
   useEffect(() => {
     estadoRef.current = estado;
   }, [estado]);
 
-  useEffect(() => {
-    if (estado !== "exito") return;
-    const id = setTimeout(() => {
-      setUltimoResultado(null);
-      setEstado("escaneando");
-    }, 1600);
-    return () => clearTimeout(id);
-  }, [estado]);
-
-  const form = useForm<IngresoFormValues>({
+  const form = useForm<ItemConfirmValues>({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    resolver: zodResolver(RegistrarIngresoPorEscaneoSchema) as any,
-    defaultValues: {
-      deposito_destino_id: depositoDestinoId,
-      cantidad: 1,
-      comprobante_referencia: "",
-      estado_destino: "DISPONIBLE",
-      es_serializado: false,
-    },
+    resolver: zodResolver(ItemConfirmSchema) as any,
+    defaultValues: { cantidad: 1, estado_destino: "DISPONIBLE" },
   });
+
+  /** Punto único de entrada a "confirmando" — lo comparten escaneo, código manual y búsqueda por nombre/SKU. */
+  function confirmarVariante(variante: CodigoResuelto) {
+    form.reset({
+      cantidad: 1,
+      estado_destino: "DISPONIBLE",
+      numero_serie: variante.numero_serie ?? undefined,
+    });
+    setResuelto(variante);
+    setEstado("confirmando");
+  }
 
   async function handleDetect(codigo: string) {
     if (estadoRef.current !== "escaneando") return;
@@ -144,21 +171,7 @@ export function PasoIngreso({ depositoDestinoId, depositoDestinoNombre }: PasoIn
       return;
     }
 
-    const variante = resultado.data;
-    const comprobantePrevio = form.getValues("comprobante_referencia");
-
-    form.reset({
-      variante_sku_id: variante.variante_sku_id,
-      deposito_destino_id: depositoDestinoId,
-      cantidad: 1,
-      comprobante_referencia: comprobantePrevio,
-      estado_destino: "DISPONIBLE",
-      es_serializado: variante.es_serializado,
-      numero_serie: variante.numero_serie ?? undefined,
-    });
-
-    setResuelto(variante);
-    setEstado("confirmando");
+    confirmarVariante(resultado.data);
   }
 
   async function handleDetectManual(e: FormEvent) {
@@ -169,49 +182,115 @@ export function PasoIngreso({ depositoDestinoId, depositoDestinoNombre }: PasoIn
     await handleDetect(codigo);
   }
 
-  async function onSubmit(data: IngresoFormValues) {
-    setEstado("registrando");
-    setErrorRegistro(null);
+  /**
+   * Tercera forma de resolver un ítem: búsqueda por nombre/SKU sobre el
+   * catálogo `variantes` ya cargado (mismo `ComboboxFiltrable` y mismo
+   * `items`/prop que `PasoTransferencia.tsx`, sin fetch extra). `detalle`
+   * llega fusionado como `"talle · color"` (contrato ya fijado por
+   * `listarVariantesTransferibles()`, `transferencia.service.ts`) — se
+   * separa para reusar los mismos 2 badges que ya muestra el mini-formulario
+   * de confirmación. `es_serializado`/`numero_serie` van en `false`/`null`
+   * porque el catálogo no trae ese dato — mismo valor que ya resuelve
+   * siempre `resolverCodigoEscaneo()` para cualquier variante, no es un caso
+   * especial de la búsqueda.
+   */
+  function handleSeleccionarBusqueda(variante: VarianteTransferible) {
+    if (estado !== "escaneando") return;
+    const [talle, color] = variante.detalle.split(" · ");
+    setBusquedaVarianteId("");
+    confirmarVariante({
+      variante_sku_id: variante.id,
+      sku: variante.sku,
+      producto_nombre: variante.nombre,
+      talle,
+      color,
+      es_serializado: false,
+      numero_serie: null,
+    });
+  }
 
-    const resultado = await registrarIngresoStockAction(data);
+  function agregarAlCarrito(data: ItemConfirmValues) {
+    if (!resuelto) return;
+    const cantidadNumerica = typeof data.cantidad === "number" ? data.cantidad : Number(data.cantidad);
 
-    if (!resultado.success || !resultado.data) {
-      setErrorRegistro(resultado.error?.message ?? "No se pudo registrar el ingreso.");
-      setEstado("confirmando");
-      return;
-    }
-
-    setUltimoResultado(resultado.data);
-    setHistorial((prev) =>
-      [
-        {
-          id: resultado.data!.movimiento_id,
-          sku: resuelto?.sku ?? "",
-          producto_nombre: resuelto?.producto_nombre ?? "",
-          cantidad: resultado.data!.cantidad,
-          estado_destino: resultado.data!.estado_destino,
-          impacto_stock: resultado.data!.impacto_stock,
-          stock_resultante: resultado.data!.stock_resultante.cantidad,
-          ts: Date.now(),
-        },
-        ...prev,
-      ].slice(0, 8),
-    );
+    setCarrito((prev) => [
+      ...prev,
+      {
+        key: `${resuelto.variante_sku_id}-${Date.now()}`,
+        variante_sku_id: resuelto.variante_sku_id,
+        sku: resuelto.sku,
+        producto_nombre: resuelto.producto_nombre,
+        talle: resuelto.talle,
+        color: resuelto.color,
+        cantidad: cantidadNumerica,
+        estado_destino: data.estado_destino,
+        es_serializado: resuelto.es_serializado,
+        numero_serie: data.numero_serie,
+      },
+    ]);
     setResuelto(null);
-    setEstado("exito");
+    setEstado("escaneando");
   }
 
   function cancelarConfirmacion() {
     setResuelto(null);
-    setErrorRegistro(null);
     setEstado("escaneando");
   }
 
-  const cantidad = useWatch({ control: form.control, name: "cantidad" });
+  function actualizarCantidadCarrito(key: string, cantidad: number) {
+    setCarrito((prev) =>
+      prev.map((item) => (item.key === key ? { ...item, cantidad: Math.max(1, Math.trunc(cantidad) || 1) } : item)),
+    );
+  }
+
+  function actualizarEstadoCarrito(key: string, estadoDestino: IngresoEstadoDestino) {
+    avisarSiResta(estadoDestino);
+    setCarrito((prev) => prev.map((item) => (item.key === key ? { ...item, estado_destino: estadoDestino } : item)));
+  }
+
+  function quitarDelCarrito(key: string) {
+    setCarrito((prev) => prev.filter((item) => item.key !== key));
+  }
+
+  function vaciarCarrito() {
+    setCarrito([]);
+    setComprobanteReferencia("");
+  }
+
+  async function confirmarCarrito() {
+    if (carrito.length === 0) return;
+    setEstado("registrando");
+    setErrorRegistro(null);
+
+    const resultado = await registrarIngresoStockAction({
+      deposito_destino_id: depositoDestinoId,
+      comprobante_referencia: comprobanteReferencia,
+      items: carrito.map((item) => ({
+        variante_sku_id: item.variante_sku_id,
+        cantidad: item.cantidad,
+        estado_destino: item.estado_destino,
+        numero_serie: item.numero_serie,
+      })),
+    });
+
+    if (!resultado.success || !resultado.data) {
+      setErrorRegistro(resultado.error?.message ?? "No se pudo registrar el ingreso.");
+      setEstado("escaneando");
+      return;
+    }
+
+    toast.add({
+      title: "Ingreso registrado",
+      description: `${resultado.data.items.length} ítem${resultado.data.items.length === 1 ? "" : "s"} cargado${resultado.data.items.length === 1 ? "" : "s"} al depósito.`,
+      type: "success",
+    });
+    setCarrito([]);
+    setComprobanteReferencia("");
+    setEstado("escaneando");
+  }
+
   const esSerializado = resuelto?.es_serializado ?? false;
-  const cantidadNumerica = typeof cantidad === "number" ? cantidad : Number(cantidad);
-  const cantidadMostrada =
-    Number.isInteger(cantidadNumerica) && cantidadNumerica > 0 ? cantidadNumerica : 1;
+  const cantidadCarritoTotal = carrito.reduce((acumulado, item) => acumulado + item.cantidad, 0);
 
   return (
     <div className="space-y-4">
@@ -220,7 +299,7 @@ export function PasoIngreso({ depositoDestinoId, depositoDestinoNombre }: PasoIn
         Depósito destino: <span className="font-semibold">{depositoDestinoNombre}</span>
       </div>
 
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.05fr_1fr] lg:items-start">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1fr_1.1fr] lg:items-start">
         <Card className="overflow-hidden">
           <CardHeader className="border-b border-border">
             <CardTitle className="flex items-center gap-2 text-sm font-semibold">
@@ -258,6 +337,23 @@ export function PasoIngreso({ depositoDestinoId, depositoDestinoNombre }: PasoIn
               </Button>
             </form>
 
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <div className="h-px flex-1 bg-border" />
+              O buscá el producto por nombre o SKU
+              <div className="h-px flex-1 bg-border" />
+            </div>
+            <ComboboxFiltrable
+              items={variantes}
+              getId={(variante) => variante.id}
+              getLabel={(variante) => `${variante.sku} — ${variante.nombre} (${variante.detalle})`}
+              value={busquedaVarianteId}
+              onChange={handleSeleccionarBusqueda}
+              placeholder="Buscar por SKU, producto, talle o color"
+              emptyMessage="No hay SKU que coincidan con la búsqueda."
+              disabled={estado !== "escaneando"}
+              pageSize={5}
+            />
+
             {estado === "resolviendo" && (
               <div className="flex items-center justify-center gap-2 rounded-lg bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700">
                 <Loader2 className="size-4 animate-spin" aria-hidden="true" />
@@ -272,103 +368,10 @@ export function PasoIngreso({ depositoDestinoId, depositoDestinoNombre }: PasoIn
               </Alert>
             )}
 
-            {estado === "exito" && ultimoResultado && (
-              <Alert
-                className={
-                  ultimoResultado.impacto_stock === "SUMA"
-                    ? "border-blue-200 bg-blue-50"
-                    : "border-amber-200 bg-amber-50"
-                }
-              >
-                {ultimoResultado.impacto_stock === "SUMA" ? (
-                  <CheckCircle2 className="size-4 text-blue-600" aria-hidden="true" />
-                ) : (
-                  <CircleAlert className="size-4 text-amber-600" aria-hidden="true" />
-                )}
-                <AlertDescription
-                  className={
-                    ultimoResultado.impacto_stock === "SUMA" ? "text-blue-800" : "text-amber-800"
-                  }
-                >
-                  {ultimoResultado.impacto_stock === "SUMA" ? (
-                    <>
-                      Ingreso registrado. Stock disponible en depósito:{" "}
-                      <span className="font-semibold">{ultimoResultado.stock_resultante.cantidad}</span>{" "}
-                      unidades.
-                    </>
-                  ) : (
-                    <>
-                      Movimiento registrado como{" "}
-                      <span className="font-semibold">
-                        {ultimoResultado.estado_destino.replaceAll("_", " ")}
-                      </span>
-                      . Se restaron {ultimoResultado.cantidad} unidades del stock disponible (queda en{" "}
-                      <span className="font-semibold">{ultimoResultado.stock_resultante.cantidad}</span>{" "}
-                      unidades).
-                    </>
-                  )}
-                </AlertDescription>
-              </Alert>
-            )}
-
-            {historial.length > 0 && (
-              <div className="space-y-1.5 pt-1">
-                <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-                  Ingresados en esta sesión
-                </p>
-                <ul className="space-y-1">
-                  {historial.map((item) => (
-                    <li
-                      key={`${item.id}-${item.ts}`}
-                      className="flex items-center justify-between gap-2 rounded-lg bg-blue-50/60 px-3 py-1.5 text-xs text-blue-900"
-                    >
-                      <span className="flex items-center gap-1.5 truncate">
-                        <PackageCheck className="size-3.5 shrink-0 text-blue-600" aria-hidden="true" />
-                        <span className="truncate">{item.producto_nombre || item.sku}</span>
-                      </span>
-                      {item.impacto_stock === "SUMA" ? (
-                        <Badge className="shrink-0 bg-blue-600 text-white">+{item.cantidad}</Badge>
-                      ) : (
-                        <Badge
-                          variant="outline"
-                          className="shrink-0 border-amber-300 text-amber-700"
-                        >
-                          {item.estado_destino.replaceAll("_", " ")} −{item.cantidad}
-                        </Badge>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="border-b border-border">
-            <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-              <PackageSearch className="size-4 text-blue-600" aria-hidden="true" />
-              Confirmar ingreso
-            </CardTitle>
-            <CardDescription>
-              {estado === "confirmando" || estado === "registrando"
-                ? "Revisá los datos resueltos por el escáner antes de registrar."
-                : "Escaneá un código para ver el detalle de la variante aquí."}
-            </CardDescription>
-          </CardHeader>
-
-          <CardContent className="pt-5">
-            {!resuelto && estado !== "registrando" && (
-              <div className="flex flex-col items-center justify-center gap-2 py-10 text-center text-sm text-muted-foreground">
-                <ScanBarcode className="size-8 text-blue-200" aria-hidden="true" />
-                Sin código resuelto todavía.
-              </div>
-            )}
-
             {resuelto && (
               <Form {...form}>
-                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5" noValidate>
-                  <div className="space-y-2 rounded-xl border border-blue-100 bg-blue-50/50 p-3">
+                <form onSubmit={form.handleSubmit(agregarAlCarrito)} className="space-y-4 rounded-xl border border-blue-100 bg-blue-50/50 p-3">
+                  <div className="space-y-2">
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-sm font-bold text-blue-950">{resuelto.producto_nombre}</p>
                       {esSerializado ? (
@@ -392,22 +395,10 @@ export function PasoIngreso({ depositoDestinoId, depositoDestinoNombre }: PasoIn
                       <span className="rounded-md bg-white px-2 py-0.5 text-blue-700 ring-1 ring-blue-200">
                         {resuelto.color}
                       </span>
-                      {esSerializado && resuelto.numero_serie && (
-                        <span className="rounded-md bg-white px-2 py-0.5 font-mono text-blue-700 ring-1 ring-blue-200">
-                          Serie: {resuelto.numero_serie}
-                        </span>
-                      )}
                     </div>
                   </div>
 
-                  {errorRegistro && (
-                    <Alert variant="destructive">
-                      <CircleAlert className="size-4" aria-hidden="true" />
-                      <AlertDescription>{errorRegistro}</AlertDescription>
-                    </Alert>
-                  )}
-
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-2 gap-3">
                     <FormField
                       control={form.control}
                       name="cantidad"
@@ -446,16 +437,7 @@ export function PasoIngreso({ depositoDestinoId, depositoDestinoNombre }: PasoIn
                               className={selectClassName}
                               onChange={(e) => {
                                 field.onChange(e);
-                                const nuevoImpacto =
-                                  IMPACTO_STOCK_POR_ESTADO_DESTINO[
-                                    e.target.value as IngresoEstadoDestino
-                                  ];
-                                if (nuevoImpacto === "RESTA") {
-                                  toast.add({
-                                    title: "Este estado resta del stock disponible del depósito.",
-                                    type: "warning",
-                                  });
-                                }
+                                avisarSiResta(e.target.value as IngresoEstadoDestino);
                               }}
                             >
                               {ESTADOS_DESTINO.map((estadoDestino) => (
@@ -471,60 +453,155 @@ export function PasoIngreso({ depositoDestinoId, depositoDestinoNombre }: PasoIn
                     />
                   </div>
 
-                  <FormField
-                    control={form.control}
-                    name="comprobante_referencia"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="flex items-center gap-1.5 text-xs font-semibold tracking-wide text-gray-700 uppercase">
-                          <FileText className="size-3.5" aria-hidden="true" />
-                          Comprobante / remito
-                        </FormLabel>
-                        <FormControl>
-                          <Input
-                            {...field}
-                            placeholder="Ej: REM-2026-001"
-                            autoComplete="off"
-                            maxLength={100}
-                            className="focus-visible:border-blue-500 focus-visible:ring-blue-500/30"
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <div className="flex gap-2 pt-1">
+                  <div className="flex gap-2">
                     <Button
                       type="button"
-                      variant="outline"
-                      className="flex-1"
+                      className="flex-1 bg-red-500 text-white hover:bg-red-600"
                       onClick={cancelarConfirmacion}
-                      disabled={estado === "registrando"}
                     >
                       Cancelar
                     </Button>
-                    <Button
-                      type="submit"
-                      className="flex-1 gap-2 bg-blue-600 text-white hover:bg-blue-700"
-                      disabled={estado === "registrando"}
-                    >
-                      {estado === "registrando" ? (
-                        <>
-                          <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-                          Registrando…
-                        </>
-                      ) : (
-                        <>
-                          <PackageCheck className="size-4" aria-hidden="true" />
-                          Confirmar ingreso ({cantidadMostrada})
-                        </>
-                      )}
+                    <Button type="submit" className="flex-1 gap-2 bg-blue-600 text-white hover:bg-blue-700">
+                      <ShoppingCart className="size-4" aria-hidden="true" />
+                      Agregar al carrito
                     </Button>
                   </div>
                 </form>
               </Form>
             )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="border-b border-border">
+            <CardTitle className="flex items-center gap-2 text-sm font-semibold">
+              <ShoppingCart className="size-4 text-blue-600" aria-hidden="true" />
+              Carrito de ingreso
+              {carrito.length > 0 && (
+                <Badge className="bg-blue-600 text-white">{carrito.length}</Badge>
+              )}
+            </CardTitle>
+            <CardDescription>
+              Escaneá los ítems que quieras cargar y confirmalos todos juntos.
+            </CardDescription>
+          </CardHeader>
+
+          <CardContent className="space-y-4 pt-5">
+            {carrito.length === 0 ? (
+              <div className="flex flex-col items-center justify-center gap-2 py-10 text-center text-sm text-muted-foreground">
+                <PackageSearch className="size-8 text-blue-200" aria-hidden="true" />
+                Sin ítems en el carrito todavía.
+              </div>
+            ) : (
+              <ul className="space-y-2">
+                {carrito.map((item) => {
+                  const impacto = IMPACTO_STOCK_POR_ESTADO_DESTINO[item.estado_destino];
+                  return (
+                    <li
+                      key={item.key}
+                      className="flex flex-wrap items-center gap-2 rounded-lg border border-blue-100 bg-blue-50/50 px-3 py-2 text-sm"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate font-semibold text-blue-950">{item.producto_nombre}</p>
+                        <p className="truncate text-xs text-blue-700">
+                          {item.sku} · Talle {item.talle} · {item.color}
+                        </p>
+                      </div>
+                      <Input
+                        type="number"
+                        min={1}
+                        value={item.cantidad}
+                        disabled={item.es_serializado}
+                        onChange={(e) => actualizarCantidadCarrito(item.key, Number(e.target.value))}
+                        className="h-8 w-16 shrink-0"
+                        aria-label={`Cantidad de ${item.producto_nombre}`}
+                      />
+                      <select
+                        value={item.estado_destino}
+                        onChange={(e) => actualizarEstadoCarrito(item.key, e.target.value as IngresoEstadoDestino)}
+                        className={`${selectClassName} w-auto shrink-0`}
+                        aria-label={`Estado de ${item.producto_nombre}`}
+                      >
+                        {ESTADOS_DESTINO.map((estadoDestino) => (
+                          <option key={estadoDestino} value={estadoDestino}>
+                            {estadoDestino.replaceAll("_", " ")}
+                          </option>
+                        ))}
+                      </select>
+                      <Badge
+                        variant="outline"
+                        className={impacto === "SUMA" ? "shrink-0 border-blue-300 text-blue-700" : "shrink-0 border-amber-300 text-amber-700"}
+                      >
+                        {impacto === "SUMA" ? "+" : "−"}{item.cantidad}
+                      </Badge>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        className="shrink-0 text-red-500 hover:bg-red-50 hover:text-red-600"
+                        onClick={() => quitarDelCarrito(item.key)}
+                        aria-label={`Quitar ${item.producto_nombre} del carrito`}
+                      >
+                        <Trash2 className="size-4" aria-hidden="true" />
+                      </Button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+
+            {errorRegistro && (
+              <Alert variant="destructive">
+                <CircleAlert className="size-4" aria-hidden="true" />
+                <AlertDescription>{errorRegistro}</AlertDescription>
+              </Alert>
+            )}
+
+            <div className="space-y-2">
+              <Label htmlFor="ingreso-comprobante" className="flex items-center gap-1.5 text-xs font-semibold tracking-wide text-gray-700 uppercase">
+                <FileText className="size-3.5" aria-hidden="true" />
+                Comprobante / remito
+              </Label>
+              <Input
+                id="ingreso-comprobante"
+                value={comprobanteReferencia}
+                onChange={(e) => setComprobanteReferencia(e.target.value)}
+                placeholder="Ej: REM-2026-001"
+                autoComplete="off"
+                maxLength={100}
+                disabled={estado === "registrando"}
+                className="focus-visible:border-blue-500 focus-visible:ring-blue-500/30"
+              />
+            </div>
+
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                className="flex-1 bg-red-500 text-white hover:bg-red-600"
+                onClick={vaciarCarrito}
+                disabled={carrito.length === 0 || estado === "registrando"}
+              >
+                Vaciar carrito
+              </Button>
+              <Button
+                type="button"
+                className="flex-1 gap-2 bg-blue-600 text-white hover:bg-blue-700"
+                onClick={confirmarCarrito}
+                disabled={carrito.length === 0 || estado === "registrando"}
+              >
+                {estado === "registrando" ? (
+                  <>
+                    <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                    Registrando…
+                  </>
+                ) : (
+                  <>
+                    <PackageCheck className="size-4" aria-hidden="true" />
+                    Confirmar ingreso ({cantidadCarritoTotal})
+                  </>
+                )}
+              </Button>
+            </div>
           </CardContent>
         </Card>
       </div>

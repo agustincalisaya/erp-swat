@@ -293,11 +293,11 @@ model VarianteSKU {
   updated_at DateTime @updatedAt
 
   // --- Relaciones ---
-  producto_maestro ProductoMaestro      @relation(fields: [producto_maestro_id], references: [id], onDelete: Restrict)
-  stock_depositos  StockDeposito[]
-  movimientos      MovimientoStock[]
-  transferencias   TransferenciaStock[]
-  reservas         Reserva[]
+  producto_maestro    ProductoMaestro          @relation(fields: [producto_maestro_id], references: [id], onDelete: Restrict)
+  stock_depositos     StockDeposito[]
+  movimiento_items    MovimientoStockItem[]
+  transferencia_items TransferenciaStockItem[]
+  reservas            Reserva[]
 
   // --- Relación Sprint 2 (Módulo H) ---
   orden_compra_items OrdenCompraItem[]
@@ -361,19 +361,17 @@ model StockDeposito {
   @@map("stock_depositos")
 }
 
-/// Registro inmutable y transaccional de todo movimiento de stock
-/// (ingreso, egreso, transferencia, ajuste). Una vez creado, no debe
-/// actualizarse: cualquier corrección se modela como un nuevo movimiento
-/// compensatorio (principio de inmutabilidad contable).
+/// Cabecera inmutable y transaccional de todo movimiento de stock (ingreso,
+/// egreso, transferencia, ajuste). Una vez creada, no debe actualizarse:
+/// cualquier corrección se modela como un nuevo movimiento compensatorio
+/// (principio de inmutabilidad contable). Desde HU-A11 (multi-ítem) cubre
+/// múltiples variantes a través de `MovimientoStockItem` — nunca vuelve a
+/// tener `variante_sku_id`/`cantidad` propios.
 model MovimientoStock {
   id                     String         @id @default(uuid())
-  variante_sku_id        String
   deposito_origen_id     String?
   deposito_destino_id    String?
   tipo_movimiento        TipoMovimiento
-  estado_origen          String?
-  estado_destino         String?
-  cantidad               Int
   comprobante_referencia String?
   registrado_por_id      String
 
@@ -392,12 +390,11 @@ model MovimientoStock {
   updated_at DateTime @updatedAt
 
   // --- Relaciones ---
-  variante_sku     VarianteSKU @relation(fields: [variante_sku_id], references: [id], onDelete: Restrict)
-  deposito_origen  Deposito?   @relation("MovimientoOrigen", fields: [deposito_origen_id], references: [id], onDelete: Restrict)
-  deposito_destino Deposito?   @relation("MovimientoDestino", fields: [deposito_destino_id], references: [id], onDelete: Restrict)
-  registrado_por   Usuario     @relation("MovimientoRegistradoPor", fields: [registrado_por_id], references: [id], onDelete: Restrict)
+  deposito_origen  Deposito?             @relation("MovimientoOrigen", fields: [deposito_origen_id], references: [id], onDelete: Restrict)
+  deposito_destino Deposito?             @relation("MovimientoDestino", fields: [deposito_destino_id], references: [id], onDelete: Restrict)
+  registrado_por   Usuario               @relation("MovimientoRegistradoPor", fields: [registrado_por_id], references: [id], onDelete: Restrict)
+  items            MovimientoStockItem[]
 
-  @@index([variante_sku_id])
   @@index([deposito_origen_id])
   @@index([deposito_destino_id])
   @@index([tipo_movimiento])
@@ -405,16 +402,47 @@ model MovimientoStock {
   @@map("movimientos_stock")
 }
 
-/// Remito interno de una transferencia de stock en dos fases. Mientras se
-/// encuentra EN_TRANSITO, su cantidad es stock fisico no disponible en ningun
-/// deposito. Los movimientos son append-only; el remito solo cambia de estado.
+/// Línea de un `MovimientoStock`: una variante y cantidad puntual dentro de
+/// la cabecera (HU-A11, multi-ítem). `estado_origen`/`estado_destino` migran
+/// acá desde la cabecera — cada ítem puede tener un estado propio (ej. un
+/// ingreso con un ítem DISPONIBLE y otro VENDIDO en el mismo lote).
+model MovimientoStockItem {
+  id              String  @id @default(uuid())
+  movimiento_id   String
+  variante_sku_id String
+  cantidad        Int
+  estado_origen   String?
+  estado_destino  String?
+  numero_serie    String?
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  movimiento   MovimientoStock @relation(fields: [movimiento_id], references: [id], onDelete: Restrict)
+  variante_sku VarianteSKU     @relation(fields: [variante_sku_id], references: [id], onDelete: Restrict)
+
+  @@index([movimiento_id])
+  @@index([variante_sku_id])
+  @@map("movimiento_stock_items")
+}
+
+/// Remito interno de una transferencia de stock en dos fases. Mientras un
+/// ítem se encuentra pendiente, su cantidad es stock fisico no disponible en
+/// ningun deposito. Desde HU-A11 (multi-ítem + recepción parcial) cubre
+/// múltiples variantes a través de `TransferenciaStockItem` — nunca vuelve a
+/// tener `variante_sku_id`/`cantidad` propios.
 model TransferenciaStock {
   id                  String              @id @default(uuid())
   numero_remito       String              @unique
-  variante_sku_id     String
   deposito_origen_id  String
   deposito_destino_id String
-  cantidad            Int
   estado              EstadoTransferencia @default(EN_TRANSITO)
   despachada_por_id   String
   despachada_at       DateTime            @default(now())
@@ -428,20 +456,58 @@ model TransferenciaStock {
   created_at      DateTime  @default(now())
   updated_at      DateTime  @updatedAt
 
-  variante_sku     VarianteSKU @relation(fields: [variante_sku_id], references: [id], onDelete: Restrict)
-  deposito_origen  Deposito    @relation("TransferenciaOrigen", fields: [deposito_origen_id], references: [id], onDelete: Restrict)
-  deposito_destino Deposito    @relation("TransferenciaDestino", fields: [deposito_destino_id], references: [id], onDelete: Restrict)
-  despachada_por   Usuario     @relation("TransferenciaDespachadaPor", fields: [despachada_por_id], references: [id], onDelete: Restrict)
-  recibida_por     Usuario?    @relation("TransferenciaRecibidaPor", fields: [recibida_por_id], references: [id], onDelete: Restrict)
+  deposito_origen  Deposito                 @relation("TransferenciaOrigen", fields: [deposito_origen_id], references: [id], onDelete: Restrict)
+  deposito_destino Deposito                 @relation("TransferenciaDestino", fields: [deposito_destino_id], references: [id], onDelete: Restrict)
+  despachada_por   Usuario                  @relation("TransferenciaDespachadaPor", fields: [despachada_por_id], references: [id], onDelete: Restrict)
+  recibida_por     Usuario?                 @relation("TransferenciaRecibidaPor", fields: [recibida_por_id], references: [id], onDelete: Restrict)
+  items            TransferenciaStockItem[]
 
-  @@index([variante_sku_id, estado, is_active])
   @@index([deposito_destino_id, estado, is_active])
+  @@index([estado, is_active])
   @@map("transferencias_stock")
+}
+
+/// Línea de una `TransferenciaStock`: una variante, la cantidad despachada y
+/// el acumulado recibido hasta el momento (HU-A11, recepción parcial).
+/// `cantidad_recibida` es un contador mutable (igual que `StockDeposito.cantidad`
+/// en otro lado del schema) — no rompe el principio de inmutabilidad contable
+/// porque el rastro append-only real vive en `MovimientoStock`/`MovimientoStockItem`.
+model TransferenciaStockItem {
+  id                String                  @id @default(uuid())
+  transferencia_id  String
+  variante_sku_id   String
+  cantidad          Int
+  cantidad_recibida Int                     @default(0)
+  estado_item       EstadoItemTransferencia @default(PENDIENTE)
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  transferencia TransferenciaStock @relation(fields: [transferencia_id], references: [id], onDelete: Restrict)
+  variante_sku  VarianteSKU        @relation(fields: [variante_sku_id], references: [id], onDelete: Restrict)
+
+  @@index([transferencia_id])
+  @@index([variante_sku_id])
+  @@map("transferencia_stock_items")
 }
 
 enum EstadoTransferencia {
   EN_TRANSITO
+  PARCIAL
   RECIBIDA
+}
+
+enum EstadoItemTransferencia {
+  PENDIENTE
+  RECIBIDO_PARCIAL
+  RECIBIDO_TOTAL
 }
 
 enum TipoMovimiento {
@@ -683,22 +749,22 @@ model ListaPrecioItem {
 /// el campo estándar `deletion_reason` del bloque de baja lógica, siguiendo
 /// el mismo patrón que el resto del sistema.
 model OrdenCompra {
-  id                 String            @id @default(uuid())
-  numero_orden       String            @unique
-  proveedor_id       String
-  estado             EstadoOrdenCompra @default(BORRADOR)
-  fecha_emision      DateTime          @default(now())
-  fecha_envio        DateTime?
-  fecha_confirmacion DateTime?
+  id                         String            @id @default(uuid())
+  numero_orden               String            @unique
+  proveedor_id               String
+  estado                     EstadoOrdenCompra @default(BORRADOR)
+  fecha_emision              DateTime          @default(now())
+  fecha_envio                DateTime?
+  fecha_confirmacion         DateTime?
   /// Fecha de entrega comprometida por el proveedor, capturada en la
   /// transición ENVIADA → CONFIRMADA (spec_modulo_H.md §2.5 / §3.1;
   /// Alcance §2.1: "base del seguimiento de cumplimiento"). Nullable: solo
   /// se setea al CONFIRMAR; una orden en BORRADOR/ENVIADA todavía no la tiene.
   /// Distinta de `fecha_confirmacion`, que es el instante en que se confirmó.
   fecha_entrega_comprometida DateTime?
-  fecha_cierre       DateTime?
-  observaciones      String?
-  creada_por_id      String
+  fecha_cierre               DateTime?
+  observaciones              String?
+  creada_por_id              String
 
   // --- Soft delete estricto ---
   is_active       Boolean   @default(true)

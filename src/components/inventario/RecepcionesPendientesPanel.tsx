@@ -8,14 +8,21 @@
  * despacho de transferencias pasó a `wizard/PasoTransferencia.tsx`). Invoca
  * `confirmarRecepcionTransferenciaAction` (`movimientos/actions.ts`) sin
  * modificarla.
+ *
+ * Multi-ítem + recepción parcial (HU-A11): cada fila (remito) es expandible
+ * — al expandirla muestra sus `TransferenciaStockItem` con cantidad enviada,
+ * ya recibida, y un input para cantidad a recibir ahora (máx. lo pendiente
+ * de ese ítem). "Confirmar recepción" envía solo los ítems con cantidad > 0;
+ * el resto queda pendiente sin acción explícita. El remito ahora puede
+ * quedar en 3 estados: EN_TRANSITO, PARCIAL o RECIBIDA.
  */
-import { useState, useTransition } from "react";
+import { Fragment, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowRight, CheckCircle2, History, PackageCheck, Search, Truck } from "lucide-react";
+import { ArrowRight, CheckCircle2, ChevronDown, ChevronRight, History, PackageCheck, Search, Truck } from "lucide-react";
 
 import { confirmarRecepcionTransferenciaAction } from "@/app/(dashboard)/inventario/movimientos/actions";
-import type { TransferenciaListado } from "@/lib/services/inventario/transferencia.service";
+import type { TransferenciaRemitoListado } from "@/lib/services/inventario/transferencia.service";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,7 +31,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { toast } from "@/components/ui/toast";
 
 interface Props {
-  transferencias: TransferenciaListado[];
+  transferencias: TransferenciaRemitoListado[];
   puedeConfirmar: boolean;
 }
 
@@ -47,29 +54,70 @@ function formatearFechaHora(timestamp: Date | string): string {
   return `${ascii("day")}/${ascii("month")}/${valor("year")} ${ascii("hour")}:${ascii("minute")}`;
 }
 
+function EstadoRemitoBadge({ estado }: { estado: TransferenciaRemitoListado["estado"] }) {
+  if (estado === "RECIBIDA") {
+    return <Badge variant="secondary"><CheckCircle2 className="size-3.5" /> RECIBIDA</Badge>;
+  }
+  if (estado === "PARCIAL") {
+    return (
+      <Badge variant="outline" className="border-amber-500 bg-amber-50 text-amber-700">
+        <PackageCheck className="size-3.5" /> PARCIAL
+      </Badge>
+    );
+  }
+  return <Badge variant="outline"><Truck className="size-3.5" /> EN_TRANSITO</Badge>;
+}
+
 export function RecepcionesPendientesPanel({ transferencias, puedeConfirmar }: Props) {
   const router = useRouter();
   const [busqueda, setBusqueda] = useState("");
   const [pagina, setPagina] = useState(1);
+  const [expandidos, setExpandidos] = useState<Record<string, boolean>>({});
+  const [cantidadesPorRemito, setCantidadesPorRemito] = useState<Record<string, Record<string, number>>>({});
   const [pending, startTransition] = useTransition();
 
-  function confirmar(id: string) {
+  function alternarExpandido(remitoId: string) {
+    setExpandidos((prev) => ({ ...prev, [remitoId]: !prev[remitoId] }));
+  }
+
+  function actualizarCantidad(remitoId: string, itemId: string, cantidad: number, maximo: number) {
+    const clamped = Math.min(Math.max(0, Math.trunc(cantidad) || 0), maximo);
+    setCantidadesPorRemito((prev) => ({
+      ...prev,
+      [remitoId]: { ...prev[remitoId], [itemId]: clamped },
+    }));
+  }
+
+  function confirmar(remito: TransferenciaRemitoListado) {
+    const cantidades = cantidadesPorRemito[remito.id] ?? {};
+    const items = Object.entries(cantidades)
+      .filter(([, cantidad]) => cantidad > 0)
+      .map(([transferencia_item_id, cantidad_recibida]) => ({ transferencia_item_id, cantidad_recibida }));
+
+    if (items.length === 0) {
+      toast.add({ title: "Marcá al menos un ítem con cantidad a recibir", type: "warning" });
+      return;
+    }
+
     startTransition(async () => {
-      const resultado = await confirmarRecepcionTransferenciaAction(id);
+      const resultado = await confirmarRecepcionTransferenciaAction({ transferencia_id: remito.id, items });
       if (!resultado.success) {
         toast.add({ title: "No se pudo confirmar la recepción", description: resultado.error?.message ?? "Error inesperado", type: "error" });
         return;
       }
       toast.add({ title: "Recepción confirmada", description: "El stock ya está disponible en destino.", type: "success" });
+      setCantidadesPorRemito((prev) => ({ ...prev, [remito.id]: {} }));
       router.refresh();
     });
   }
 
-  const pendientes = transferencias.filter((item) => item.estado === "EN_TRANSITO");
+  const pendientes = transferencias;
   const termino = busqueda.trim().toLocaleLowerCase("es");
   const filtrados = termino
-    ? pendientes.filter((item) => [item.numero_remito, item.sku, item.producto_nombre, item.deposito_origen, item.deposito_destino]
-        .some((valor) => valor.toLocaleLowerCase("es").includes(termino)))
+    ? pendientes.filter((remito) =>
+        [remito.numero_remito, remito.deposito_origen, remito.deposito_destino, ...remito.items.flatMap((item) => [item.sku, item.producto_nombre])]
+          .some((valor) => valor.toLocaleLowerCase("es").includes(termino)),
+      )
     : pendientes;
   const totalPaginas = Math.max(1, Math.ceil(filtrados.length / 10));
   const paginaValida = Math.min(pagina, totalPaginas);
@@ -104,6 +152,10 @@ export function RecepcionesPendientesPanel({ transferencias, puedeConfirmar }: P
             items={visibles}
             puedeConfirmar={puedeConfirmar}
             pending={pending}
+            expandidos={expandidos}
+            cantidadesPorRemito={cantidadesPorRemito}
+            onToggleExpandido={alternarExpandido}
+            onActualizarCantidad={actualizarCantidad}
             onConfirmar={confirmar}
             emptyMessage={termino ? "No hay remitos que coincidan con la búsqueda." : "No hay remitos pendientes."}
           />
@@ -122,28 +174,114 @@ export function RecepcionesPendientesPanel({ transferencias, puedeConfirmar }: P
   );
 }
 
-function TablaTransferencias({ items, puedeConfirmar, pending, onConfirmar, emptyMessage }: {
-  items: TransferenciaListado[];
+function TablaTransferencias({
+  items,
+  puedeConfirmar,
+  pending,
+  expandidos,
+  cantidadesPorRemito,
+  onToggleExpandido,
+  onActualizarCantidad,
+  onConfirmar,
+  emptyMessage,
+}: {
+  items: TransferenciaRemitoListado[];
   puedeConfirmar: boolean;
   pending: boolean;
-  onConfirmar: (id: string) => void;
+  expandidos: Record<string, boolean>;
+  cantidadesPorRemito: Record<string, Record<string, number>>;
+  onToggleExpandido: (remitoId: string) => void;
+  onActualizarCantidad: (remitoId: string, itemId: string, cantidad: number, maximo: number) => void;
+  onConfirmar: (remito: TransferenciaRemitoListado) => void;
   emptyMessage: string;
 }) {
   if (items.length === 0) return <p className="py-6 text-center text-sm text-muted-foreground">{emptyMessage}</p>;
   return (
     <Table>
-      <TableHeader><TableRow><TableHead>Remito</TableHead><TableHead>SKU</TableHead><TableHead>Ruta</TableHead><TableHead>Cantidad</TableHead><TableHead>Estado</TableHead><TableHead>Fecha</TableHead>{puedeConfirmar && <TableHead />}</TableRow></TableHeader>
-      <TableBody>{items.map((item) => (
-        <TableRow key={item.id}>
-          <TableCell className="font-medium">{item.numero_remito}</TableCell>
-          <TableCell><span className="block">{item.sku}</span><span className="text-xs text-muted-foreground">{item.producto_nombre}</span></TableCell>
-          <TableCell>{item.deposito_origen} <ArrowRight className="mx-1 inline size-3" /> {item.deposito_destino}</TableCell>
-          <TableCell>{item.cantidad}</TableCell>
-          <TableCell><Badge variant={item.estado === "EN_TRANSITO" ? "outline" : "secondary"}>{item.estado === "EN_TRANSITO" ? <Truck /> : <CheckCircle2 />}{item.estado}</Badge></TableCell>
-          <TableCell>{formatearFechaHora(item.recibida_at ?? item.despachada_at)}</TableCell>
-          {puedeConfirmar && <TableCell><Button size="sm" onClick={() => onConfirmar(item.id)} disabled={pending}><PackageCheck className="size-4" /> Confirmar recepción</Button></TableCell>}
-        </TableRow>
-      ))}</TableBody>
+      <TableHeader><TableRow><TableHead /><TableHead>Remito</TableHead><TableHead>Ítems</TableHead><TableHead>Ruta</TableHead><TableHead>Cantidad</TableHead><TableHead>Estado</TableHead><TableHead>Fecha</TableHead>{puedeConfirmar && <TableHead />}</TableRow></TableHeader>
+      <TableBody>{items.map((remito) => {
+        const expandido = expandidos[remito.id] ?? false;
+        return (
+          <Fragment key={remito.id}>
+            <TableRow>
+              <TableCell>
+                <Button type="button" variant="ghost" size="icon-sm" onClick={() => onToggleExpandido(remito.id)} aria-label={expandido ? "Contraer ítems" : "Expandir ítems"}>
+                  {expandido ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+                </Button>
+              </TableCell>
+              <TableCell className="font-medium">{remito.numero_remito}</TableCell>
+              <TableCell>{remito.items_count} ítem{remito.items_count === 1 ? "" : "s"}</TableCell>
+              <TableCell>{remito.deposito_origen} <ArrowRight className="mx-1 inline size-3" /> {remito.deposito_destino}</TableCell>
+              <TableCell>{remito.cantidad_total}</TableCell>
+              <TableCell><EstadoRemitoBadge estado={remito.estado} /></TableCell>
+              <TableCell>{formatearFechaHora(remito.recibida_at ?? remito.despachada_at)}</TableCell>
+              {puedeConfirmar && (
+                <TableCell>
+                  <Button size="sm" className="bg-blue-600 text-white hover:bg-blue-700" onClick={() => onConfirmar(remito)} disabled={pending}>
+                    <PackageCheck className="size-4" /> Confirmar recepción
+                  </Button>
+                </TableCell>
+              )}
+            </TableRow>
+            {expandido && (
+              <TableRow>
+                <TableCell />
+                <TableCell colSpan={puedeConfirmar ? 6 : 5} className="bg-muted/30">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>SKU / Producto</TableHead>
+                        <TableHead className="text-right">Enviado</TableHead>
+                        <TableHead className="text-right">Recibido</TableHead>
+                        <TableHead>Estado ítem</TableHead>
+                        {puedeConfirmar && <TableHead className="text-right">A recibir ahora</TableHead>}
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {remito.items.map((item) => {
+                        const pendiente = item.cantidad - item.cantidad_recibida;
+                        const valorActual = cantidadesPorRemito[remito.id]?.[item.id] ?? 0;
+                        return (
+                          <TableRow key={item.id}>
+                            <TableCell>
+                              <span className="block font-mono text-xs">{item.sku}</span>
+                              <span className="text-xs text-muted-foreground">{item.producto_nombre}</span>
+                            </TableCell>
+                            <TableCell className="text-right">{item.cantidad}</TableCell>
+                            <TableCell className="text-right">{item.cantidad_recibida}</TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className={item.estado_item === "RECIBIDO_TOTAL" ? "border-emerald-400 text-emerald-700" : item.estado_item === "RECIBIDO_PARCIAL" ? "border-amber-400 text-amber-700" : ""}>
+                                {item.estado_item.replaceAll("_", " ")}
+                              </Badge>
+                            </TableCell>
+                            {puedeConfirmar && (
+                              <TableCell className="text-right">
+                                {pendiente > 0 ? (
+                                  <Input
+                                    type="number"
+                                    min={0}
+                                    max={pendiente}
+                                    value={valorActual}
+                                    onChange={(e) => onActualizarCantidad(remito.id, item.id, Number(e.target.value), pendiente)}
+                                    className="ml-auto h-8 w-20"
+                                    aria-label={`Cantidad a recibir de ${item.producto_nombre}`}
+                                  />
+                                ) : (
+                                  <span className="text-xs text-muted-foreground">completo</span>
+                                )}
+                              </TableCell>
+                            )}
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </TableCell>
+              </TableRow>
+            )}
+          </Fragment>
+        );
+      })}</TableBody>
     </Table>
   );
 }

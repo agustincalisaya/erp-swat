@@ -94,7 +94,7 @@ export function MovimientoWizard({ depositos, variantes, puedeRegistrarIngreso, 
             >
               {depositos.map((d) => <option key={d.id} value={d.id}>{d.nombre}</option>)}
             </select>
-            <Button onClick={() => setPaso(2)} disabled={!depositoId}>Siguiente</Button>
+            <Button onClick={() => setPaso(2)} disabled={!depositoId} className="bg-blue-600 text-white hover:bg-blue-700">Siguiente</Button>
           </div>
         )}
 
@@ -144,6 +144,7 @@ export function MovimientoWizard({ depositos, variantes, puedeRegistrarIngreso, 
               <PasoIngreso
                 depositoDestinoId={depositoSeleccionado.id}
                 depositoDestinoNombre={depositoSeleccionado.nombre}
+                variantes={variantes}
               />
             ) : (
               <PasoTransferencia

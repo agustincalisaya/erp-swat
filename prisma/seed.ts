@@ -269,22 +269,29 @@ async function main() {
     { id: MOVIMIENTO_EGRESO_3_ID, cantidad: 40, hace_dias: 10 },
   ];
 
+  // HU-A11 (multi-ítem): MovimientoStock es cabecera pura — variante_sku_id/
+  // cantidad/estado_origen migran a un MovimientoStockItem hijo (uno solo,
+  // este seed sigue siendo de una única variante por egreso).
   for (const egreso of egresos) {
     await prisma.movimientoStock.upsert({
       where: { id: egreso.id },
       update: {},
       create: {
         id: egreso.id,
-        variante_sku_id: varianteSku.id,
         deposito_origen_id: deposito.id,
         deposito_destino_id: null,
         tipo_movimiento: "EGRESO",
-        estado_origen: "DISPONIBLE",
-        cantidad: egreso.cantidad,
         comprobante_referencia: `SEED-EGRESO-${egreso.cantidad}`,
         registrado_por_id: usuario.id,
         created_at: diasAtras(egreso.hace_dias),
         is_active: true,
+        items: {
+          create: {
+            variante_sku_id: varianteSku.id,
+            cantidad: egreso.cantidad,
+            estado_origen: "DISPONIBLE",
+          },
+        },
       },
     });
   }

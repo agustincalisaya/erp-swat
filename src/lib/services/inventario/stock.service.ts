@@ -120,7 +120,14 @@ export async function obtenerStockDisponible(varianteSkuId: string, depositoId: 
   return stock?.cantidad ?? 0;
 }
 
-/** Total físico = disponible en depósitos + unidades actualmente en traslado. */
+/**
+ * Total físico = disponible en depósitos + unidades actualmente en
+ * traslado. HU-A11 (multi-ítem + recepción parcial): "en tránsito" migró de
+ * `TransferenciaStock` (cabecera) a `TransferenciaStockItem`, y un remito
+ * `PARCIAL` solo tiene EN TRÁNSITO la porción todavía no recibida de cada
+ * ítem (`cantidad - cantidad_recibida`), no su `cantidad` despachada
+ * completa — de ahí la resta de sumas en vez de un `_sum.cantidad` directo.
+ */
 export async function obtenerStockFisicoTotal(varianteSkuId: string): Promise<{
   disponible: number;
   en_transito: number;
@@ -131,13 +138,17 @@ export async function obtenerStockFisicoTotal(varianteSkuId: string): Promise<{
       where: { variante_sku_id: varianteSkuId, is_active: true, deleted_at: null },
       _sum: { cantidad: true },
     }),
-    prisma.transferenciaStock.aggregate({
-      where: { variante_sku_id: varianteSkuId, estado: "EN_TRANSITO", is_active: true, deleted_at: null },
-      _sum: { cantidad: true },
+    prisma.transferenciaStockItem.aggregate({
+      where: {
+        variante_sku_id: varianteSkuId,
+        is_active: true,
+        transferencia: { estado: { in: ["EN_TRANSITO", "PARCIAL"] }, is_active: true, deleted_at: null },
+      },
+      _sum: { cantidad: true, cantidad_recibida: true },
     }),
   ]);
   const cantidadDisponible = disponible._sum.cantidad ?? 0;
-  const cantidadTransito = transito._sum.cantidad ?? 0;
+  const cantidadTransito = (transito._sum.cantidad ?? 0) - (transito._sum.cantidad_recibida ?? 0);
   return calcularResumenStock(cantidadDisponible, cantidadTransito);
 }
 
@@ -156,15 +167,21 @@ export async function calcularPromedioMovilEgresos(
   fechaLimite.setDate(1); // normaliza a inicio de mes: evita el desborde de setMonth()
   fechaLimite.setMonth(fechaLimite.getMonth() - input.meses_historico);
 
-  const movimientos = await prisma.movimientoStock.findMany({
+  // HU-A11 (multi-ítem): `variante_sku_id`/`cantidad` migraron de la cabecera
+  // `MovimientoStock` al ítem `MovimientoStockItem` — la consulta ahora parte
+  // del ítem y filtra la cabecera vía la relación `movimiento`.
+  const movimientos = await prisma.movimientoStockItem.findMany({
     where: {
       variante_sku_id: input.variante_sku_id,
-      deposito_origen_id: input.deposito_id,
-      tipo_movimiento: { in: ["EGRESO", "TRANSFERENCIA"] },
       is_active: true,
-      created_at: { gte: fechaLimite },
+      movimiento: {
+        deposito_origen_id: input.deposito_id,
+        tipo_movimiento: { in: ["EGRESO", "TRANSFERENCIA"] },
+        is_active: true,
+        created_at: { gte: fechaLimite },
+      },
     },
-    select: { cantidad: true, created_at: true },
+    select: { cantidad: true, movimiento: { select: { created_at: true } } },
   });
 
   if (movimientos.length === 0) {
@@ -179,9 +196,10 @@ export async function calcularPromedioMovilEgresos(
 
   // Agrupa por mes calendario antes de promediar, para suavizar meses parciales.
   const egresosPorMes = new Map<string, number>();
-  for (const movimiento of movimientos) {
-    const clave = `${movimiento.created_at.getFullYear()}-${movimiento.created_at.getMonth()}`;
-    egresosPorMes.set(clave, (egresosPorMes.get(clave) ?? 0) + movimiento.cantidad);
+  for (const item of movimientos) {
+    const fecha = item.movimiento.created_at;
+    const clave = `${fecha.getFullYear()}-${fecha.getMonth()}`;
+    egresosPorMes.set(clave, (egresosPorMes.get(clave) ?? 0) + item.cantidad);
   }
 
   const totalEgresos = [...egresosPorMes.values()].reduce(
@@ -200,11 +218,88 @@ export async function calcularPromedioMovilEgresos(
   };
 }
 
+export interface DecrementoStockResultado {
+  stock_deposito_id: string;
+  variante_sku_id: string;
+  deposito_id: string;
+  cantidad_resultante: number;
+  punto_pedido: number;
+}
+
 /**
- * HU-7 — Sección 6.3: decrementa `StockDeposito.cantidad` mediante el patrón
- * obligatorio de `updateMany` condicionado (spec_modulo_A.md 3.4). La
- * transacción retorna un objeto plano; la comparación contra `punto_pedido`
- * y la emisión de `stock:umbral_critico_alcanzado` ocurren FUERA de ella.
+ * HU-7 — Sección 6.3: núcleo del decremento condicionado de
+ * `StockDeposito.cantidad` mediante `updateMany` (patrón obligatorio,
+ * spec_modulo_A.md 3.4). Recibe el `tx` del llamador en vez de abrir su
+ * propia transacción — permite componerlo dentro de una transacción más
+ * grande que mezcle varios ítems (HU-A11, `registrarIngresoStock()`), sin
+ * transacciones anidadas. NO compara `punto_pedido` ni emite eventos: eso
+ * queda a cargo del llamador, siempre fuera de cualquier transacción (regla
+ * de emisión ya establecida en todo el proyecto).
+ *
+ * @throws {ServiceError} STOCK_INSUFICIENTE
+ */
+export async function decrementarStockDepositoTx(
+  tx: Prisma.TransactionClient,
+  params: { stockDepositoId: string; cantidadSolicitada: number },
+): Promise<DecrementoStockResultado> {
+  const update = await tx.stockDeposito.updateMany({
+    where: {
+      id: params.stockDepositoId,
+      is_active: true,
+      cantidad: { gte: params.cantidadSolicitada }, // condición evaluada atómicamente por PostgreSQL
+    },
+    data: {
+      cantidad: { decrement: params.cantidadSolicitada },
+    },
+  });
+
+  if (update.count === 0) {
+    throw new ServiceError("STOCK_INSUFICIENTE");
+  }
+
+  const stockActualizado = await tx.stockDeposito.findUniqueOrThrow({
+    where: { id: params.stockDepositoId, is_active: true },
+  });
+
+  return {
+    stock_deposito_id: stockActualizado.id,
+    variante_sku_id: stockActualizado.variante_sku_id,
+    deposito_id: stockActualizado.deposito_id,
+    cantidad_resultante: stockActualizado.cantidad,
+    punto_pedido: stockActualizado.punto_pedido,
+  };
+}
+
+/**
+ * Compara el resultado de un decremento contra `punto_pedido` y emite
+ * `stock:umbral_critico_alcanzado` si corresponde. Extraído para que tanto
+ * `decrementarStockConAlerta()` como `registrarIngresoStock()` (HU-A11, un
+ * decremento por ítem RESTA del lote) compartan la misma regla sin
+ * duplicarla. `punto_pedido = 0` (valor por defecto sin configurar) nunca
+ * dispara alerta. SIEMPRE se invoca fuera de una transacción.
+ */
+export function emitirAlertaUmbralSiCorresponde(
+  resultado: DecrementoStockResultado,
+  movimientoIdOrigen: string,
+): void {
+  if (resultado.punto_pedido > 0 && resultado.cantidad_resultante <= resultado.punto_pedido) {
+    domainEventBus.emit("stock:umbral_critico_alcanzado", {
+      stock_deposito_id: resultado.stock_deposito_id,
+      variante_sku_id: resultado.variante_sku_id,
+      deposito_id: resultado.deposito_id,
+      cantidad_resultante: resultado.cantidad_resultante,
+      punto_pedido: resultado.punto_pedido,
+      movimiento_id_origen: movimientoIdOrigen,
+    });
+  }
+}
+
+/**
+ * HU-7 — Sección 6.3: wrapper transaccional de `decrementarStockDepositoTx()`
+ * para llamadores que no tienen ya una transacción propia en curso (ej.
+ * `reserva.service.ts`). Firma y comportamiento idénticos a los de antes de
+ * HU-A11 — el `$transaction` propio y la emisión post-commit del evento de
+ * umbral siguen ocurriendo acá.
  *
  * Debe invocarse desde todo movimiento que decremente cantidad (egreso,
  * transferencia — lado origen —, ajuste negativo), no solo desde los
@@ -214,49 +309,12 @@ export async function decrementarStockConAlerta(params: {
   stockDepositoId: string;
   cantidadSolicitada: number;
   movimientoIdOrigen: string;
-}) {
-  const resultado = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-    const update = await tx.stockDeposito.updateMany({
-      where: {
-        id: params.stockDepositoId,
-        is_active: true,
-        cantidad: { gte: params.cantidadSolicitada }, // condición evaluada atómicamente por PostgreSQL
-      },
-      data: {
-        cantidad: { decrement: params.cantidadSolicitada },
-      },
-    });
+}): Promise<DecrementoStockResultado> {
+  const resultado = await prisma.$transaction((tx: Prisma.TransactionClient) =>
+    decrementarStockDepositoTx(tx, params),
+  );
 
-    if (update.count === 0) {
-      throw new ServiceError("STOCK_INSUFICIENTE");
-    }
-
-    const stockActualizado = await tx.stockDeposito.findUniqueOrThrow({
-      where: { id: params.stockDepositoId, is_active: true },
-    });
-
-    // La transacción retorna datos planos; NO emite eventos aquí adentro.
-    return {
-      stock_deposito_id: stockActualizado.id,
-      variante_sku_id: stockActualizado.variante_sku_id,
-      deposito_id: stockActualizado.deposito_id,
-      cantidad_resultante: stockActualizado.cantidad,
-      punto_pedido: stockActualizado.punto_pedido,
-    };
-  });
-
-  // Fuera de la transacción: comparación y emisión del evento.
-  // punto_pedido = 0 (valor por defecto sin configurar) no dispara alerta.
-  if (resultado.punto_pedido > 0 && resultado.cantidad_resultante <= resultado.punto_pedido) {
-    domainEventBus.emit("stock:umbral_critico_alcanzado", {
-      stock_deposito_id: resultado.stock_deposito_id,
-      variante_sku_id: resultado.variante_sku_id,
-      deposito_id: resultado.deposito_id,
-      cantidad_resultante: resultado.cantidad_resultante,
-      punto_pedido: resultado.punto_pedido,
-      movimiento_id_origen: params.movimientoIdOrigen,
-    });
-  }
+  emitirAlertaUmbralSiCorresponde(resultado, params.movimientoIdOrigen);
 
   return resultado;
 }

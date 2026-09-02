@@ -85,7 +85,11 @@ const ACCIONES_POR_TIPO_MOVIMIENTO: Record<string, string[]> = {
   INGRESO: ["INGRESO"],
   CREATE: ["CREATE"],
   UPDATE: ["UPDATE"],
-  TRANSFERENCIA: ["TRANSFERENCIA_DESPACHADA", "TRANSFERENCIA_RECIBIDA"],
+  // HU-A11: "RECEPCION_PARCIAL" se suma al mapeo — antes de la recepción
+  // parcial, `TRANSFERENCIA_RECIBIDA` era la única acción posible tras el
+  // despacho; ahora una confirmación puede quedar en `PARCIAL` en vez de
+  // `RECIBIDA` (ver `audit-log.listener.ts`).
+  TRANSFERENCIA: ["TRANSFERENCIA_DESPACHADA", "TRANSFERENCIA_RECIBIDA", "RECEPCION_PARCIAL"],
   DELETE: ["DELETE_LOGICO"],
 };
 
@@ -224,13 +228,17 @@ export async function obtenerLogsInventario(
     const varianteIds = variantesCoincidentes.map((v) => v.id);
     const productoIds = productosCoincidentes.map((p) => p.id);
 
+    // HU-A11 (multi-ítem): `variante_sku_id` migró de `MovimientoStock` a
+    // `MovimientoStockItem` — el salto variante → movimientos que la
+    // referencian ahora pasa por el ítem, tomando el `movimiento_id` padre.
     const movimientosCoincidentes = varianteIds.length
-      ? await prisma.movimientoStock.findMany({
+      ? await prisma.movimientoStockItem.findMany({
           where: { variante_sku_id: { in: varianteIds } },
-          select: { id: true },
+          select: { movimiento_id: true },
+          distinct: ["movimiento_id"],
         })
       : [];
-    const movimientoIds = movimientosCoincidentes.map((m) => m.id);
+    const movimientoIds = movimientosCoincidentes.map((m) => m.movimiento_id);
 
     const registroIdsResueltos = [...varianteIds, ...productoIds, ...movimientoIds];
 

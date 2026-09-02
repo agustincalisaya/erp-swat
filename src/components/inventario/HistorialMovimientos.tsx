@@ -100,12 +100,17 @@ export function HistorialMovimientos({ depositos }: Props) {
 
   const columnas: ColumnaTabla<MovimientoHistorialItem>[] = [
     {
-      clave: "sku",
-      encabezado: "SKU",
+      clave: "productos",
+      encabezado: "Producto(s)",
+      // HU-A11 (multi-ítem): una fila ahora puede tener N ítems — se resume
+      // como "N productos" en vez de mostrar un SKU singular (igual que
+      // "Cantidad" pasa a ser la suma de todos los ítems del movimiento).
       render: (m) => (
         <div>
-          <span className="block font-mono text-xs">{m.variante_sku}</span>
-          <span className="text-xs text-muted-foreground">{m.producto_nombre}</span>
+          <span className="block font-medium">{m.items_count} producto{m.items_count === 1 ? "" : "s"}</span>
+          {m.items_count === 1 && (
+            <span className="text-xs text-muted-foreground">{m.items[0].producto_nombre}</span>
+          )}
         </div>
       ),
     },
@@ -124,7 +129,7 @@ export function HistorialMovimientos({ depositos }: Props) {
         </span>
       ),
     },
-    { clave: "cantidad", encabezado: "Cantidad", render: (m) => m.cantidad, alinear: "derecha" },
+    { clave: "cantidad", encabezado: "Cantidad", render: (m) => m.cantidad_total, alinear: "derecha" },
     { clave: "registrado_por", encabezado: "Registrado por", render: (m) => m.registrado_por },
     { clave: "fecha", encabezado: "Fecha", render: (m) => formatearFechaHora(m.created_at) },
     {

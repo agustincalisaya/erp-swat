@@ -64,7 +64,10 @@ export default async function MovimientosPage() {
 
   const [depositos, variantes, transferencias] = await Promise.all([
     listarDepositosActivos(),
-    puedeTransferir ? listarVariantesTransferibles() : [],
+    // HU-A11: PasoIngreso también busca producto por nombre/SKU con este
+    // mismo catálogo (además de PasoTransferencia) — se carga si puede
+    // cualquiera de las dos operaciones, no solo transferir.
+    puedeRegistrarIngreso || puedeTransferir ? listarVariantesTransferibles() : [],
     puedeTransferir || puedeConfirmar ? listarTransferenciasPendientes() : [],
   ]);
 

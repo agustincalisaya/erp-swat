@@ -190,47 +190,64 @@ export const IMPACTO_STOCK_POR_ESTADO_DESTINO: Record<IngresoEstadoDestino, Impa
   BAJA_MERMA: "RESTA",
 };
 
-export const RegistrarIngresoPorEscaneoSchema = z.object({
+const CantidadPositivaSchema = z.preprocess(
+  (val) => (val === "" || val === undefined || val === null ? undefined : Number(val)),
+  z
+    .number({
+      invalid_type_error: "Este campo es requerido",
+      required_error: "Este campo es requerido",
+    })
+    .int("Debe ser un número entero")
+    .positive("La cantidad debe ser mayor a 0"),
+);
+
+/** HU-A11 (multi-ítem) — un ítem del carrito de ingreso: variante + cantidad + estado propio. */
+export const IngresoItemSchema = z.object({
   variante_sku_id: z.string().uuid("Código no resuelto: variante inválida"),
+  cantidad: CantidadPositivaSchema,
+  estado_destino: z.enum(ESTADOS_DESTINO_INGRESO),
+  /**
+   * El modelo de datos actual (`VarianteSKU`) representa un modelo genérico
+   * (talle+color+género+modelo), no una unidad serializada individual.
+   * Se acepta por compatibilidad con el formulario del escáner pero no se
+   * persiste salvo que la variante sea serializada (`numero_serie` migra al
+   * ítem cuando corresponde).
+   */
+  numero_serie: z.string().trim().optional(),
+});
+
+/**
+ * HU-A11 (multi-ítem) — registro de ingreso en lote: un `deposito_destino_id`
+ * y `comprobante_referencia` compartidos por toda la cabecera, con 1+ ítems
+ * (cada uno con su propia variante/cantidad/estado, ver `IngresoItemSchema`).
+ */
+export const RegistrarIngresoPorEscaneoSchema = z.object({
   deposito_destino_id: z.string().uuid("Seleccioná un depósito destino"),
-  cantidad: z.preprocess(
-    (val) =>
-      val === "" || val === undefined || val === null ? undefined : Number(val),
-    z
-      .number({
-        invalid_type_error: "Este campo es requerido",
-        required_error: "Este campo es requerido",
-      })
-      .int("Debe ser un número entero")
-      .positive("La cantidad debe ser mayor a 0"),
-  ),
   comprobante_referencia: z
     .string()
     .max(100, "Máximo 100 caracteres")
     .trim()
     .default(""),
-  estado_destino: z.enum(ESTADOS_DESTINO_INGRESO),
-  /**
-   * El modelo de datos actual (`VarianteSKU`) representa un modelo genérico
-   * (talle+color+género+modelo), no una unidad serializada individual.
-   * Estos campos se aceptan por compatibilidad con el formulario del
-   * escáner pero no se persisten.
-   */
-  es_serializado: z.boolean().default(false),
-  numero_serie: z.string().trim().optional(),
+  items: z.array(IngresoItemSchema).min(1, "Agregá al menos un ítem al carrito"),
 });
 
+export type IngresoItemInput = z.infer<typeof IngresoItemSchema>;
 export type RegistrarIngresoPorEscaneoInput = z.infer<
   typeof RegistrarIngresoPorEscaneoSchema
 >;
 
-// HU-5 — Transferencia interna en dos fases
+/** HU-A11 (multi-ítem) — un ítem del carrito de transferencia: variante + cantidad. */
+export const TransferenciaItemSchema = z.object({
+  variante_sku_id: z.string().uuid(),
+  cantidad: z.number().int().positive(),
+});
+
+// HU-5 — Transferencia interna en dos fases (HU-A11: multi-ítem)
 export const CrearTransferenciaSchema = z
   .object({
-    variante_sku_id: z.string().uuid(),
     deposito_origen_id: z.string().uuid(),
     deposito_destino_id: z.string().uuid(),
-    cantidad: z.number().int().positive(),
+    items: z.array(TransferenciaItemSchema).min(1, "Agregá al menos un ítem al carrito"),
   })
   .refine((data) => data.deposito_origen_id !== data.deposito_destino_id, {
     message: "El depósito de origen y destino no pueden ser iguales",
@@ -242,6 +259,28 @@ export const BajaTransferenciaSchema = z.object({
 });
 
 export const TransferenciaIdSchema = z.string().uuid("El ID de transferencia es inválido");
+
+/** HU-A11 — recepción (total o parcial) de una `TransferenciaStock`: cuánto se recibió de cada ítem. */
+export const ConfirmarRecepcionTransferenciaSchema = z.object({
+  transferencia_id: z.string().uuid("El ID de transferencia es inválido"),
+  items: z
+    .array(
+      z.object({
+        transferencia_item_id: z.string().uuid(),
+        cantidad_recibida: z.number().int().positive(),
+      }),
+    )
+    .min(1, "Marcá al menos un ítem con cantidad a recibir"),
+});
+
+export type ConfirmarRecepcionTransferenciaInput = z.infer<
+  typeof ConfirmarRecepcionTransferenciaSchema
+>;
+
+/** Mismo contrato que `ConfirmarRecepcionTransferenciaSchema` sin `transferencia_id` — para el Route Handler REST, que ya lo recibe en la URL (`/api/inventario/transferencias/[id]/recepcion`). */
+export const ConfirmarRecepcionTransferenciaBodySchema = ConfirmarRecepcionTransferenciaSchema.omit({
+  transferencia_id: true,
+});
 
 /**
  * Exportado (originalmente privado de este módulo) para que
