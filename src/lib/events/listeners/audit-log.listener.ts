@@ -477,4 +477,48 @@ export function iniciarAuditLogListener(): void {
       },
     });
   });
+
+  // HU-A10 — congelamiento de Reserva (spec_modulo_A.md §2.9). El service
+  // (`reserva.service.ts`) nunca llama `registrarAuditLog()` directo: emite
+  // el evento y este listener reacciona (misma regla de unificación que el
+  // resto del proyecto). `tabla_afectada` usa el `@@map` en minúsculas
+  // (`reservas`); `ip: "internal-event"` — mismo sentinel que los listeners
+  // que emiten post-COMMIT desde un service sin request HTTP directo.
+  domainEventBus.on("stock:reserva_congelada", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "RESERVA_CONGELADA",
+      tabla_afectada: "reservas",
+      registro_id: payload.reserva_id,
+      ip: "internal-event",
+      valor_anterior: null,
+      valor_nuevo: {
+        variante_sku_id: payload.variante_sku_id,
+        deposito_id: payload.deposito_id,
+        origen_reserva: payload.origen_reserva,
+        cantidad: payload.cantidad,
+      },
+    });
+  });
+
+  // HU-A10 — liberación de Reserva por venta confirmada o por TTL vencido.
+  // `usuario_id: null`: la vía TTL la dispara el cron (agente del sistema) y
+  // el payload no transporta actor (ver `ReservaLiberadaPayload`); la vía se
+  // distingue por `motivo_liberacion`. `registrarAuditLog` y
+  // `AuditLog.usuario_id` aceptan `null`.
+  domainEventBus.on("stock:reserva_liberada", (payload) => {
+    void registrarAuditLog({
+      usuario_id: null,
+      accion: "RESERVA_LIBERADA",
+      tabla_afectada: "reservas",
+      registro_id: payload.reserva_id,
+      ip: "internal-event",
+      valor_anterior: { fecha_fin_reserva: null },
+      valor_nuevo: {
+        motivo_liberacion: payload.motivo_liberacion,
+        variante_sku_id: payload.variante_sku_id,
+        cantidad: payload.cantidad,
+      },
+    });
+  });
 }

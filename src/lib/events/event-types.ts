@@ -361,6 +361,35 @@ export interface CuentaPorPagarEstadoCambiadoPayload {
   deletion_reason: string | null;
 }
 
+/**
+ * HU-A10 — Payload emitido tras el congelamiento de una `Reserva`
+ * (`crearReserva()`, spec_modulo_A.md §2.9). Se emite SOLO después de que
+ * `prisma.$transaction` resuelve, nunca dentro (regla de emisión §4).
+ */
+export interface ReservaCongeladaPayload {
+  reserva_id: string;
+  variante_sku_id: string;
+  deposito_id: string;
+  usuario_id: string;
+  origen_reserva: "SENIA" | "LICITACION" | "PEDIDO_INSTITUCIONAL";
+  cantidad: number;
+}
+
+/**
+ * HU-A10 — Payload emitido tras la liberación de una `Reserva`, por venta
+ * confirmada (`confirmarReservaPorVenta()`) o por TTL vencido
+ * (`liberarReservasVencidas()`, cron). `motivo_liberacion` distingue la vía.
+ * Emisión post-`$transaction` (§4). No incluye `usuario_id`: la vía TTL la
+ * dispara el cron (agente del sistema, sin usuario humano); el listener
+ * registra la auditoría con `usuario_id: null`.
+ */
+export interface ReservaLiberadaPayload {
+  reserva_id: string;
+  motivo_liberacion: "VENTA" | "TTL_VENCIDO";
+  variante_sku_id: string;
+  cantidad: number;
+}
+
 /** Mapa evento → payload, usado por `domain-event-bus.ts` para tipar `emit`/`on`. */
 export interface DomainEventMap {
   /** HU-A1: se emite tras el alta de un ProductoMaestro. */
@@ -407,6 +436,10 @@ export interface DomainEventMap {
   "proveedor:estado_cambiado": ProveedorEstadoCambiadoPayload;
   /** HU-G8: se emite tras cada transición de estado de una CuentaPorPagar (CREAR/DEFINIR/PAGAR/CANCELAR). */
   "cuenta_por_pagar:estado_cambiado": CuentaPorPagarEstadoCambiadoPayload;
+  /** HU-A10: se emite tras el congelamiento de una Reserva (DISPONIBLE → RESERVADO). */
+  "stock:reserva_congelada": ReservaCongeladaPayload;
+  /** HU-A10: se emite tras la liberación de una Reserva (venta confirmada o TTL vencido). */
+  "stock:reserva_liberada": ReservaLiberadaPayload;
 }
 
 export type DomainEventName = keyof DomainEventMap;

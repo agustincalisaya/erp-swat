@@ -63,6 +63,8 @@ const PERMISO_ROLES_ADMINISTRAR_ID = "9b1217cb-3802-4ad0-b026-ed95b0b8b6e4";
 const PERMISO_INVENTARIO_OPERAR_ID = "874a1bb2-fb27-4d51-97b0-c29288bfb01c";
 const PERMISO_TRANSFERIR_STOCK_ID = "3e87e12f-091f-4a18-a645-8916fca01379";
 const PERMISO_CONFIRMAR_RECEPCION_ID = "90cfd9eb-e6f1-47c5-a570-d7f92dc21d04";
+const PERMISO_RESERVAR_STOCK_ID = "b1f7c2a4-3d9e-4c1b-8a6f-0e2d4c6a8b10";
+const PERMISO_CONFIRMAR_RESERVA_ID = "c2e8d3b5-4a1f-4d2c-9b7a-1f3e5d7b9c21";
 const ROL_AUDITOR_ID = "cfe51d79-332c-4217-8906-481f2a94a1cc";
 const ROL_ADMINISTRADOR_ID = "2998bb21-960c-474c-8941-848d1f20038e";
 const ROL_ENCARGADO_DEPOSITO_ID = "1ce2f5fc-8b66-4496-82de-36d434bc79aa";
@@ -411,6 +413,21 @@ async function main() {
     create: { id: PERMISO_CONFIRMAR_RECEPCION_ID, codigo: "inventario:confirmar_recepcion", descripcion: "Confirmar la recepción física de una transferencia", modulo: "MODULO_A" },
   });
 
+  // HU-A10 — permisos granulares del servicio centralizado de Reserva
+  // (spec_modulo_A.md §2.9). Separados por acción, mismo patrón que
+  // `inventario:transferir_stock` / `inventario:confirmar_recepcion`.
+  // Pendiente: asignar a rol de Módulo B/E cuando se implemente HU-B3/HU-E1
+  const permisoReservarStock = await prisma.permiso.upsert({
+    where: { id: PERMISO_RESERVAR_STOCK_ID },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: { id: PERMISO_RESERVAR_STOCK_ID, codigo: "inventario:reservar_stock", descripcion: "Congelar stock creando una Reserva (seña, licitación o pedido institucional)", modulo: "MODULO_A" },
+  });
+  const permisoConfirmarReserva = await prisma.permiso.upsert({
+    where: { id: PERMISO_CONFIRMAR_RESERVA_ID },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: { id: PERMISO_CONFIRMAR_RESERVA_ID, codigo: "inventario:confirmar_reserva", descripcion: "Liberar una Reserva por venta confirmada (RESERVADO → VENDIDO)", modulo: "MODULO_A" },
+  });
+
   const rolEncargadoDeposito = await prisma.rol.upsert({
     where: { id: ROL_ENCARGADO_DEPOSITO_ID },
     update: REACTIVAR_REFERENCIA_RBAC,
@@ -438,7 +455,7 @@ async function main() {
   });
 
   for (const rol of [rolEncargadoDeposito, rolAdministrador]) {
-    for (const permiso of [permisoTransferirStock, permisoConfirmarRecepcion]) {
+    for (const permiso of [permisoTransferirStock, permisoConfirmarRecepcion, permisoReservarStock, permisoConfirmarReserva]) {
       await prisma.rolPermiso.upsert({
         where: { rol_id_permiso_id: { rol_id: rol.id, permiso_id: permiso.id } },
         update: REACTIVAR_REFERENCIA_RBAC,
