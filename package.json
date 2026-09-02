@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --experimental-strip-types --test src/lib/utils/sku.test.ts src/lib/services/inventario/transferencia.test.ts src/lib/services/proveedores/evaluacion.calculo.test.ts src/lib/services/proveedores/evaluacion.service.test.ts src/lib/services/tesoreria/cuenta-por-pagar.monto.test.ts src/lib/services/tesoreria/cuenta-por-pagar.estado.test.ts"
+    "test": "node --experimental-strip-types --test src/lib/utils/sku.test.ts src/lib/services/inventario/transferencia.test.ts src/lib/services/proveedores/evaluacion.calculo.test.ts src/lib/services/proveedores/evaluacion.service.test.ts src/lib/services/tesoreria/cuenta-por-pagar.monto.test.ts src/lib/services/tesoreria/cuenta-por-pagar.estado.test.ts src/lib/events/listeners/cuenta-por-pagar.listener.routing.test.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

@@ -38,3 +38,12 @@ export const domainEventBus = new DomainEventBus();
 void import("@/lib/events/listeners/audit-log.listener").then(({ iniciarAuditLogListener }) => {
   iniciarAuditLogListener();
 });
+
+// HU-G8 (spec_modulo_G.md §4.3) — segundo import dinámico de registro: el
+// listener REACTIVO de Cuentas por Pagar. Va DESPUÉS del de `audit-log.listener`
+// a propósito — el `EventEmitter` despacha a sus handlers en orden de registro,
+// así el asiento de auditoría de la propia `OrdenCompra` se encola antes de que
+// arranque la reacción de `CuentaPorPagar`.
+void import("@/lib/events/listeners/cuenta-por-pagar.listener").then(({ iniciarCuentaPorPagarListener }) => {
+  iniciarCuentaPorPagarListener();
+});

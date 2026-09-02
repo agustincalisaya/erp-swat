@@ -436,4 +436,45 @@ export function iniciarAuditLogListener(): void {
       },
     });
   });
+
+  // HU-G8 — transición de estado de CuentaPorPagar (spec_modulo_G.md §3.3 /
+  // §4.2). Emitido post-COMMIT por las tres ramas del listener reactivo
+  // (`cuenta-por-pagar.listener.ts`: CREAR / DEFINIR / CANCELAR) y por la
+  // mutación manual de pago (`marcarCuentaPorPagarPagada()`: PAGAR).
+  //
+  // `CANCELAR` mapea a `UPDATE_ESTADO`, NO a `DELETE_LOGICO` — diverge a
+  // propósito del handler de `orden_compra:estado_cambiado` (arriba), donde su
+  // `CANCELAR` sí es baja lógica. Acá una `CuentaPorPagar` CANCELADA conserva
+  // `is_active: true` (spec §3.4): es un cambio de estado funcional, no un
+  // soft-delete. Solo `CREAR` (la cuenta nace) mapea a `CREATE`.
+  //
+  // `ip: "internal-event"` — mismo sentinel que `orden_compra:*` /
+  // `proveedor:*`, que también emiten post-COMMIT desde un service sin request
+  // HTTP directo asociado.
+  domainEventBus.on("cuenta_por_pagar:estado_cambiado", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.cambiado_por,
+      accion: payload.accion === "CREAR" ? "CREATE" : "UPDATE_ESTADO",
+      tabla_afectada: "cuentas_por_pagar",
+      registro_id: payload.cuenta_por_pagar_id,
+      ip: "internal-event",
+      valor_anterior:
+        payload.accion === "CREAR"
+          ? null
+          : { estado: payload.estado_anterior, monto: payload.monto_anterior },
+      valor_nuevo: {
+        estado: payload.estado_nuevo,
+        accion: payload.accion,
+        monto: payload.monto_nuevo,
+        orden_compra_id: payload.orden_compra_id,
+        numero_orden: payload.numero_orden,
+        proveedor_id: payload.proveedor_id,
+        ...(payload.recepcion_id ? { recepcion_id: payload.recepcion_id } : {}),
+        ...(payload.fecha_pago ? { fecha_pago: payload.fecha_pago } : {}),
+        ...(payload.deletion_reason
+          ? { deletion_reason: payload.deletion_reason }
+          : {}),
+      },
+    });
+  });
 }
