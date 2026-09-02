@@ -852,10 +852,11 @@ model Recepcion {
   updated_at DateTime @updatedAt
 
   // --- Relaciones ---
-  orden_compra      OrdenCompra      @relation(fields: [orden_compra_id], references: [id], onDelete: Restrict)
-  recibida_por      Usuario          @relation("RecepcionRecibidaPor", fields: [recibida_por_id], references: [id], onDelete: Restrict)
+  orden_compra      OrdenCompra          @relation(fields: [orden_compra_id], references: [id], onDelete: Restrict)
+  recibida_por      Usuario              @relation("RecepcionRecibidaPor", fields: [recibida_por_id], references: [id], onDelete: Restrict)
   items             RecepcionItem[]
   cuentas_por_pagar CuentaPorPagar[]
+  evaluacion        EvaluacionProveedor?
 
   @@index([orden_compra_id])
   @@map("recepciones")
@@ -928,6 +929,12 @@ enum TipoDiscrepancia {
 model EvaluacionProveedor {
   id                          String  @id @default(uuid())
   proveedor_id                String
+  /// Recepción que originó esta evaluación (fix de idempotencia/trazabilidad,
+  /// HU-H5): `recepcion_id` es único porque cada `Recepcion` dispara como
+  /// máximo una `EvaluacionProveedor` — reintentar la invocación con el mismo
+  /// `recepcion_id` (ej. reintento de red desde `recepcion.service.ts`) debe
+  /// devolver la evaluación ya creada, nunca duplicarla.
+  recepcion_id                String  @unique
   puntaje_cumplimiento_plazos Int // 0-100
   puntaje_calidad_recepcion   Int // 0-100
   puntaje_documentacion       Int // 0-100
@@ -955,6 +962,7 @@ model EvaluacionProveedor {
 
   // --- Relaciones ---
   proveedor    Proveedor @relation(fields: [proveedor_id], references: [id], onDelete: Restrict)
+  recepcion    Recepcion @relation(fields: [recepcion_id], references: [id], onDelete: Restrict)
   evaluado_por Usuario   @relation("EvaluacionRegistradaPor", fields: [evaluado_por_id], references: [id], onDelete: Restrict)
 
   @@index([proveedor_id, fecha_evaluacion])
