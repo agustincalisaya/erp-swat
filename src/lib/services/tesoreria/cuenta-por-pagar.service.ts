@@ -98,7 +98,11 @@ export interface CuentaPorPagarResumen {
   id: string;
   orden_compra_id: string;
   recepcion_id: string | null;
-  /** Serializado a `string` (nunca `number`): un valor monetario no pasa por IEEE-754. */
+  /**
+   * Serializado con `.toFixed(2)` → `string` de 2 decimales fijos (nunca
+   * `number`: un valor monetario no pasa por IEEE-754). Escala fija sin
+   * importar el camino aritmético que produjo el `Decimal`.
+   */
   monto: string;
   estado: EstadoCuentaPorPagar;
   fecha_vencimiento: Date | null;
@@ -223,7 +227,7 @@ export async function generarCuentaPorPagarProvisoria(
       accion: "CREAR",
       cambiado_por: payload.cambiado_por,
       monto_anterior: null,
-      monto_nuevo: monto.toString(),
+      monto_nuevo: monto.toFixed(2),
       recepcion_id: null,
       fecha_vencimiento: null,
       fecha_pago: null,
@@ -311,8 +315,8 @@ export async function consolidarCuentaPorPagarDefinitiva(
       estado_nuevo: "DEFINITIVA",
       accion: "DEFINIR",
       cambiado_por: payload.cambiado_por,
-      monto_anterior: provisoria.monto.toString(),
-      monto_nuevo: monto.toString(),
+      monto_anterior: provisoria.monto.toFixed(2),
+      monto_nuevo: monto.toFixed(2),
       recepcion_id: recepcionId,
       fecha_vencimiento: null,
       fecha_pago: null,
@@ -366,7 +370,7 @@ export async function cancelarCuentaPorPagar(
     });
     if (cambio.count === 0) return null;
 
-    const montoStr = provisoria.monto.toString();
+    const montoStr = provisoria.monto.toFixed(2);
     return {
       cuenta_por_pagar_id: provisoria.id,
       orden_compra_id: payload.orden_compra_id,
@@ -457,7 +461,7 @@ export async function marcarCuentaPorPagarPagada(
 
   // Post-COMMIT (mismo patrón que `orden-compra.service.ts:432`): evento de
   // dominio → `audit-log.listener.ts` (asiento SHA-256) y Módulo H (`PAGAR`).
-  const montoStr = resultado.monto.toString();
+  const montoStr = resultado.monto.toFixed(2);
   domainEventBus.emit("cuenta_por_pagar:estado_cambiado", {
     cuenta_por_pagar_id: cuentaPorPagarId,
     orden_compra_id: resultado.orden_compra_id,
@@ -492,7 +496,7 @@ export async function marcarCuentaPorPagarPagada(
  * `is_active: true`; expone `estado` tal cual (incluido `PROVISORIO`, ver
  * §3.1). El `select` del proveedor es una whitelist estricta de 5 campos:
  * NUNCA `include`, NUNCA `datos_bancarios_cifrado` / `datos_bancarios_iv`
- * (Alcance §5.1). `monto` se mapea a `string` vía `.toString()`.
+ * (Alcance §5.1). `monto` se mapea a `string` de 2 decimales vía `.toFixed(2)`.
  */
 export async function listarCuentasPorPagar(
   filtros: FiltrosListadoCuentasPorPagar,
@@ -549,7 +553,7 @@ export async function listarCuentasPorPagar(
     id: f.id,
     orden_compra_id: f.orden_compra_id,
     recepcion_id: f.recepcion_id,
-    monto: f.monto.toString(),
+    monto: f.monto.toFixed(2),
     estado: f.estado,
     fecha_vencimiento: f.fecha_vencimiento,
     fecha_pago: f.fecha_pago,
