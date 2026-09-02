@@ -43,15 +43,20 @@ export function iniciarAuditLogListener(): void {
     });
   });
 
-  domainEventBus.on("stock:transferencia_recibida", (payload) => {
+  // HU-A11 — recepción total o parcial de una TransferenciaStock. La acción
+  // distingue ambos casos (`accion` no es un valor fijo como en el resto de
+  // los listeners de este archivo) porque `estado_transferencia` recién se
+  // conoce en el payload, no en el nombre del evento — un único evento cubre
+  // las dos transiciones posibles (spec de la tarea, punto 4).
+  domainEventBus.on("stock:transferencia_recepcion_confirmada", (payload) => {
     void registrarAuditLog({
       usuario_id: payload.usuario_id,
-      accion: "TRANSFERENCIA_RECIBIDA",
+      accion: payload.estado_transferencia === "RECIBIDA" ? "TRANSFERENCIA_RECIBIDA" : "RECEPCION_PARCIAL",
       tabla_afectada: "transferencias_stock",
       registro_id: payload.transferencia_id,
       ip: "internal-event",
       valor_anterior: { estado: "EN_TRANSITO" },
-      valor_nuevo: { estado: "RECIBIDA", ...payload },
+      valor_nuevo: { estado: payload.estado_transferencia, ...payload },
     });
   });
 
@@ -327,10 +332,8 @@ export function iniciarAuditLogListener(): void {
       ip: "unknown",
       valor_anterior: null,
       valor_nuevo: {
-        variante_sku_id: payload.variante_sku_id,
         deposito_destino_id: payload.deposito_destino_id,
-        cantidad: payload.cantidad,
-        cantidad_resultante: payload.cantidad_resultante,
+        items: payload.items,
       },
     });
   });

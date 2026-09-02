@@ -74,30 +74,65 @@ export interface UmbralCriticoAlcanzadoPayload {
 /**
  * HU-2 — Payload emitido tras registrar un ingreso de mercadería por
  * escaneo (creación de `MovimientoStock` tipo INGRESO + incremento de
- * `StockDeposito.cantidad`).
+ * `StockDeposito.cantidad`). Desde HU-A11 (multi-ítem) cubre un lote de
+ * ítems en un único `MovimientoStock` cabecera — nunca un evento por ítem.
  */
+export interface IngresoStockRegistradoItemPayload {
+  variante_sku_id: string;
+  cantidad: number;
+  estado_destino: string;
+  cantidad_resultante: number;
+}
+
 export interface IngresoStockRegistradoPayload {
   movimiento_id: string;
-  variante_sku_id: string;
   deposito_destino_id: string;
-  cantidad: number;
-  cantidad_resultante: number;
+  items: IngresoStockRegistradoItemPayload[];
   usuario_id: string;
+}
+
+/** HU-A11 (multi-ítem) — línea de una `TransferenciaStock` al despacharse. */
+export interface TransferenciaStockItemPayload {
+  variante_sku_id: string;
+  cantidad: number;
 }
 
 export interface TransferenciaStockPayload {
   transferencia_id: string;
   remito_id: string;
   movimiento_id: string;
-  variante_sku_id: string;
   deposito_origen_id: string;
   deposito_destino_id: string;
-  cantidad: number;
+  items: TransferenciaStockItemPayload[];
   usuario_id: string;
 }
 
-export interface TransferenciaStockRecibidaPayload extends TransferenciaStockPayload {
-  recibida_at: string;
+/**
+ * HU-A11 — línea de una `TransferenciaStock` con el estado de recepción
+ * alcanzado por ese ítem tras una confirmación (posiblemente parcial).
+ */
+export interface TransferenciaStockItemRecibidoPayload {
+  variante_sku_id: string;
+  cantidad_recibida: number;
+  estado_item: "PENDIENTE" | "RECIBIDO_PARCIAL" | "RECIBIDO_TOTAL";
+}
+
+/**
+ * HU-A11 — Payload emitido tras confirmar la recepción (total o parcial) de
+ * una `TransferenciaStock`. Reemplaza al antiguo `TransferenciaStockRecibidaPayload`
+ * (todo-o-nada): `estado_transferencia` distingue si la cabecera quedó
+ * `PARCIAL` o `RECIBIDA`; `recibida_at` solo se completa en este último caso.
+ */
+export interface TransferenciaStockRecepcionConfirmadaPayload {
+  transferencia_id: string;
+  remito_id: string;
+  movimiento_id: string;
+  deposito_origen_id: string;
+  deposito_destino_id: string;
+  items: TransferenciaStockItemRecibidoPayload[];
+  estado_transferencia: "PARCIAL" | "RECIBIDA";
+  usuario_id: string;
+  recibida_at: string | null;
 }
 
 export interface TransferenciaStockBajaPayload {
@@ -364,7 +399,8 @@ export interface DomainEventMap {
   "inventario:ingreso_stock_registrado": IngresoStockRegistradoPayload;
   /** HU-A5: eventos de transferencia de stock entre depósitos. */
   "stock:transferencia_iniciada": TransferenciaStockPayload;
-  "stock:transferencia_recibida": TransferenciaStockRecibidaPayload;
+  /** HU-A11: se emite tras confirmar una recepción total o parcial. */
+  "stock:transferencia_recepcion_confirmada": TransferenciaStockRecepcionConfirmadaPayload;
   "stock:transferencia_baja_logica": TransferenciaStockBajaPayload;
   /** HU-A6: baja lógica de una VarianteSKU. */
   "inventario:variante_baja_logica": VarianteBajaLogicaPayload;
