@@ -171,11 +171,21 @@ export async function resolverCodigoEscaneo(
  * @throws {ServiceError} DEPOSITO_NO_ENCONTRADO
  * @throws {ServiceError} STOCK_INSUFICIENTE
  */
-export async function registrarIngresoStock(
+export interface RegistrarIngresoStockTxOptions {
+  /** Vincula el movimiento 1:1 con la recepción que lo originó (HU-H4). */
+  recepcionId?: string;
+}
+
+/**
+ * Núcleo transaccional reutilizable del ingreso de stock. No abre una
+ * transacción ni emite eventos: el caller es dueño de ambos límites.
+ */
+export async function registrarIngresoStockTx(
+  tx: Prisma.TransactionClient,
   input: RegistrarIngresoPorEscaneoInput,
   usuarioId: string,
-): Promise<IngresoRegistrado> {
-  const resultado = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+  options: RegistrarIngresoStockTxOptions = {},
+) {
     const deposito = await tx.deposito.findFirst({
       where: { id: input.deposito_destino_id, is_active: true, deleted_at: null },
     });
@@ -278,12 +288,26 @@ export async function registrarIngresoStock(
         tipo_movimiento: "INGRESO",
         comprobante_referencia: input.comprobante_referencia || null,
         registrado_por_id: usuarioId,
+        recepcion_id: options.recepcionId ?? null,
         items: { createMany: { data: itemsCreacion } },
       },
     });
 
-    return { movimiento_id: movimiento.id, items: itemsResultado, alertasPendientes };
-  });
+  return {
+    movimiento_id: movimiento.id,
+    deposito_destino_id: input.deposito_destino_id,
+    items: itemsResultado,
+    alertasPendientes,
+  };
+}
+
+export async function registrarIngresoStock(
+  input: RegistrarIngresoPorEscaneoInput,
+  usuarioId: string,
+): Promise<IngresoRegistrado> {
+  const resultado = await prisma.$transaction((tx: Prisma.TransactionClient) =>
+    registrarIngresoStockTx(tx, input, usuarioId),
+  );
 
   domainEventBus.emit("inventario:ingreso_stock_registrado", {
     movimiento_id: resultado.movimiento_id,
