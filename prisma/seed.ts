@@ -126,6 +126,15 @@ const PERMISO_OC_CONFIRMAR_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000007";
 const PERMISO_OC_CERRAR_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000008";
 const PERMISO_OC_CANCELAR_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000009";
 
+// HU-H1 — permisos granulares de Proveedor (spec_modulo_H.md §2.1/§2.2: un
+// permiso independiente por acción, NO un único `proveedores:administrar`).
+// Reemplazan al placeholder `PERMISO_PROVEEDORES_ADMINISTRAR_ID`.
+const PERMISO_PROVEEDORES_CREAR_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000010";
+const PERMISO_PROVEEDORES_EDITAR_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000011";
+const PERMISO_PROVEEDORES_LEER_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000012";
+const PERMISO_PROVEEDORES_HOMOLOGAR_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000013";
+const PERMISO_PROVEEDORES_BAJA_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000014";
+
 const PROVEEDOR_HOMOLOGADO_ID = "1a2b3c4d-6666-4a1a-8a1a-000000000001";
 const PROVEEDOR_PENDIENTE_ID = "1a2b3c4d-6666-4a1a-8a1a-000000000002";
 
@@ -850,22 +859,69 @@ async function main() {
   }
 
   // ── Módulo D — RBAC: Sprint 2 (Compras/Proveedores — Módulo H, Tesorería — Módulo G) ─
-  //
-  // Mismo patrón placeholder que permisoInventarioOperar: permisos genéricos
-  // por ahora, a reemplazar por RBAC granular cuando el equipo lo defina.
 
-  const permisoProveedoresAdministrar = await prisma.permiso.upsert({
+  await prisma.permiso.upsert({
     where: { id: PERMISO_PROVEEDORES_ADMINISTRAR_ID },
-    update: REACTIVAR_REFERENCIA_RBAC,
+    update: {
+      // El placeholder queda permanentemente desactivado: lo reemplazan los
+      // permisos granulares de HU-H1 (bloque siguiente). Idempotente: el
+      // update re-afirma el estado inactivo en cada corrida del seed.
+      is_active: false,
+      deletion_reason:
+        "Reemplazado por permisos granulares de HU-H1 (proveedores:crear|editar|leer|homologar|baja)",
+    },
     create: {
       id: PERMISO_PROVEEDORES_ADMINISTRAR_ID,
       codigo: "proveedores:administrar",
       descripcion:
         "PLACEHOLDER — alta, homologación y suspensión de proveedores (HU-H1). " +
-        "Reemplazar por permisos granulares reales si el equipo lo define en Planning.",
+        "Reemplazado por permisos granulares de HU-H1 (proveedores:crear|editar|leer|homologar|baja).",
       modulo: "MODULO_H",
+      is_active: false,
+      deletion_reason:
+        "Reemplazado por permisos granulares de HU-H1 (proveedores:crear|editar|leer|homologar|baja)",
     },
   });
+
+  // Se le quitan los vínculos viejos al placeholder (este seed es dueño de
+  // RolPermiso — precedente: limpieza de vínculos de OC del Comprador).
+  await prisma.rolPermiso.deleteMany({
+    where: { permiso_id: PERMISO_PROVEEDORES_ADMINISTRAR_ID },
+  });
+
+  // ── HU-H1 — permisos granulares de Proveedor (spec_modulo_H.md §2.1/§2.2) ─
+  //
+  // Un permiso independiente por acción (NO un único `proveedores:administrar`).
+  // Reparto (matriz Alcance §5 + decisión del equipo):
+  //   - proveedores:crear     → Comprador Y Supervisor de Compras
+  //   - proveedores:editar    → Comprador Y Supervisor de Compras
+  //   - proveedores:leer      → Comprador Y Supervisor de Compras
+  //   - proveedores:homologar → SOLO Supervisor de Compras
+  //   - proveedores:baja      → SOLO Supervisor de Compras
+  const permisosProveedores = await Promise.all(
+    (
+      [
+        [PERMISO_PROVEEDORES_CREAR_ID, "proveedores:crear", "Crear (alta) un proveedor en estado PENDIENTE con legajo comercial (HU-H1 §2.1)"],
+        [PERMISO_PROVEEDORES_EDITAR_ID, "proveedores:editar", "Editar el legajo comercial de un proveedor — razón social, contactos, categorías y reemplazo de datos bancarios re-cifrados (HU-H1)"],
+        [PERMISO_PROVEEDORES_LEER_ID, "proveedores:leer", "Consultar el listado de proveedores activos con filtro por estado (HU-H1)"],
+        [PERMISO_PROVEEDORES_HOMOLOGAR_ID, "proveedores:homologar", "Homologar o suspender un proveedor (transición manual de estado) — exclusivo Supervisor de Compras (HU-H1 §2.2)"],
+        [PERMISO_PROVEEDORES_BAJA_ID, "proveedores:baja", "Dar de baja lógica el registro de un proveedor — exclusivo Supervisor de Compras (HU-H1 · RULES.md Regla N.° 1)"],
+      ] as const
+    ).map(([id, codigo, descripcion]) =>
+      prisma.permiso.upsert({
+        where: { id },
+        update: REACTIVAR_REFERENCIA_RBAC,
+        create: { id, codigo, descripcion, modulo: "MODULO_H" },
+      }),
+    ),
+  );
+  const [
+    permisoProveedoresCrear,
+    permisoProveedoresEditar,
+    permisoProveedoresLeer,
+    permisoProveedoresHomologar,
+    permisoProveedoresBaja,
+  ] = permisosProveedores;
 
   const permisoComprasOperar = await prisma.permiso.upsert({
     where: { id: PERMISO_COMPRAS_OPERAR_ID },
@@ -977,7 +1033,9 @@ async function main() {
   //   - ordenes_compra:cancelar  → SOLO Supervisor de Compras (revertir una orden
   //                                impacta la negociación — mismo criterio que enviar)
   const permisosComprador = [
-    permisoProveedoresAdministrar,
+    permisoProveedoresCrear,
+    permisoProveedoresEditar,
+    permisoProveedoresLeer,
     permisoComprasOperar,
     permisoRecepcionConfirmar,
     permisoOcCrear,
@@ -985,6 +1043,11 @@ async function main() {
     permisoOcCerrar,
   ];
   const permisosSupervisorCompras = [
+    permisoProveedoresCrear,
+    permisoProveedoresEditar,
+    permisoProveedoresLeer,
+    permisoProveedoresHomologar,
+    permisoProveedoresBaja,
     permisoOcCrear,
     permisoOcEnviar,
     permisoOcConfirmar,
