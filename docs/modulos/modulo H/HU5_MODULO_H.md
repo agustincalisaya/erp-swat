@@ -100,13 +100,20 @@ De los 22 tests nuevos, los 10 de `evaluacion.calculo.test.ts` ejecutan las func
 
 Todos los datos sintéticos usados para esta verificación se eliminaron de la base al finalizar; los datos originales del seed quedaron intactos.
 
-## Trabajo pendiente
+## Actualización — Idempotencia y trazabilidad (2026-09-02)
 
-Estos puntos no forman parte de este PR y requieren acción de otras personas del equipo:
+Al integrar el contrato con HU-H4, el desarrollador a cargo detectó tres puntos que esta documentación no dejaba definidos formalmente. Se resolvieron con un PR de corrección (`fix/HU-H5-idempotencia-evaluacion`, mergeado a `develop`) sobre el código ya descripto arriba:
 
-- **Integración con HU-H4 (Recepción de Mercadería):** el desarrollador a cargo de esa historia debe agregar la invocación a `registrarEvaluacionDesdeRecepcion(recepcionId, usuarioId)` en su propio servicio de recepciones, inmediatamente después de que su transacción de registro confirme el commit.
-- **Handler de auditoría:** `audit-log.listener.ts` todavía no tiene un handler para el evento `proveedor:estado_cambiado`. Cuando se agregue, debe mapear a `accion: "UPDATE_ESTADO"` — nunca a `"DELETE_LOGICO"`, porque la suspensión de un proveedor no modifica su campo `is_active`.
-- **Panel de alertas:** queda pendiente confirmar si el criterio de aceptación 2 del Product Backlog (panel de proveedores próximos al umbral) entra en el alcance de este sprint.
+**Momento de evaluación.** Se confirmó que la evaluación se dispara ante cada recepción física, incluidas las parciales — no solo la que deja la orden de compra en `RECIBIDA_COMPLETA`. Esto ya estaba implícito en el diseño original (recálculo incremental, nunca en batch) y quedó confirmado explícitamente como parte del contrato.
+
+**Idempotencia.** Se agregó `recepcion_id` a `EvaluacionProveedor` (campo único, con relación a `Recepcion`). `registrarEvaluacion()` ahora verifica si ya existe una evaluación para esa recepción antes de crear una nueva — si existe, la devuelve sin duplicar, sin volver a suspender al proveedor ni volver a emitir el evento. Esto garantiza una evaluación por recepción, incluso ante un retry o una doble invocación desde HU-H4.
+
+**Trazabilidad.** El mismo campo `recepcion_id` deja cada evaluación vinculada explícitamente a la recepción que la originó. No se agregó una referencia directa a `OrdenCompra` en `EvaluacionProveedor`, ya que se llega a ella de forma transitiva a través de `Recepcion`.
+
+La migración correspondiente (`20260902165629_add_recepcion_id_evaluacion_proveedor`) backfillea por identificador conocido la única evaluación preexistente del seed — no incluye una lógica de emparejamiento genérica para múltiples filas huérfanas, ya que ningún entorno real presenta ese caso hoy. Si en el futuro aparece, se revisará con datos reales en mano en vez de anticiparlo.
+
+Esta corrección también dejó verificado con evidencia real de ejecución (no solo tests estáticos) que el handler de auditoría para el evento `proveedor:estado_cambiado` — implementado por otro integrante del equipo — genera correctamente la fila esperada en el registro de auditoría al dispararse una suspensión automática.
+
 
 ## Decisiones sujetas a revisión
 
