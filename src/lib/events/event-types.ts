@@ -369,6 +369,46 @@ export interface ProveedorEstadoCambiadoPayload {
 }
 
 /**
+ * HU-G8 (Módulo G) — Payload emitido tras cada transición de estado de una
+ * `CuentaPorPagar`, por las tres ramas del listener reactivo
+ * (`cuenta-por-pagar.listener.ts`: `CREAR` / `DEFINIR` / `CANCELAR`) y por la
+ * mutación manual de pago (`marcarCuentaPorPagarPagada()`: `PAGAR`). Único
+ * consumidor: `audit-log.listener.ts`, que lo mapea a un asiento
+ * `AuditLog` encadenado por SHA-256 (spec_modulo_G.md §3.3 / §4.1). El
+ * Módulo H se suscribe además filtrando `accion === "PAGAR"` para reflejar el
+ * pago en el historial del proveedor (§2.4).
+ *
+ * Emisión SIEMPRE post-`COMMIT`, fire-and-forget, nunca dentro de la
+ * `prisma.$transaction` que hace la escritura (mismo patrón que el resto de
+ * eventos de dominio del proyecto — deuda técnica conocida de Módulo D).
+ *
+ * `monto_anterior` / `monto_nuevo` son `Prisma.Decimal` serializados a
+ * `string` (nunca `number`); las fechas viajan como ISO 8601 o `null`.
+ */
+export interface CuentaPorPagarEstadoCambiadoPayload {
+  cuenta_por_pagar_id: string;
+  orden_compra_id: string;
+  numero_orden: string;
+  proveedor_id: string;
+  /** `null` únicamente en `CREAR` (la cuenta nace, no tenía estado previo). */
+  estado_anterior: "PROVISORIO" | "DEFINITIVA" | "PAGADA" | "CANCELADA" | null;
+  estado_nuevo: "PROVISORIO" | "DEFINITIVA" | "PAGADA" | "CANCELADA";
+  accion: "CREAR" | "DEFINIR" | "PAGAR" | "CANCELAR";
+  cambiado_por: string;
+  /** `null` en `CREAR`; en `DEFINIR` es el monto provisorio previo al recálculo. */
+  monto_anterior: string | null;
+  monto_nuevo: string;
+  /** Presente solo en `DEFINIR` (la `Recepcion` de cierre asociada). */
+  recepcion_id: string | null;
+  /** Siempre `null` en HU-G8 (`Proveedor.condiciones_pago` es texto libre no parseable). */
+  fecha_vencimiento: string | null;
+  /** Presente solo en `PAGAR`. ISO 8601. */
+  fecha_pago: string | null;
+  /** Presente solo en `CANCELAR` — motivo de la cancelación funcional, NO baja lógica. */
+  deletion_reason: string | null;
+}
+
+/**
  * HU-H1 (Módulo H) — Payload emitido tras la baja lógica de un `Proveedor`
  * (`darDeBajaProveedor()`, spec_modulo_H.md §3.5 · RULES.md Regla N.° 1).
  * `motivo` es el `deletion_reason` obligatorio. NUNCA incluye datos
@@ -500,6 +540,8 @@ export interface DomainEventMap {
   "recepcion:registrada": RecepcionRegistradaPayload;
   /** HU-H5 (y HU-H1 2.2): se emite tras un cambio de estado de Proveedor, manual o automático. */
   "proveedor:estado_cambiado": ProveedorEstadoCambiadoPayload;
+  /** HU-G8: se emite tras cada transición de estado de una CuentaPorPagar (CREAR/DEFINIR/PAGAR/CANCELAR). */
+  "cuenta_por_pagar:estado_cambiado": CuentaPorPagarEstadoCambiadoPayload;
   /** HU-H1: se emite tras la baja lógica de un Proveedor (nunca DELETE físico). */
   "proveedor:baja_logica": ProveedorBajaLogicaPayload;
   /** HU-H1: se emite tras la edición del legajo de un Proveedor. */

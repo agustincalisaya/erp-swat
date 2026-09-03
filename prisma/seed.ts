@@ -108,7 +108,11 @@ const ROL_COMPRADOR_ID = "1a2b3c4d-2222-4a1a-8a1a-000000000001";
 const ROL_TESORERO_ID = "1a2b3c4d-2222-4a1a-8a1a-000000000002";
 const ROL_PERMISO_PROVEEDORES_ADMINISTRAR_ID = "1a2b3c4d-3333-4a1a-8a1a-000000000001";
 const ROL_PERMISO_COMPRAS_OPERAR_ID = "1a2b3c4d-3333-4a1a-8a1a-000000000002";
-const ROL_PERMISO_TESORERIA_OPERAR_ID = "1a2b3c4d-3333-4a1a-8a1a-000000000004";
+// ROL_PERMISO_RECEPCION_CONFIRMAR_ID retirado en HU-H4: el permiso pasó a
+// llamarse `recepciones:registrar` y su vínculo con los roles se upsertea por
+// clave compuesta (rol_id + permiso_id), sin constante de id fija.
+// ROL_PERMISO_TESORERIA_OPERAR_ID retirado en HU-G8: el vínculo
+// tesoreria:operar ↔ TESORERO_CENTRAL se elimina vía deleteMany (ver más abajo).
 const ROL_SUPERVISOR_COMPRAS_ID = "1a2b3c4d-2222-4a1a-8a1a-000000000003";
 const USUARIO_COMPRADOR_SEED_ID = "1a2b3c4d-4444-4a1a-8a1a-000000000001";
 const USUARIO_TESORERO_SEED_ID = "1a2b3c4d-4444-4a1a-8a1a-000000000002";
@@ -133,6 +137,14 @@ const PERMISO_PROVEEDORES_EDITAR_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000011";
 const PERMISO_PROVEEDORES_LEER_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000012";
 const PERMISO_PROVEEDORES_HOMOLOGAR_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000013";
 const PERMISO_PROVEEDORES_BAJA_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000014";
+
+// HU-G8 — permisos granulares de Cuenta por Pagar (spec_modulo_G.md §7).
+// Reemplazan al placeholder `tesoreria:operar`. Mismo patrón que HU-H3:
+// un permiso por acción, constante UUID fija, upsert idempotente.
+// IDs a partir de ...015: los slots ...010–...014 los tomó HU-H1 (bloque
+// anterior) al mergear develop; sus filas ya están publicadas y sembradas.
+const PERMISO_CXP_LEER_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000015";
+const PERMISO_CXP_PAGAR_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000016";
 
 const PROVEEDOR_HOMOLOGADO_ID = "1a2b3c4d-6666-4a1a-8a1a-000000000001";
 const PROVEEDOR_PENDIENTE_ID = "1a2b3c4d-6666-4a1a-8a1a-000000000002";
@@ -950,17 +962,50 @@ async function main() {
     },
   });
 
+  // Descripción compartida entre `create` y `update`: en bases de dev que ya
+  // tenían la fila `tesoreria:operar` (con el texto PLACEHOLDER viejo), re-correr
+  // el seed también reescribe la descripción al texto SUPERSEDIDO — no solo en
+  // una base fresca.
+  const DESCRIPCION_TESORERIA_OPERAR_SUPERSEDIDO =
+    "SUPERSEDIDO (HU-G8) — reemplazado por los permisos granulares " +
+    "cuentas_por_pagar:leer y cuentas_por_pagar:pagar. La fila Permiso se " +
+    "conserva para no orfanar referencias históricas del AuditLog; su " +
+    "vínculo con TESORERO_CENTRAL fue retirado.";
+
   const permisoTesoreriaOperar = await prisma.permiso.upsert({
     where: { id: PERMISO_TESORERIA_OPERAR_ID },
-    update: REACTIVAR_REFERENCIA_RBAC,
+    update: {
+      ...REACTIVAR_REFERENCIA_RBAC,
+      descripcion: DESCRIPCION_TESORERIA_OPERAR_SUPERSEDIDO,
+    },
     create: {
       id: PERMISO_TESORERIA_OPERAR_ID,
       codigo: "tesoreria:operar",
-      descripcion:
-        "PLACEHOLDER — gestionar compromisos de pago y Cuentas por Pagar (HU-G8).",
+      descripcion: DESCRIPCION_TESORERIA_OPERAR_SUPERSEDIDO,
       modulo: "MODULO_G",
     },
   });
+
+  // ── HU-G8 — permisos granulares de Cuenta por Pagar (spec_modulo_G.md §7) ──
+  //
+  // Reemplazan al placeholder `tesoreria:operar`. Mismo patrón que los
+  // permisos granulares de OrdenCompra (HU-H3): un permiso por acción,
+  // constante UUID fija, upsert idempotente.
+  const permisosCuentaPorPagar = await Promise.all(
+    (
+      [
+        [PERMISO_CXP_LEER_ID, "cuentas_por_pagar:leer", "Consultar el listado de Cuentas por Pagar y su estado (HU-G8)"],
+        [PERMISO_CXP_PAGAR_ID, "cuentas_por_pagar:pagar", "Marcar una Cuenta por Pagar DEFINITIVA como PAGADA (HU-G8) — exclusivo Tesorero Central"],
+      ] as const
+    ).map(([id, codigo, descripcion]) =>
+      prisma.permiso.upsert({
+        where: { id },
+        update: REACTIVAR_REFERENCIA_RBAC,
+        create: { id, codigo, descripcion, modulo: "MODULO_G" },
+      }),
+    ),
+  );
+  const [permisoCxpLeer, permisoCxpPagar] = permisosCuentaPorPagar;
 
   const rolComprador = await prisma.rol.upsert({
     where: { id: ROL_COMPRADOR_ID },
@@ -1121,19 +1166,39 @@ async function main() {
     },
   });
 
+  // ── HU-G8 — el placeholder `tesoreria:operar` queda supersedido ───────────
+  // Su vínculo con TESORERO_CENTRAL se retira (este seed es dueño de
+  // RolPermiso — ver cabecera del archivo). La fila Permiso se conserva. El
+  // acceso de Tesorería pasa a los permisos granulares cuentas_por_pagar:*.
+  await prisma.rolPermiso.deleteMany({
+    where: {
+      rol_id: rolTesorero.id,
+      permiso_id: permisoTesoreriaOperar.id,
+    },
+  });
+
+  // cuentas_por_pagar:leer → TESORERO_CENTRAL, AUDITOR, ADMINISTRADOR.
+  // (CAJERO_POS se agregará cuando Módulo B / RBAC cree ese rol — spec_modulo_G.md §5.)
+  for (const rol of [rolTesorero, rolAuditor, rolAdministrador]) {
+    await prisma.rolPermiso.upsert({
+      where: {
+        rol_id_permiso_id: { rol_id: rol.id, permiso_id: permisoCxpLeer.id },
+      },
+      update: REACTIVAR_REFERENCIA_RBAC,
+      create: { rol_id: rol.id, permiso_id: permisoCxpLeer.id },
+    });
+  }
+
+  // cuentas_por_pagar:pagar → SOLO TESORERO_CENTRAL.
   await prisma.rolPermiso.upsert({
     where: {
       rol_id_permiso_id: {
         rol_id: rolTesorero.id,
-        permiso_id: permisoTesoreriaOperar.id,
+        permiso_id: permisoCxpPagar.id,
       },
     },
     update: REACTIVAR_REFERENCIA_RBAC,
-    create: {
-      id: ROL_PERMISO_TESORERIA_OPERAR_ID,
-      rol_id: rolTesorero.id,
-      permiso_id: permisoTesoreriaOperar.id,
-    },
+    create: { rol_id: rolTesorero.id, permiso_id: permisoCxpPagar.id },
   });
 
   // ── Módulo D — Usuarios de ejemplo Sprint 2 (Comprador, Tesorero) ──────────
@@ -1527,6 +1592,8 @@ async function main() {
     comprador_seed: `${usuarioComprador.nombre_usuario}  <${usuarioComprador.email}>`,
     supervisor_compras_seed: `${usuarioSupervisorCompras.nombre_usuario}  <${usuarioSupervisorCompras.email}>`,
     tesorero_seed: `${usuarioTesorero.nombre_usuario}   <${usuarioTesorero.email}>`,
+    permiso_cuentas_por_pagar_leer_id: permisoCxpLeer.id,
+    permiso_cuentas_por_pagar_pagar_id: permisoCxpPagar.id,
     proveedor_homologado_id: proveedorHomologado.id,
     proveedor_pendiente_id: proveedorPendiente.id,
     lista_precio_version_vigente_id: listaPrecioVersion.id,
