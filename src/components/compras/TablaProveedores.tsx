@@ -28,10 +28,7 @@ import {
 } from "@/components/ui/dialog";
 import { EstadoProveedorBadge } from "@/components/compras/EstadoProveedorBadge";
 import { FormularioNuevoProveedor } from "@/components/compras/FormularioNuevoProveedor";
-import { DialogHomologar } from "@/components/compras/DialogHomologar";
-import { DialogSuspender } from "@/components/compras/DialogSuspender";
-import { DialogBaja } from "@/components/compras/DialogBaja";
-import { DialogVolverPendiente } from "@/components/compras/DialogVolverPendiente";
+import { AccionesProveedorMenu } from "@/components/compras/AccionesProveedorMenu";
 import type { ProveedorListado } from "@/lib/services/proveedores/proveedor.service";
 
 export interface PermisosProveedores {
@@ -73,8 +70,10 @@ function categoriasCortas(categorias: string[]): string {
 }
 
 /**
- * Acciones de una fila: edición (diálogo con el formulario en modo edición),
- * homologar / suspender / baja según el estado y los permisos del usuario.
+ * Acciones de una fila: "Editar" visible como botón principal y el resto de
+ * las acciones (homologar / suspender / volver a PENDIENTE / baja) agrupadas
+ * en el menú desplegable `AccionesProveedorMenu`, según el estado y los
+ * permisos del usuario.
  */
 function FilaAcciones({
   proveedor,
@@ -87,7 +86,7 @@ function FilaAcciones({
   const [editarAbierto, setEditarAbierto] = useState(false);
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
+    <div className="flex items-center justify-end gap-2 whitespace-nowrap">
       {permisos.editar && (
         <Dialog open={editarAbierto} onOpenChange={setEditarAbierto}>
           <Button
@@ -121,45 +120,7 @@ function FilaAcciones({
         </Dialog>
       )}
 
-      {permisos.homologar && proveedor.estado === "PENDIENTE" && (
-        <DialogHomologar
-          proveedorId={proveedor.id}
-          razonSocial={proveedor.razon_social}
-          estadoActual="PENDIENTE"
-        />
-      )}
-      {permisos.homologar && proveedor.estado === "SUSPENDIDO" && (
-        <DialogHomologar
-          proveedorId={proveedor.id}
-          razonSocial={proveedor.razon_social}
-          estadoActual="SUSPENDIDO"
-        />
-      )}
-      {permisos.homologar && proveedor.estado === "HOMOLOGADO" && (
-        <DialogSuspender
-          proveedorId={proveedor.id}
-          razonSocial={proveedor.razon_social}
-        />
-      )}
-
-      {permisos.homologar && proveedor.estado === "HOMOLOGADO" && (
-        <DialogVolverPendiente
-          proveedorId={proveedor.id}
-          razonSocial={proveedor.razon_social}
-          estadoActual="HOMOLOGADO"
-        />
-      )}
-      {permisos.homologar && proveedor.estado === "SUSPENDIDO" && (
-        <DialogVolverPendiente
-          proveedorId={proveedor.id}
-          razonSocial={proveedor.razon_social}
-          estadoActual="SUSPENDIDO"
-        />
-      )}
-
-      {permisos.baja && (
-        <DialogBaja proveedorId={proveedor.id} razonSocial={proveedor.razon_social} />
-      )}
+      <AccionesProveedorMenu proveedor={proveedor} permisos={permisos} />
     </div>
   );
 }
