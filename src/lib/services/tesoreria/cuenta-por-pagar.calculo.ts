@@ -46,6 +46,39 @@ export function calcularMontoDesdeItems(
   );
 }
 
+/** Línea para el monto DEFINITIVO: cantidad efectivamente aceptada × precio. */
+export interface ItemMontoAceptadoCuentaPorPagar {
+  cantidad_aceptada: number;
+  precio_unitario: Prisma.Decimal;
+}
+
+/**
+ * HU-G8 §2.2 — `monto DEFINITIVO = Σ(cantidad_aceptada × precio_unitario)`.
+ *
+ * A diferencia de `calcularMontoDesdeItems` (que suma lo PEDIDO,
+ * `cantidad_solicitada`, y sirve para el PROVISORIO), esta suma lo
+ * efectivamente **recibido y validado**: `cantidad_aceptada` de los
+ * `RecepcionItem` — NO `cantidad_recibida` (la mercadería que llegó pero fue
+ * rechazada por calidad/discrepancia no se factura) ni `cantidad_solicitada`.
+ * El criterio 4 de HU-G8 lo pide textualmente: "sobre lo efectivamente
+ * recibido y validado, nunca sobre lo simplemente pedido".
+ *
+ * Mismo tratamiento `Prisma.Decimal` que `calcularMontoDesdeItems`: producto y
+ * suma en Decimal, sin `.toNumber()`. Cada entrada ya viene agregada por
+ * `orden_compra_item_id` (suma de `cantidad_aceptada` sobre TODAS las
+ * `Recepcion` activas de la orden — cubre recepciones parciales acumuladas).
+ * Un ítem sin ninguna recepción aporta `cantidad_aceptada: 0` ⇒ suma 0, no
+ * rompe. Lista vacía ⇒ `Decimal(0)`.
+ */
+export function calcularMontoDesdeItemsAceptados(
+  items: ItemMontoAceptadoCuentaPorPagar[],
+): Prisma.Decimal {
+  return items.reduce(
+    (acc, it) => acc.add(it.precio_unitario.mul(it.cantidad_aceptada)),
+    new Prisma.Decimal(0),
+  );
+}
+
 /**
  * HU-G8 §3.1 / §3.2 — máquina de estados de `CuentaPorPagar`. Las únicas
  * transiciones válidas son:

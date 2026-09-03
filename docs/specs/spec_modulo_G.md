@@ -20,7 +20,7 @@
 |---|---|
 | Evento `orden_compra:estado_cambiado` (HU-H3) | ✅ Confirmado y mergeado. Se emite en las transiciones a `ENVIADA`, `CONFIRMADA`, `CERRADA` y `CANCELADA` (`src/lib/services/proveedores/orden-compra.service.ts:432-444`). |
 | Evento propio de "recepción total cerrada" (HU-H4) | ❌ **No se necesita.** La hipótesis de la Revisión 1 quedó confirmada: el evento genérico de HU-H3 ya cubre la transición `RECIBIDA_COMPLETA → CERRADA` y alcanza para disparar la consolidación a `DEFINITIVA`. Ver sección 2.2. |
-| `recepcion.service.ts` (HU-H4, Emir) | ⏳ No implementado. No bloquea la **construcción** de HU-G8, pero sí la **verificación en runtime** de la ruta `PROVISORIO → DEFINITIVA` (nada produce `RECIBIDA_COMPLETA` todavía). Ver sección 5. |
+| `recepcion.service.ts` (HU-H4) | ✅ Integrado. Deja la OC en `RECIBIDA_COMPLETA` por el camino real; habilita la verificación end-to-end de `PROVISORIO → DEFINITIVA` y el recálculo del `monto` sobre `RecepcionItem.cantidad_aceptada`. Ver secciones 2.2 y 5. |
 
 ---
 
@@ -97,15 +97,15 @@ El listener **discrimina por `payload.accion`**, no por `estado_nuevo`.
 **Comportamiento — dentro de `prisma.$transaction`:**
 
 1. `findFirst` de la `CuentaPorPagar` activa en `PROVISORIO` de esa `orden_compra_id` (`select: { id, monto }`). Si no existe, **loguea con `orden_compra_id` y retorna `null` — no lanza excepción** (el listener no tiene un llamador HTTP al que responder).
-2. Recalcula `monto` sobre los `OrdenCompraItem` activos actuales (misma fórmula que 2.1). El criterio 4 pide que el monto se calcule **siempre sobre lo efectivamente recibido y validado**; hasta que exista HU-H4 no hay `RecepcionItem`, así que hoy se recalcula sobre lo pedido. Cualquier diferencia con el monto provisorio previo **se toma en silencio** — es el comportamiento esperado, no una excepción a resolver. La discrepancia queda trazada por los campos `monto_anterior` / `monto_nuevo` del evento hacia el `AuditLog` (sección 4).
-3. Resuelve `recepcion_id`: la `Recepcion` activa más reciente de esa orden (`findFirst({ where: { orden_compra_id, is_active: true }, orderBy: { fecha_recepcion: "desc" }, select: { id: true } })`). **Hoy devuelve `null`** porque no hay filas `Recepcion` (HU-H4 no implementado).
+2. Recalcula `monto` sobre lo **efectivamente recibido y validado** (criterio 4): `Σ(cantidad_aceptada × precio_unitario)` sobre los `RecepcionItem` activos de **todas** las `Recepcion` activas de la orden, agrupado por `orden_compra_item_id` (`calcularMontoDesdeRecepcion` → helper puro `calcularMontoDesdeItemsAceptados`, mismo tratamiento `Prisma.Decimal` que 2.1). **Es `cantidad_aceptada`, no `cantidad_recibida`** — ver nota en sección 5. Esto lo distingue del PROVISORIO (2.1), que suma lo pedido (`cantidad_solicitada`). Cualquier diferencia con el monto provisorio previo **se toma en silencio** — es el comportamiento esperado, no una excepción a resolver. La discrepancia queda trazada por los campos `monto_anterior` / `monto_nuevo` del evento hacia el `AuditLog` (sección 4).
+3. Resuelve `recepcion_id`: la `Recepcion` activa más reciente de esa orden (`findFirst({ where: { orden_compra_id, is_active: true }, orderBy: { fecha_recepcion: "desc" }, select: { id: true } })`).
 4. `updateMany({ where: { id, estado: "PROVISORIO", is_active: true }, data: { estado: "DEFINITIVA", monto, recepcion_id } })` (escritura guardada, concurrencia optimista). Si `count === 0`, retorna `null`.
 
 **No crea una fila nueva** — reemplaza sobre el mismo registro (un solo ciclo de vida).
 
 **Post-commit:** emite `cuenta_por_pagar:estado_cambiado` con `accion: "DEFINIR"` (`monto_anterior` = monto provisorio leído en el paso 1; `monto_nuevo` = recalculado; `recepcion_id`).
 
-**Ruta hacia adelante (HU-H4):** cuando exista `recepcion.service.ts`, el paso 2 recalculará sobre `RecepcionItem.cantidad_recibida` y el paso 3 devolverá el `recepcion_id` real de cierre. La verificación end-to-end de esta rama queda **diferida a HU-H4** (ver sección 5); su comportamiento a nivel unitario sí es verificable ahora.
+**Estado (HU-H4 ya integrada):** el paso 2 recalcula sobre `RecepcionItem.cantidad_aceptada` y el paso 3 devuelve el `recepcion_id` real de cierre. La rama `PROVISORIO → DEFINITIVA` está **verificada end-to-end en runtime** por el camino real `CONFIRMADA → RECEPCION_PARCIAL → RECIBIDA_COMPLETA → CERRADA` (`recepcion.service.ts` deja el estado `RECIBIDA_COMPLETA`; `CERRAR` de HU-H3 emite el evento que dispara la consolidación). Ya no es un diferimiento.
 
 ---
 
@@ -320,9 +320,9 @@ PATCH /pagar ──► marcarCuentaPorPagarPagada ──► cuenta_por_pagar:est
 ## 5. Pendientes de Verificación / Fuera de Alcance
 
 - **`cuentas_por_pagar:leer` para `CAJERO_POS` — diferido.** Por decisión ya tomada (Alcance §3.4 / §5 corregidos), `cuentas_por_pagar:leer` debería incluir el rol `CAJERO_POS` además de `TESORERO_CENTRAL`, `AUDITOR` y `ADMINISTRADOR`. **El rol `CAJERO_POS` no existe todavía en el repositorio** (`prisma/seed.ts`). Esto **no** es un cambio de la decisión de diseño: es una **dependencia de secuencia con Módulo B / RBAC**. Nota para quien implemente Módulo B: al crear `CAJERO_POS`, agregar su vínculo con `cuentas_por_pagar:leer`. HU-G8 siembra el permiso vinculado a los 3 roles existentes.
-- **Verificación end-to-end de `PROVISORIO → DEFINITIVA` — diferida a HU-H4.** Nada produce `RECIBIDA_COMPLETA` sin `recepcion.service.ts`. El comportamiento a nivel unitario se cubre ahora; el end-to-end con evidencia Postman + SQL queda pendiente. Chequeo manual puntual posible: forzar la OC sembrada a `RECIBIDA_COMPLETA` vía Prisma Studio.
+- **El `monto` de la `DEFINITIVA` usa `cantidad_aceptada`, no `cantidad_recibida`.** El criterio 4 dice "sobre lo efectivamente **recibido y validado**". `cantidad_recibida` es lo que llegó físicamente; `cantidad_aceptada` es lo que además pasó control (la mercadería recibida pero rechazada por calidad/discrepancia queda con `cantidad_aceptada < cantidad_recibida` y una `RecepcionDiscrepancia`). Facturar sobre `cantidad_recibida` incluiría unidades no validadas; por eso `calcularMontoDesdeRecepcion` suma `cantidad_aceptada`. Ejemplo verificado: OC de 368000 pedidos, ítem con 3 de 10 unidades rechazadas por calidad ⇒ `DEFINITIVA` = 320600, no 368000.
 - **`fecha_vencimiento` del `PROVISORIO`** — `null`. `Proveedor.condiciones_pago` existe pero es texto libre. Estructurar el campo es materia de otra HU.
-- **`recepcion_id` en la consolidación** — `null` hasta HU-H4. Cuando exista, se resuelve a la `Recepcion` de cierre real y el `monto` se recalcula sobre `RecepcionItem.cantidad_recibida`.
+- **`recepcion_id` en la consolidación** — resuelto (HU-H4 integrada): la `Recepcion` activa más reciente de la orden. El `monto` de la `DEFINITIVA` se recalcula sobre `RecepcionItem.cantidad_aceptada` (ver nota anterior).
 - **Sin uniqueness a nivel DB** de un `PROVISORIO` activo por OC (no se permite migración en esta HU). La garantía es solo de capa de aplicación; un doble-emit genuinamente simultáneo podría crear dos filas. Aceptado.
 - **HU-G7 y el resto de Módulo G** — fuera de este documento.
 
@@ -340,7 +340,7 @@ Evidencia obligatoria: **Postman + SQL + capturas**. Compilar sin errores **no**
 | 4 | `PATCH .../pagar` sobre fila `DEFINITIVA` sembrada a mano → `PAGADA` + `fecha_pago`; sobre `PROVISORIO`/`PAGADA`/`CANCELADA` → `409 TRANSICION_INVALIDA`; sin permiso → `403` | Verificable ahora |
 | 5 | `GET` con filtros `estado` + `proveedor_id` + paginación; el objeto `proveedor` expone **solo** los 5 campos de la whitelist (sin `datos_bancarios_*`) | Verificable ahora |
 | 6 | `/api/auditoria/verificar-cadena` reporta la cadena íntegra tras todo lo anterior | Verificable ahora |
-| 7 | `CERRAR → DEFINITIVA` end-to-end | **Diferido (HU-H4)** — unitario cubierto; chequeo puntual con Prisma Studio |
+| 7 | `CERRAR → DEFINITIVA` end-to-end | **Cerrado** — verificado en runtime por el camino real de HU-H4 (`ENVIAR → CONFIRMAR → recepción física → RECIBIDA_COMPLETA → CERRAR`); misma fila `PROVISORIO → DEFINITIVA`, `monto` sobre `cantidad_aceptada`, `recepcion_id` real |
 
 ---
 

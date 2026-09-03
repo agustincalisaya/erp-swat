@@ -28,18 +28,23 @@ import type {
   CuentaPorPagarEstadoCambiadoPayload,
   OrdenCompraEstadoCambiadoPayload,
 } from "@/lib/events/event-types";
-import { calcularMontoDesdeItems } from "@/lib/services/tesoreria/cuenta-por-pagar.calculo";
+import {
+  calcularMontoDesdeItems,
+  calcularMontoDesdeItemsAceptados,
+} from "@/lib/services/tesoreria/cuenta-por-pagar.calculo";
 
 // Re-export de los helpers puros: los consumidores (listener, routes) los
 // importan desde este servicio; la implementación testeable vive en el módulo
 // hermano `cuenta-por-pagar.calculo` (sin `server-only`).
 export {
   calcularMontoDesdeItems,
+  calcularMontoDesdeItemsAceptados,
   esTransicionValidaCuentaPorPagar,
 } from "@/lib/services/tesoreria/cuenta-por-pagar.calculo";
 export type {
   AccionCuentaPorPagar,
   ItemMontoCuentaPorPagar,
+  ItemMontoAceptadoCuentaPorPagar,
 } from "@/lib/services/tesoreria/cuenta-por-pagar.calculo";
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -145,6 +150,52 @@ async function calcularMontoOrdenCompra(
 }
 
 /**
+ * `Σ(cantidad_aceptada × precio_unitario)` sobre los `RecepcionItem` activos de
+ * TODAS las `Recepcion` activas de la orden, agrupado por
+ * `orden_compra_item_id`. Es el monto DEFINITIVO (spec_modulo_G.md §2.2): lo
+ * efectivamente recibido y validado, no lo pedido. Un ítem todavía sin
+ * recepción no aparece en el `groupBy` ⇒ no suma (y no rompe).
+ */
+async function calcularMontoDesdeRecepcion(
+  tx: Prisma.TransactionClient,
+  ordenCompraId: string,
+): Promise<Prisma.Decimal> {
+  const aceptadoPorItem = await tx.recepcionItem.groupBy({
+    by: ["orden_compra_item_id"],
+    where: {
+      is_active: true,
+      deleted_at: null,
+      recepcion: {
+        orden_compra_id: ordenCompraId,
+        is_active: true,
+        deleted_at: null,
+      },
+    },
+    _sum: { cantidad_aceptada: true },
+  });
+  if (aceptadoPorItem.length === 0) return new Prisma.Decimal(0);
+
+  // Precio por ítem de OC: se busca por `id` SIN filtrar `is_active` — si el
+  // ítem se dio de baja lógica después de recibirse, igual se factura lo
+  // aceptado a su precio pactado.
+  const preciosItem = await tx.ordenCompraItem.findMany({
+    where: { id: { in: aceptadoPorItem.map((g) => g.orden_compra_item_id) } },
+    select: { id: true, precio_unitario: true },
+  });
+  const precioPorItem = new Map(
+    preciosItem.map((p) => [p.id, p.precio_unitario]),
+  );
+
+  return calcularMontoDesdeItemsAceptados(
+    aceptadoPorItem.map((g) => ({
+      cantidad_aceptada: g._sum.cantidad_aceptada ?? 0,
+      precio_unitario:
+        precioPorItem.get(g.orden_compra_item_id) ?? new Prisma.Decimal(0),
+    })),
+  );
+}
+
+/**
  * Resuelve `proveedor_id` + `numero_orden` de una OC. El payload de
  * `orden_compra:estado_cambiado` no lleva `proveedor_id`, así que se lee de
  * la OC; `numero_orden` sí viene en el payload y se prefiere para no depender
@@ -244,10 +295,15 @@ export async function generarCuentaPorPagarProvisoria(
  * Consolida la `CuentaPorPagar` `PROVISORIO` de una OC a `DEFINITIVA` al
  * cerrarse la orden. No crea fila nueva: reemplaza sobre el mismo registro.
  * Si no hay `PROVISORIO` activa, loguea con `orden_compra_id` y retorna `null`
- * (NO lanza — el listener no tiene llamador HTTP). El monto se recalcula sobre
- * los ítems activos; cualquier diferencia con el provisorio se toma en
+ * (NO lanza — el listener no tiene llamador HTTP).
+ *
+ * El monto se recalcula sobre `RecepcionItem.cantidad_aceptada` (lo
+ * efectivamente **recibido y validado** — NO `cantidad_recibida`, NO
+ * `cantidad_solicitada`), sumado sobre todas las `Recepcion` activas de la
+ * orden (`calcularMontoDesdeRecepcion`). Esto lo distingue del PROVISORIO, que
+ * sí suma lo pedido. Cualquier diferencia con el provisorio se toma en
  * silencio y queda trazada por `monto_anterior` / `monto_nuevo` del evento.
- * `recepcion_id` hoy resuelve a `null` (HU-H4 no implementado).
+ * `recepcion_id` resuelve a la `Recepcion` activa más reciente de la orden.
  */
 export async function consolidarCuentaPorPagarDefinitiva(
   payload: OrdenCompraEstadoCambiadoPayload,
@@ -276,7 +332,9 @@ export async function consolidarCuentaPorPagarDefinitiva(
       return null;
     }
 
-    const monto = await calcularMontoOrdenCompra(tx, payload.orden_compra_id);
+    // Monto DEFINITIVO: sobre lo efectivamente recibido y validado
+    // (`RecepcionItem.cantidad_aceptada`), NO sobre lo pedido — criterio 4.
+    const monto = await calcularMontoDesdeRecepcion(tx, payload.orden_compra_id);
 
     const recepcion = await tx.recepcion.findFirst({
       where: { orden_compra_id: payload.orden_compra_id, is_active: true },
