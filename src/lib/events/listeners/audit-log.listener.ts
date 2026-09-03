@@ -459,6 +459,43 @@ export function iniciarAuditLogListener(): void {
     });
   });
 
+  // HU-H1 — baja lógica de Proveedor (spec_modulo_H.md §3.5 · RULES.md §1).
+  // El service (`darDeBajaProveedor()`) NUNCA llama `registrarAuditLog()`
+  // directo: emite `proveedor:baja_logica` post-COMMIT y este listener
+  // reacciona (misma regla de unificación que el resto del módulo).
+  // `valor_anterior` asume `is_active: true` porque el payload no trae
+  // snapshot previo (mismo criterio que `inventario:variante_baja_logica`).
+  domainEventBus.on("proveedor:baja_logica", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "DELETE_LOGICO",
+      tabla_afectada: "proveedores",
+      registro_id: payload.proveedor_id,
+      ip: "internal-event",
+      valor_anterior: { is_active: true },
+      valor_nuevo: {
+        is_active: false,
+        deletion_reason: payload.motivo,
+      },
+    });
+  });
+
+  // HU-H1 — edición del legajo de Proveedor (`editarProveedor()`). Registra
+  // SOLO la metadata del cambio (`campos_editados`): el payload jamás trae
+  // datos bancarios, ni en claro ni cifrados (spec §3.3/§4) — el listener no
+  // sanitiza, el emisor ya excluyó todo dato sensible.
+  domainEventBus.on("proveedor:legajo_editado", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "UPDATE",
+      tabla_afectada: "proveedores",
+      registro_id: payload.proveedor_id,
+      ip: "internal-event",
+      valor_anterior: null,
+      valor_nuevo: { campos_editados: payload.campos_editados },
+    });
+  });
+
   // HU-A10 — congelamiento de Reserva (spec_modulo_A.md §2.9). El service
   // (`reserva.service.ts`) nunca llama `registrarAuditLog()` directo: emite
   // el evento y este listener reacciona (misma regla de unificación que el

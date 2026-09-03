@@ -369,6 +369,31 @@ export interface ProveedorEstadoCambiadoPayload {
 }
 
 /**
+ * HU-H1 (Módulo H) — Payload emitido tras la baja lógica de un `Proveedor`
+ * (`darDeBajaProveedor()`, spec_modulo_H.md §3.5 · RULES.md Regla N.° 1).
+ * `motivo` es el `deletion_reason` obligatorio. NUNCA incluye datos
+ * bancarios (regla de exclusión de datos sensibles de spec §4).
+ * Emisión post-`COMMIT` (spec §3.4).
+ */
+export interface ProveedorBajaLogicaPayload {
+  proveedor_id: string;
+  usuario_id: string;
+  motivo: string;
+}
+
+/**
+ * HU-H1 (Módulo H) — Payload emitido tras la edición del legajo de un
+ * `Proveedor` (`editarProveedor()`). `campos_editados` es la lista de claves
+ * cuyo valor cambió (incluye `"datos_bancarios"` si se reemplazó, NUNCA el
+ * valor en claro ni el ciphertext — spec §3.3/§4). Emisión post-`COMMIT`.
+ */
+export interface ProveedorLegajoEditadoPayload {
+  proveedor_id: string;
+  usuario_id: string;
+  campos_editados: string[];
+}
+
+/**
  * HU-A10 — Payload emitido tras el congelamiento de una `Reserva`
  * (`crearReserva()`, spec_modulo_A.md §2.9). Se emite SOLO después de que
  * `prisma.$transaction` resuelve, nunca dentro (regla de emisión §4).
@@ -444,6 +469,10 @@ export interface DomainEventMap {
   "recepcion:registrada": RecepcionRegistradaPayload;
   /** HU-H5 (y HU-H1 2.2): se emite tras un cambio de estado de Proveedor, manual o automático. */
   "proveedor:estado_cambiado": ProveedorEstadoCambiadoPayload;
+  /** HU-H1: se emite tras la baja lógica de un Proveedor (nunca DELETE físico). */
+  "proveedor:baja_logica": ProveedorBajaLogicaPayload;
+  /** HU-H1: se emite tras la edición del legajo de un Proveedor. */
+  "proveedor:legajo_editado": ProveedorLegajoEditadoPayload;
   /** HU-A10: se emite tras el congelamiento de una Reserva (DISPONIBLE → RESERVADO). */
   "stock:reserva_congelada": ReservaCongeladaPayload;
   /** HU-A10: se emite tras la liberación de una Reserva (venta confirmada o TTL vencido). */
