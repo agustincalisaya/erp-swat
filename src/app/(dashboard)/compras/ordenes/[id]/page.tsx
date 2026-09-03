@@ -36,6 +36,7 @@ import {
   Hourglass,
   Lock,
   AlertTriangle,
+  PackageCheck,
 } from "lucide-react";
 
 import { getServerSession } from "@/lib/auth/session";
@@ -52,6 +53,7 @@ import { DialogConfirmarOrdenCompra } from "@/components/compras/DialogConfirmar
 import { DialogCerrarOrdenCompra } from "@/components/compras/DialogCerrarOrdenCompra";
 import { DialogCancelarOrdenCompra } from "@/components/compras/DialogCancelarOrdenCompra";
 import { EditorItemsOrdenCompra } from "@/components/compras/EditorItemsOrdenCompra";
+import { PERMISO_REGISTRAR_RECEPCION } from "@/lib/services/proveedores/recepcion.service";
 
 import {
   Card,
@@ -121,13 +123,14 @@ export default async function DetalleOrdenCompraPage({
   if (!autorizado) redirect("/no-autorizado");
 
   const { id } = await params;
-  const [orden, puedeEnviar, puedeConfirmar, puedeCerrar, puedeCancelar] =
+  const [orden, puedeEnviar, puedeConfirmar, puedeCerrar, puedeCancelar, puedeRegistrarRecepcion] =
     await Promise.all([
       obtenerOrdenCompra(id),
       usuarioTienePermiso(session.userId, PERMISO_POR_ACCION_ORDEN_COMPRA.ENVIAR),
       usuarioTienePermiso(session.userId, PERMISO_POR_ACCION_ORDEN_COMPRA.CONFIRMAR),
       usuarioTienePermiso(session.userId, PERMISO_POR_ACCION_ORDEN_COMPRA.CERRAR),
       usuarioTienePermiso(session.userId, PERMISO_POR_ACCION_ORDEN_COMPRA.CANCELAR),
+      usuarioTienePermiso(session.userId, PERMISO_REGISTRAR_RECEPCION),
     ]);
 
   if (!orden) notFound();
@@ -217,6 +220,17 @@ export default async function DetalleOrdenCompraPage({
                   numeroOrden={orden.numero_orden}
                 />
               )}
+              {orden.is_active &&
+                (orden.estado === "CONFIRMADA" || orden.estado === "RECEPCION_PARCIAL") &&
+                puedeRegistrarRecepcion && (
+                  <Link
+                    href={`/compras/recepciones/nueva?orden_compra_id=${orden.id}`}
+                    className={`${buttonVariants({ variant: "default" })} gap-2`}
+                  >
+                    <PackageCheck className="size-4" aria-hidden="true" />
+                    Registrar recepción
+                  </Link>
+                )}
               {mostrarBotonCerrar && (
                 <DialogCerrarOrdenCompra
                   ordenCompraId={orden.id}

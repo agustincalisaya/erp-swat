@@ -406,6 +406,25 @@ export function iniciarAuditLogListener(): void {
     });
   });
 
+  // HU-H4 — alta de la recepción y transición física de la OC, post-COMMIT.
+  domainEventBus.on("recepcion:registrada", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.recibida_por_id,
+      accion: "CREATE",
+      tabla_afectada: "recepciones",
+      registro_id: payload.recepcion_id,
+      ip: "internal-event",
+      valor_anterior: { estado_orden_compra: payload.estado_anterior_oc },
+      valor_nuevo: {
+        orden_compra_id: payload.orden_compra_id,
+        numero_orden: payload.numero_orden,
+        deposito_destino_id: payload.deposito_destino_id,
+        fecha_recepcion: payload.fecha_recepcion,
+        estado_orden_compra: payload.estado_nuevo_oc,
+      },
+    });
+  });
+
   // HU-H5 — transición de estado de Proveedor (spec_modulo_H.md §3.2
   // automático; §2.2 manual reutiliza el mismo evento, se distingue por
   // `origen`). Emitido post-COMMIT desde `evaluacion.service.ts` cuando el
