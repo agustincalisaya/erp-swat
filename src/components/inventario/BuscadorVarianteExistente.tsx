@@ -1,61 +1,37 @@
 "use client";
 
 /**
- * @component BuscadorProductoExistente
- * @description Mejora post-HU-A1 — camino alternativo al Paso 1 del wizard
- * de `app/(dashboard)/inventario/productos/`: buscador liviano que permite
- * saltar directo al Paso 2 (matriz de variantes) para un `ProductoMaestro`
- * activo ya existente, sin repetir su alta.
+ * @component BuscadorVarianteExistente
+ * @description HU-A8 — buscador liviano de `VarianteSKU` activas para el
+ * flujo de edición de atributos operativos. Calcado 1:1 del patrón de
+ * `BuscadorProductoExistente.tsx` (mismo debounce, mismo portal, mismo
+ * manejo de click-afuera) — ver el docstring de ese componente para el
+ * detalle de cada decisión (portal a `document.body`, cierre en
+ * scroll/resize en vez de reposicionar en vivo, doble ref para click-afuera
+ * porque el listbox no es descendiente en el DOM real).
  *
- * No hay ningún componente de combobox/autocomplete reutilizable en
- * `components/ui` todavía — se implementa acá el mínimo necesario (Input +
- * lista de resultados) en vez de introducir una dependencia o un wrapper de
- * Popover nuevo para un único uso.
- *
- * El listbox se renderiza vía `createPortal` a `document.body`, posicionado
- * con `getBoundingClientRect()` del input (`position: fixed`). Se probó
- * dentro del flujo normal (`position: absolute` como hijo directo) y el
- * `Card` que envuelve el buscador tiene `overflow-hidden` (deliberado, para
- * los bordes redondeados — ver `components/ui/card.tsx`), así que cualquier
- * resultado que no entrara en el alto visible del Card quedaba recortado.
- * El portal evita ese clipping sin tocar el `overflow` del Card genérico.
- *
- * Dos cuidados específicos de este patrón (portal + combobox):
- *  1. Reposicionamiento: si la página hace scroll o se redimensiona la
- *     ventana con el listbox abierto, el input se mueve pero el portal
- *     (fixed, posición calculada una sola vez al abrir) no lo sigue —
- *     directamente se cierra en scroll/resize en vez de recalcular en vivo
- *     (opción explícitamente válida, evita la complejidad de un listener
- *     de scroll que reposicione en cada frame).
- *  2. Click afuera: el listbox portado ya NO es descendiente en el DOM del
- *     contenedor del buscador (aunque sí lo sea en el árbol de React), así
- *     que el chequeo de "click afuera" necesita además `listaRef` — sin
- *     esto, el `mousedown` sobre un resultado se interpreta como "afuera",
- *     el listbox se cierra, y el `click` posterior que dispara la selección
- *     nunca llega a ejecutarse.
- *
- * Debounce disparado desde el `onChange` (con `setTimeout` en un ref), no
- * desde un `useEffect` sobre `query` — mismo patrón que
- * `components/auditoria/BuscadorUsuarios.tsx`, evita el render en cascada de
- * `setState` síncrono dentro de un efecto.
+ * Única diferencia real de comportamiento: consume
+ * `buscarVariantesActivasAction()` (`ActionResult<T>`, shape
+ * `{ success, data?, error? }`), no `buscarProductosActivos()`
+ * (`{ data, error }`) — el chequeo de resultado es `if (resultado.success)`,
+ * no `if (!resultado.error)`.
  */
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Search, Loader2 } from "lucide-react";
 
 import {
-  buscarProductosActivos,
-  type ProductoMaestroActivoResumen,
-} from "@/app/(dashboard)/inventario/productos/actions";
+  buscarVariantesActivasAction,
+} from "@/app/(dashboard)/inventario/variantes/actions";
+import type { VarianteActivaResumen } from "@/lib/services/inventario/variante.service";
 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 const DEBOUNCE_MS = 300;
 
-interface BuscadorProductoExistenteProps {
-  onSeleccionar: (producto: ProductoMaestroActivoResumen) => void;
-  label?: string;
+interface BuscadorVarianteExistenteProps {
+  onSeleccionar: (variante: VarianteActivaResumen) => void;
 }
 
 interface PosicionListbox {
@@ -64,12 +40,9 @@ interface PosicionListbox {
   width: number;
 }
 
-export function BuscadorProductoExistente({
-  onSeleccionar,
-  label = "¿El producto ya existe?",
-}: BuscadorProductoExistenteProps) {
+export function BuscadorVarianteExistente({ onSeleccionar }: BuscadorVarianteExistenteProps) {
   const [query, setQuery] = useState("");
-  const [resultados, setResultados] = useState<ProductoMaestroActivoResumen[]>([]);
+  const [resultados, setResultados] = useState<VarianteActivaResumen[]>([]);
   const [buscando, setBuscando] = useState(false);
   const [abierto, setAbierto] = useState(false);
   const [posicion, setPosicion] = useState<PosicionListbox | null>(null);
@@ -100,10 +73,10 @@ export function BuscadorProductoExistente({
     }
 
     setBuscando(true);
-    buscarProductosActivos(trimmed).then((respuesta) => {
+    buscarVariantesActivasAction(trimmed).then((resultado) => {
       if (ultimaConsultaRef.current !== trimmed) return;
       setBuscando(false);
-      setResultados(respuesta.data ?? []);
+      setResultados(resultado.success ? (resultado.data ?? []) : []);
     });
   }
 
@@ -155,12 +128,12 @@ export function BuscadorProductoExistente({
     };
   }, [abierto]);
 
-  function handleSeleccionar(producto: ProductoMaestroActivoResumen) {
+  function handleSeleccionar(variante: VarianteActivaResumen) {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     setAbierto(false);
     setQuery("");
     setResultados([]);
-    onSeleccionar(producto);
+    onSeleccionar(variante);
   }
 
   const queryValida = query.trim().length >= 2;
@@ -168,18 +141,18 @@ export function BuscadorProductoExistente({
 
   return (
     <div ref={contenedorRef} className="relative space-y-2">
-      {label && <Label htmlFor="buscador-producto-existente">{label}</Label>}
+      <Label htmlFor="buscador-variante-existente">Buscar variante existente</Label>
       <div ref={inputWrapperRef} className="relative">
         <Search
           className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground"
           aria-hidden="true"
         />
         <Input
-          id="buscador-producto-existente"
+          id="buscador-variante-existente"
           value={query}
           onChange={(e) => handleChange(e.target.value)}
           onFocus={abrirListbox}
-          placeholder="Buscar por nombre o código de producto…"
+          placeholder="Buscar por SKU, talle, color, género o modelo…"
           autoComplete="off"
           className="pl-9"
         />
@@ -202,19 +175,22 @@ export function BuscadorProductoExistente({
           >
             {resultados.length === 0 && !buscando && (
               <li className="px-3 py-2 text-sm text-muted-foreground">
-                Sin productos activos que coincidan con &quot;{query.trim()}&quot;.
+                Sin variantes activas que coincidan con &quot;{query.trim()}&quot;.
               </li>
             )}
-            {resultados.map((producto) => (
-              <li key={producto.id} role="option" aria-selected="false">
+            {resultados.map((variante) => (
+              <li key={variante.id} role="option" aria-selected="false">
                 <button
                   type="button"
-                  onClick={() => handleSeleccionar(producto)}
-                  className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-slate-50"
+                  onClick={() => handleSeleccionar(variante)}
+                  className="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left text-sm hover:bg-slate-50"
                 >
-                  <span>{producto.nombre}</span>
-                  <span className="font-mono text-xs text-muted-foreground">
-                    {producto.codigo_producto}
+                  <span className="flex w-full items-center justify-between gap-3">
+                    <span className="font-mono text-xs">{variante.sku}</span>
+                    <span className="text-muted-foreground">{variante.producto_nombre}</span>
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    Talle {variante.talle} · {variante.color} · {variante.genero} · {variante.modelo}
                   </span>
                 </button>
               </li>

@@ -422,6 +422,37 @@ export interface ReservaLiberadaPayload {
   cantidad: number;
 }
 
+/**
+ * HU-A8 — Payload emitido tras editar atributos operativos de un
+ * ProductoMaestro (`editarProductoMaestro()`, spec_modulo_A.md §2.7).
+ * campos_modificados/valor_anterior/valor_nuevo son diff real (solo los
+ * campos presentes en el payload de entrada), no un snapshot completo.
+ */
+export interface ProductoMaestroActualizadoPayload {
+  producto_maestro_id: string;
+  usuario_id: string;
+  campos_modificados: string[];
+  valor_anterior: Record<string, unknown>;
+  valor_nuevo: Record<string, unknown>;
+}
+
+/**
+ * HU-A8 — Payload emitido tras editar atributos operativos de una
+ * VarianteSKU (`editarVarianteOperativa()`, spec_modulo_A.md §2.7). Nunca
+ * incluye talle/color/genero/modelo/sku — el schema Zod ya los excluye por
+ * diseño antes de que este payload pueda construirse. `ip` presente, mismo
+ * criterio que `VarianteBajaLogicaPayload` (evento hermano de esta misma
+ * entidad).
+ */
+export interface VarianteActualizadaPayload {
+  variante_sku_id: string;
+  usuario_id: string;
+  campos_modificados: string[];
+  valor_anterior: Record<string, unknown>;
+  valor_nuevo: Record<string, unknown>;
+  ip: string;
+}
+
 /** Mapa evento → payload, usado por `domain-event-bus.ts` para tipar `emit`/`on`. */
 export interface DomainEventMap {
   /** HU-A1: se emite tras el alta de un ProductoMaestro. */
@@ -477,6 +508,10 @@ export interface DomainEventMap {
   "stock:reserva_congelada": ReservaCongeladaPayload;
   /** HU-A10: se emite tras la liberación de una Reserva (venta confirmada o TTL vencido). */
   "stock:reserva_liberada": ReservaLiberadaPayload;
+  /** HU-A8: se emite tras editar atributos operativos de un ProductoMaestro. */
+  "producto_maestro:actualizado": ProductoMaestroActualizadoPayload;
+  /** HU-A8: se emite tras editar atributos operativos de una VarianteSKU. */
+  "inventario:variante_actualizada": VarianteActualizadaPayload;
 }
 
 export type DomainEventName = keyof DomainEventMap;

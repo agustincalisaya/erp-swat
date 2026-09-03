@@ -24,12 +24,17 @@ import { ServiceError } from "@/lib/errors/service-error";
 import {
   CrearProductoMaestroSchema,
   GenerarVariantesMatrizSchema,
+  EditarProductoMaestroSchema,
+  type EditarProductoMaestroInput,
 } from "@/lib/schemas/inventario.schema";
 import {
   crearProductoMaestro as crearProductoMaestroService,
   generarVariantesMatriz as generarVariantesMatrizService,
   buscarProductosActivos as buscarProductosActivosService,
   obtenerRubrosYCategoriasDistintos as obtenerRubrosYCategoriasDistintosService,
+  editarProductoMaestro as editarProductoMaestroService,
+  usuarioPuedeEditarProductoMaestro,
+  obtenerProductoMaestroParaEdicion as obtenerProductoMaestroParaEdicionService,
   type ResultadoGenerarVariantesMatriz,
   type RubrosYCategoriasDistintos,
 } from "@/lib/services/inventario/producto.service";
@@ -218,6 +223,115 @@ export async function generarVariantesMatriz(
     }
 
     console.error("[generarVariantesMatriz action] Error inesperado:", err);
+    return { data: null, error: { code: "INTERNAL_ERROR", message: "Error interno. Intentá nuevamente." } };
+  }
+}
+
+type EditarProductoMaestroResult =
+  | { data: Awaited<ReturnType<typeof editarProductoMaestroService>>; error: null }
+  | { data: null; error: ActionError };
+
+/**
+ * HU-A8 — Server Action equivalente a `PATCH /api/inventario/productos/[id]/editar`.
+ *
+ * EXCEPCIÓN deliberada al patrón del resto de este archivo: a diferencia de
+ * `crearProductoMaestro()`/`generarVariantesMatriz()` (que solo exigen sesión
+ * válida), esta función agrega el mismo chequeo de rol
+ * (`usuarioPuedeEditarProductoMaestro()`) que ya protege su Route Handler
+ * equivalente. Es una mutación privilegiada nueva (HU-A8, no existía en
+ * HU-A1) — omitir el chequeo acá dejaría un segundo camino sin protección
+ * hacia `editarProductoMaestro()` del service. No se toca el criterio de las
+ * funciones vecinas de este archivo.
+ */
+export async function editarProductoMaestro(
+  id: string,
+  input: EditarProductoMaestroInput,
+): Promise<EditarProductoMaestroResult> {
+  const session = await getServerSession();
+  if (!session) {
+    return {
+      data: null,
+      error: { code: "UNAUTHORIZED", message: "Sesión requerida para realizar esta operación." },
+    };
+  }
+
+  const autorizado = await usuarioPuedeEditarProductoMaestro(session.userId);
+  if (!autorizado) {
+    return {
+      data: null,
+      error: { code: "FORBIDDEN", message: "No tenés el permiso requerido para editar el catálogo" },
+    };
+  }
+
+  const parsed = EditarProductoMaestroSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      data: null,
+      error: {
+        code: "VALIDATION_ERROR",
+        message: "Los datos enviados no son válidos",
+        fieldErrors: parsed.error.flatten().fieldErrors,
+      },
+    };
+  }
+
+  try {
+    const producto = await editarProductoMaestroService(id, parsed.data, session.userId);
+    return { data: producto, error: null };
+  } catch (err) {
+    if (err instanceof ServiceError) {
+      return { data: null, error: { code: err.code, message: err.message } };
+    }
+
+    console.error("[editarProductoMaestro action] Error inesperado:", err);
+    return { data: null, error: { code: "INTERNAL_ERROR", message: "Error interno. Intentá nuevamente." } };
+  }
+}
+
+type ObtenerProductoMaestroParaEdicionResult =
+  | { data: ProductoMaestroCreado; error: null }
+  | { data: null; error: ActionError };
+
+/**
+ * HU-A8 — trae un `ProductoMaestro` activo por id para precargar el
+ * formulario de edición. Reutiliza el shape `ProductoMaestroCreado` (mismos
+ * campos exactos) en vez de declarar una interfaz nueva — el `Decimal` de
+ * Prisma se convierte a `number` acá, mismo criterio que `crearProductoMaestro()`
+ * (límite de serialización RSC, ver docstring de `ProductoMaestroCreado`).
+ */
+export async function obtenerProductoMaestroParaEdicion(
+  id: string,
+): Promise<ObtenerProductoMaestroParaEdicionResult> {
+  const session = await getServerSession();
+  if (!session) {
+    return {
+      data: null,
+      error: { code: "UNAUTHORIZED", message: "Sesión requerida para realizar esta operación." },
+    };
+  }
+
+  try {
+    const producto = await obtenerProductoMaestroParaEdicionService(id);
+    return {
+      data: {
+        id: producto.id,
+        codigo_producto: producto.codigo_producto,
+        nombre: producto.nombre,
+        descripcion: producto.descripcion,
+        rubro: producto.rubro,
+        categoria: producto.categoria,
+        unidad_medida: producto.unidad_medida,
+        proveedor_preferente: producto.proveedor_preferente,
+        costo_estandar_referencia: producto.costo_estandar_referencia.toNumber(),
+      },
+      error: null,
+    };
+  } catch (err) {
+    if (err instanceof ServiceError) {
+      return { data: null, error: { code: err.code, message: err.message } };
+    }
+
+    console.error("[obtenerProductoMaestroParaEdicion action] Error inesperado:", err);
     return { data: null, error: { code: "INTERNAL_ERROR", message: "Error interno. Intentá nuevamente." } };
   }
 }

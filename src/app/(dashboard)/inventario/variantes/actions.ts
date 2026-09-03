@@ -10,11 +10,21 @@
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { getServerSession } from "@/lib/auth/session";
-import { BajaLogicaVarianteSchema } from "@/lib/schemas/inventario.schema";
+import {
+  BajaLogicaVarianteSchema,
+  EditarVarianteOperativaSchema,
+  type EditarVarianteOperativaInput,
+} from "@/lib/schemas/inventario.schema";
 import {
   darDeBajaVariante,
   usuarioPuedeBajarVariante,
+  editarVarianteOperativa,
+  usuarioPuedeEditarVariante,
+  buscarVariantesActivas,
+  obtenerVarianteParaEdicion,
   type VarianteDadaDeBaja,
+  type VarianteActivaResumen,
+  type VarianteParaEdicion,
 } from "@/lib/services/inventario/variante.service";
 import { ServiceError } from "@/lib/errors/service-error";
 
@@ -110,6 +120,128 @@ export async function darDeBajaVarianteAction(
     }
 
     console.error("[darDeBajaVarianteAction] Error inesperado:", err);
+    return {
+      success: false,
+      error: { code: "INTERNAL_ERROR", message: "Error interno. Intentá nuevamente." },
+    };
+  }
+}
+
+/**
+ * HU-A8 — Server Action equivalente a `PATCH /api/inventario/variantes/[id]`.
+ * Mismo patrón que `darDeBajaVarianteAction()`: gate de rol activo
+ * (`usuarioPuedeEditarVariante()`) antes de tocar el service — sin esto la UI
+ * sería un segundo camino sin protección para la misma operación.
+ */
+export async function editarVarianteOperativaAction(
+  id: string,
+  input: EditarVarianteOperativaInput,
+): Promise<ActionResult<Awaited<ReturnType<typeof editarVarianteOperativa>>>> {
+  const session = await getServerSession();
+  if (!session) {
+    return {
+      success: false,
+      error: { code: "UNAUTHORIZED", message: "Sesión requerida para realizar esta operación." },
+    };
+  }
+
+  const autorizado = await usuarioPuedeEditarVariante(session.userId);
+  if (!autorizado) {
+    return {
+      success: false,
+      error: {
+        code: "FORBIDDEN",
+        message: "No tenés el permiso requerido para realizar esta operación.",
+      },
+    };
+  }
+
+  const parsed = EditarVarianteOperativaSchema.safeParse(input);
+
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: {
+        code: "VALIDATION_ERROR",
+        message: "Los datos enviados no son válidos.",
+        fieldErrors: parsed.error.flatten().fieldErrors as Record<string, string[]>,
+      },
+    };
+  }
+
+  const ip = await resolverIp();
+
+  try {
+    const resultado = await editarVarianteOperativa(id, parsed.data, session.userId, ip);
+    revalidatePath("/inventario/variantes");
+    return { success: true, data: resultado };
+  } catch (err) {
+    if (err instanceof ServiceError) {
+      return { success: false, error: { code: err.code, message: err.message } };
+    }
+
+    console.error("[editarVarianteOperativaAction] Error inesperado:", err);
+    return {
+      success: false,
+      error: { code: "INTERNAL_ERROR", message: "Error interno. Intentá nuevamente." },
+    };
+  }
+}
+
+/**
+ * HU-A8 — búsqueda liviana de solo lectura para poblar un combobox de
+ * variantes (análoga a `buscarProductosActivos()` de `productos/actions.ts`).
+ * Sin chequeo de rol/permiso a propósito: no muta nada, mismo criterio que
+ * su análoga de productos (a diferencia de `editarVarianteOperativaAction()`,
+ * que sí lo tiene porque esa sí muta).
+ */
+export async function buscarVariantesActivasAction(
+  query: string,
+): Promise<ActionResult<VarianteActivaResumen[]>> {
+  const session = await getServerSession();
+  if (!session) {
+    return {
+      success: false,
+      error: { code: "UNAUTHORIZED", message: "Sesión requerida para realizar esta operación." },
+    };
+  }
+
+  try {
+    const variantes = await buscarVariantesActivas(query);
+    return { success: true, data: variantes };
+  } catch (err) {
+    console.error("[buscarVariantesActivasAction] Error inesperado:", err);
+    return {
+      success: false,
+      error: { code: "INTERNAL_ERROR", message: "Error interno. Intentá nuevamente." },
+    };
+  }
+}
+
+/**
+ * HU-A8 — trae una `VarianteSKU` activa por id para precargar el formulario
+ * de edición. Mismo shape `ActionResult<T>` que el resto de este archivo.
+ */
+export async function obtenerVarianteParaEdicionAction(
+  id: string,
+): Promise<ActionResult<VarianteParaEdicion>> {
+  const session = await getServerSession();
+  if (!session) {
+    return {
+      success: false,
+      error: { code: "UNAUTHORIZED", message: "Sesión requerida para realizar esta operación." },
+    };
+  }
+
+  try {
+    const variante = await obtenerVarianteParaEdicion(id);
+    return { success: true, data: variante };
+  } catch (err) {
+    if (err instanceof ServiceError) {
+      return { success: false, error: { code: err.code, message: err.message } };
+    }
+
+    console.error("[obtenerVarianteParaEdicionAction] Error inesperado:", err);
     return {
       success: false,
       error: { code: "INTERNAL_ERROR", message: "Error interno. Intentá nuevamente." },
