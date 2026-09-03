@@ -43,15 +43,20 @@ export function iniciarAuditLogListener(): void {
     });
   });
 
-  domainEventBus.on("stock:transferencia_recibida", (payload) => {
+  // HU-A11 — recepción total o parcial de una TransferenciaStock. La acción
+  // distingue ambos casos (`accion` no es un valor fijo como en el resto de
+  // los listeners de este archivo) porque `estado_transferencia` recién se
+  // conoce en el payload, no en el nombre del evento — un único evento cubre
+  // las dos transiciones posibles (spec de la tarea, punto 4).
+  domainEventBus.on("stock:transferencia_recepcion_confirmada", (payload) => {
     void registrarAuditLog({
       usuario_id: payload.usuario_id,
-      accion: "TRANSFERENCIA_RECIBIDA",
+      accion: payload.estado_transferencia === "RECIBIDA" ? "TRANSFERENCIA_RECIBIDA" : "RECEPCION_PARCIAL",
       tabla_afectada: "transferencias_stock",
       registro_id: payload.transferencia_id,
       ip: "internal-event",
       valor_anterior: { estado: "EN_TRANSITO" },
-      valor_nuevo: { estado: "RECIBIDA", ...payload },
+      valor_nuevo: { estado: payload.estado_transferencia, ...payload },
     });
   });
 
@@ -327,10 +332,8 @@ export function iniciarAuditLogListener(): void {
       ip: "unknown",
       valor_anterior: null,
       valor_nuevo: {
-        variante_sku_id: payload.variante_sku_id,
         deposito_destino_id: payload.deposito_destino_id,
-        cantidad: payload.cantidad,
-        cantidad_resultante: payload.cantidad_resultante,
+        items: payload.items,
       },
     });
   });
@@ -399,6 +402,25 @@ export function iniciarAuditLogListener(): void {
         numero_orden: payload.numero_orden,
         lista_precio_version_id: payload.lista_precio_version_id,
         items: payload.items_nuevos,
+      },
+    });
+  });
+
+  // HU-H4 — alta de la recepción y transición física de la OC, post-COMMIT.
+  domainEventBus.on("recepcion:registrada", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.recibida_por_id,
+      accion: "CREATE",
+      tabla_afectada: "recepciones",
+      registro_id: payload.recepcion_id,
+      ip: "internal-event",
+      valor_anterior: { estado_orden_compra: payload.estado_anterior_oc },
+      valor_nuevo: {
+        orden_compra_id: payload.orden_compra_id,
+        numero_orden: payload.numero_orden,
+        deposito_destino_id: payload.deposito_destino_id,
+        fecha_recepcion: payload.fecha_recepcion,
+        estado_orden_compra: payload.estado_nuevo_oc,
       },
     });
   });

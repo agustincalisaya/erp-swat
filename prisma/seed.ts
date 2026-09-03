@@ -65,6 +65,7 @@ const PERMISO_TRANSFERIR_STOCK_ID = "3e87e12f-091f-4a18-a645-8916fca01379";
 const PERMISO_CONFIRMAR_RECEPCION_ID = "90cfd9eb-e6f1-47c5-a570-d7f92dc21d04";
 const PERMISO_RESERVAR_STOCK_ID = "b1f7c2a4-3d9e-4c1b-8a6f-0e2d4c6a8b10";
 const PERMISO_CONFIRMAR_RESERVA_ID = "c2e8d3b5-4a1f-4d2c-9b7a-1f3e5d7b9c21";
+const PERMISO_MOVIMIENTOS_LEER_HISTORICO_ID = "e4a6f1d8-7c2b-4e9a-9d5f-3b8c1a6e4d02";
 const ROL_AUDITOR_ID = "cfe51d79-332c-4217-8906-481f2a94a1cc";
 const ROL_ADMINISTRADOR_ID = "2998bb21-960c-474c-8941-848d1f20038e";
 const ROL_ENCARGADO_DEPOSITO_ID = "1ce2f5fc-8b66-4496-82de-36d434bc79aa";
@@ -101,13 +102,15 @@ const STOCK_CT2_MOVIL_ID = "724c48d5-ea9d-4fb8-b44a-315a683bb0c1";
 // --- Origen: Sprint 2 — Módulo H (Compras/Proveedores) y Módulo G (Cuentas por Pagar) ---
 const PERMISO_PROVEEDORES_ADMINISTRAR_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000001";
 const PERMISO_COMPRAS_OPERAR_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000002";
-const PERMISO_RECEPCION_CONFIRMAR_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000003";
+const PERMISO_RECEPCIONES_REGISTRAR_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000003";
 const PERMISO_TESORERIA_OPERAR_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000004";
 const ROL_COMPRADOR_ID = "1a2b3c4d-2222-4a1a-8a1a-000000000001";
 const ROL_TESORERO_ID = "1a2b3c4d-2222-4a1a-8a1a-000000000002";
 const ROL_PERMISO_PROVEEDORES_ADMINISTRAR_ID = "1a2b3c4d-3333-4a1a-8a1a-000000000001";
 const ROL_PERMISO_COMPRAS_OPERAR_ID = "1a2b3c4d-3333-4a1a-8a1a-000000000002";
-const ROL_PERMISO_RECEPCION_CONFIRMAR_ID = "1a2b3c4d-3333-4a1a-8a1a-000000000003";
+// ROL_PERMISO_RECEPCION_CONFIRMAR_ID retirado en HU-H4: el permiso pasó a
+// llamarse `recepciones:registrar` y su vínculo con los roles se upsertea por
+// clave compuesta (rol_id + permiso_id), sin constante de id fija.
 // ROL_PERMISO_TESORERIA_OPERAR_ID retirado en HU-G8: el vínculo
 // tesoreria:operar ↔ TESORERO_CENTRAL se elimina vía deleteMany (ver más abajo).
 const ROL_SUPERVISOR_COMPRAS_ID = "1a2b3c4d-2222-4a1a-8a1a-000000000003";
@@ -275,22 +278,29 @@ async function main() {
     { id: MOVIMIENTO_EGRESO_3_ID, cantidad: 40, hace_dias: 10 },
   ];
 
+  // HU-A11 (multi-ítem): MovimientoStock es cabecera pura — variante_sku_id/
+  // cantidad/estado_origen migran a un MovimientoStockItem hijo (uno solo,
+  // este seed sigue siendo de una única variante por egreso).
   for (const egreso of egresos) {
     await prisma.movimientoStock.upsert({
       where: { id: egreso.id },
       update: {},
       create: {
         id: egreso.id,
-        variante_sku_id: varianteSku.id,
         deposito_origen_id: deposito.id,
         deposito_destino_id: null,
         tipo_movimiento: "EGRESO",
-        estado_origen: "DISPONIBLE",
-        cantidad: egreso.cantidad,
         comprobante_referencia: `SEED-EGRESO-${egreso.cantidad}`,
         registrado_por_id: usuario.id,
         created_at: diasAtras(egreso.hace_dias),
         is_active: true,
+        items: {
+          create: {
+            variante_sku_id: varianteSku.id,
+            cantidad: egreso.cantidad,
+            estado_origen: "DISPONIBLE",
+          },
+        },
       },
     });
   }
@@ -428,6 +438,15 @@ async function main() {
     create: { id: PERMISO_CONFIRMAR_RESERVA_ID, codigo: "inventario:confirmar_reserva", descripcion: "Liberar una Reserva por venta confirmada (RESERVADO → VENDIDO)", modulo: "MODULO_A" },
   });
 
+  // HU-A11 — historial operativo de movimientos (spec_modulo_A.md §2.10).
+  // Distinto de `auditoria:leer_historico` (Consola Forense, Módulo D): este
+  // permiso es de uso operativo, sin verificación de cadena SHA-256.
+  const permisoMovimientosLeerHistorico = await prisma.permiso.upsert({
+    where: { id: PERMISO_MOVIMIENTOS_LEER_HISTORICO_ID },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: { id: PERMISO_MOVIMIENTOS_LEER_HISTORICO_ID, codigo: "inventario:movimientos:leer_historico", descripcion: "Consultar el historial operativo de movimientos de stock", modulo: "MODULO_A" },
+  });
+
   const rolEncargadoDeposito = await prisma.rol.upsert({
     where: { id: ROL_ENCARGADO_DEPOSITO_ID },
     update: REACTIVAR_REFERENCIA_RBAC,
@@ -455,7 +474,7 @@ async function main() {
   });
 
   for (const rol of [rolEncargadoDeposito, rolAdministrador]) {
-    for (const permiso of [permisoTransferirStock, permisoConfirmarRecepcion, permisoReservarStock, permisoConfirmarReserva]) {
+    for (const permiso of [permisoTransferirStock, permisoConfirmarRecepcion, permisoReservarStock, permisoConfirmarReserva, permisoMovimientosLeerHistorico]) {
       await prisma.rolPermiso.upsert({
         where: { rol_id_permiso_id: { rol_id: rol.id, permiso_id: permiso.id } },
         update: REACTIVAR_REFERENCIA_RBAC,
@@ -869,14 +888,18 @@ async function main() {
     },
   });
 
-  const permisoRecepcionConfirmar = await prisma.permiso.upsert({
-    where: { id: PERMISO_RECEPCION_CONFIRMAR_ID },
-    update: REACTIVAR_REFERENCIA_RBAC,
+  const permisoRecepcionesRegistrar = await prisma.permiso.upsert({
+    where: { id: PERMISO_RECEPCIONES_REGISTRAR_ID },
+    update: {
+      ...REACTIVAR_REFERENCIA_RBAC,
+      codigo: "recepciones:registrar",
+      descripcion: "Registrar recepciones físicas de mercadería contra órdenes de compra (HU-H4)",
+      modulo: "MODULO_H",
+    },
     create: {
-      id: PERMISO_RECEPCION_CONFIRMAR_ID,
-      codigo: "compras:confirmar_recepcion",
-      descripcion:
-        "PLACEHOLDER — registrar recepción física de mercadería contra una OC (HU-H4).",
+      id: PERMISO_RECEPCIONES_REGISTRAR_ID,
+      codigo: "recepciones:registrar",
+      descripcion: "Registrar recepciones físicas de mercadería contra órdenes de compra (HU-H4)",
       modulo: "MODULO_H",
     },
   });
@@ -1002,7 +1025,6 @@ async function main() {
   const permisosComprador = [
     permisoProveedoresAdministrar,
     permisoComprasOperar,
-    permisoRecepcionConfirmar,
     permisoOcCrear,
     permisoOcConfirmar,
     permisoOcCerrar,
@@ -1022,6 +1044,36 @@ async function main() {
       },
       update: REACTIVAR_REFERENCIA_RBAC,
       create: { rol_id: rolComprador.id, permiso_id: permiso.id },
+    });
+  }
+
+  // HU-H4: el placeholder del Comprador se retira mediante baja lógica.
+  await prisma.rolPermiso.updateMany({
+    where: {
+      rol_id: rolComprador.id,
+      permiso_id: permisoRecepcionesRegistrar.id,
+      is_active: true,
+    },
+    data: {
+      is_active: false,
+      deleted_at: new Date(),
+      deletion_reason: "HU-H4: recepción física segregada del rol COMPRADOR",
+    },
+  });
+
+  for (const rol of [rolEncargadoDeposito, rolAdministrador]) {
+    await prisma.rolPermiso.upsert({
+      where: {
+        rol_id_permiso_id: {
+          rol_id: rol.id,
+          permiso_id: permisoRecepcionesRegistrar.id,
+        },
+      },
+      update: REACTIVAR_REFERENCIA_RBAC,
+      create: {
+        rol_id: rol.id,
+        permiso_id: permisoRecepcionesRegistrar.id,
+      },
     });
   }
 
@@ -1330,10 +1382,18 @@ async function main() {
 
   const recepcionSeed = await prisma.recepcion.upsert({
     where: { id: RECEPCION_SEED_ID },
-    update: {},
+    update: {
+      deposito_destino_id: deposito.id,
+      clave_idempotencia: RECEPCION_SEED_ID,
+      payload_hash: "ceda5427d257e5ac7cc0c2c486c0d9ad0aea836f3779a16f01d087abd542cbb3",
+    },
     create: {
       id: RECEPCION_SEED_ID,
       orden_compra_id: ordenCompraConfirmada.id,
+      deposito_destino_id: deposito.id,
+      clave_idempotencia: RECEPCION_SEED_ID,
+      // Marca SHA-256 histórica documentada en la migración HU-H4.
+      payload_hash: "ceda5427d257e5ac7cc0c2c486c0d9ad0aea836f3779a16f01d087abd542cbb3",
       numero_remito_proveedor: "REM-0001-00012345",
       fecha_recepcion: diasAtras(2),
       recibida_por_id: usuarioEncargado.id,
@@ -1344,12 +1404,13 @@ async function main() {
 
   const recepcionItem1 = await prisma.recepcionItem.upsert({
     where: { id: RECEPCION_ITEM_1_ID },
-    update: {},
+    update: { cantidad_aceptada: 18 },
     create: {
       id: RECEPCION_ITEM_1_ID,
       recepcion_id: recepcionSeed.id,
       orden_compra_item_id: ordenCompraItem1.id,
       cantidad_recibida: 18,
+      cantidad_aceptada: 18,
       is_active: true,
     },
   });
@@ -1398,6 +1459,7 @@ async function main() {
     create: {
       id: EVALUACION_PROVEEDOR_SEED_ID,
       proveedor_id: proveedorHomologado.id,
+      recepcion_id: recepcionSeed.id,
       puntaje_cumplimiento_plazos: 90,
       puntaje_calidad_recepcion: 80,
       puntaje_documentacion: 100,
