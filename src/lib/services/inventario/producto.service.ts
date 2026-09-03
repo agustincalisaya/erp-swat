@@ -14,6 +14,7 @@
  */
 import "server-only";
 
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { domainEventBus } from "@/lib/events/domain-event-bus";
 import { ServiceError } from "@/lib/errors/service-error";
@@ -22,6 +23,7 @@ import type {
   CrearProductoMaestroInput,
   GenerarVariantesMatrizInput,
   DesactivarProductoMaestroInput,
+  EditarProductoMaestroInput,
 } from "@/lib/schemas/inventario.schema";
 
 /** Límite de combinaciones por invocación (sección 6.2) — evita cargas masivas accidentales. */
@@ -422,4 +424,133 @@ export async function desactivarProductoMaestro(
   });
 
   return productoDesactivado;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// HU-A8 — editarProductoMaestro
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * @throws {ServiceError} PRODUCTO_MAESTRO_NO_ENCONTRADO | PRODUCTO_MAESTRO_NOMBRE_DUPLICADO
+ */
+export async function editarProductoMaestro(
+  productoMaestroId: string,
+  input: EditarProductoMaestroInput,
+  usuarioId: string,
+) {
+  const actual = await prisma.productoMaestro.findFirst({
+    where: { id: productoMaestroId, is_active: true },
+  });
+  if (!actual) {
+    throw new ServiceError("PRODUCTO_MAESTRO_NO_ENCONTRADO", `No se encontró un Producto Maestro activo con id ${productoMaestroId}.`);
+  }
+
+  const camposModificados = Object.keys(input) as (keyof EditarProductoMaestroInput)[];
+  if (camposModificados.length === 0) {
+    return { id: actual.id, campos_modificados: [], updated_at: actual.updated_at };
+  }
+
+  if (input.nombre !== undefined) {
+    const nombreTrimmed = input.nombre.trim();
+    if (nombreTrimmed.toLowerCase() !== actual.nombre.toLowerCase()) {
+      const duplicado = await prisma.productoMaestro.findFirst({
+        where: {
+          id: { not: productoMaestroId },
+          is_active: true,
+          nombre: { equals: nombreTrimmed, mode: "insensitive" },
+        },
+        select: { id: true },
+      });
+      if (duplicado) {
+        throw new ServiceError("PRODUCTO_MAESTRO_NOMBRE_DUPLICADO", `Ya existe un Producto Maestro activo con el nombre "${nombreTrimmed}".`);
+      }
+    }
+  }
+
+  const valorAnterior: Record<string, unknown> = {};
+  const valorNuevo: Record<string, unknown> = {};
+  for (const campo of camposModificados) {
+    valorAnterior[campo] = actual[campo as keyof typeof actual];
+    valorNuevo[campo] = input[campo];
+  }
+
+  const actualizado = await prisma.productoMaestro.update({
+    where: { id: productoMaestroId },
+    data: input,
+  });
+
+  domainEventBus.emit("producto_maestro:actualizado", {
+    producto_maestro_id: actualizado.id,
+    usuario_id: usuarioId,
+    campos_modificados: camposModificados,
+    valor_anterior: valorAnterior,
+    valor_nuevo: valorNuevo,
+  });
+
+  return { id: actualizado.id, campos_modificados: camposModificados, updated_at: actualizado.updated_at };
+}
+
+/** Roles autorizados para editar atributos operativos del catálogo (spec_modulo_A.md §2.7 / Alcance §5 RBAC). */
+const ROLES_AUTORIZADOS_EDITAR_CATALOGO = ["ADMINISTRADOR", "ENCARGADO_DEPOSITO"] as const;
+
+export async function usuarioPuedeEditarProductoMaestro(usuarioId: string): Promise<boolean> {
+  const match = await prisma.usuarioRol.findFirst({
+    where: {
+      usuario_id: usuarioId,
+      is_active: true,
+      rol: { is_active: true, nombre: { in: [...ROLES_AUTORIZADOS_EDITAR_CATALOGO] } },
+    },
+    select: { id: true },
+  });
+  return match !== null;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// HU-A8 — obtenerProductoMaestroParaEdicion
+// ──────────────────────────────────────────────────────────────────────────────
+
+export interface ProductoMaestroParaEdicion {
+  id: string;
+  codigo_producto: string;
+  nombre: string;
+  descripcion: string | null;
+  categoria: string;
+  rubro: string;
+  unidad_medida: string;
+  proveedor_preferente: string | null;
+  costo_estandar_referencia: Prisma.Decimal;
+}
+
+/**
+ * Trae un `ProductoMaestro` activo por id, con los campos editables de
+ * `EditarProductoMaestroSchema` más `id`/`codigo_producto` para contexto de
+ * display en el formulario. Distinta de `buscarProductosActivos()`: esa es
+ * búsqueda por texto con `select` mínimo (`take: 10`); esta es "uno por id,
+ * con todos los campos editables".
+ *
+ * @throws {ServiceError} PRODUCTO_MAESTRO_NO_ENCONTRADO
+ */
+export async function obtenerProductoMaestroParaEdicion(
+  id: string,
+): Promise<ProductoMaestroParaEdicion> {
+  const producto = await prisma.productoMaestro.findFirst({
+    where: { id, is_active: true },
+    select: {
+      id: true,
+      codigo_producto: true,
+      nombre: true,
+      descripcion: true,
+      categoria: true,
+      rubro: true,
+      unidad_medida: true,
+      proveedor_preferente: true,
+      costo_estandar_referencia: true,
+    },
+  });
+
+  if (!producto) {
+    throw new ServiceError("PRODUCTO_MAESTRO_NO_ENCONTRADO", `No se encontró un Producto Maestro activo con id ${id}.`);
+  }
+
+  return producto;
 }

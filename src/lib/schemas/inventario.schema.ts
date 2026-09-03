@@ -424,3 +424,45 @@ export const HistorialMovimientosQuerySchema = z.object({
 });
 
 export type HistorialMovimientosQuery = z.infer<typeof HistorialMovimientosQuerySchema>;
+
+// ──────────────────────────────────────────────────────────────────────────────
+// HU-A8 — Edición de atributos operativos de Producto Maestro y Variante
+// spec_modulo_A.md §2.7. El SKU de una VarianteSKU es inmutable: talle, color,
+// genero, modelo y sku quedan deliberadamente FUERA de estos schemas — un
+// intento de enviarlos es rechazado por `.strict()` con 400, sin necesidad de
+// lógica condicional adicional en la capa de servicios.
+// ──────────────────────────────────────────────────────────────────────────────
+
+// `codigo_producto` queda deliberadamente fuera de EditarProductoMaestroSchema
+// — es el segmento [PRODUCTO] del SKU determinístico de todas las variantes ya
+// generadas; editarlo rompería la trazabilidad del SKU contra el código físico
+// ya impreso, mismo motivo por el que talle/color/genero/modelo son inmutables
+// en Variante.
+export const EditarProductoMaestroSchema = z
+  .object({
+    nombre: z.string().min(1, "El nombre es obligatorio").optional(),
+    descripcion: z.string().optional(),
+    categoria: z.string().min(1, "La categoría es obligatoria").optional(),
+    rubro: z.string().min(1, "El rubro es obligatorio").optional(),
+    unidad_medida: z.string().min(1, "La unidad de medida es obligatoria").optional(),
+    proveedor_preferente: z.string().optional(),
+    costo_estandar_referencia: z
+      .number({ invalid_type_error: "El costo debe ser un número" })
+      .nonnegative("El costo no puede ser negativo")
+      .optional(),
+  })
+  .strict();
+
+export type EditarProductoMaestroInput = z.infer<typeof EditarProductoMaestroSchema>;
+
+export const EditarVarianteOperativaSchema = z
+  .object({
+    ean_qr: z
+      .string()
+      .regex(/^\d{13}$/, "EAN-13 debe tener 13 dígitos")
+      .optional(),
+    proveedor_id: z.string().uuid().optional(),
+  })
+  .strict();
+
+export type EditarVarianteOperativaInput = z.infer<typeof EditarVarianteOperativaSchema>;

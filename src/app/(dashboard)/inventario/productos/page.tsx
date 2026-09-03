@@ -15,7 +15,10 @@
 import { redirect } from "next/navigation";
 import { Package } from "lucide-react";
 import { getServerSession } from "@/lib/auth/session";
-import { listarProductosActivosParaListado } from "@/lib/services/inventario/producto.service";
+import {
+  listarProductosActivosParaListado,
+  usuarioPuedeEditarProductoMaestro,
+} from "@/lib/services/inventario/producto.service";
 import { ListadoProductos } from "@/components/inventario/ListadoProductos";
 
 export const metadata = {
@@ -27,6 +30,7 @@ export default async function ProductosPage() {
   const session = await getServerSession();
   if (!session) redirect("/login");
 
+  const puedeEditar = await usuarioPuedeEditarProductoMaestro(session.userId);
   const productos = await listarProductosActivosParaListado();
 
   return (
@@ -46,7 +50,7 @@ export default async function ProductosPage() {
           </div>
         </div>
 
-        <ListadoProductos productos={productos} />
+        <ListadoProductos productos={productos} puedeEditar={puedeEditar} />
       </div>
     </main>
   );
