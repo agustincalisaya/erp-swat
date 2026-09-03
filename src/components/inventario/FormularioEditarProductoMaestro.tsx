@@ -19,10 +19,10 @@
  * así que mandar un campo sin tocar lo reportaría como modificado sin
  * haber cambiado.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useForm, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Loader2, Save, ArrowLeft } from "lucide-react";
+import { Loader2, Save, ArrowLeft, CheckCircle2 } from "lucide-react";
 
 import {
   EditarProductoMaestroSchema,
@@ -90,10 +90,12 @@ export function FormularioEditarProductoMaestro({
   onCambiarProducto,
 }: FormularioEditarProductoMaestroProps) {
   const [serverError, setServerError] = useState<string | null>(null);
+  const [exito, setExito] = useState(false);
   const [sugerencias, setSugerencias] = useState<{ rubros: string[]; categorias: string[] }>({
     rubros: [],
     categorias: [],
   });
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const valoresOriginales = valoresIniciales(producto);
 
@@ -108,6 +110,14 @@ export function FormularioEditarProductoMaestro({
     obtenerRubrosYCategorias().then((respuesta) => {
       if (respuesta.data) setSugerencias(respuesta.data);
     });
+  }, []);
+
+  // Si el Dialog se cierra manualmente durante el delay de éxito, evita
+  // llamar a onExito()/setState sobre un componente ya desmontado.
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
   }, []);
 
   async function onSubmit(valores: EditarProductoMaestroInput) {
@@ -130,16 +140,22 @@ export function FormularioEditarProductoMaestro({
       return;
     }
 
-    onExito();
+    setExito(true);
+    timeoutRef.current = setTimeout(() => {
+      onExito();
+    }, 1400);
   }
 
   return (
     <Form {...form}>
       <form
-        onSubmit={form.handleSubmit(onSubmit)}
-        className="space-y-4 overflow-y-auto pr-1"
+        onSubmit={(event) => {
+          void form.handleSubmit(onSubmit)(event);
+        }}
+        className="overflow-y-auto pr-1"
         noValidate
       >
+        <fieldset disabled={exito} className="contents space-y-4">
         <div className="flex items-center justify-between gap-2">
           <p className="text-sm text-muted-foreground">
             Editando <span className="font-medium text-foreground">{producto.nombre}</span>{" "}
@@ -160,6 +176,13 @@ export function FormularioEditarProductoMaestro({
         {serverError && (
           <Alert variant="destructive">
             <AlertDescription>{serverError}</AlertDescription>
+          </Alert>
+        )}
+
+        {exito && (
+          <Alert className="border-green-200 bg-green-50 text-green-800">
+            <CheckCircle2 className="size-4" aria-hidden="true" />
+            <AlertDescription>Producto Maestro editado con éxito</AlertDescription>
           </Alert>
         )}
 
@@ -289,7 +312,7 @@ export function FormularioEditarProductoMaestro({
         <div className="flex justify-end pt-2 border-t border-slate-100">
           <Button
             type="submit"
-            disabled={form.formState.isSubmitting}
+            disabled={form.formState.isSubmitting || exito}
             className="bg-blue-600 hover:bg-blue-700 text-white gap-2"
           >
             {form.formState.isSubmitting ? (
@@ -305,6 +328,7 @@ export function FormularioEditarProductoMaestro({
             )}
           </Button>
         </div>
+        </fieldset>
       </form>
     </Form>
   );

@@ -30,10 +30,10 @@
  * de vuelta a `undefined` cuando el usuario borra el input a mano, mismo
  * criterio que `costo_estandar_referencia` en `FormularioEditarProductoMaestro.tsx`.
  */
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useForm, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Loader2, Save, ArrowLeft } from "lucide-react";
+import { Loader2, Save, ArrowLeft, CheckCircle2 } from "lucide-react";
 
 import {
   EditarVarianteOperativaSchema,
@@ -91,6 +91,8 @@ export function FormularioEditarVariante({
   onCambiarVariante,
 }: FormularioEditarVarianteProps) {
   const [serverError, setServerError] = useState<string | null>(null);
+  const [exito, setExito] = useState(false);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const valoresOriginales = valoresIniciales(variante);
 
@@ -98,6 +100,14 @@ export function FormularioEditarVariante({
     resolver: zodResolver(EditarVarianteOperativaSchema) as unknown as Resolver<EditarVarianteOperativaInput>,
     defaultValues: valoresOriginales,
   });
+
+  // Si el Dialog se cierra manualmente durante el delay de éxito, evita
+  // llamar a onExito()/setState sobre un componente ya desmontado.
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+  }, []);
 
   async function onSubmit(valores: EditarVarianteOperativaInput) {
     setServerError(null);
@@ -120,16 +130,22 @@ export function FormularioEditarVariante({
       return;
     }
 
-    onExito();
+    setExito(true);
+    timeoutRef.current = setTimeout(() => {
+      onExito();
+    }, 1400);
   }
 
   return (
     <Form {...form}>
       <form
-        onSubmit={form.handleSubmit(onSubmit)}
-        className="space-y-4 overflow-y-auto pr-1"
+        onSubmit={(event) => {
+          void form.handleSubmit(onSubmit)(event);
+        }}
+        className="overflow-y-auto pr-1"
         noValidate
       >
+        <fieldset disabled={exito} className="contents space-y-4">
         <div className="flex items-center justify-between gap-2">
           <div className="text-sm text-muted-foreground">
             <p>
@@ -156,6 +172,13 @@ export function FormularioEditarVariante({
         {serverError && (
           <Alert variant="destructive">
             <AlertDescription>{serverError}</AlertDescription>
+          </Alert>
+        )}
+
+        {exito && (
+          <Alert className="border-green-200 bg-green-50 text-green-800">
+            <CheckCircle2 className="size-4" aria-hidden="true" />
+            <AlertDescription>Variante editada con éxito</AlertDescription>
           </Alert>
         )}
 
@@ -205,7 +228,7 @@ export function FormularioEditarVariante({
         <div className="flex justify-end pt-2 border-t border-slate-100">
           <Button
             type="submit"
-            disabled={form.formState.isSubmitting}
+            disabled={form.formState.isSubmitting || exito}
             className="bg-blue-600 hover:bg-blue-700 text-white gap-2"
           >
             {form.formState.isSubmitting ? (
@@ -221,6 +244,7 @@ export function FormularioEditarVariante({
             )}
           </Button>
         </div>
+        </fieldset>
       </form>
     </Form>
   );
