@@ -31,6 +31,7 @@ import { FormularioNuevoProveedor } from "@/components/compras/FormularioNuevoPr
 import { DialogHomologar } from "@/components/compras/DialogHomologar";
 import { DialogSuspender } from "@/components/compras/DialogSuspender";
 import { DialogBaja } from "@/components/compras/DialogBaja";
+import { DialogVolverPendiente } from "@/components/compras/DialogVolverPendiente";
 import type { ProveedorListado } from "@/lib/services/proveedores/proveedor.service";
 
 export interface PermisosProveedores {
@@ -99,7 +100,7 @@ function FilaAcciones({
             <Pencil className="size-3.5" aria-hidden="true" />
             Editar
           </Button>
-          <DialogContent>
+          <DialogContent className="flex max-h-[85vh] flex-col">
             <DialogHeader>
               <DialogTitle>Editar legajo — {proveedor.razon_social}</DialogTitle>
               <DialogDescription>
@@ -138,6 +139,21 @@ function FilaAcciones({
         <DialogSuspender
           proveedorId={proveedor.id}
           razonSocial={proveedor.razon_social}
+        />
+      )}
+
+      {permisos.homologar && proveedor.estado === "HOMOLOGADO" && (
+        <DialogVolverPendiente
+          proveedorId={proveedor.id}
+          razonSocial={proveedor.razon_social}
+          estadoActual="HOMOLOGADO"
+        />
+      )}
+      {permisos.homologar && proveedor.estado === "SUSPENDIDO" && (
+        <DialogVolverPendiente
+          proveedorId={proveedor.id}
+          razonSocial={proveedor.razon_social}
+          estadoActual="SUSPENDIDO"
         />
       )}
 
@@ -193,7 +209,7 @@ export function TablaProveedores({
                 <UserPlus className="size-4" aria-hidden="true" />
                 Nuevo proveedor
               </Button>
-              <DialogContent>
+              <DialogContent className="flex max-h-[85vh] flex-col">
                 <DialogHeader>
                   <DialogTitle>Alta de proveedor</DialogTitle>
                   <DialogDescription>

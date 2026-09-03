@@ -183,7 +183,8 @@ export function FormularioNuevoProveedor({
   };
 
   return (
-    <form onSubmit={onSubmit} className="space-y-4" noValidate>
+    <form onSubmit={onSubmit} className="flex min-h-0 flex-1 flex-col space-y-4" noValidate>
+      <div className="flex-1 overflow-y-auto space-y-4">
       {errorGeneral && (
         <Alert variant="destructive">
           <AlertTriangle className="size-4" aria-hidden="true" />
@@ -347,7 +348,9 @@ export function FormularioNuevoProveedor({
         </div>
       </div>
 
-      <div className="flex items-center justify-end gap-2 pt-1">
+      </div>
+
+      <div className="flex shrink-0 items-center justify-end gap-2 pt-1">
         <Button
           type="submit"
           disabled={isPending}
