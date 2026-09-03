@@ -16,7 +16,7 @@
  * Server Action: `editarItemsOrdenCompraAction` — reemplazo total del set.
  */
 
-import { useMemo, useState, useTransition } from "react";
+import { useId, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Trash2, Loader2, Save, Info, RotateCcw } from "lucide-react";
 
@@ -77,6 +77,14 @@ export function EditorItemsOrdenCompra({
 }: EditorItemsOrdenCompraProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+
+  // Prefijo estable entre SSR y cliente para los `id`/`htmlFor` de cada fila.
+  // No se usa `fila.key` (un `crypto.randomUUID()`): el initializer de
+  // `useState` corre por separado en el servidor y en el cliente y generaría
+  // UUIDs distintos → hydration mismatch en los atributos `htmlFor`/`id`.
+  // `useId()` se llama una sola vez y se combina con el índice de la fila
+  // (patrón recomendado por React para listas).
+  const editorId = useId();
 
   const [items, setItems] = useState<ItemFila[]>(() =>
     itemsIniciales.length > 0 ? filasDesdeIniciales(itemsIniciales) : [nuevaFila()],
@@ -223,17 +231,20 @@ export function EditorItemsOrdenCompra({
       </p>
 
       <div className="space-y-2">
-        {items.map((fila) => (
+        {items.map((fila, indice) => {
+          const varId = `${editorId}-var-${indice}`;
+          const cantId = `${editorId}-cant-${indice}`;
+          return (
           <div
             key={fila.key}
             className="flex flex-col sm:flex-row sm:items-end gap-2 rounded-lg border border-border bg-muted/20 p-3"
           >
             <div className="flex-1 space-y-1">
-              <Label htmlFor={`edit-var-${fila.key}`} className="text-xs">
+              <Label htmlFor={varId} className="text-xs">
                 Variante
               </Label>
               <ComboboxFiltrable
-                id={`edit-var-${fila.key}`}
+                id={varId}
                 items={variantes}
                 getId={(v) => v.id}
                 getLabel={(v) => `${v.sku} — ${v.descripcion}`}
@@ -248,11 +259,11 @@ export function EditorItemsOrdenCompra({
               />
             </div>
             <div className="w-full sm:w-28 space-y-1">
-              <Label htmlFor={`edit-cant-${fila.key}`} className="text-xs">
+              <Label htmlFor={cantId} className="text-xs">
                 Cantidad
               </Label>
               <Input
-                id={`edit-cant-${fila.key}`}
+                id={cantId}
                 type="number"
                 min={1}
                 step={1}
@@ -276,7 +287,8 @@ export function EditorItemsOrdenCompra({
               <Trash2 className="size-4" />
             </Button>
           </div>
-        ))}
+          );
+        })}
       </div>
 
       {errorItems && <p className="text-xs text-destructive">{errorItems}</p>}

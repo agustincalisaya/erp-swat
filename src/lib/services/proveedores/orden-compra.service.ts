@@ -922,20 +922,43 @@ export interface MovimientoHistorialOrdenCompra {
 
 /**
  * Línea de tiempo de cambios de estado de una OC, leída del ledger de
- * auditoría (Módulo D) — los eventos `orden_compra:creada` /
- * `orden_compra:estado_cambiado` ya se escriben ahí. Solo lectura, no
- * verifica la cadena SHA-256 (eso es responsabilidad de la consola de
- * auditoría, no de esta pantalla).
+ * auditoría (Módulo D). Incluye:
+ *  - `orden_compra:creada` / `orden_compra:estado_cambiado` (H3) —
+ *    `tabla_afectada: "ordenes_compra"`, `registro_id` = id de la OC.
+ *  - `recepcion:registrada` (HU-H4) — `tabla_afectada: "recepciones"`,
+ *    `registro_id` = id de la Recepcion. Aporta las transiciones
+ *    CONFIRMADA → RECEPCION_PARCIAL → RECIBIDA_COMPLETA, que las gobierna
+ *    `recepcion.service.ts` y sin las cuales el seguimiento saltaba de
+ *    CONFIRMADA directo a CERRADA (CA1: "seguimiento hasta el cierre").
+ *
+ * Solo lectura, no verifica la cadena SHA-256 (eso es responsabilidad de la
+ * consola de auditoría, no de esta pantalla).
  */
 export async function obtenerHistorialOrdenCompra(
   ordenCompraId: string,
 ): Promise<MovimientoHistorialOrdenCompra[]> {
+  // Las filas de recepción se auditan con `registro_id` = id de la Recepcion
+  // (no de la OC), así que hay que resolver primero qué recepciones tiene la
+  // orden para sumarlas al filtro del ledger.
+  const recepcionIds = (
+    await prisma.recepcion.findMany({
+      where: { orden_compra_id: ordenCompraId },
+      select: { id: true },
+    })
+  ).map((r) => r.id);
+
   const registros = await prisma.auditLog.findMany({
-    where: { tabla_afectada: "ordenes_compra", registro_id: ordenCompraId },
+    where: {
+      OR: [
+        { tabla_afectada: "ordenes_compra", registro_id: ordenCompraId },
+        { tabla_afectada: "recepciones", registro_id: { in: recepcionIds } },
+      ],
+    },
     orderBy: { created_at: "asc" },
     select: {
       id: true,
       accion: true,
+      tabla_afectada: true,
       created_at: true,
       usuario_id: true,
       valor_anterior: true,
@@ -959,20 +982,34 @@ export async function obtenerHistorialOrdenCompra(
   const nombrePorId = new Map(usuarios.map((u) => [u.id, u.nombre_completo]));
 
   return registros.map((r) => {
+    // Las filas de `recepciones` (HU-H4) guardan el estado de la OC en
+    // `estado_orden_compra`, no en `estado` como las de `ordenes_compra`.
+    const esRecepcion = r.tabla_afectada === "recepciones";
+
     const anterior = (r.valor_anterior ?? null) as unknown as
-      | { estado?: string }
+      | { estado?: string; estado_orden_compra?: string }
       | null;
     const nuevo = (r.valor_nuevo ?? null) as unknown as
       | {
           estado?: string;
+          estado_orden_compra?: string;
           accion?: string;
           deletion_reason?: string;
           fecha_entrega_comprometida?: string;
         }
       | null;
 
+    const estadoAnterior = esRecepcion
+      ? (anterior?.estado_orden_compra ?? null)
+      : (anterior?.estado ?? null);
+    const estadoNuevo = esRecepcion
+      ? (nuevo?.estado_orden_compra ?? null)
+      : (nuevo?.estado ?? null);
+
     let detalle: string | null = null;
-    if (nuevo?.deletion_reason) {
+    if (esRecepcion) {
+      detalle = "Recepción de mercadería registrada";
+    } else if (nuevo?.deletion_reason) {
       detalle = `Motivo: ${nuevo.deletion_reason}`;
     } else if (nuevo?.fecha_entrega_comprometida) {
       // `timeZone: "UTC"` — es una fecha-solo persistida como medianoche UTC;
@@ -989,8 +1026,8 @@ export async function obtenerHistorialOrdenCompra(
       usuario_nombre: r.usuario_id
         ? (nombrePorId.get(r.usuario_id) ?? null)
         : null,
-      estado_anterior: anterior?.estado ?? null,
-      estado_nuevo: nuevo?.estado ?? null,
+      estado_anterior: estadoAnterior,
+      estado_nuevo: estadoNuevo,
       detalle,
     };
   });
