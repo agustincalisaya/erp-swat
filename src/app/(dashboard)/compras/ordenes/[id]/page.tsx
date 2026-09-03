@@ -21,8 +21,10 @@
  *    Supervisor de Compras, en BORRADOR o ENVIADA. Sin permiso, chip de solo
  *    lectura.
  *
- * Fuera de alcance a propósito (ver PR): las transiciones de recepción
- * (CONFIRMADA → RECEPCION_PARCIAL → RECIBIDA_COMPLETA), HU-H4 (Emir).
+ * Esta pantalla no dispara las transiciones de recepción (CONFIRMADA →
+ * RECEPCION_PARCIAL → RECIBIDA_COMPLETA) — las gobierna HU-H4 (Emir) desde
+ * `/compras/recepciones/nueva`. Sí las muestra en modo lectura en la card
+ * "Historial de estado", leídas del ledger de auditoría junto con las de H3.
  */
 
 import Link from "next/link";

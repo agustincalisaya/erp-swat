@@ -12,7 +12,7 @@
  * HOMOLOGADOS (filtrado en el query del RSC padre, no solo visual).
  */
 
-import { useMemo, useState, useTransition } from "react";
+import { useId, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Trash2, Loader2, PackagePlus, Info } from "lucide-react";
 
@@ -52,9 +52,15 @@ export function FormularioNuevaOrdenCompra({
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
+  // Prefijo estable entre SSR y cliente para los `id`/`htmlFor` de cada fila.
+  // No se usa `fila.key` (un `crypto.randomUUID()`): se genera por separado en
+  // el servidor y en el cliente → hydration mismatch en esos atributos.
+  // `useId()` se llama una vez y se combina con el índice de la fila.
+  const formId = useId();
+
   const [proveedorId, setProveedorId] = useState("");
   const [observaciones, setObservaciones] = useState("");
-  const [items, setItems] = useState<ItemFila[]>([nuevaFila()]);
+  const [items, setItems] = useState<ItemFila[]>(() => [nuevaFila()]);
   const [errorGeneral, setErrorGeneral] = useState<string | null>(null);
   const [errorProveedor, setErrorProveedor] = useState<string | null>(null);
   const [errorItems, setErrorItems] = useState<string | null>(null);
@@ -227,17 +233,20 @@ export function FormularioNuevaOrdenCompra({
         </p>
 
         <div className="space-y-2">
-          {items.map((fila) => (
+          {items.map((fila, indice) => {
+            const varId = `${formId}-var-${indice}`;
+            const cantId = `${formId}-cant-${indice}`;
+            return (
             <div
               key={fila.key}
               className="flex flex-col sm:flex-row sm:items-end gap-2 rounded-lg border border-border bg-muted/20 p-3"
             >
               <div className="flex-1 space-y-1">
-                <Label htmlFor={`item-var-${fila.key}`} className="text-xs">
+                <Label htmlFor={varId} className="text-xs">
                   Variante
                 </Label>
                 <ComboboxFiltrable
-                  id={`item-var-${fila.key}`}
+                  id={varId}
                   items={variantes}
                   getId={(v) => v.id}
                   getLabel={(v) => `${v.sku} — ${v.descripcion}`}
@@ -252,11 +261,11 @@ export function FormularioNuevaOrdenCompra({
                 />
               </div>
               <div className="w-full sm:w-28 space-y-1">
-                <Label htmlFor={`item-cant-${fila.key}`} className="text-xs">
+                <Label htmlFor={cantId} className="text-xs">
                   Cantidad
                 </Label>
                 <Input
-                  id={`item-cant-${fila.key}`}
+                  id={cantId}
                   type="number"
                   min={1}
                   step={1}
@@ -280,7 +289,8 @@ export function FormularioNuevaOrdenCompra({
                 <Trash2 className="size-4" />
               </Button>
             </div>
-          ))}
+            );
+          })}
         </div>
 
         {errorItems && <p className="text-xs text-destructive">{errorItems}</p>}
