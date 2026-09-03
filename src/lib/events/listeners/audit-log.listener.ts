@@ -291,6 +291,32 @@ export function iniciarAuditLogListener(): void {
     });
   });
 
+  // HU-A8 — edición de atributos operativos de ProductoMaestro.
+  domainEventBus.on("producto_maestro:actualizado", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "UPDATE",
+      tabla_afectada: "productos_maestros",
+      registro_id: payload.producto_maestro_id,
+      ip: "unknown", // mismo sentinel que el resto de eventos producto_maestro:* — el payload no captura IP
+      valor_anterior: payload.valor_anterior,
+      valor_nuevo: payload.valor_nuevo,
+    });
+  });
+
+  // HU-A8 — edición de atributos operativos de VarianteSKU.
+  domainEventBus.on("inventario:variante_actualizada", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "UPDATE",
+      tabla_afectada: "variantes_sku",
+      registro_id: payload.variante_sku_id,
+      ip: payload.ip,
+      valor_anterior: payload.valor_anterior,
+      valor_nuevo: payload.valor_nuevo,
+    });
+  });
+
   // Configuración de umbrales de reposición sobre StockDeposito (HU-7,
   // `actualizarUmbrales()`). El payload solo trae los valores nuevos (no
   // hay snapshot "antes"), de ahí `valor_anterior: null`. `registro_id`
