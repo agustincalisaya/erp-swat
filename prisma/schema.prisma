@@ -64,6 +64,10 @@ model Usuario {
   evaluaciones_registradas EvaluacionProveedor[] @relation("EvaluacionRegistradaPor")
   listas_precio_aprobadas  ListaPrecioVersion[]  @relation("ListaPrecioVersionAprobadaPor")
 
+  // --- Relaciones HU-A9 (Reclasificación de Devueltos) ---
+  reclasificaciones_solicitadas ReclasificacionSolicitud[] @relation("ReclasificacionSolicitadaPor")
+  reclasificaciones_aprobadas   ReclasificacionSolicitud[] @relation("ReclasificacionAprobadaPor")
+
   @@map("usuarios")
 }
 
@@ -303,6 +307,9 @@ model VarianteSKU {
   orden_compra_items OrdenCompraItem[]
   lista_precio_items ListaPrecioItem[]
 
+  // --- Relación HU-A9 (Reclasificación de Devueltos) ---
+  reclasificaciones_solicitudes ReclasificacionSolicitud[]
+
   @@map("variantes_sku")
 }
 
@@ -329,6 +336,9 @@ model Deposito {
   transferencias_origen  TransferenciaStock[] @relation("TransferenciaOrigen")
   transferencias_destino TransferenciaStock[] @relation("TransferenciaDestino")
   reservas               Reserva[]
+
+  // --- Relación HU-A9 (Reclasificación de Devueltos) ---
+  reclasificaciones_solicitudes ReclasificacionSolicitud[]
   recepciones            Recepcion[]
 
   @@map("depositos")
@@ -419,6 +429,18 @@ model MovimientoStockItem {
   estado_destino  String?
   numero_serie    String?
 
+  /// HU-A9 — Motivo de la reclasificación de una unidad devuelta
+  /// (spec_modulo_A.md §2.8). Obligatorio cuando el control de calidad es
+  /// NO_APTO (misma regla de motivo de la sección 3.5). Texto libre de
+  /// trazabilidad, nunca se normaliza ni se valida contra otro módulo.
+  motivo String?
+
+  /// HU-A9 — Referencia opcional a un ticket RMA del Módulo I (garantía).
+  /// SIN FK a propósito: el Módulo A no valida la existencia del RMA contra
+  /// el Módulo I (aislamiento de dominio, RULES.md Regla N.° 3) — el FK se
+  /// agrega cuando el Módulo I exista.
+  rma_id String?
+
   // --- Soft delete estricto ---
   is_active       Boolean   @default(true)
   deleted_at      DateTime?
@@ -435,6 +457,58 @@ model MovimientoStockItem {
   @@index([movimiento_id])
   @@index([variante_sku_id])
   @@map("movimiento_stock_items")
+}
+
+/// HU-A9 — Solicitud de reclasificación de unidades DEVUELTO que superan el
+/// umbral de baja/merma (`UMBRAL_BAJA_MERMA_UNIDADES`, spec_modulo_A.md §3.8).
+/// Mientras está `PENDIENTE_APROBACION` NO impacta `StockDeposito` ni
+/// `MovimientoStock` (regla §3.8: un ajuste pendiente nunca se persiste en
+/// `MovimientoStock`, que por definición es un hecho consumado): el
+/// movimiento compensatorio solo se inserta al aprobarse. Las solicitudes
+/// solo nacen de un control de calidad NO_APTO sobre el umbral, por lo que
+/// la aprobación siempre transiciona a `BAJA_MERMA`.
+model ReclasificacionSolicitud {
+  id              String                             @id @default(uuid())
+  variante_sku_id String
+  deposito_id     String
+  cantidad        Int
+
+  /// Motivo de la baja por rotura/obsolescencia (obligatorio — toda
+  /// solicitud proviene de un resultado NO_APTO sobre umbral).
+  motivo String?
+
+  /// Referencia opcional a RMA del Módulo I. Sin FK (aislamiento de
+  /// dominio); el FK se agrega cuando el Módulo I exista.
+  rma_id String?
+
+  estado           EstadoReclasificacionSolicitud @default(PENDIENTE_APROBACION)
+  /// Usuario que detectó la unidad y solicitó la reclasificación.
+  solicitada_por_id String
+  /// Usuario Administrador que resolvió la solicitud (solo si se aprobó).
+  aprobada_por_id   String?
+  aprobada_at       DateTime?
+  /// Motivo del rechazo (obligatorio cuando la solicitud se rechaza).
+  rechazada_motivo  String?
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  variante_sku   VarianteSKU @relation(fields: [variante_sku_id], references: [id], onDelete: Restrict)
+  deposito       Deposito    @relation(fields: [deposito_id], references: [id], onDelete: Restrict)
+  solicitada_por Usuario     @relation("ReclasificacionSolicitadaPor", fields: [solicitada_por_id], references: [id], onDelete: Restrict)
+  aprobada_por   Usuario?    @relation("ReclasificacionAprobadaPor", fields: [aprobada_por_id], references: [id], onDelete: Restrict)
+
+  @@index([estado, is_active])
+  @@index([variante_sku_id])
+  @@index([deposito_id])
+  @@map("reclasificacion_solicitudes")
 }
 
 /// Remito interno de una transferencia de stock en dos fases. Mientras un
@@ -519,6 +593,16 @@ enum TipoMovimiento {
   EGRESO
   TRANSFERENCIA
   AJUSTE
+}
+
+/// HU-A9 — Ciclo de vida de una solicitud de reclasificación de unidades
+/// DEVUELTO sobre el umbral (spec_modulo_A.md §3.8). Contrato aprobado del
+/// flujo: difiere del naming genérico de la spec (`APROBADO|RECHAZADO`) —
+/// `APROBADA|RECHAZADA` coincide con el género de la entidad `Solicitud`.
+enum EstadoReclasificacionSolicitud {
+  PENDIENTE_APROBACION
+  APROBADA
+  RECHAZADA
 }
 
 /// Reserva temporal de una unidad de stock originada por una seña o

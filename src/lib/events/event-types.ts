@@ -463,6 +463,71 @@ export interface ReservaLiberadaPayload {
 }
 
 /**
+ * HU-A9 — Payload emitido tras reclasificar una unidad DEVUELTO
+ * (`reclasificarDevuelto()`, spec_modulo_A.md §2.8/§4). Se emite post-COMMIT,
+ * tanto en la vía directa (bajo umbral) como al aprobar una solicitud
+ * (sobre umbral). Payload superset del mínimo de la spec §4: incluye
+ * `movimiento_id`/`deposito_id`/`estado_origen` para que el listener de
+ * auditoría registre contra `movimientos_stock`. Nunca transporta datos
+ * sensibles.
+ */
+export interface ReclasificacionDevueltoPayload {
+  movimiento_id: string;
+  variante_sku_id: string;
+  deposito_id: string;
+  resultado_control_calidad: "APTO" | "NO_APTO";
+  estado_origen: "DEVUELTO";
+  estado_destino: "DISPONIBLE" | "BAJA_MERMA";
+  motivo?: string;
+  rma_id?: string;
+  usuario_id: string;
+}
+
+/**
+ * HU-A9 — Payload emitido cuando una reclasificación supera el umbral y se
+ * registra SOLO la `ReclasificacionSolicitud` en `PENDIENTE_APROBACION`
+ * (spec_modulo_A.md §3.8). Sin `movimiento_id` ni impacto de stock: la
+ * solicitud no es un hecho consumado. `usuario_id` es quien detectó la
+ * unidad (solicitante).
+ */
+export interface ReclasificacionSolicitudCreadaPayload {
+  solicitud_id: string;
+  variante_sku_id: string;
+  deposito_id: string;
+  cantidad: number;
+  motivo?: string;
+  rma_id?: string;
+  usuario_id: string;
+}
+
+/**
+ * HU-A9 — Payload emitido cuando un Administrador aprueba una solicitud
+ * pendiente (`aprobarSolicitud()`). Se emite junto con
+ * `stock:reclasificacion_devuelto` (que transporta el `movimiento_id` real);
+ * este payload registra la resolución de la solicitud contra
+ * `reclasificacion_solicitudes`.
+ */
+export interface ReclasificacionSolicitudAprobadaPayload {
+  solicitud_id: string;
+  movimiento_id?: string;
+  variante_sku_id: string;
+  estado_destino: "BAJA_MERMA";
+  admin_id: string;
+}
+
+/**
+ * HU-A9 — Payload emitido cuando un Administrador rechaza una solicitud
+ * pendiente (`rechazarSolicitud()`). `rechazada_motivo` es obligatorio.
+ * Sin movimiento: el rechazo no impacta stock.
+ */
+export interface ReclasificacionSolicitudRechazadaPayload {
+  solicitud_id: string;
+  variante_sku_id: string;
+  rechazada_motivo: string;
+  admin_id: string;
+}
+
+/**
  * HU-A8 — Payload emitido tras editar atributos operativos de un
  * ProductoMaestro (`editarProductoMaestro()`, spec_modulo_A.md §2.7).
  * campos_modificados/valor_anterior/valor_nuevo son diff real (solo los
@@ -550,6 +615,14 @@ export interface DomainEventMap {
   "stock:reserva_congelada": ReservaCongeladaPayload;
   /** HU-A10: se emite tras la liberación de una Reserva (venta confirmada o TTL vencido). */
   "stock:reserva_liberada": ReservaLiberadaPayload;
+  /** HU-A9: se emite tras reclasificar una unidad DEVUELTO (vía directa o aprobación). */
+  "stock:reclasificacion_devuelto": ReclasificacionDevueltoPayload;
+  /** HU-A9: se emite al crear una solicitud de reclasificación sobre el umbral. */
+  "stock:reclasificacion_solicitud_creada": ReclasificacionSolicitudCreadaPayload;
+  /** HU-A9: se emite al aprobar una solicitud de reclasificación pendiente. */
+  "stock:reclasificacion_solicitud_aprobada": ReclasificacionSolicitudAprobadaPayload;
+  /** HU-A9: se emite al rechazar una solicitud de reclasificación pendiente. */
+  "stock:reclasificacion_solicitud_rechazada": ReclasificacionSolicitudRechazadaPayload;
   /** HU-A8: se emite tras editar atributos operativos de un ProductoMaestro. */
   "producto_maestro:actualizado": ProductoMaestroActualizadoPayload;
   /** HU-A8: se emite tras editar atributos operativos de una VarianteSKU. */
