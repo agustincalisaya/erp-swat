@@ -160,12 +160,14 @@ test("el umbral de baja/merma es 5 y superaUmbral separa 4/5/6 correctamente", (
 
 // ── Contrato del service (source asserts, molde reserva.test.ts) ─────────────
 
-test("reclasificarDevuelto valida precondición DEVUELTO con orderBy anidado por created_at desc", () => {
+test("reclasificarDevuelto resuelve el último item del par sin filtro de estado y valida DEVUELTO post-query", () => {
   const bloque = sliceReclasificarDevuelto(leerServicio());
-  assert.match(bloque, /estado_destino: "DEVUELTO"/);
-  assert.match(bloque, /deposito_destino_id: input\.deposito_id/);
-  assert.match(bloque, /orderBy: \{ movimiento: \{ created_at: "desc" \} \}/);
-  assert.match(bloque, /new ServiceError\(\s*"ESTADO_INVALIDO_PARA_RECLASIFICACION"/);
+  const precondicion = bloque.slice(0, bloque.indexOf("if (!superaUmbral"));
+  assert.doesNotMatch(precondicion, /estado_destino: "DEVUELTO"/);
+  assert.match(precondicion, /deposito_destino_id: input\.deposito_id/);
+  assert.match(precondicion, /orderBy: \{ movimiento: \{ created_at: "desc" \} \}/);
+  assert.match(precondicion, /estado_destino !== "DEVUELTO"/);
+  assert.match(precondicion, /new ServiceError\(\s*"ESTADO_INVALIDO_PARA_RECLASIFICACION"/);
 });
 
 test("reclasificarDevuelto valida variante y depósito activos con 404 y usa superaUmbral para bifurcar", () => {

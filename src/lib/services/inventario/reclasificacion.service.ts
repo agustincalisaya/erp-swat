@@ -160,24 +160,25 @@ export async function reclasificarDevuelto(
       if (!deposito) throw new ServiceError("DEPOSITO_NO_ENCONTRADO", "El depósito no existe o está inactivo");
 
       // Precondición de estado (spec §2.8): la unidad debe estar DEVUELTO en
-      // su último movimiento para el par (variante, depósito). Query con
-      // orderBy ANIDADO por created_at desc — no hay estado desnormalizado.
-      const ultimoDevuelto = await tx.movimientoStockItem.findFirst({
+      // su último movimiento para el par (variante, depósito). Se resuelve el
+      // ÚLTIMO item del par sin filtrar por estado (orderBy ANIDADO por
+      // created_at desc — no hay estado desnormalizado) y se valida su
+      // estado_destino post-query: filtrar `estado_destino` en el where
+      // permitiría reclasificar un par cuyo último movimiento global ya no
+      // es DEVUELTO (doble reclasificación o "resurrección" de BAJA_MERMA).
+      const ultimoItem = await tx.movimientoStockItem.findFirst({
         where: {
           variante_sku_id: input.variante_sku_id,
-          estado_destino: "DEVUELTO",
           is_active: true,
-          deleted_at: null,
           movimiento: {
             deposito_destino_id: input.deposito_id,
             is_active: true,
-            deleted_at: null,
           },
         },
         orderBy: { movimiento: { created_at: "desc" } },
-        select: { id: true },
+        select: { id: true, estado_destino: true },
       });
-      if (!ultimoDevuelto) {
+      if (!ultimoItem || ultimoItem.estado_destino !== "DEVUELTO") {
         throw new ServiceError(
           "ESTADO_INVALIDO_PARA_RECLASIFICACION",
           "La unidad no se encuentra en estado 'Devuelto'",
