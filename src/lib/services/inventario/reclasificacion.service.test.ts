@@ -292,6 +292,37 @@ test("el listener de auditoría registra los 4 eventos HU-A9 con acciones y tabl
   assert.match(listener, /ip: "internal-event"/);
 });
 
+// ── Rutas ─────────────────────────────────────────────────────────────────────
+
+test("las rutas de reclasificación quedan gateadas por withPermission con el código correcto", () => {
+  const reclasificar = readFileSync(
+    new URL("../../../app/api/inventario/variantes/[id]/reclasificar-devuelto/route.ts", import.meta.url),
+    "utf8",
+  );
+  const aprobar = readFileSync(
+    new URL("../../../app/api/inventario/reclasificaciones/[id]/aprobar/route.ts", import.meta.url),
+    "utf8",
+  );
+  const rechazar = readFileSync(
+    new URL("../../../app/api/inventario/reclasificaciones/[id]/rechazar/route.ts", import.meta.url),
+    "utf8",
+  );
+  const pendientes = readFileSync(
+    new URL("../../../app/api/inventario/reclasificaciones/pendientes/route.ts", import.meta.url),
+    "utf8",
+  );
+  const devoluciones = readFileSync(
+    new URL("../../../app/api/inventario/devoluciones/route.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(reclasificar, /withPermission\(\s*"inventario:reclasificar"/);
+  assert.match(devoluciones, /withPermission\(\s*"inventario:reclasificar"/);
+  assert.match(aprobar, /withPermission\(\s*"inventario:reclasificar_aprobar"/);
+  assert.match(rechazar, /withPermission\(\s*"inventario:reclasificar_aprobar"/);
+  assert.match(pendientes, /withPermission\(\s*"inventario:reclasificar_aprobar"/);
+  assert.match(reclasificar, /case "ESTADO_INVALIDO_PARA_RECLASIFICACION":\s*status = 409/);
+});
+
 // ── Eventos ───────────────────────────────────────────────────────────────────
 
 test("event-types.ts tipa los 4 eventos HU-A9 en DomainEventMap", () => {
