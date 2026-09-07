@@ -466,3 +466,67 @@ export const EditarVarianteOperativaSchema = z
   .strict();
 
 export type EditarVarianteOperativaInput = z.infer<typeof EditarVarianteOperativaSchema>;
+
+// ──────────────────────────────────────────────────────────────────────────────
+// HU-A9 — Reclasificación de unidades DEVUELTO (spec_modulo_A.md §2.8/§3.8)
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Reclasificación directa de una unidad en estado `DEVUELTO`
+ * (spec_modulo_A.md §2.8). `resultado_control_calidad` decide la transición
+ * determinística: `APTO` → `DISPONIBLE` (reincorpora al stock comercial) o
+ * `NO_APTO` → `BAJA_MERMA` (baja por rotura/obsolescencia).
+ *
+ * El `superRefine` de `motivo` es la aplicación explícita de la regla de
+ * motivo obligatorio de la sección 3.5 en este flujo — no una
+ * reimplementación paralela. El service re-valida con `MOTIVO_REQUERIDO`
+ * (defensa en profundidad), mismo contrato que `darDeBajaVariante()`.
+ *
+ * `rma_id` es una referencia opcional al Módulo I (garantía) — el Módulo A
+ * no valida su existencia (aislamiento de dominio, RULES.md Regla N.° 3).
+ */
+export const ReclasificarDevueltoSchema = z
+  .object({
+    variante_sku_id: z.string().uuid(),
+    deposito_id: z.string().uuid(),
+    cantidad: z.number().int().positive(),
+    resultado_control_calidad: z.enum(["APTO", "NO_APTO"]),
+    motivo: z.string().trim().min(1).optional(),
+    rma_id: z.string().uuid().optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.resultado_control_calidad === "NO_APTO" && !data.motivo) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "motivo es obligatorio cuando resultado_control_calidad = NO_APTO",
+        path: ["motivo"],
+      });
+    }
+  });
+
+export type ReclasificarDevueltoInput = z.infer<typeof ReclasificarDevueltoSchema>;
+
+/**
+ * Aprobación de una `ReclasificacionSolicitud` pendiente
+ * (spec_modulo_A.md §3.8). Sin body: la solicitud se identifica por el
+ * segmento `[id]` de la ruta. `.strict()` rechaza cualquier campo extra.
+ */
+export const AprobarSolicitudSchema = z.object({}).strict();
+
+/** Rechazo de una `ReclasificacionSolicitud` pendiente — `rechazada_motivo` obligatorio. */
+export const RechazarSolicitudSchema = z.object({
+  rechazada_motivo: z.string().trim().min(1, "El motivo de rechazo es obligatorio"),
+});
+
+export type RechazarSolicitudInput = z.infer<typeof RechazarSolicitudSchema>;
+
+/** Valida el segmento `[id]` de las rutas `reclasificaciones/[id]/aprobar|rechazar`. */
+export const SolicitudReclasificacionIdSchema = z.string().uuid("El ID de solicitud es inválido");
+
+/** Filtros mínimos de `GET /api/inventario/devoluciones` (sin paginación). */
+export const ListarUnidadesDevueltasQuerySchema = z.object({
+  variante_sku_id: z.string().uuid().optional(),
+  deposito_id: z.string().uuid().optional(),
+});
+
+export type ListarUnidadesDevueltasQuery = z.infer<typeof ListarUnidadesDevueltasQuerySchema>;

@@ -56,6 +56,10 @@ const MOVIMIENTO_EGRESO_1_ID = "a74c7b59-1d02-4d32-b839-205bd67f14ec";
 const MOVIMIENTO_EGRESO_2_ID = "d0290236-d5b5-485f-9063-afe5e760548b";
 const MOVIMIENTO_EGRESO_3_ID = "c7d4f09e-d987-4356-b052-121a67b14558";
 
+// --- Origen: HU-A9 — fixture de unidad DEVUELTO (reclasificación) ---
+const MOVIMIENTO_DEVUELTO_SEED_ID = "1a2b3c4d-bbbb-4a1a-8a1a-000000000001";
+const MOVIMIENTO_DEVUELTO_ITEM_SEED_ID = "1a2b3c4d-bbbb-4a1a-8a1a-000000000002";
+
 // --- Origen: Módulo D (RBAC forense / gestión de roles) ---
 const PERMISO_LEER_FORENSE_ID = "d45883eb-0c09-4564-8b95-beefcf61d05d";
 const PERMISO_VERIFICAR_CADENA_ID = "8edff94c-5e73-4be4-b774-87409cafd8bb";
@@ -66,6 +70,8 @@ const PERMISO_CONFIRMAR_RECEPCION_ID = "90cfd9eb-e6f1-47c5-a570-d7f92dc21d04";
 const PERMISO_RESERVAR_STOCK_ID = "b1f7c2a4-3d9e-4c1b-8a6f-0e2d4c6a8b10";
 const PERMISO_CONFIRMAR_RESERVA_ID = "c2e8d3b5-4a1f-4d2c-9b7a-1f3e5d7b9c21";
 const PERMISO_MOVIMIENTOS_LEER_HISTORICO_ID = "e4a6f1d8-7c2b-4e9a-9d5f-3b8c1a6e4d02";
+const PERMISO_RECLASIFICAR_ID = "d3f9e6b0-5a2e-4e3d-9c8b-2a4f6e8d0c31";
+const PERMISO_RECLASIFICAR_APROBAR_ID = "e4a0f7c1-6b3f-4f4e-ad9c-3b5f7f9e1d42";
 const ROL_AUDITOR_ID = "cfe51d79-332c-4217-8906-481f2a94a1cc";
 const ROL_ADMINISTRADOR_ID = "2998bb21-960c-474c-8941-848d1f20038e";
 const ROL_ENCARGADO_DEPOSITO_ID = "1ce2f5fc-8b66-4496-82de-36d434bc79aa";
@@ -458,6 +464,24 @@ async function main() {
     create: { id: PERMISO_MOVIMIENTOS_LEER_HISTORICO_ID, codigo: "inventario:movimientos:leer_historico", descripcion: "Consultar el historial operativo de movimientos de stock", modulo: "MODULO_A" },
   });
 
+  // HU-A9 — permisos granulares de Reclasificación de Devueltos
+  // (spec_modulo_A.md §2.8/§3.8). `inventario:reclasificar` habilita la
+  // reclasificación directa (bajo umbral) y el listado de devueltos —
+  // ADMINISTRADOR + ENCARGADO_DEPOSITO. `inventario:reclasificar_aprobar`
+  // habilita aprobar/rechazar solicitudes sobre el umbral — SOLO
+  // ADMINISTRADOR (matriz RBAC del Alcance). Asignaciones propias abajo, sin
+  // tocar el loop existente de Módulo A (integridad de tests previos).
+  const permisoReclasificar = await prisma.permiso.upsert({
+    where: { id: PERMISO_RECLASIFICAR_ID },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: { id: PERMISO_RECLASIFICAR_ID, codigo: "inventario:reclasificar", descripcion: "Reclasificar unidades DEVUELTO (APTO→DISPONIBLE / NO_APTO→BAJA_MERMA) y listar devueltos", modulo: "MODULO_A" },
+  });
+  const permisoReclasificarAprobar = await prisma.permiso.upsert({
+    where: { id: PERMISO_RECLASIFICAR_APROBAR_ID },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: { id: PERMISO_RECLASIFICAR_APROBAR_ID, codigo: "inventario:reclasificar_aprobar", descripcion: "Aprobar o rechazar solicitudes de reclasificación que superan el umbral (solo Administrador)", modulo: "MODULO_A" },
+  });
+
   const rolEncargadoDeposito = await prisma.rol.upsert({
     where: { id: ROL_ENCARGADO_DEPOSITO_ID },
     update: REACTIVAR_REFERENCIA_RBAC,
@@ -493,6 +517,30 @@ async function main() {
       });
     }
   }
+
+  // HU-A9 — `inventario:reclasificar` para ADMINISTRADOR + ENCARGADO_DEPOSITO
+  // (mismo criterio que transferir/recepcionar/reservar).
+  for (const rol of [rolEncargadoDeposito, rolAdministrador]) {
+    await prisma.rolPermiso.upsert({
+      where: { rol_id_permiso_id: { rol_id: rol.id, permiso_id: permisoReclasificar.id } },
+      update: REACTIVAR_REFERENCIA_RBAC,
+      create: { rol_id: rol.id, permiso_id: permisoReclasificar.id },
+    });
+  }
+
+  // HU-A9 — `inventario:reclasificar_aprobar` SOLO ADMINISTRADOR (matriz RBAC
+  // del Alcance: "Aprobar ajustes que superan el umbral crítico" es acción
+  // exclusiva del Administrador, sin equivalente para ningún otro rol).
+  await prisma.rolPermiso.upsert({
+    where: {
+      rol_id_permiso_id: {
+        rol_id: rolAdministrador.id,
+        permiso_id: permisoReclasificarAprobar.id,
+      },
+    },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: { rol_id: rolAdministrador.id, permiso_id: permisoReclasificarAprobar.id },
+  });
 
   // ── Módulo D — Usuarios de ejemplo (uno por rol) ───────────────────────────
 
@@ -1534,6 +1582,71 @@ async function main() {
       evaluado_por_id: usuarioComprador.id,
       fecha_evaluacion: diasAtras(1),
       is_active: true,
+    },
+  });
+
+  // ── HU-A9 — Fixture de unidad DEVUELTO (reclasificación de devueltos) ────────
+  // Una CAMISA_TACTICA_1 devuelta en DEPOSITO_SHOWROOM: item con
+  // `estado_destino = "DEVUELTO"` (VENDIDO → DEVUELTO) hace 3 días (create) o
+  // refrescado al momento actual (update). Cantidad = 6 unidades: permite
+  // probar la DOBLE VALIDACIÓN por umbral (> 5 → ReclasificacionSolicitud
+  // PENDIENTE_APROBACION para aprobación de Administrador). El `update`
+  // refresca la cabecera con `created_at` actual para que el fixture sea el
+  // ÚLTIMO movimiento del par variante+depósito tras re-seed (re-testing
+  // después de consumir la unidad en una reclasificación previa). Los
+  // movimientos del seed no aplican deltas de stock: las cantidades se
+  // siembran directo en `stock_depositos`.
+  await prisma.movimientoStock.upsert({
+    where: { id: MOVIMIENTO_DEVUELTO_SEED_ID },
+    update: {
+      deposito_destino_id: depositoShowroom.id,
+      tipo_movimiento: "AJUSTE",
+      comprobante_referencia: "SEED-DEVUELTO-GARANTIA",
+      registrado_por_id: usuarioEncargado.id,
+      created_at: new Date(),
+      is_active: true,
+      items: {
+        upsert: {
+          where: { id: MOVIMIENTO_DEVUELTO_ITEM_SEED_ID },
+          create: {
+            id: MOVIMIENTO_DEVUELTO_ITEM_SEED_ID,
+            variante_sku_id: VARIANTE_CAMISA_TACTICA_1_ID,
+            cantidad: 6,
+            estado_origen: "VENDIDO",
+            estado_destino: "DEVUELTO",
+            motivo: "Devolución por garantía — seed HU-A9",
+            is_active: true,
+          },
+          update: {
+            variante_sku_id: VARIANTE_CAMISA_TACTICA_1_ID,
+            cantidad: 6,
+            estado_origen: "VENDIDO",
+            estado_destino: "DEVUELTO",
+            motivo: "Devolución por garantía — seed HU-A9",
+            is_active: true,
+          },
+        },
+      },
+    },
+    create: {
+      id: MOVIMIENTO_DEVUELTO_SEED_ID,
+      deposito_destino_id: depositoShowroom.id,
+      tipo_movimiento: "AJUSTE",
+      comprobante_referencia: "SEED-DEVUELTO-GARANTIA",
+      registrado_por_id: usuarioEncargado.id,
+      created_at: diasAtras(3),
+      is_active: true,
+      items: {
+        create: {
+          id: MOVIMIENTO_DEVUELTO_ITEM_SEED_ID,
+          variante_sku_id: VARIANTE_CAMISA_TACTICA_1_ID,
+          cantidad: 6,
+          estado_origen: "VENDIDO",
+          estado_destino: "DEVUELTO",
+          motivo: "Devolución por garantía — seed HU-A9",
+          is_active: true,
+        },
+      },
     },
   });
 

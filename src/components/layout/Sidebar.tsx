@@ -32,7 +32,7 @@
  */
 import type { LucideIcon } from "lucide-react";
 // 1. Agregamos el ícono "Layers" a la importación
-import { ScrollText, ShieldCheck, Users, Package, Warehouse, ScanBarcode, Layers, FileSearch, ShoppingCart, ClipboardList, PackageCheck } from "lucide-react";
+import { ScrollText, ShieldCheck, Users, Package, Warehouse, ScanBarcode, Layers, FileSearch, ShoppingCart, ClipboardList, Store, PackageCheck, Undo2 } from "lucide-react";
 import { getServerSession } from "@/lib/auth/session";
 import { usuarioTienePermiso } from "@/lib/auth/with-permission";
 import { SidebarNav, type SidebarNavSection } from "@/components/layout/SidebarNav";
@@ -91,6 +91,15 @@ const SECCIONES: SeccionConfig[] = [
       { label: "Variantes", href: "/inventario/variantes", icon: Layers },
       { label: "Depósitos", href: "/inventario/depositos", icon: Warehouse },
       { label: "Movimientos", href: "/inventario/movimientos", icon: ScanBarcode },
+      // HU-A9 — Reclasificación de unidades devueltas. Gate por permiso
+      // granular `inventario:reclasificar` (ADMINISTRADOR + ENCARGADO_DEPOSITO);
+      // la página también bloquea por URL (redirect a /no-autorizado).
+      {
+        label: "Devoluciones",
+        href: "/inventario/devoluciones",
+        icon: Undo2,
+        permiso: "inventario:reclasificar",
+      },
     ],
   },
   {
@@ -107,6 +116,11 @@ const SECCIONES: SeccionConfig[] = [
         href: "/compras/ordenes",
         icon: ClipboardList,
         permiso: "ordenes_compra:crear",
+      },
+      {
+        label: "Proveedores",
+        href: "/compras/proveedores",
+        icon: Store,
       },
       {
         label: "Recepción de Mercadería",

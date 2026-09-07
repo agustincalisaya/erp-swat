@@ -606,4 +606,92 @@ export function iniciarAuditLogListener(): void {
       },
     });
   });
+
+  // HU-A9 — Reclasificación de una unidad DEVUELTO (spec_modulo_A.md §2.8),
+  // tanto por vía directa (bajo umbral) como por aprobación de solicitud
+  // (sobre umbral). El service (`reclasificacion.service.ts`) nunca llama
+  // `registrarAuditLog()` directo: emite el evento y este listener reacciona.
+  // `tabla_afectada` usa el `@@map` en minúsculas (`movimientos_stock`);
+  // `valor_nuevo` es el payload sanitizado del contrato (sin datos sensibles).
+  domainEventBus.on("stock:reclasificacion_devuelto", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "RECLASIFICACION",
+      tabla_afectada: "movimientos_stock",
+      registro_id: payload.movimiento_id,
+      ip: "internal-event",
+      valor_anterior: null,
+      valor_nuevo: {
+        variante_sku_id: payload.variante_sku_id,
+        deposito_id: payload.deposito_id,
+        resultado_control_calidad: payload.resultado_control_calidad,
+        estado_origen: payload.estado_origen,
+        estado_destino: payload.estado_destino,
+        motivo: payload.motivo ?? null,
+        rma_id: payload.rma_id ?? null,
+      },
+    });
+  });
+
+  // HU-A9 — Solicitud de reclasificación creada (sobre el umbral, spec §3.8).
+  // La solicitud PENDIENTE_APROBACION aún NO es un hecho consumado: el
+  // registro es contra `reclasificacion_solicitudes`, no contra movimientos.
+  domainEventBus.on("stock:reclasificacion_solicitud_creada", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "SOLICITUD_CREADA",
+      tabla_afectada: "reclasificacion_solicitudes",
+      registro_id: payload.solicitud_id,
+      ip: "internal-event",
+      valor_anterior: null,
+      valor_nuevo: {
+        variante_sku_id: payload.variante_sku_id,
+        deposito_id: payload.deposito_id,
+        cantidad: payload.cantidad,
+        motivo: payload.motivo ?? null,
+        rma_id: payload.rma_id ?? null,
+        estado: "PENDIENTE_APROBACION",
+      },
+    });
+  });
+
+  // HU-A9 — Aprobación de una solicitud de reclasificación por un
+  // Administrador (`aprobarSolicitud()`). El movimiento compensatorio real
+  // se audita vía el evento `stock:reclasificacion_devuelto` hermano; este
+  // handler registra la resolución de la solicitud en su propia tabla.
+  domainEventBus.on("stock:reclasificacion_solicitud_aprobada", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.admin_id,
+      accion: "SOLICITUD_APROBADA",
+      tabla_afectada: "reclasificacion_solicitudes",
+      registro_id: payload.solicitud_id,
+      ip: "internal-event",
+      valor_anterior: { estado: "PENDIENTE_APROBACION" },
+      valor_nuevo: {
+        estado: "APROBADA",
+        variante_sku_id: payload.variante_sku_id,
+        estado_destino: payload.estado_destino,
+        movimiento_id: payload.movimiento_id ?? null,
+      },
+    });
+  });
+
+  // HU-A9 — Rechazo de una solicitud de reclasificación por un
+  // Administrador (`rechazarSolicitud()`). Sin movimiento ni impacto de
+  // stock; `rechazada_motivo` viaja en el payload sanitizado.
+  domainEventBus.on("stock:reclasificacion_solicitud_rechazada", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.admin_id,
+      accion: "SOLICITUD_RECHAZADA",
+      tabla_afectada: "reclasificacion_solicitudes",
+      registro_id: payload.solicitud_id,
+      ip: "internal-event",
+      valor_anterior: { estado: "PENDIENTE_APROBACION" },
+      valor_nuevo: {
+        estado: "RECHAZADA",
+        variante_sku_id: payload.variante_sku_id,
+        rechazada_motivo: payload.rechazada_motivo,
+      },
+    });
+  });
 }
