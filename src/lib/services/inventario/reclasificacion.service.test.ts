@@ -274,6 +274,27 @@ test("listarUnidadesDevueltas filtra DEVUELTO con filtros variante/depósito y s
   assert.doesNotMatch(bloque, /take:/);
 });
 
+test("listarUnidadesDevueltas resuelve el último movimiento por par y excluye solicitudes pendientes", () => {
+  const fuente = leerServicio();
+  const bloque = fuente.slice(fuente.indexOf("export async function listarUnidadesDevueltas"));
+  // Filtro base DEVUELTO y filtros opcionales de variante/depósito.
+  assert.match(bloque, /estado_destino: "DEVUELTO"/);
+  assert.match(bloque, /deposito_destino_id: filtros\.deposito_id/);
+  assert.match(bloque, /variante_sku_id: filtros\.variante_sku_id/);
+  // Último movimiento por par: findMany sin filtro de estado ordenado desc
+  // por created_at, restringido a los pares candidatos.
+  assert.match(bloque, /movimientoStockItem\.findMany\(\{/);
+  assert.match(bloque, /orderBy: \{ created_at: "desc" \}/);
+  assert.match(bloque, /variante_sku_id: \{ in: variantesIds \}/);
+  assert.match(bloque, /deposito_destino_id: \{ in: depositosIds \}/);
+  // Agrupación por par en TS: clave compuesta variante_sku_id + deposito_id.
+  assert.match(bloque, /\$\{item\.variante_sku_id\}:\$\{deposito_id\}/);
+  // Exclusión de pares con solicitud en PENDIENTE_APROBACION.
+  assert.match(bloque, /reclasificacionSolicitud\.findMany\(\{/);
+  assert.match(bloque, /estado: "PENDIENTE_APROBACION"/);
+  assert.match(bloque, /paresConSolicitudPendiente/);
+});
+
 // ── Listener de auditoría (Módulo D) ─────────────────────────────────────────
 
 test("el listener de auditoría registra los 4 eventos HU-A9 con acciones y tablas correctas", () => {

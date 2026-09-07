@@ -480,10 +480,16 @@ export async function listarSolicitudesPendientes(): Promise<SolicitudReclasific
 }
 
 /**
- * Lista las unidades actualmente en estado `DEVUELTO` (filtros opcionales de
- * variante y depósito, sin paginación). El depósito se resuelve desde la
- * cabecera del movimiento (no existe estado desnormalizado en
- * `StockDeposito`). Nunca expone datos sensibles.
+ * Lista las unidades ACTUALMENTE en estado `DEVUELTO` (filtros opcionales de
+ * variante y depósito, sin paginación). Solo se listan los pares
+ * `(variante_sku_id, deposito_id)` cuyo ÚLTIMO movimiento item es `DEVUELTO`
+ * (resuelto por `created_at` desc, consistente con la precondición de
+ * `reclasificarDevuelto`): un item DEVUELTO antiguo bajo un movimiento
+ * `BAJA_MERMA`/`DISPONIBLE` posterior NO se lista. Se excluyen además los
+ * pares con una `ReclasificacionSolicitud` en `PENDIENTE_APROBACION` (la
+ * unidad queda "en trámite" hasta el veredicto del Admin). El depósito se
+ * resuelve desde la cabecera del movimiento (no existe estado desnormalizado
+ * en `StockDeposito`). Nunca expone datos sensibles.
  */
 export async function listarUnidadesDevueltas(
   filtros: ListarUnidadesDevueltasQuery = {},
@@ -500,7 +506,7 @@ export async function listarUnidadesDevueltas(
     ...(filtros.variante_sku_id ? { variante_sku_id: filtros.variante_sku_id } : {}),
   };
 
-  const items = await prisma.movimientoStockItem.findMany({
+  const candidatos = await prisma.movimientoStockItem.findMany({
     where,
     orderBy: { created_at: "desc" },
     select: {
@@ -518,16 +524,77 @@ export async function listarUnidadesDevueltas(
     },
   });
 
-  return items.map((item) => ({
-    id: item.id,
-    variante_sku_id: item.variante_sku_id,
-    sku: item.variante_sku.sku,
-    producto_nombre: item.variante_sku.producto_maestro.nombre,
-    deposito_id: item.movimiento?.deposito_destino_id ?? null,
-    cantidad: item.cantidad,
-    estado_origen: item.estado_origen,
-    motivo: item.motivo,
-    rma_id: item.rma_id,
-    created_at: item.created_at,
-  }));
+  const variantesIds = [...new Set(candidatos.map((item) => item.variante_sku_id))];
+  const depositosIds = [
+    ...new Set(
+      candidatos
+        .map((item) => item.movimiento?.deposito_destino_id)
+        .filter((id): id is string => id !== null && id !== undefined),
+    ),
+  ];
+
+  // Último item por par (variante, depósito) SIN filtrar por estado: si el
+  // último movimiento del par ya no es DEVUELTO (reclasificado directo o
+  // solicitud aprobada → BAJA_MERMA/DISPONIBLE), el item DEVUELTO original
+  // no debe listarse (precondición consistente con `reclasificarDevuelto`).
+  const ultimosItems = await prisma.movimientoStockItem.findMany({
+    where: {
+      variante_sku_id: { in: variantesIds },
+      is_active: true,
+      deleted_at: null,
+      movimiento: {
+        deposito_destino_id: { in: depositosIds },
+        is_active: true,
+        deleted_at: null,
+      },
+    },
+    orderBy: { created_at: "desc" },
+    select: {
+      id: true,
+      variante_sku_id: true,
+      movimiento: { select: { deposito_destino_id: true } },
+    },
+  });
+
+  const ultimoItemPorPar = new Map<string, string>();
+  for (const item of ultimosItems) {
+    const deposito_id = item.movimiento?.deposito_destino_id ?? null;
+    if (deposito_id === null) continue;
+    const clave = `${item.variante_sku_id}:${deposito_id}`;
+    if (!ultimoItemPorPar.has(clave)) {
+      ultimoItemPorPar.set(clave, item.id);
+    }
+  }
+
+  // Pares con una solicitud pendiente de aprobación: se excluyen del listado.
+  const solicitudesPendientes = await prisma.reclasificacionSolicitud.findMany({
+    where: { estado: "PENDIENTE_APROBACION", is_active: true, deleted_at: null },
+    select: { variante_sku_id: true, deposito_id: true },
+  });
+  const paresConSolicitudPendiente = new Set(
+    solicitudesPendientes.map((solicitud) => `${solicitud.variante_sku_id}:${solicitud.deposito_id}`),
+  );
+
+  const unidades: UnidadDevueltaListado[] = [];
+  for (const item of candidatos) {
+    const deposito_id = item.movimiento?.deposito_destino_id ?? null;
+    if (deposito_id === null) continue;
+    const clave = `${item.variante_sku_id}:${deposito_id}`;
+    if (ultimoItemPorPar.get(clave) !== item.id) continue;
+    if (paresConSolicitudPendiente.has(clave)) continue;
+    unidades.push({
+      id: item.id,
+      variante_sku_id: item.variante_sku_id,
+      sku: item.variante_sku.sku,
+      producto_nombre: item.variante_sku.producto_maestro.nombre,
+      deposito_id,
+      cantidad: item.cantidad,
+      estado_origen: item.estado_origen,
+      motivo: item.motivo,
+      rma_id: item.rma_id,
+      created_at: item.created_at,
+    });
+  }
+
+  return unidades;
 }
