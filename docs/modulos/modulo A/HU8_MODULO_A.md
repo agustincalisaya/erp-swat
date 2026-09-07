@@ -135,3 +135,62 @@ Todos los datos de prueba quedaron restaurados a los valores originales del seed
 - [ ] **Limitación conocida, no bloqueante:** no hay forma de volver a poner en `null` un `ean_qr`/`proveedor_id` ya cargado desde el formulario de edición (ver Parte 2). Si en algún momento se necesita, hay que agregar `.nullable()` a `EditarVarianteOperativaSchema` y ajustar el manejo del diff — no es difícil, pero es un cambio de contrato que hay que decidir a propósito, no colar de paso.
 - [ ] **Pregunta abierta heredada de la spec, no bloqueante:** "ubicación física en depósito" (Backlog) sigue sin campo en el modelo de datos — ver 1.2. Queda para el PO a futuro.
 - [ ] **A diferencia de HU-A1:** los eventos de dominio de esta HU sí quedaron conectados a `audit-log.listener.ts` desde el vamos — no repetir el gap de HU-A1 (eventos emitidos sin consumidor) en HUs futuras.
+
+## Actualización — botón "Editar" movido a cada fila (post-merge)
+
+Ajuste posterior al merge original de HU-A8, sobre la rama
+`ajuste-boton-editar-por-fila`.
+
+**Motivo:** el flujo original abría la edición desde un único botón
+"Editar" arriba de la lista, que mostraba un buscador
+(`BuscadorProductoExistente` / `BuscadorVarianteExistente`) para elegir
+qué producto o variante editar. Se simplificó: como cada fila de la lista
+ya identifica al producto/variante, tiene más sentido editar directo
+desde ahí.
+
+**Cambios:**
+
+- `ListadoProductos.tsx` — se quitó el botón "Editar" de arriba de la
+  lista. Se agregó una columna "Acciones" (visible solo si `puedeEditar`)
+  con un botón "Editar" por fila, mismo estilo que el resto de acciones
+  de fila del proyecto.
+- `variantes/page.tsx` — mismo criterio: se quitó `EditarVarianteDialog`
+  de la cabecera. La columna "Acciones" ahora se muestra si
+  `puedeBajar || puedeEditar`, con "Editar" y "Dar de baja" lado a lado
+  en cada fila, cada uno gateado por su propio permiso.
+- `EditarProductoMaestroDialog.tsx` / `EditarVarianteDialog.tsx` — se
+  rediseñaron para recibir `productoId` / `varianteId` como prop
+  obligatoria en vez de abrir con buscador. Al abrir el Dialog, cargan
+  directo el detalle (`obtenerProductoMaestroParaEdicion(id)` /
+  `obtenerVarianteParaEdicionAction(id)`) y muestran el formulario
+  precargado. El botón "Elegir otro" del formulario ahora cierra el
+  Dialog (ya no hay buscador al cual volver).
+- `BuscadorProductoExistente.tsx` / `BuscadorVarianteExistente.tsx` no se
+  tocaron — siguen usándose sin cambios en el wizard de alta de variante
+  sobre producto existente (verificado que sigue funcionando).
+
+**No se tocó:** `usuarioPuedeEditarProductoMaestro` /
+`usuarioPuedeEditarVariante`, rutas `PATCH`, schemas Zod,
+`FormularioEditarProductoMaestro.tsx` / `FormularioEditarVariante.tsx`
+(incluido el fix de fieldset/espaciado del mensaje de confirmación, ya
+documentado más arriba).
+
+**Testing:**
+
+- `tsc --noEmit` y `npm run lint`: sin errores (4 warnings preexistentes
+  ajenos a este cambio).
+- Verificación en vivo (navegador real, `next dev`, usuarios seed
+  `admin.seed@erp-swat.local` y `auditor.seed@erp-swat.local`):
+  - Botón "Editar" visible por fila en ambos listados, para admin.
+  - Click en una fila específica → Dialog abre directo en el formulario
+    con los datos de esa fila, sin buscador.
+  - Caso borde verificado: editar Producto/Variante A, cerrar sin
+    guardar, editar Producto/Variante B (fila distinta) → el formulario
+    muestra los datos de B sin residuos de A ni loading colgado. Esto es
+    estructuralmente imposible que falle porque cada fila renderiza su
+    propia instancia del Dialog dentro del `.map()` de la tabla — no hay
+    estado compartido entre filas.
+  - Con el usuario auditor, la columna "Acciones" no aparece en ninguno
+    de los dos listados (gateo por rol OK).
+  - El buscador de producto existente en el wizard de alta de variante
+    sigue funcionando sin cambios.

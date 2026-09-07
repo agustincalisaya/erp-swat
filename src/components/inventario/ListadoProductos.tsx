@@ -48,8 +48,6 @@ export function ListadoProductos({ productos, puedeEditar }: ListadoProductosPro
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          {puedeEditar && <EditarProductoMaestroDialog />}
-
           <Link
             href="/inventario/productos/nuevo"
             className={buttonVariants() + " gap-2 shrink-0 bg-blue-600 hover:bg-blue-700 text-white"}
@@ -67,12 +65,13 @@ export function ListadoProductos({ productos, puedeEditar }: ListadoProductosPro
               <th className="px-4 py-3 font-semibold">Cod Producto</th>
               <th className="px-4 py-3 font-semibold">Nombre</th>
               <th className="px-4 py-3 font-semibold">Rubro</th>
+              {puedeEditar && <th className="px-4 py-3 text-right font-semibold">Acciones</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
             {productosFiltrados.length === 0 ? (
               <tr>
-                <td colSpan={3} className="px-4 py-8 text-center text-muted-foreground">
+                <td colSpan={puedeEditar ? 4 : 3} className="px-4 py-8 text-center text-muted-foreground">
                   {productos.length === 0
                     ? "No hay productos maestro activos."
                     : `Ningún producto activo coincide con "${query.trim()}".`}
@@ -86,6 +85,11 @@ export function ListadoProductos({ productos, puedeEditar }: ListadoProductosPro
                   </td>
                   <td className="px-4 py-3 text-gray-900">{producto.nombre}</td>
                   <td className="px-4 py-3 text-gray-700">{producto.rubro}</td>
+                  {puedeEditar && (
+                    <td className="px-4 py-3 text-right">
+                      <EditarProductoMaestroDialog productoId={producto.id} />
+                    </td>
+                  )}
                 </tr>
               ))
             )}

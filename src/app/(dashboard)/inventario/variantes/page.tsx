@@ -116,8 +116,6 @@ export default async function VariantesPage({ searchParams }: VariantesPageProps
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            {puedeEditar && <EditarVarianteDialog />}
-
             <Link
               href="/inventario/productos/variantes/nueva"
               className={buttonVariants({ variant: "outline" }) + " gap-2 shrink-0"}
@@ -168,7 +166,7 @@ export default async function VariantesPage({ searchParams }: VariantesPageProps
                         <th className="px-4 py-3 font-semibold">Motivo</th>
                       </>
                     ) : (
-                      puedeBajar && (
+                      (puedeBajar || puedeEditar) && (
                         <th className="px-4 py-3 text-right font-semibold">Acciones</th>
                       )
                     )}
@@ -206,13 +204,18 @@ export default async function VariantesPage({ searchParams }: VariantesPageProps
                           </td>
                         </>
                       ) : (
-                        puedeBajar && (
+                        (puedeBajar || puedeEditar) && (
                           <td className="px-4 py-3 text-right">
-                            <ModalJustificacionBaja
-                              varianteId={v.id}
-                              sku={v.sku}
-                              stockTotal={v.stockTotal}
-                            />
+                            <div className="flex items-center justify-end gap-2">
+                              {puedeEditar && <EditarVarianteDialog varianteId={v.id} />}
+                              {puedeBajar && (
+                                <ModalJustificacionBaja
+                                  varianteId={v.id}
+                                  sku={v.sku}
+                                  stockTotal={v.stockTotal}
+                                />
+                              )}
+                            </div>
                           </td>
                         )
                       )}
