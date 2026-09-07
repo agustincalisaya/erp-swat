@@ -77,7 +77,15 @@ export function SidebarNav({ sections }: SidebarNavProps) {
         </button>
 
         {/* HEADER DEL SIDEBAR - LOGO RENOVADO CON AZUL RELUCIENTE */}
-        <div className={cn("px-4 mb-4 mt-14 lg:mt-0", colapsado ? "text-center px-0" : "")}>
+        {/* El logo es un enlace al home: conserva las clases exactas del div;
+            `block` mantiene el layout de bloque del anchor y Tailwind preflight
+            evita el azul/subrayado por defecto de los links. */}
+        <Link
+          href="/"
+          onClick={() => setAbiertoMobile(false)}
+          title={colapsado ? "Ir al inicio" : undefined}
+          className={cn("block px-4 mb-4 mt-14 lg:mt-0", colapsado ? "text-center px-0" : "")}
+        >
           {!colapsado ? (
             <div className="whitespace-nowrap overflow-hidden">
               <span className="text-base font-extrabold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent tracking-tight">
@@ -90,7 +98,7 @@ export function SidebarNav({ sections }: SidebarNavProps) {
               SW
             </div>
           )}
-        </div>
+        </Link>
 
         <div className="flex-1 overflow-y-auto overflow-x-hidden px-2">
           <hr className={cn("my-2 border-t border-gray-100", colapsado ? "mx-4" : "mx-2")} aria-hidden="true" />
