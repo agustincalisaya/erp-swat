@@ -18,6 +18,7 @@ import {
   ResolverCodigoEscaneoSchema,
   RegistrarIngresoPorEscaneoSchema,
   CrearTransferenciaSchema,
+  ConfirmarRecepcionTransferenciaSchema,
   TransferenciaIdSchema,
 } from "@/lib/schemas/inventario.schema";
 import {
@@ -165,14 +166,15 @@ export async function crearTransferenciaAction(input: unknown): Promise<ActionRe
   }
 }
 
-export async function confirmarRecepcionTransferenciaAction(transferenciaId: string): Promise<ActionResult> {
+/** HU-A11 — `input` es `{ transferencia_id, items: { transferencia_item_id, cantidad_recibida }[] }` (recepción total o parcial). */
+export async function confirmarRecepcionTransferenciaAction(input: unknown): Promise<ActionResult> {
   const session = await getServerSession();
   if (!session) return { success: false, error: { code: "UNAUTHORIZED", message: "Sesión requerida" } };
   if (!(await usuarioTienePermiso(session.userId, "inventario:confirmar_recepcion"))) return { success: false, error: { code: "FORBIDDEN", message: "Permiso requerido" } };
-  const parsedId = TransferenciaIdSchema.safeParse(transferenciaId);
-  if (!parsedId.success) return { success: false, error: { code: "VALIDATION_ERROR", message: parsedId.error.issues[0]?.message ?? "ID inválido" } };
+  const parsed = ConfirmarRecepcionTransferenciaSchema.safeParse(input);
+  if (!parsed.success) return { success: false, error: { code: "VALIDATION_ERROR", message: parsed.error.issues[0]?.message ?? "Datos inválidos", fieldErrors: parsed.error.flatten().fieldErrors as Record<string, string[]> } };
   try {
-    const data = await confirmarRecepcionTransferencia(parsedId.data, session.userId);
+    const data = await confirmarRecepcionTransferencia(parsed.data, session.userId);
     revalidatePath("/inventario/movimientos");
     revalidatePath("/inventario/movimientos/historial-transferencias");
     return { success: true, data };

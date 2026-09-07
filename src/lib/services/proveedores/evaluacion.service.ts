@@ -50,12 +50,23 @@ export interface EvaluacionRegistrada {
  * la evaluación más reciente (`fecha_evaluacion desc`, `take(1)`), no hay
  * campo cacheado.
  *
+ * Idempotente por `recepcion_id` (fix de idempotencia/trazabilidad): si ya
+ * existe una `EvaluacionProveedor` para esta `Recepcion` — ej. un reintento
+ * de red desde `recepcion.service.ts` tras un COMMIT exitoso pero una
+ * respuesta perdida — se devuelve la evaluación ya creada tal cual, sin
+ * volver a suspender al proveedor ni volver a emitir el evento. La
+ * constraint única de `EvaluacionProveedor.recepcion_id` es la garantía de
+ * última instancia contra una carrera concurrente; este `findFirst` evita el
+ * trabajo redundante en el caso común (no concurrente).
+ *
  * Dentro de la transacción:
- *  1. Lee la `Recepcion` (con `items` y sus `discrepancias` activas) y la
+ *  1. Busca si ya existe una evaluación para este `recepcion_id`; si existe,
+ *     corta acá y la devuelve.
+ *  2. Lee la `Recepcion` (con `items` y sus `discrepancias` activas) y la
  *     `fecha_entrega_comprometida` de su `OrdenCompra`.
- *  2. Calcula los tres sub-puntajes (funciones puras de `evaluacion.calculo.ts`).
- *  3. Crea el registro de `EvaluacionProveedor`.
- *  4. Si `puntaje_total < UMBRAL_MINIMO_HOMOLOGACION` y el proveedor no está
+ *  3. Calcula los tres sub-puntajes (funciones puras de `evaluacion.calculo.ts`).
+ *  4. Crea el registro de `EvaluacionProveedor`.
+ *  5. Si `puntaje_total < UMBRAL_MINIMO_HOMOLOGACION` y el proveedor no está
  *     ya `SUSPENDIDO` (transición idempotente, mismo criterio que
  *     `cambiarEstadoUsuario()`), transiciona `Proveedor.estado = "SUSPENDIDO"`.
  *
@@ -69,6 +80,19 @@ export async function registrarEvaluacion(
   input: RegistrarEvaluacionDesdeRecepcionInput,
 ): Promise<EvaluacionRegistrada> {
   const resultado = await prisma.$transaction(async (tx) => {
+    const evaluacionExistente = await tx.evaluacionProveedor.findFirst({
+      where: { recepcion_id: input.recepcion_id },
+      select: { id: true, proveedor_id: true, puntaje_total: true },
+    });
+    if (evaluacionExistente) {
+      return {
+        evaluacionId: evaluacionExistente.id,
+        proveedorId: evaluacionExistente.proveedor_id,
+        puntajeTotal: Number(evaluacionExistente.puntaje_total),
+        suspension: null,
+      };
+    }
+
     const recepcion = await tx.recepcion.findFirst({
       where: { id: input.recepcion_id },
       select: {
@@ -120,6 +144,7 @@ export async function registrarEvaluacion(
     const evaluacion = await tx.evaluacionProveedor.create({
       data: {
         proveedor_id: recepcion.orden_compra.proveedor_id,
+        recepcion_id: input.recepcion_id,
         puntaje_cumplimiento_plazos: puntajePlazos,
         puntaje_calidad_recepcion: puntajeCalidad,
         puntaje_documentacion: puntajeDocumentacion,

@@ -32,7 +32,7 @@
  */
 import type { LucideIcon } from "lucide-react";
 // 1. Agregamos el ícono "Layers" a la importación
-import { ScrollText, ShieldCheck, Users, Package, Warehouse, ScanBarcode, Layers, FileSearch, ShoppingCart, ClipboardList, Store } from "lucide-react";
+import { ScrollText, ShieldCheck, Users, Package, Warehouse, ScanBarcode, Layers, FileSearch, ShoppingCart, ClipboardList, Store, PackageCheck } from "lucide-react";
 import { getServerSession } from "@/lib/auth/session";
 import { usuarioTienePermiso } from "@/lib/auth/with-permission";
 import { SidebarNav, type SidebarNavSection } from "@/components/layout/SidebarNav";
@@ -109,9 +109,16 @@ const SECCIONES: SeccionConfig[] = [
         permiso: "ordenes_compra:crear",
       },
       {
-        label: "Proveedores",
+label: "Proveedores",
         href: "/compras/proveedores",
         icon: Store,
+      },
+      {
+        label: "Recepción de Mercadería",
+        href: "/compras/recepciones/nueva",
+        icon: PackageCheck,
+        permiso: "recepciones:registrar",
+      },
       },
     ],
   },

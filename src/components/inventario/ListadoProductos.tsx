@@ -13,12 +13,15 @@ import { Search, PackagePlus } from "lucide-react";
 import type { ProductoMaestroListado } from "@/lib/services/inventario/producto.service";
 import { Input } from "@/components/ui/input";
 import { buttonVariants } from "@/components/ui/button";
+import { EditarProductoMaestroDialog } from "@/components/inventario/EditarProductoMaestroDialog";
 
 interface ListadoProductosProps {
   productos: ProductoMaestroListado[];
+  /** HU-A8 — resuelto server-side (`usuarioPuedeEditarProductoMaestro()`), mismo patrón que `puedeBajar` en `variantes/page.tsx`. */
+  puedeEditar: boolean;
 }
 
-export function ListadoProductos({ productos }: ListadoProductosProps) {
+export function ListadoProductos({ productos, puedeEditar }: ListadoProductosProps) {
   const [query, setQuery] = useState("");
 
   const productosFiltrados = useMemo(() => {
@@ -44,13 +47,17 @@ export function ListadoProductos({ productos }: ListadoProductosProps) {
           />
         </div>
 
-        <Link
-          href="/inventario/productos/nuevo"
-          className={buttonVariants() + " gap-2 shrink-0 bg-blue-600 hover:bg-blue-700 text-white"}
-        >
-          <PackagePlus className="size-4" aria-hidden="true" />
-          Nuevo Producto Maestro
-        </Link>
+        <div className="flex items-center gap-2 shrink-0">
+          {puedeEditar && <EditarProductoMaestroDialog />}
+
+          <Link
+            href="/inventario/productos/nuevo"
+            className={buttonVariants() + " gap-2 shrink-0 bg-blue-600 hover:bg-blue-700 text-white"}
+          >
+            <PackagePlus className="size-4" aria-hidden="true" />
+            Nuevo Producto Maestro
+          </Link>
+        </div>
       </div>
 
       <div className="overflow-hidden rounded-xl border bg-white shadow-sm">

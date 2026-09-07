@@ -78,22 +78,56 @@ export type ResultadoVerificacionCadena =
 // ──────────────────────────────────────────────────────────────────────────────
 
 /**
+ * Candado de serialización del ledger (spec_modulo_D.md §4.2).
+ *
+ * `escribirRegistroAuditLog()` hace `findFirst`(último hash) + `create` de
+ * forma NO atómica. Sin serializar, dos escrituras al ledger que arrancan casi
+ * a la vez leen el mismo `hash_anterior` antes de que la primera commitee y
+ * bifurcan la cadena SHA-256 (evidencia real: filas idx 157/158 y 159/160 del
+ * ledger, 2026-09-03 — los dos eventos post-commit de `registrarRecepcion` de
+ * HU-H4, `recepcion:registrada` + `inventario:ingreso_stock_registrado`,
+ * emitidos sincrónicamente uno detrás del otro).
+ *
+ * `colaLedger` encadena cada llamada a `registrarAuditLog()` detrás de la
+ * anterior, de modo que las escrituras corren estrictamente de a una y ninguna
+ * lee un `hash_anterior` obsoleto. El bus de eventos de este proyecto es
+ * in-process (`domain-event-bus.ts`, `EventEmitter`), así que TODA invocación
+ * —de cualquier módulo, actual o futuro— nace en este mismo proceso y queda
+ * cubierta por esta cola. Por eso alcanza con serializar en memoria y no hace
+ * falta un `Serializable` / `pg_advisory_xact_lock` de Postgres: no hay
+ * escritura al ledger desde otro proceso.
+ *
+ * Un fallo puntual de una escritura NO rompe la cola: la siguiente igual corre
+ * (ver el `.catch(() => {})` sobre la continuación, no sobre el valor devuelto
+ * al llamador).
+ */
+let colaLedger: Promise<unknown> = Promise.resolve();
+
+/**
  * Inserta un nuevo registro en el Ledger de Auditoría, calculando su
  * `hash_actual` encadenado con el `hash_actual` del registro más reciente
  * (o `HASH_GENESIS` si el ledger está vacío).
  *
- * Riesgo de concurrencia reconocido (spec_modulo_D.md §4.2): el `findFirst`
- * + `create` no son atómicos entre sí frente a dos inserciones concurrentes,
- * lo que podría producir un `hash_anterior` incorrecto en una carrera. Se
- * acepta como trade-off de Sprint actual — el volumen de escritura concurrente
- * de este proyecto (ERP interno, equipo reducido) hace el riesgo remoto, y
- * `verificarCadenaIntegridad()` lo detectaría de todos modos si ocurriera.
+ * Serializada vía `colaLedger` (ver arriba): dos llamadas concurrentes nunca
+ * leen el mismo `hash_anterior`. La cola aplica también cuando se pasa `tx`
+ * — hoy ningún llamador lo hace (el `audit-log.listener.ts` unificado siempre
+ * llama sin `tx`); un futuro llamador con `tx` no debe estar él mismo dentro
+ * de la cola (no hay reentrancia).
  *
  * @param params - Datos del evento a auditar.
  * @param tx - Cliente de transacción del llamador, si corresponde (para que
  *             el log se cree/revierta junto con la operación principal).
  */
 export async function registrarAuditLog(
+  params: RegistrarAuditLogParams,
+  tx?: Prisma.TransactionClient,
+): Promise<void> {
+  const ejecucion = colaLedger.then(() => escribirRegistroAuditLog(params, tx));
+  colaLedger = ejecucion.catch(() => {});
+  return ejecucion;
+}
+
+async function escribirRegistroAuditLog(
   params: RegistrarAuditLogParams,
   tx?: Prisma.TransactionClient,
 ): Promise<void> {

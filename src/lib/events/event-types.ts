@@ -74,30 +74,65 @@ export interface UmbralCriticoAlcanzadoPayload {
 /**
  * HU-2 — Payload emitido tras registrar un ingreso de mercadería por
  * escaneo (creación de `MovimientoStock` tipo INGRESO + incremento de
- * `StockDeposito.cantidad`).
+ * `StockDeposito.cantidad`). Desde HU-A11 (multi-ítem) cubre un lote de
+ * ítems en un único `MovimientoStock` cabecera — nunca un evento por ítem.
  */
+export interface IngresoStockRegistradoItemPayload {
+  variante_sku_id: string;
+  cantidad: number;
+  estado_destino: string;
+  cantidad_resultante: number;
+}
+
 export interface IngresoStockRegistradoPayload {
   movimiento_id: string;
-  variante_sku_id: string;
   deposito_destino_id: string;
-  cantidad: number;
-  cantidad_resultante: number;
+  items: IngresoStockRegistradoItemPayload[];
   usuario_id: string;
+}
+
+/** HU-A11 (multi-ítem) — línea de una `TransferenciaStock` al despacharse. */
+export interface TransferenciaStockItemPayload {
+  variante_sku_id: string;
+  cantidad: number;
 }
 
 export interface TransferenciaStockPayload {
   transferencia_id: string;
   remito_id: string;
   movimiento_id: string;
-  variante_sku_id: string;
   deposito_origen_id: string;
   deposito_destino_id: string;
-  cantidad: number;
+  items: TransferenciaStockItemPayload[];
   usuario_id: string;
 }
 
-export interface TransferenciaStockRecibidaPayload extends TransferenciaStockPayload {
-  recibida_at: string;
+/**
+ * HU-A11 — línea de una `TransferenciaStock` con el estado de recepción
+ * alcanzado por ese ítem tras una confirmación (posiblemente parcial).
+ */
+export interface TransferenciaStockItemRecibidoPayload {
+  variante_sku_id: string;
+  cantidad_recibida: number;
+  estado_item: "PENDIENTE" | "RECIBIDO_PARCIAL" | "RECIBIDO_TOTAL";
+}
+
+/**
+ * HU-A11 — Payload emitido tras confirmar la recepción (total o parcial) de
+ * una `TransferenciaStock`. Reemplaza al antiguo `TransferenciaStockRecibidaPayload`
+ * (todo-o-nada): `estado_transferencia` distingue si la cabecera quedó
+ * `PARCIAL` o `RECIBIDA`; `recibida_at` solo se completa en este último caso.
+ */
+export interface TransferenciaStockRecepcionConfirmadaPayload {
+  transferencia_id: string;
+  remito_id: string;
+  movimiento_id: string;
+  deposito_origen_id: string;
+  deposito_destino_id: string;
+  items: TransferenciaStockItemRecibidoPayload[];
+  estado_transferencia: "PARCIAL" | "RECIBIDA";
+  usuario_id: string;
+  recibida_at: string | null;
 }
 
 export interface TransferenciaStockBajaPayload {
@@ -303,6 +338,18 @@ export interface OrdenCompraItemsEditadosPayload {
   }[];
 }
 
+/** HU-H4: recepción física persistida y estado físico de la OC actualizado. */
+export interface RecepcionRegistradaPayload {
+  recepcion_id: string;
+  orden_compra_id: string;
+  numero_orden: string;
+  deposito_destino_id: string;
+  recibida_por_id: string;
+  fecha_recepcion: string;
+  estado_anterior_oc: "CONFIRMADA" | "RECEPCION_PARCIAL";
+  estado_nuevo_oc: "RECEPCION_PARCIAL" | "RECIBIDA_COMPLETA";
+}
+
 /**
  * HU-H5 (Módulo H) — Payload emitido tras la transición automática de
  * `Proveedor.estado` a `SUSPENDIDO` por caída de puntaje
@@ -319,6 +366,71 @@ export interface ProveedorEstadoCambiadoPayload {
   estado_nuevo: string;
   origen: "MANUAL" | "AUTOMATICO";
   motivo: string;
+}
+
+/**
+ * HU-G8 (Módulo G) — Payload emitido tras cada transición de estado de una
+ * `CuentaPorPagar`, por las tres ramas del listener reactivo
+ * (`cuenta-por-pagar.listener.ts`: `CREAR` / `DEFINIR` / `CANCELAR`) y por la
+ * mutación manual de pago (`marcarCuentaPorPagarPagada()`: `PAGAR`). Único
+ * consumidor: `audit-log.listener.ts`, que lo mapea a un asiento
+ * `AuditLog` encadenado por SHA-256 (spec_modulo_G.md §3.3 / §4.1). El
+ * Módulo H se suscribe además filtrando `accion === "PAGAR"` para reflejar el
+ * pago en el historial del proveedor (§2.4).
+ *
+ * Emisión SIEMPRE post-`COMMIT`, fire-and-forget, nunca dentro de la
+ * `prisma.$transaction` que hace la escritura (mismo patrón que el resto de
+ * eventos de dominio del proyecto — deuda técnica conocida de Módulo D).
+ *
+ * `monto_anterior` / `monto_nuevo` son `Prisma.Decimal` serializados a
+ * `string` (nunca `number`); las fechas viajan como ISO 8601 o `null`.
+ */
+export interface CuentaPorPagarEstadoCambiadoPayload {
+  cuenta_por_pagar_id: string;
+  orden_compra_id: string;
+  numero_orden: string;
+  proveedor_id: string;
+  /** `null` únicamente en `CREAR` (la cuenta nace, no tenía estado previo). */
+  estado_anterior: "PROVISORIO" | "DEFINITIVA" | "PAGADA" | "CANCELADA" | null;
+  estado_nuevo: "PROVISORIO" | "DEFINITIVA" | "PAGADA" | "CANCELADA";
+  accion: "CREAR" | "DEFINIR" | "PAGAR" | "CANCELAR";
+  cambiado_por: string;
+  /** `null` en `CREAR`; en `DEFINIR` es el monto provisorio previo al recálculo. */
+  monto_anterior: string | null;
+  monto_nuevo: string;
+  /** Presente solo en `DEFINIR` (la `Recepcion` de cierre asociada). */
+  recepcion_id: string | null;
+  /** Siempre `null` en HU-G8 (`Proveedor.condiciones_pago` es texto libre no parseable). */
+  fecha_vencimiento: string | null;
+  /** Presente solo en `PAGAR`. ISO 8601. */
+  fecha_pago: string | null;
+  /** Presente solo en `CANCELAR` — motivo de la cancelación funcional, NO baja lógica. */
+  deletion_reason: string | null;
+}
+
+/**
+ * HU-H1 (Módulo H) — Payload emitido tras la baja lógica de un `Proveedor`
+ * (`darDeBajaProveedor()`, spec_modulo_H.md §3.5 · RULES.md Regla N.° 1).
+ * `motivo` es el `deletion_reason` obligatorio. NUNCA incluye datos
+ * bancarios (regla de exclusión de datos sensibles de spec §4).
+ * Emisión post-`COMMIT` (spec §3.4).
+ */
+export interface ProveedorBajaLogicaPayload {
+  proveedor_id: string;
+  usuario_id: string;
+  motivo: string;
+}
+
+/**
+ * HU-H1 (Módulo H) — Payload emitido tras la edición del legajo de un
+ * `Proveedor` (`editarProveedor()`). `campos_editados` es la lista de claves
+ * cuyo valor cambió (incluye `"datos_bancarios"` si se reemplazó, NUNCA el
+ * valor en claro ni el ciphertext — spec §3.3/§4). Emisión post-`COMMIT`.
+ */
+export interface ProveedorLegajoEditadoPayload {
+  proveedor_id: string;
+  usuario_id: string;
+  campos_editados: string[];
 }
 
 /**
@@ -350,6 +462,37 @@ export interface ReservaLiberadaPayload {
   cantidad: number;
 }
 
+/**
+ * HU-A8 — Payload emitido tras editar atributos operativos de un
+ * ProductoMaestro (`editarProductoMaestro()`, spec_modulo_A.md §2.7).
+ * campos_modificados/valor_anterior/valor_nuevo son diff real (solo los
+ * campos presentes en el payload de entrada), no un snapshot completo.
+ */
+export interface ProductoMaestroActualizadoPayload {
+  producto_maestro_id: string;
+  usuario_id: string;
+  campos_modificados: string[];
+  valor_anterior: Record<string, unknown>;
+  valor_nuevo: Record<string, unknown>;
+}
+
+/**
+ * HU-A8 — Payload emitido tras editar atributos operativos de una
+ * VarianteSKU (`editarVarianteOperativa()`, spec_modulo_A.md §2.7). Nunca
+ * incluye talle/color/genero/modelo/sku — el schema Zod ya los excluye por
+ * diseño antes de que este payload pueda construirse. `ip` presente, mismo
+ * criterio que `VarianteBajaLogicaPayload` (evento hermano de esta misma
+ * entidad).
+ */
+export interface VarianteActualizadaPayload {
+  variante_sku_id: string;
+  usuario_id: string;
+  campos_modificados: string[];
+  valor_anterior: Record<string, unknown>;
+  valor_nuevo: Record<string, unknown>;
+  ip: string;
+}
+
 /** Mapa evento → payload, usado por `domain-event-bus.ts` para tipar `emit`/`on`. */
 export interface DomainEventMap {
   /** HU-A1: se emite tras el alta de un ProductoMaestro. */
@@ -364,7 +507,8 @@ export interface DomainEventMap {
   "inventario:ingreso_stock_registrado": IngresoStockRegistradoPayload;
   /** HU-A5: eventos de transferencia de stock entre depósitos. */
   "stock:transferencia_iniciada": TransferenciaStockPayload;
-  "stock:transferencia_recibida": TransferenciaStockRecibidaPayload;
+  /** HU-A11: se emite tras confirmar una recepción total o parcial. */
+  "stock:transferencia_recepcion_confirmada": TransferenciaStockRecepcionConfirmadaPayload;
   "stock:transferencia_baja_logica": TransferenciaStockBajaPayload;
   /** HU-A6: baja lógica de una VarianteSKU. */
   "inventario:variante_baja_logica": VarianteBajaLogicaPayload;
@@ -392,12 +536,24 @@ export interface DomainEventMap {
   "orden_compra:estado_cambiado": OrdenCompraEstadoCambiadoPayload;
   /** HU-H3: se emite tras editar los ítems de una OrdenCompra en BORRADOR. */
   "orden_compra:items_editados": OrdenCompraItemsEditadosPayload;
+  /** HU-H4: se emite una vez, post-commit, por cada recepción física nueva. */
+  "recepcion:registrada": RecepcionRegistradaPayload;
   /** HU-H5 (y HU-H1 2.2): se emite tras un cambio de estado de Proveedor, manual o automático. */
   "proveedor:estado_cambiado": ProveedorEstadoCambiadoPayload;
+  /** HU-G8: se emite tras cada transición de estado de una CuentaPorPagar (CREAR/DEFINIR/PAGAR/CANCELAR). */
+  "cuenta_por_pagar:estado_cambiado": CuentaPorPagarEstadoCambiadoPayload;
+  /** HU-H1: se emite tras la baja lógica de un Proveedor (nunca DELETE físico). */
+  "proveedor:baja_logica": ProveedorBajaLogicaPayload;
+  /** HU-H1: se emite tras la edición del legajo de un Proveedor. */
+  "proveedor:legajo_editado": ProveedorLegajoEditadoPayload;
   /** HU-A10: se emite tras el congelamiento de una Reserva (DISPONIBLE → RESERVADO). */
   "stock:reserva_congelada": ReservaCongeladaPayload;
   /** HU-A10: se emite tras la liberación de una Reserva (venta confirmada o TTL vencido). */
   "stock:reserva_liberada": ReservaLiberadaPayload;
+  /** HU-A8: se emite tras editar atributos operativos de un ProductoMaestro. */
+  "producto_maestro:actualizado": ProductoMaestroActualizadoPayload;
+  /** HU-A8: se emite tras editar atributos operativos de una VarianteSKU. */
+  "inventario:variante_actualizada": VarianteActualizadaPayload;
 }
 
 export type DomainEventName = keyof DomainEventMap;

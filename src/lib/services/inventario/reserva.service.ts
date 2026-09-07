@@ -163,16 +163,22 @@ export async function crearReserva(
       select: { id: true, fecha_inicio_reserva: true },
     });
 
+    // HU-A11 (multi-ítem): mismo patrón cabecera + 1 ítem que en
+    // `confirmarReservaPorVenta()`/`liberarReservasVencidas()`.
     await tx.movimientoStock.create({
       data: {
-        variante_sku_id: input.variante_sku_id,
         deposito_origen_id: input.deposito_id,
         tipo_movimiento: "AJUSTE",
-        estado_origen: "DISPONIBLE",
-        estado_destino: "RESERVADO",
-        cantidad: input.cantidad,
         comprobante_referencia: `RESERVA-${creada.id}`,
         registrado_por_id: usuarioId,
+        items: {
+          create: {
+            variante_sku_id: input.variante_sku_id,
+            cantidad: input.cantidad,
+            estado_origen: "DISPONIBLE",
+            estado_destino: "RESERVADO",
+          },
+        },
       },
     });
 
@@ -252,17 +258,24 @@ export async function confirmarReservaPorVenta(
       throw new ServiceError("RESERVA_NO_ACTIVA", "La reserva ya fue liberada o confirmada");
     }
 
+    // HU-A11 (multi-ítem): MovimientoStock es cabecera pura desde acá —
+    // variante_sku_id/cantidad/estado_* migraron a un MovimientoStockItem
+    // hijo (siempre uno solo, esta reserva es de una única variante).
     await tx.movimientoStock.create({
       data: {
-        variante_sku_id: actual.variante_sku_id,
         deposito_origen_id: actual.deposito_id,
         tipo_movimiento: "EGRESO",
-        estado_origen: "RESERVADO",
-        estado_destino: "VENDIDO",
-        cantidad: actual.cantidad,
         comprobante_referencia: `RESERVA-CONFIRMADA-${actual.id}`,
         venta_id: ventaId,
         registrado_por_id: usuarioId,
+        items: {
+          create: {
+            variante_sku_id: actual.variante_sku_id,
+            cantidad: actual.cantidad,
+            estado_origen: "RESERVADO",
+            estado_destino: "VENDIDO",
+          },
+        },
       },
     });
 
@@ -364,18 +377,24 @@ export async function liberarReservasVencidas(
           );
         }
 
+        // HU-A11 (multi-ítem): mismo patrón cabecera + 1 ítem que en
+        // `confirmarReservaPorVenta()` — ver comentario ahí.
         await tx.movimientoStock.create({
           data: {
-            variante_sku_id: reserva.variante_sku_id,
             deposito_origen_id: reserva.deposito_id,
             tipo_movimiento: "INGRESO",
-            estado_origen: "RESERVADO",
-            estado_destino: "DISPONIBLE",
-            cantidad: reserva.cantidad,
             comprobante_referencia: `CRON-LIBERACION-RESERVA-${reserva.id}`,
             // El cron actúa como agente del sistema: se conserva el ID del
             // registrador original para no romper la cadena de trazabilidad.
             registrado_por_id: reserva.registrado_por_id,
+            items: {
+              create: {
+                variante_sku_id: reserva.variante_sku_id,
+                cantidad: reserva.cantidad,
+                estado_origen: "RESERVADO",
+                estado_destino: "DISPONIBLE",
+              },
+            },
           },
         });
       });

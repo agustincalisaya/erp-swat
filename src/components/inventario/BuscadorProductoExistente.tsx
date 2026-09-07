@@ -55,6 +55,7 @@ const DEBOUNCE_MS = 300;
 
 interface BuscadorProductoExistenteProps {
   onSeleccionar: (producto: ProductoMaestroActivoResumen) => void;
+  label?: string;
 }
 
 interface PosicionListbox {
@@ -63,7 +64,10 @@ interface PosicionListbox {
   width: number;
 }
 
-export function BuscadorProductoExistente({ onSeleccionar }: BuscadorProductoExistenteProps) {
+export function BuscadorProductoExistente({
+  onSeleccionar,
+  label = "¿El producto ya existe?",
+}: BuscadorProductoExistenteProps) {
   const [query, setQuery] = useState("");
   const [resultados, setResultados] = useState<ProductoMaestroActivoResumen[]>([]);
   const [buscando, setBuscando] = useState(false);
@@ -164,9 +168,7 @@ export function BuscadorProductoExistente({ onSeleccionar }: BuscadorProductoExi
 
   return (
     <div ref={contenedorRef} className="relative space-y-2">
-      <Label htmlFor="buscador-producto-existente">
-        ¿El producto ya existe? Agregar variantes a uno existente
-      </Label>
+      {label && <Label htmlFor="buscador-producto-existente">{label}</Label>}
       <div ref={inputWrapperRef} className="relative">
         <Search
           className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground"

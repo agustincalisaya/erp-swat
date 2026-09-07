@@ -190,47 +190,64 @@ export const IMPACTO_STOCK_POR_ESTADO_DESTINO: Record<IngresoEstadoDestino, Impa
   BAJA_MERMA: "RESTA",
 };
 
-export const RegistrarIngresoPorEscaneoSchema = z.object({
+const CantidadPositivaSchema = z.preprocess(
+  (val) => (val === "" || val === undefined || val === null ? undefined : Number(val)),
+  z
+    .number({
+      invalid_type_error: "Este campo es requerido",
+      required_error: "Este campo es requerido",
+    })
+    .int("Debe ser un número entero")
+    .positive("La cantidad debe ser mayor a 0"),
+);
+
+/** HU-A11 (multi-ítem) — un ítem del carrito de ingreso: variante + cantidad + estado propio. */
+export const IngresoItemSchema = z.object({
   variante_sku_id: z.string().uuid("Código no resuelto: variante inválida"),
+  cantidad: CantidadPositivaSchema,
+  estado_destino: z.enum(ESTADOS_DESTINO_INGRESO),
+  /**
+   * El modelo de datos actual (`VarianteSKU`) representa un modelo genérico
+   * (talle+color+género+modelo), no una unidad serializada individual.
+   * Se acepta por compatibilidad con el formulario del escáner pero no se
+   * persiste salvo que la variante sea serializada (`numero_serie` migra al
+   * ítem cuando corresponde).
+   */
+  numero_serie: z.string().trim().optional(),
+});
+
+/**
+ * HU-A11 (multi-ítem) — registro de ingreso en lote: un `deposito_destino_id`
+ * y `comprobante_referencia` compartidos por toda la cabecera, con 1+ ítems
+ * (cada uno con su propia variante/cantidad/estado, ver `IngresoItemSchema`).
+ */
+export const RegistrarIngresoPorEscaneoSchema = z.object({
   deposito_destino_id: z.string().uuid("Seleccioná un depósito destino"),
-  cantidad: z.preprocess(
-    (val) =>
-      val === "" || val === undefined || val === null ? undefined : Number(val),
-    z
-      .number({
-        invalid_type_error: "Este campo es requerido",
-        required_error: "Este campo es requerido",
-      })
-      .int("Debe ser un número entero")
-      .positive("La cantidad debe ser mayor a 0"),
-  ),
   comprobante_referencia: z
     .string()
     .max(100, "Máximo 100 caracteres")
     .trim()
     .default(""),
-  estado_destino: z.enum(ESTADOS_DESTINO_INGRESO),
-  /**
-   * El modelo de datos actual (`VarianteSKU`) representa un modelo genérico
-   * (talle+color+género+modelo), no una unidad serializada individual.
-   * Estos campos se aceptan por compatibilidad con el formulario del
-   * escáner pero no se persisten.
-   */
-  es_serializado: z.boolean().default(false),
-  numero_serie: z.string().trim().optional(),
+  items: z.array(IngresoItemSchema).min(1, "Agregá al menos un ítem al carrito"),
 });
 
+export type IngresoItemInput = z.infer<typeof IngresoItemSchema>;
 export type RegistrarIngresoPorEscaneoInput = z.infer<
   typeof RegistrarIngresoPorEscaneoSchema
 >;
 
-// HU-5 — Transferencia interna en dos fases
+/** HU-A11 (multi-ítem) — un ítem del carrito de transferencia: variante + cantidad. */
+export const TransferenciaItemSchema = z.object({
+  variante_sku_id: z.string().uuid(),
+  cantidad: z.number().int().positive(),
+});
+
+// HU-5 — Transferencia interna en dos fases (HU-A11: multi-ítem)
 export const CrearTransferenciaSchema = z
   .object({
-    variante_sku_id: z.string().uuid(),
     deposito_origen_id: z.string().uuid(),
     deposito_destino_id: z.string().uuid(),
-    cantidad: z.number().int().positive(),
+    items: z.array(TransferenciaItemSchema).min(1, "Agregá al menos un ítem al carrito"),
   })
   .refine((data) => data.deposito_origen_id !== data.deposito_destino_id, {
     message: "El depósito de origen y destino no pueden ser iguales",
@@ -243,7 +260,35 @@ export const BajaTransferenciaSchema = z.object({
 
 export const TransferenciaIdSchema = z.string().uuid("El ID de transferencia es inválido");
 
-const FechaCalendarioSchema = z
+/** HU-A11 — recepción (total o parcial) de una `TransferenciaStock`: cuánto se recibió de cada ítem. */
+export const ConfirmarRecepcionTransferenciaSchema = z.object({
+  transferencia_id: z.string().uuid("El ID de transferencia es inválido"),
+  items: z
+    .array(
+      z.object({
+        transferencia_item_id: z.string().uuid(),
+        cantidad_recibida: z.number().int().positive(),
+      }),
+    )
+    .min(1, "Marcá al menos un ítem con cantidad a recibir"),
+});
+
+export type ConfirmarRecepcionTransferenciaInput = z.infer<
+  typeof ConfirmarRecepcionTransferenciaSchema
+>;
+
+/** Mismo contrato que `ConfirmarRecepcionTransferenciaSchema` sin `transferencia_id` — para el Route Handler REST, que ya lo recibe en la URL (`/api/inventario/transferencias/[id]/recepcion`). */
+export const ConfirmarRecepcionTransferenciaBodySchema = ConfirmarRecepcionTransferenciaSchema.omit({
+  transferencia_id: true,
+});
+
+/**
+ * Exportado (originalmente privado de este módulo) para que
+ * `HistorialMovimientosQuerySchema` (HU-A11, sección 2.10) reutilice la misma
+ * validación de fecha en vez de duplicar el regex — sin alterar su
+ * comportamiento para `FiltrosHistorialTransferenciasSchema`.
+ */
+export const FechaCalendarioSchema = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, "La fecha debe tener formato AAAA-MM-DD")
   .refine((valor) => {
@@ -354,3 +399,70 @@ export const ListarProductosPorDepositoQuerySchema = z.object({
 export type ListarProductosPorDepositoQuery = z.infer<
   typeof ListarProductosPorDepositoQuerySchema
 >;
+
+// ──────────────────────────────────────────────────────────────────────────────
+// HU-A11 — Historial operativo de movimientos (spec_modulo_A.md §2.10)
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Query de `GET /api/inventario/movimientos/historial`. `deposito_id` filtra
+ * por depósito de origen O destino (ver `listarHistorialMovimientos()`) — un
+ * único filtro simple en vez de dos separados, decisión de UX de esta HU.
+ *
+ * `por_pagina` con tope y default 10 (requisito confirmado de HU-A11, distinto
+ * del tope 20 de HU-A5/HU-A6 en este mismo archivo).
+ */
+export const HistorialMovimientosQuerySchema = z.object({
+  deposito_id: z.string().uuid().optional(),
+  variante_sku_id: z.string().uuid().optional(),
+  tipo_movimiento: z.enum(["INGRESO", "EGRESO", "TRANSFERENCIA", "AJUSTE"]).optional(),
+  fecha_desde: z.preprocess((valor) => (valor === "" ? undefined : valor), FechaCalendarioSchema.optional()),
+  fecha_hasta: z.preprocess((valor) => (valor === "" ? undefined : valor), FechaCalendarioSchema.optional()),
+  busqueda: z.string().trim().optional(),
+  pagina: z.coerce.number().int().positive().default(1),
+  por_pagina: z.coerce.number().int().positive().max(10).default(10),
+});
+
+export type HistorialMovimientosQuery = z.infer<typeof HistorialMovimientosQuerySchema>;
+
+// ──────────────────────────────────────────────────────────────────────────────
+// HU-A8 — Edición de atributos operativos de Producto Maestro y Variante
+// spec_modulo_A.md §2.7. El SKU de una VarianteSKU es inmutable: talle, color,
+// genero, modelo y sku quedan deliberadamente FUERA de estos schemas — un
+// intento de enviarlos es rechazado por `.strict()` con 400, sin necesidad de
+// lógica condicional adicional en la capa de servicios.
+// ──────────────────────────────────────────────────────────────────────────────
+
+// `codigo_producto` queda deliberadamente fuera de EditarProductoMaestroSchema
+// — es el segmento [PRODUCTO] del SKU determinístico de todas las variantes ya
+// generadas; editarlo rompería la trazabilidad del SKU contra el código físico
+// ya impreso, mismo motivo por el que talle/color/genero/modelo son inmutables
+// en Variante.
+export const EditarProductoMaestroSchema = z
+  .object({
+    nombre: z.string().min(1, "El nombre es obligatorio").optional(),
+    descripcion: z.string().optional(),
+    categoria: z.string().min(1, "La categoría es obligatoria").optional(),
+    rubro: z.string().min(1, "El rubro es obligatorio").optional(),
+    unidad_medida: z.string().min(1, "La unidad de medida es obligatoria").optional(),
+    proveedor_preferente: z.string().optional(),
+    costo_estandar_referencia: z
+      .number({ invalid_type_error: "El costo debe ser un número" })
+      .nonnegative("El costo no puede ser negativo")
+      .optional(),
+  })
+  .strict();
+
+export type EditarProductoMaestroInput = z.infer<typeof EditarProductoMaestroSchema>;
+
+export const EditarVarianteOperativaSchema = z
+  .object({
+    ean_qr: z
+      .string()
+      .regex(/^\d{13}$/, "EAN-13 debe tener 13 dígitos")
+      .optional(),
+    proveedor_id: z.string().uuid().optional(),
+  })
+  .strict();
+
+export type EditarVarianteOperativaInput = z.infer<typeof EditarVarianteOperativaSchema>;

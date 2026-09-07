@@ -23,12 +23,14 @@ import { Boxes, AlertTriangle, LayoutGrid } from "lucide-react";
 import { getServerSession } from "@/lib/auth/session";
 import {
   usuarioPuedeBajarVariante,
+  usuarioPuedeEditarVariante,
   listarVariantesPaginadas,
   listarProductosMaestroParaFiltro,
   type ListadoVariantesPaginado,
 } from "@/lib/services/inventario/variante.service";
 import { ListarVariantesSchema } from "@/lib/schemas/inventario.schema";
 import { ModalJustificacionBaja } from "@/components/inventario/ModalJustificacionBaja";
+import { EditarVarianteDialog } from "@/components/inventario/EditarVarianteDialog";
 import { TabsActivasInactivas } from "@/components/inventario/TabsActivasInactivas";
 import { BuscadorFiltrosVariantes } from "@/components/inventario/BuscadorFiltrosVariantes";
 import { PaginadorVariantes } from "@/components/inventario/PaginadorVariantes";
@@ -61,6 +63,7 @@ function formatFecha(date: Date | null): string {
 export default async function VariantesPage({ searchParams }: VariantesPageProps) {
   const session = await getServerSession();
   const puedeBajar = session ? await usuarioPuedeBajarVariante(session.userId) : false;
+  const puedeEditar = session ? await usuarioPuedeEditarVariante(session.userId) : false;
 
   const rawParams = await searchParams;
   const parsedFiltros = ListarVariantesSchema.safeParse(rawParams);
@@ -112,13 +115,17 @@ export default async function VariantesPage({ searchParams }: VariantesPageProps
             </div>
           </div>
 
-          <Link
-            href="/inventario/productos/variantes/nueva"
-            className={buttonVariants({ variant: "outline" }) + " gap-2 shrink-0"}
-          >
-            <LayoutGrid className="size-4" aria-hidden="true" />
-            Agregar variante
-          </Link>
+          <div className="flex items-center gap-2 shrink-0">
+            {puedeEditar && <EditarVarianteDialog />}
+
+            <Link
+              href="/inventario/productos/variantes/nueva"
+              className={buttonVariants({ variant: "outline" }) + " gap-2 shrink-0"}
+            >
+              <LayoutGrid className="size-4" aria-hidden="true" />
+              Agregar variante
+            </Link>
+          </div>
         </div>
 
         {/* ── Tabs Activas / Inactivas (estado en la URL, decisión D5) ─── */}

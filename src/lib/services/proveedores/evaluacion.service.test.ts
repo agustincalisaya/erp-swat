@@ -108,3 +108,32 @@ test("no hay ninguna llamada directa a un servicio/tabla de auditoría: solo emi
   assert.doesNotMatch(fuente, /auditLog\.create/);
   assert.doesNotMatch(fuente, /registrarAuditLog/);
 });
+
+test("la invocación duplicada por recepcion_id es idempotente: busca una evaluación existente antes de crear una nueva", () => {
+  const fuente = readFileSync(new URL("./evaluacion.service.ts", import.meta.url), "utf8");
+  const inicioTransaccion = fuente.indexOf("const resultado = await prisma.$transaction");
+  const findExistente = fuente.indexOf("tx.evaluacionProveedor.findFirst");
+  const createEvaluacion = fuente.indexOf("tx.evaluacionProveedor.create");
+  assert.ok(inicioTransaccion >= 0);
+  assert.ok(findExistente > inicioTransaccion);
+  assert.ok(createEvaluacion > findExistente);
+  assert.match(fuente, /where:\s*\{\s*recepcion_id:\s*input\.recepcion_id\s*\}/);
+});
+
+test("la invocación duplicada corta antes de crear la evaluación, sin volver a suspender ni a emitir el evento", () => {
+  const fuente = readFileSync(new URL("./evaluacion.service.ts", import.meta.url), "utf8");
+  const findExistente = fuente.indexOf("tx.evaluacionProveedor.findFirst");
+  const bloqueIdempotente = fuente.slice(findExistente, fuente.indexOf("const recepcion = await tx.recepcion.findFirst"));
+  assert.match(bloqueIdempotente, /if \(evaluacionExistente\)/);
+  assert.match(bloqueIdempotente, /suspension:\s*null/);
+  assert.doesNotMatch(bloqueIdempotente, /tx\.proveedor\.update/);
+  assert.doesNotMatch(bloqueIdempotente, /domainEventBus\.emit/);
+});
+
+test("EvaluacionProveedor.recepcion_id se persiste al crear el registro (constraint única de idempotencia)", () => {
+  const fuente = readFileSync(new URL("./evaluacion.service.ts", import.meta.url), "utf8");
+  const createEvaluacion = fuente.indexOf("tx.evaluacionProveedor.create");
+  const cierreCreate = fuente.indexOf("select: { id: true, proveedor_id: true }", createEvaluacion);
+  const bloqueCreate = fuente.slice(createEvaluacion, cierreCreate);
+  assert.match(bloqueCreate, /recepcion_id:\s*input\.recepcion_id/);
+});

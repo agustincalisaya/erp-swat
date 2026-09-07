@@ -24,10 +24,11 @@
 import "server-only";
 
 import type { Prisma } from "@prisma/client";
+import { Prisma as PrismaRuntime } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { domainEventBus } from "@/lib/events/domain-event-bus";
 import { ServiceError } from "@/lib/errors/service-error";
-import type { ListarVariantesInput } from "@/lib/schemas/inventario.schema";
+import type { ListarVariantesInput, EditarVarianteOperativaInput } from "@/lib/schemas/inventario.schema";
 
 export interface VariantePorProducto {
   id: string;
@@ -324,4 +325,204 @@ export async function listarProductosMaestroParaFiltro(): Promise<
     select: { id: true, nombre: true },
     orderBy: { nombre: "asc" },
   });
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// HU-A8 — editarVarianteOperativa
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * @throws {ServiceError} VARIANTE_NO_ENCONTRADA | PROVEEDOR_NO_ENCONTRADO | EAN_QR_DUPLICADO
+ */
+export async function editarVarianteOperativa(
+  varianteId: string,
+  input: EditarVarianteOperativaInput,
+  usuarioId: string,
+  ip = "unknown",
+) {
+  const actual = await prisma.varianteSKU.findFirst({
+    where: { id: varianteId, is_active: true },
+  });
+  if (!actual) {
+    throw new ServiceError("VARIANTE_NO_ENCONTRADA", `No se encontró una variante activa con id ${varianteId}.`);
+  }
+
+  const camposModificados = Object.keys(input) as (keyof EditarVarianteOperativaInput)[];
+  if (camposModificados.length === 0) {
+    return { id: actual.id, campos_modificados: [], updated_at: actual.updated_at };
+  }
+
+  if (input.proveedor_id !== undefined) {
+    const proveedor = await prisma.proveedor.findFirst({
+      where: { id: input.proveedor_id, is_active: true },
+      select: { id: true },
+    });
+    if (!proveedor) {
+      throw new ServiceError("PROVEEDOR_NO_ENCONTRADO", `No se encontró un Proveedor activo con id ${input.proveedor_id}.`);
+    }
+  }
+
+  const valorAnterior: Record<string, unknown> = {};
+  const valorNuevo: Record<string, unknown> = {};
+  for (const campo of camposModificados) {
+    valorAnterior[campo] = actual[campo as keyof typeof actual];
+    valorNuevo[campo] = input[campo];
+  }
+
+  let actualizada;
+  try {
+    actualizada = await prisma.varianteSKU.update({
+      where: { id: varianteId },
+      data: input,
+    });
+  } catch (err) {
+    if (esErrorPrismaP2002(err)) {
+      throw new ServiceError("EAN_QR_DUPLICADO", `El código EAN-13 "${input.ean_qr}" ya está en uso por otra variante activa.`);
+    }
+    throw err;
+  }
+
+  domainEventBus.emit("inventario:variante_actualizada", {
+    variante_sku_id: actualizada.id,
+    usuario_id: usuarioId,
+    campos_modificados: camposModificados,
+    valor_anterior: valorAnterior,
+    valor_nuevo: valorNuevo,
+    ip,
+  });
+
+  return { id: actualizada.id, campos_modificados: camposModificados, updated_at: actualizada.updated_at };
+}
+
+/** Roles autorizados para editar atributos operativos de variante — misma lista que producto.service.ts, duplicada a propósito (add-only, no se toca darDeBajaVariante ni su const privada). */
+const ROLES_AUTORIZADOS_EDITAR_VARIANTE = ["ADMINISTRADOR", "ENCARGADO_DEPOSITO"] as const;
+
+export async function usuarioPuedeEditarVariante(usuarioId: string): Promise<boolean> {
+  const match = await prisma.usuarioRol.findFirst({
+    where: {
+      usuario_id: usuarioId,
+      is_active: true,
+      rol: { is_active: true, nombre: { in: [...ROLES_AUTORIZADOS_EDITAR_VARIANTE] } },
+    },
+    select: { id: true },
+  });
+  return match !== null;
+}
+
+function esErrorPrismaP2002(err: unknown): boolean {
+  return (
+    err instanceof PrismaRuntime.PrismaClientKnownRequestError && err.code === "P2002"
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// HU-A8 — buscarVariantesActivas (búsqueda liviana para combobox)
+// ──────────────────────────────────────────────────────────────────────────────
+
+export interface VarianteActivaResumen {
+  id: string;
+  sku: string;
+  talle: string;
+  color: string;
+  genero: string;
+  modelo: string;
+  producto_nombre: string;
+}
+
+export async function buscarVariantesActivas(query: string): Promise<VarianteActivaResumen[]> {
+  const texto = query.trim();
+  if (texto.length < 2) return [];
+
+  const variantes = await prisma.varianteSKU.findMany({
+    where: {
+      is_active: true,
+      OR: [
+        { sku: { contains: texto, mode: "insensitive" } },
+        { talle: { contains: texto, mode: "insensitive" } },
+        { color: { contains: texto, mode: "insensitive" } },
+        { genero: { contains: texto, mode: "insensitive" } },
+        { modelo: { contains: texto, mode: "insensitive" } },
+      ],
+    },
+    select: {
+      id: true,
+      sku: true,
+      talle: true,
+      color: true,
+      genero: true,
+      modelo: true,
+      producto_maestro: { select: { nombre: true } },
+    },
+    orderBy: { sku: "asc" },
+    take: 10,
+  });
+
+  return variantes.map((v) => ({
+    id: v.id,
+    sku: v.sku,
+    talle: v.talle,
+    color: v.color,
+    genero: v.genero,
+    modelo: v.modelo,
+    producto_nombre: v.producto_maestro.nombre,
+  }));
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// HU-A8 — obtenerVarianteParaEdicion
+// ──────────────────────────────────────────────────────────────────────────────
+
+export interface VarianteParaEdicion {
+  id: string;
+  sku: string;
+  ean_qr: string | null;
+  proveedor_id: string | null;
+  talle: string;
+  color: string;
+  genero: string;
+  modelo: string;
+  producto_nombre: string;
+}
+
+/**
+ * Trae una `VarianteSKU` activa por id, con los campos editables de
+ * `EditarVarianteOperativaSchema` más `id`/`sku`/`talle`/`color`/`genero`/
+ * `modelo`/`producto_nombre` de solo lectura para contexto de display en el
+ * formulario (mismo criterio de "solo lectura de contexto" que ya usa
+ * `buscarVariantesActivas()`). Distinta de esa función: esta es "una por
+ * id", no búsqueda por texto.
+ *
+ * @throws {ServiceError} VARIANTE_NO_ENCONTRADA
+ */
+export async function obtenerVarianteParaEdicion(id: string): Promise<VarianteParaEdicion> {
+  const variante = await prisma.varianteSKU.findFirst({
+    where: { id, is_active: true },
+    select: {
+      id: true,
+      sku: true,
+      ean_qr: true,
+      proveedor_id: true,
+      talle: true,
+      color: true,
+      genero: true,
+      modelo: true,
+      producto_maestro: { select: { nombre: true } },
+    },
+  });
+
+  if (!variante) {
+    throw new ServiceError("VARIANTE_NO_ENCONTRADA", `No se encontró una variante activa con id ${id}.`);
+  }
+
+  return {
+    id: variante.id,
+    sku: variante.sku,
+    ean_qr: variante.ean_qr,
+    proveedor_id: variante.proveedor_id,
+    talle: variante.talle,
+    color: variante.color,
+    genero: variante.genero,
+    modelo: variante.modelo,
+    producto_nombre: variante.producto_maestro.nombre,
+  };
 }

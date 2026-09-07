@@ -43,15 +43,20 @@ export function iniciarAuditLogListener(): void {
     });
   });
 
-  domainEventBus.on("stock:transferencia_recibida", (payload) => {
+  // HU-A11 — recepción total o parcial de una TransferenciaStock. La acción
+  // distingue ambos casos (`accion` no es un valor fijo como en el resto de
+  // los listeners de este archivo) porque `estado_transferencia` recién se
+  // conoce en el payload, no en el nombre del evento — un único evento cubre
+  // las dos transiciones posibles (spec de la tarea, punto 4).
+  domainEventBus.on("stock:transferencia_recepcion_confirmada", (payload) => {
     void registrarAuditLog({
       usuario_id: payload.usuario_id,
-      accion: "TRANSFERENCIA_RECIBIDA",
+      accion: payload.estado_transferencia === "RECIBIDA" ? "TRANSFERENCIA_RECIBIDA" : "RECEPCION_PARCIAL",
       tabla_afectada: "transferencias_stock",
       registro_id: payload.transferencia_id,
       ip: "internal-event",
       valor_anterior: { estado: "EN_TRANSITO" },
-      valor_nuevo: { estado: "RECIBIDA", ...payload },
+      valor_nuevo: { estado: payload.estado_transferencia, ...payload },
     });
   });
 
@@ -286,6 +291,32 @@ export function iniciarAuditLogListener(): void {
     });
   });
 
+  // HU-A8 — edición de atributos operativos de ProductoMaestro.
+  domainEventBus.on("producto_maestro:actualizado", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "UPDATE",
+      tabla_afectada: "productos_maestros",
+      registro_id: payload.producto_maestro_id,
+      ip: "unknown", // mismo sentinel que el resto de eventos producto_maestro:* — el payload no captura IP
+      valor_anterior: payload.valor_anterior,
+      valor_nuevo: payload.valor_nuevo,
+    });
+  });
+
+  // HU-A8 — edición de atributos operativos de VarianteSKU.
+  domainEventBus.on("inventario:variante_actualizada", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "UPDATE",
+      tabla_afectada: "variantes_sku",
+      registro_id: payload.variante_sku_id,
+      ip: payload.ip,
+      valor_anterior: payload.valor_anterior,
+      valor_nuevo: payload.valor_nuevo,
+    });
+  });
+
   // Configuración de umbrales de reposición sobre StockDeposito (HU-7,
   // `actualizarUmbrales()`). El payload solo trae los valores nuevos (no
   // hay snapshot "antes"), de ahí `valor_anterior: null`. `registro_id`
@@ -327,10 +358,8 @@ export function iniciarAuditLogListener(): void {
       ip: "unknown",
       valor_anterior: null,
       valor_nuevo: {
-        variante_sku_id: payload.variante_sku_id,
         deposito_destino_id: payload.deposito_destino_id,
-        cantidad: payload.cantidad,
-        cantidad_resultante: payload.cantidad_resultante,
+        items: payload.items,
       },
     });
   });
@@ -403,6 +432,25 @@ export function iniciarAuditLogListener(): void {
     });
   });
 
+  // HU-H4 — alta de la recepción y transición física de la OC, post-COMMIT.
+  domainEventBus.on("recepcion:registrada", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.recibida_por_id,
+      accion: "CREATE",
+      tabla_afectada: "recepciones",
+      registro_id: payload.recepcion_id,
+      ip: "internal-event",
+      valor_anterior: { estado_orden_compra: payload.estado_anterior_oc },
+      valor_nuevo: {
+        orden_compra_id: payload.orden_compra_id,
+        numero_orden: payload.numero_orden,
+        deposito_destino_id: payload.deposito_destino_id,
+        fecha_recepcion: payload.fecha_recepcion,
+        estado_orden_compra: payload.estado_nuevo_oc,
+      },
+    });
+  });
+
   // HU-H5 — transición de estado de Proveedor (spec_modulo_H.md §3.2
   // automático; §2.2 manual reutiliza el mismo evento, se distingue por
   // `origen`). Emitido post-COMMIT desde `evaluacion.service.ts` cuando el
@@ -434,6 +482,84 @@ export function iniciarAuditLogListener(): void {
         origen: payload.origen,
         motivo: payload.motivo,
       },
+    });
+  });
+
+  // HU-G8 — transición de estado de CuentaPorPagar (spec_modulo_G.md §3.3 /
+  // §4.2). Emitido post-COMMIT por las tres ramas del listener reactivo
+  // (`cuenta-por-pagar.listener.ts`: CREAR / DEFINIR / CANCELAR) y por la
+  // mutación manual de pago (`marcarCuentaPorPagarPagada()`: PAGAR).
+  //
+  // `CANCELAR` mapea a `UPDATE_ESTADO`, NO a `DELETE_LOGICO` — diverge a
+  // propósito del handler de `orden_compra:estado_cambiado` (arriba), donde su
+  // `CANCELAR` sí es baja lógica. Acá una `CuentaPorPagar` CANCELADA conserva
+  // `is_active: true` (spec §3.4): es un cambio de estado funcional, no un
+  // soft-delete. Solo `CREAR` (la cuenta nace) mapea a `CREATE`.
+  //
+  // `ip: "internal-event"` — mismo sentinel que `orden_compra:*` /
+  // `proveedor:*`, que también emiten post-COMMIT desde un service sin request
+  // HTTP directo asociado.
+  domainEventBus.on("cuenta_por_pagar:estado_cambiado", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.cambiado_por,
+      accion: payload.accion === "CREAR" ? "CREATE" : "UPDATE_ESTADO",
+      tabla_afectada: "cuentas_por_pagar",
+      registro_id: payload.cuenta_por_pagar_id,
+      ip: "internal-event",
+      valor_anterior:
+        payload.accion === "CREAR"
+          ? null
+          : { estado: payload.estado_anterior, monto: payload.monto_anterior },
+      valor_nuevo: {
+        estado: payload.estado_nuevo,
+        accion: payload.accion,
+        monto: payload.monto_nuevo,
+        orden_compra_id: payload.orden_compra_id,
+        numero_orden: payload.numero_orden,
+        proveedor_id: payload.proveedor_id,
+        ...(payload.recepcion_id ? { recepcion_id: payload.recepcion_id } : {}),
+        ...(payload.fecha_pago ? { fecha_pago: payload.fecha_pago } : {}),
+        ...(payload.deletion_reason
+          ? { deletion_reason: payload.deletion_reason }
+          : {}),
+      },
+    });
+  });
+
+  // HU-H1 — baja lógica de Proveedor (spec_modulo_H.md §3.5 · RULES.md §1).
+  // El service (`darDeBajaProveedor()`) NUNCA llama `registrarAuditLog()`
+  // directo: emite `proveedor:baja_logica` post-COMMIT y este listener
+  // reacciona (misma regla de unificación que el resto del módulo).
+  // `valor_anterior` asume `is_active: true` porque el payload no trae
+  // snapshot previo (mismo criterio que `inventario:variante_baja_logica`).
+  domainEventBus.on("proveedor:baja_logica", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "DELETE_LOGICO",
+      tabla_afectada: "proveedores",
+      registro_id: payload.proveedor_id,
+      ip: "internal-event",
+      valor_anterior: { is_active: true },
+      valor_nuevo: {
+        is_active: false,
+        deletion_reason: payload.motivo,
+      },
+    });
+  });
+
+  // HU-H1 — edición del legajo de Proveedor (`editarProveedor()`). Registra
+  // SOLO la metadata del cambio (`campos_editados`): el payload jamás trae
+  // datos bancarios, ni en claro ni cifrados (spec §3.3/§4) — el listener no
+  // sanitiza, el emisor ya excluyó todo dato sensible.
+  domainEventBus.on("proveedor:legajo_editado", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "UPDATE",
+      tabla_afectada: "proveedores",
+      registro_id: payload.proveedor_id,
+      ip: "internal-event",
+      valor_anterior: null,
+      valor_nuevo: { campos_editados: payload.campos_editados },
     });
   });
 

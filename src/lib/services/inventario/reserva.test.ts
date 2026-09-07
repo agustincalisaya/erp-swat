@@ -169,7 +169,7 @@ test("el seed crea los permisos granulares de Reserva y los asigna a Encargado y
   assert.match(seed, /codigo: "inventario:confirmar_reserva"/);
   assert.match(
     seed,
-    /for \(const permiso of \[permisoTransferirStock, permisoConfirmarRecepcion, permisoReservarStock, permisoConfirmarReserva\]\)/,
+    /for \(const permiso of \[permisoTransferirStock, permisoConfirmarRecepcion, permisoReservarStock, permisoConfirmarReserva, permisoMovimientosLeerHistorico\]\)/,
   );
   assert.match(seed, /Pendiente: asignar a rol de Módulo B\/E cuando se implemente HU-B3\/HU-E1/);
 });
