@@ -1587,14 +1587,47 @@ async function main() {
 
   // ── HU-A9 — Fixture de unidad DEVUELTO (reclasificación de devueltos) ────────
   // Una CAMISA_TACTICA_1 devuelta en DEPOSITO_SHOWROOM: item con
-  // `estado_destino = "DEVUELTO"` (VENDIDO → DEVUELTO) hace 3 días. Única
-  // unidad DEVUELTO del seed — suficiente para validar la precondición de
-  // reclasificación (spec §2.8: último movimiento del par variante+depósito
-  // resuelto por created_at desc). Los movimientos del seed no aplican
-  // deltas de stock: las cantidades se siembran directo en `stock_depositos`.
+  // `estado_destino = "DEVUELTO"` (VENDIDO → DEVUELTO) hace 3 días (create) o
+  // refrescado al momento actual (update). Cantidad = 6 unidades: permite
+  // probar la DOBLE VALIDACIÓN por umbral (> 5 → ReclasificacionSolicitud
+  // PENDIENTE_APROBACION para aprobación de Administrador). El `update`
+  // refresca la cabecera con `created_at` actual para que el fixture sea el
+  // ÚLTIMO movimiento del par variante+depósito tras re-seed (re-testing
+  // después de consumir la unidad en una reclasificación previa). Los
+  // movimientos del seed no aplican deltas de stock: las cantidades se
+  // siembran directo en `stock_depositos`.
   await prisma.movimientoStock.upsert({
     where: { id: MOVIMIENTO_DEVUELTO_SEED_ID },
-    update: {},
+    update: {
+      deposito_destino_id: depositoShowroom.id,
+      tipo_movimiento: "AJUSTE",
+      comprobante_referencia: "SEED-DEVUELTO-GARANTIA",
+      registrado_por_id: usuarioEncargado.id,
+      created_at: new Date(),
+      is_active: true,
+      items: {
+        upsert: {
+          where: { id: MOVIMIENTO_DEVUELTO_ITEM_SEED_ID },
+          create: {
+            id: MOVIMIENTO_DEVUELTO_ITEM_SEED_ID,
+            variante_sku_id: VARIANTE_CAMISA_TACTICA_1_ID,
+            cantidad: 6,
+            estado_origen: "VENDIDO",
+            estado_destino: "DEVUELTO",
+            motivo: "Devolución por garantía — seed HU-A9",
+            is_active: true,
+          },
+          update: {
+            variante_sku_id: VARIANTE_CAMISA_TACTICA_1_ID,
+            cantidad: 6,
+            estado_origen: "VENDIDO",
+            estado_destino: "DEVUELTO",
+            motivo: "Devolución por garantía — seed HU-A9",
+            is_active: true,
+          },
+        },
+      },
+    },
     create: {
       id: MOVIMIENTO_DEVUELTO_SEED_ID,
       deposito_destino_id: depositoShowroom.id,
@@ -1607,7 +1640,7 @@ async function main() {
         create: {
           id: MOVIMIENTO_DEVUELTO_ITEM_SEED_ID,
           variante_sku_id: VARIANTE_CAMISA_TACTICA_1_ID,
-          cantidad: 2,
+          cantidad: 6,
           estado_origen: "VENDIDO",
           estado_destino: "DEVUELTO",
           motivo: "Devolución por garantía — seed HU-A9",
