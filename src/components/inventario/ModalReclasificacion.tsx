@@ -12,6 +12,7 @@
  * `useState` + Server Action, sin react-hook-form.
  */
 import { useState, useTransition, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { RotateCcw, Loader2, PackageX, ShieldCheck } from "lucide-react";
 
 import { reclasificarUnidadDevuelta } from "@/app/(dashboard)/inventario/devoluciones/actions";
@@ -46,6 +47,7 @@ interface ModalReclasificacionProps {
 type ResultadoControlCalidad = "APTO" | "NO_APTO";
 
 export function ModalReclasificacion({ unidad }: ModalReclasificacionProps) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [resultado, setResultado] = useState<ResultadoControlCalidad>("APTO");
   const [motivo, setMotivo] = useState("");
@@ -79,6 +81,7 @@ export function ModalReclasificacion({ unidad }: ModalReclasificacionProps) {
         return;
       }
       handleClose();
+      router.refresh();
     });
   };
 

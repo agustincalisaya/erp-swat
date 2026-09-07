@@ -11,6 +11,7 @@
  * Paleta azul Tailwind (`blue-*`).
  */
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { CheckCircle2, XCircle, Loader2, ClipboardList } from "lucide-react";
 
 import {
@@ -40,6 +41,7 @@ function formatearFecha(iso: Date): string {
 }
 
 export function SolicitudesPendientesPanel({ solicitudes }: SolicitudesPendientesPanelProps) {
+  const router = useRouter();
   const [motivoRechazoPorSolicitud, setMotivoRechazoPorSolicitud] = useState<Record<string, string>>({});
   const [serverError, setServerError] = useState<string | null>(null);
   const [accionEnCurso, setAccionEnCurso] = useState<EstadoAccion | null>(null);
@@ -53,7 +55,9 @@ export function SolicitudesPendientesPanel({ solicitudes }: SolicitudesPendiente
       setAccionEnCurso(null);
       if (!result.success) {
         setServerError(result.error?.message ?? "Error desconocido.");
+        return;
       }
+      router.refresh();
     });
   };
 
@@ -70,7 +74,9 @@ export function SolicitudesPendientesPanel({ solicitudes }: SolicitudesPendiente
       setAccionEnCurso(null);
       if (!result.success) {
         setServerError(result.error?.message ?? "Error desconocido.");
+        return;
       }
+      router.refresh();
     });
   };
 
