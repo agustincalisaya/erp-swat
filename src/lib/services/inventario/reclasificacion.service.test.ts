@@ -292,6 +292,18 @@ test("el listener de auditoría registra los 4 eventos HU-A9 con acciones y tabl
   assert.match(listener, /ip: "internal-event"/);
 });
 
+// ── Seed ──────────────────────────────────────────────────────────────────────
+
+test("el seed crea los permisos de reclasificación y el fixture DEVUELTO", () => {
+  const seed = readFileSync(new URL("../../../../prisma/seed.ts", import.meta.url), "utf8");
+  assert.match(seed, /codigo: "inventario:reclasificar"/);
+  assert.match(seed, /codigo: "inventario:reclasificar_aprobar"/);
+  assert.match(seed, /permisoReclasificarAprobar\.id/);
+  assert.match(seed, /VARIANTE_CAMISA_TACTICA_1_ID/);
+  assert.match(seed, /DEPOSITO_SHOWROOM_ID/);
+  assert.match(seed, /estado_destino: "DEVUELTO"/);
+});
+
 // ── Rutas ─────────────────────────────────────────────────────────────────────
 
 test("las rutas de reclasificación quedan gateadas por withPermission con el código correcto", () => {
