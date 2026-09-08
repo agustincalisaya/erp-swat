@@ -1,6 +1,6 @@
 # Especificación Técnica — Módulo H (Gestión de Proveedores y Abastecimiento)
 ## ERP SWAT Indumentarias — Sprint 2
-## Revisión 4 — Acotada a las HU planificadas para Sprint 2 (HU-H1, HU-H3, HU-H4, HU-H5)
+## Revisión 5 — Acotada a las HU planificadas para Sprint 2 (HU-H1, HU-H3, HU-H4, HU-H5, HU-H9)
 
 **Metodología:** Specification-Driven Development (SDD)
 **Stack:** Next.js 16 (App Router) · Node.js · PostgreSQL 16 · Prisma ORM · TypeScript · Zod · Argon2id · JWT
@@ -21,6 +21,7 @@ El análisis de trazabilidad de la Revisión 2/3 de este spec se hizo contra el 
 - **HU-H3** — Emisión de Orden de Compra y seguimiento de estado (secciones 2.4, 2.5)
 - **HU-H4** — Registro de Recepción física (sección 2.6)
 - **HU-H5** — Evaluación de proveedores, recálculo incremental de puntaje (sección 3.2)
+- **HU-H9** — Registro del Comprobante fiscal de Proveedor asociado a una OC (sección 2.7) — **incorporada en la Revisión 5**, no estaba contemplada en la Revisión 4
 
 **`spec_modulo_H_diferido.md` contiene lo que el PO sacó de este sprint:**
 - **HU-H2** — Publicación de Lista de Precios versionada
@@ -34,7 +35,7 @@ El análisis de trazabilidad de la Revisión 2/3 de este spec se hizo contra el 
 
 ## 1. Visión General
 
-El Módulo H es la capa del ERP responsable del ciclo completo de abastecimiento de SWAT Indumentarias. En el alcance de Sprint 2, cubre: homologación de proveedores (H.1), y emisión, seguimiento y recepción física de órdenes de compra (H.3/H.4), junto con la evaluación incremental de desempeño del proveedor (H.5). La administración de listas de precios versionadas (H.2) y sus consumidores derivados (H.6, H.7, H.8) se abordan en un sprint posterior — ver `spec_modulo_H_diferido.md`.
+El Módulo H es la capa del ERP responsable del ciclo completo de abastecimiento de SWAT Indumentarias. En el alcance de Sprint 2, cubre: homologación de proveedores (H.1), y emisión, seguimiento y recepción física de órdenes de compra (H.3/H.4), junto con la evaluación incremental de desempeño del proveedor (H.5). Se suma en esta revisión el registro formal del comprobante fiscal (Factura A/B/C/M) que el proveedor envía contra una Orden de Compra ya recibida (H.9), como constancia documental previa a que Tesorería registre el pago — una carga manual por el Comprador, sin integración real con AFIP (ver advertencia de alcance en 2.7 y sección 5). La administración de listas de precios versionadas (H.2) y sus consumidores derivados (H.6, H.7, H.8) se abordan en un sprint posterior — ver `spec_modulo_H_diferido.md`.
 
 Bajo Next.js App Router, el módulo se implementa mediante **Route Handlers** (`app/api/proveedores/**`, `app/api/ordenes-compra/**`) para las integraciones consumidas por otros módulos o clientes no-navegador, y **Server Actions** (`app/(dashboard)/compras/**/actions.ts`) para los formularios de gestión operados por Comprador, Supervisor de Compras y Personal de Depósito. Ambas superficies son wrappers finos: **está prohibido implementar lógica de negocio en el `route.ts` o en la Server Action**. Toda regla de dominio, toda validación de máquina de estados y toda escritura a base de datos se delega exclusivamente en la capa de servicios `lib/services/proveedores/*` (`proveedor.service.ts`, `orden-compra.service.ts`, `recepcion.service.ts`, `evaluacion.service.ts`). El handler/action se limita a: (1) resolver la sesión y verificar el permiso granular vía `withPermission("proveedores:<accion>")`, (2) parsear y validar el `body` contra el schema Zod correspondiente, (3) invocar la función de servicio, (4) mapear el resultado o la excepción de negocio al shape de respuesta JSON estándar definido en la sección 2.
 
@@ -261,6 +262,166 @@ export type RegistrarRecepcionInput = z.infer<typeof RegistrarRecepcionSchema>;
 { "data": null, "error": { "code": "CANTIDAD_EXCEDE_SALDO_PENDIENTE", "message": "El ítem admite un máximo de 8 unidades pendientes; se recibieron 12" } }
 ```
 
+### 2.7. Registro de Comprobante de Proveedor (HU-H9)
+
+**⚠️ Alcance — no confundir con integración AFIP:** esta sección especifica la **carga manual** por el Comprador del comprobante fiscal (Factura A/B/C/M) que el proveedor envía en papel/PDF fuera del sistema, como constancia documental de respaldo previo al pago. **No** es facturación electrónica, no consulta el padrón de AFIP ni emite comprobantes: es un registro administrativo. La sección 5 de la Revisión 4 de este documento ya advertía que *"una integración real con comprobantes fiscales (AFIP, vía Módulo G conforme a `RULES.md` Regla N.° 3) queda fuera de alcance"* — HU-H9 es la entidad de comprobante prevista por esa nota, sin la integración AFIP, que sigue diferida (ver sección 5).
+
+**Ruta (alta):** `POST /app/api/ordenes-compra/[id]/comprobantes/route.ts`
+**Ruta (listado por OC):** `GET /app/api/ordenes-compra/[id]/comprobantes/route.ts`
+**Ruta (listado global, insumo de HU-G10/Tesorería):** `GET /app/api/comprobantes-proveedor/route.ts`
+**Ruta (anulación):** `PATCH /app/api/comprobantes-proveedor/[id]/anular/route.ts`
+**Server Action equivalente:** `registrarComprobanteProveedor()` / `anularComprobanteProveedor()` / `listarComprobantesProveedor()` en `app/(dashboard)/compras/comprobantes/actions.ts`
+**Permiso requerido:** `comprobantes_proveedor:crear` y `comprobantes_proveedor:leer` (Comprador, Supervisor de Compras — mismo par de roles que `proveedores:crear`/`proveedores:leer`); `comprobantes_proveedor:anular` (exclusivo Supervisor de Compras, mismo criterio que `proveedores:baja`: una baja lógica sobre un comprobante ya presentado es una corrección sensible, no una operación de carga de rutina).
+
+**Archivo de schemas:** `src/lib/schemas/comprobantes-proveedor.schema.ts`
+
+```typescript
+import { z } from "zod";
+
+export const TIPOS_COMPROBANTE = [
+  "FACTURA_A",
+  "FACTURA_B",
+  "FACTURA_C",
+  "FACTURA_M",
+] as const;
+
+export const RegistrarComprobanteProveedorSchema = z.object({
+  orden_compra_id: z.string().uuid(),
+  tipo: z.enum(TIPOS_COMPROBANTE),
+  numero_comprobante: z.string().min(1, "El número de comprobante es obligatorio"),
+  fecha_emision: z.coerce.date(),
+  monto_total: z.coerce
+    .number()
+    .positive("El monto total debe ser mayor a 0"),
+  // Opcional (criterio de aceptación de HU-H9): URL del archivo digitalizado
+  // (PDF/imagen) ya subido a un storage externo — este schema NO recibe el
+  // binario, solo la referencia. El mecanismo de subida queda fuera de
+  // detalle de este documento (mismo patrón que cualquier campo `*_url` de
+  // adjunto en el resto del sistema).
+  archivo_adjunto_url: z.string().url("La URL del archivo adjunto es inválida").optional(),
+});
+export type RegistrarComprobanteProveedorInput = z.infer<typeof RegistrarComprobanteProveedorSchema>;
+
+// Nótese que `proveedor_id` NO forma parte de este schema: igual que
+// `precio_unitario` en 2.4, es un dato que el cliente nunca envía — el
+// servicio lo deriva siempre de `orden_compra.proveedor_id` (ver
+// "Comportamiento esperado" y 2.7.1).
+
+export const AnularComprobanteProveedorSchema = z.object({
+  deletion_reason: z.string().min(1, "El motivo de anulación es obligatorio"),
+});
+export type AnularComprobanteProveedorInput = z.infer<typeof AnularComprobanteProveedorSchema>;
+```
+
+**Comportamiento esperado:**
+- Precondición de estado (criterio de aceptación de HU-H9): `OrdenCompra.estado` debe ser `RECIBIDA_COMPLETA` o `CERRADA` (los únicos dos estados "iguales o posteriores a `RECIBIDA_COMPLETA`" en la máquina de estados de 3.1) y `OrdenCompra.is_active = true`. En cualquier otro estado — incluida `CANCELADA` — `409 Conflict` con `code: "ORDEN_NO_RECEPCIONADA"`, antes de tocar la base de datos.
+- `proveedor_id` se resuelve siempre server-side a partir de `orden_compra.proveedor_id` en el mismo momento de la carga — nunca se recibe en el `body` ni se confía en un valor de cliente (mismo principio de integridad que "el cliente nunca envía el precio" en 2.4). Este valor se desnormaliza en la fila de `ComprobanteProveedor` (ver 2.7.1) y queda congelado: si el proveedor de la OC cambiara por algún mecanismo futuro (no existe hoy), el comprobante ya emitido no se recalcula.
+- No se valida `Proveedor.estado === "HOMOLOGADO"` en esta operación: a diferencia de la emisión de una OC nueva (2.4), el comprobante documenta una operación de compra ya recibida — una suspensión posterior del proveedor (2.2) no debe bloquear la carga de su documentación pendiente, mismo criterio que "la suspensión ... no afecta órdenes ya `CONFIRMADA` en curso" (2.2).
+- Unicidad (criterio de aceptación de HU-H9): no se admite `numero_comprobante` + `tipo` + `proveedor_id` duplicado entre comprobantes `is_active = true`. El servicio valida esto aplicativamente antes de escribir y además captura `P2002` del constraint `@@unique` de Prisma (ver 2.7.1) y lo traduce al mismo shape `409` — mismo patrón que la colisión de `cuit` en 2.1.
+- Alta transaccional (`prisma.$transaction`, 3.4) del `ComprobanteProveedor`; el evento `comprobante_proveedor:registrado` se emite recién después del `COMMIT`, nunca dentro de la transacción (3.4).
+- **Inmutabilidad estricta:** no existe ningún endpoint `PATCH`/`PUT` de edición de campos sobre un `ComprobanteProveedor` ya creado — ni siquiera para Supervisor de Compras o Administrador. La única mutación posible post-alta es la anulación por baja lógica (Regla N.° 1): `PATCH .../anular` exige `deletion_reason` obligatorio, setea `is_active = false`, `deleted_at`, `deleted_by`, y emite `comprobante_proveedor:anulado`. Si el comprobante fue cargado con datos erróneos, la corrección es anularlo y cargar uno nuevo — nunca sobreescribir el original (mismo criterio que 3.5 sobre "deshacer" un alta errónea).
+- El listado (`GET`) filtra por defecto `is_active = true`, salvo que quien consulta sea Auditor (RULES.md Regla N.° 1).
+
+**Respuesta `201 Created`:**
+```json
+{ "data": { "comprobante_id": "uuid", "orden_compra_id": "uuid", "proveedor_id": "uuid", "tipo": "FACTURA_A", "numero_comprobante": "0001-00012345" }, "error": null }
+```
+
+**Respuesta `409 Conflict` (OC en estado no admitido):**
+```json
+{ "data": null, "error": { "code": "ORDEN_NO_RECEPCIONADA", "message": "La Orden de Compra OC-2026-000842 debe estar RECIBIDA_COMPLETA o CERRADA para admitir la carga de un comprobante; estado actual: CONFIRMADA" } }
+```
+
+**Respuesta `409 Conflict` (comprobante duplicado):**
+```json
+{ "data": null, "error": { "code": "COMPROBANTE_DUPLICADO", "message": "Ya existe un comprobante FACTURA_A N.° 0001-00012345 activo para este proveedor" } }
+```
+
+**Respuesta `422 Unprocessable Entity` (anulación sin motivo):**
+```json
+{ "data": null, "error": { "code": "VALIDATION_ERROR", "message": "El motivo de anulación es obligatorio" } }
+```
+
+#### 2.7.1. Modelo de datos nuevo — **PROPUESTA A VALIDAR, no aplicada**
+
+**⚠️ Este modelo todavía no existe en `schema.prisma`.** Es una propuesta de diseño para que el equipo la revise antes de correr `npx prisma migrate dev`; no se aplicó ninguna migración como parte de esta actualización del spec. Confirmado contra `schema.prisma` (Revisión 5): no existe hoy ningún modelo `ComprobanteProveedor` ni equivalente — el campo `MovimientoStock.comprobante_referencia` (`schema.prisma` línea ~376) es un `String?` de texto libre del Módulo A (remitos/movimientos de stock) sin relación alguna con esta entidad; no se reutiliza.
+
+```prisma
+/// Comprobante fiscal (Factura A/B/C/M) que un Proveedor envía como respaldo
+/// de una OrdenCompra ya recibida (HU-H9, spec_modulo_H.md §2.7). Es carga
+/// MANUAL por el Comprador — no hay integración real con AFIP (RULES.md
+/// Regla N.° 3; ver advertencia de alcance en §2.7 y §5). Se asocia siempre
+/// a una OrdenCompra existente en estado RECIBIDA_COMPLETA o posterior; no
+/// se admite carga suelta sin OC de referencia. Inmutable una vez creado:
+/// toda corrección es baja lógica + alta de un comprobante nuevo, nunca un
+/// UPDATE sobre los campos ya persistidos (RULES.md Regla N.° 1).
+model ComprobanteProveedor {
+  id                  String           @id @default(uuid())
+  orden_compra_id     String
+  /// Desnormalizado desde `orden_compra.proveedor_id` en el momento de la
+  /// carga (ver 2.7, "Comportamiento esperado"). Se evaluó resolverlo
+  /// siempre vía join contra `orden_compra.proveedor_id` para no duplicar
+  /// el dato, pero se decidió desnormalizarlo por dos motivos: (1) el
+  /// criterio de unicidad de HU-H9 es compuesto
+  /// (`numero_comprobante` + `tipo` + `proveedor`) y Prisma solo puede
+  /// declarar `@@unique` sobre columnas propias del modelo, no sobre un
+  /// campo alcanzado a través de una relación — sin esta columna la
+  /// unicidad tendría que validarse únicamente en la capa de aplicación,
+  /// perdiendo la garantía a nivel de base de datos que sí tienen `cuit`
+  /// en `Proveedor` (línea 602) y `numero_orden` en `OrdenCompra`
+  /// (línea 757); (2) HU-G10 (Módulo G, fuera de alcance de este
+  /// documento) necesita listar/filtrar comprobantes por proveedor sin
+  /// forzar un join adicional contra `OrdenCompra` en cada consulta de
+  /// Tesorería. Mismo patrón de congelamiento que
+  /// `OrdenCompraItem.precio_unitario` (§2.4): se fija al crear y no se
+  /// recalcula después.
+  proveedor_id        String
+  tipo                TipoComprobante
+  numero_comprobante  String
+  fecha_emision       DateTime
+  monto_total         Decimal          @db.Decimal(12, 2)
+  /// URL del archivo digitalizado (PDF/imagen) en un storage externo.
+  /// Opcional — criterio de aceptación de HU-H9.
+  archivo_adjunto_url String?
+  registrado_por_id   String
+
+  // --- Soft delete estricto (RULES.md §1) ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  orden_compra   OrdenCompra @relation(fields: [orden_compra_id], references: [id], onDelete: Restrict)
+  proveedor      Proveedor   @relation(fields: [proveedor_id], references: [id], onDelete: Restrict)
+  registrado_por Usuario     @relation("ComprobanteProveedorRegistradoPor", fields: [registrado_por_id], references: [id], onDelete: Restrict)
+
+  /// Unicidad compuesta del criterio de aceptación de HU-H9: mismo número +
+  /// tipo + proveedor no puede repetirse entre comprobantes activos.
+  @@unique([numero_comprobante, tipo, proveedor_id])
+  @@index([orden_compra_id])
+  @@index([proveedor_id, is_active])
+  @@map("comprobantes_proveedor")
+}
+
+/// Tipos de comprobante fiscal admitidos por HU-H9 — enum cerrado, no texto
+/// libre, para que HU-G10 (Módulo G) pueda discriminar de forma confiable
+/// el tratamiento impositivo de cada comprobante.
+enum TipoComprobante {
+  FACTURA_A
+  FACTURA_B
+  FACTURA_C
+  FACTURA_M
+}
+```
+
+**Cambios adicionales que implicaría aplicar esta propuesta (no incluidos en el bloque anterior, a confirmar con el equipo):** agregar el campo de relación inversa `comprobantes ComprobanteProveedor[]` tanto a `model OrdenCompra` como a `model Proveedor`, y una migración aditiva (`npx prisma migrate dev --name add_comprobante_proveedor`) que no toca ningún modelo existente de Módulo G ni H.
+
+**Nota para HU-G10 (Módulo G — fuera de alcance de este documento, solo se referencia la relación):** el criterio de aceptación de HU-H9 exige que el comprobante quede disponible como insumo obligatorio para que Tesorería lo asocie a una `CuentaPorPagar` antes de marcarla `PAGADA`. `CuentaPorPagar` ya existe en `schema.prisma` (Módulo G, HU-G8, líneas 994–1019) y hoy no tiene ningún campo de relación hacia comprobantes. El lado que HU-G10 va a necesitar preparar en su propio spec —no se implementa ni se propone como migración acá— es previsiblemente un campo `comprobante_proveedor_id String?` + relación opcional en `CuentaPorPagar` (opcional porque una `CuentaPorPagar` puede existir en estado `PROVISORIO`/`DEFINITIVA` antes de que llegue el comprobante), con `onDelete: Restrict` igual que el resto de las relaciones salientes de Módulo G/H. Queda expresamente fuera de este documento decidir la cardinalidad exacta (¿un comprobante puede respaldar más de una `CuentaPorPagar` de la misma OC, por ejemplo si hay recepciones parciales facturadas por separado?) — eso se resuelve en el spec de HU-G10.
+
 ---
 
 ## 3. Reglas de Negocio Estrictas (Capa de Servicios)
@@ -307,6 +468,17 @@ Conforme a HU-H5 y a la sección 3.1 del Documento de Alcance, el puntaje de un 
 - Ninguna función de servicio del Módulo H expone o invoca `prisma.<modelo>.delete()` ni `deleteMany()`, bajo ninguna condición — incluyendo rutas de "deshacer" o rollback manual de un alta errónea, que deben resolverse siempre como una baja lógica adicional (`is_active = false`, `deletion_reason: "Alta errónea — corrección"`), nunca como un borrado real.
 - Toda consulta operativa por defecto (listados, selects para formularios, resolución de "proveedor homologado seleccionable") filtra `is_active = true`.
 
+### 3.6. Ciclo de vida de `ComprobanteProveedor` (HU-H9)
+
+A diferencia de `OrdenCompra` (3.1), `ComprobanteProveedor` no tiene un campo `estado` propio en el modelo propuesto en 2.7.1 — su único ciclo de vida relevante es el patrón estándar de baja lógica (`is_active`) descripto en 3.5, sin estados intermedios: se documenta igual aquí, con el mismo formato de tabla que 3.1, porque el criterio de aceptación de HU-H9 lo exige explícitamente ("inmutable una vez creado: no se edita, solo se anula por baja lógica con motivo obligatorio").
+
+| Estado origen | Transición | Estado destino | Precondición |
+|---|---|---|---|
+| — | Alta (2.7) | `ACTIVO` (`is_active = true`) | `OrdenCompra.estado` en `RECIBIDA_COMPLETA` o `CERRADA`; sin duplicado de `numero_comprobante` + `tipo` + `proveedor_id` entre comprobantes activos |
+| `ACTIVO` | Anulación (2.7) | `ANULADO` (`is_active = false`) | `deletion_reason` obligatorio; requiere permiso `comprobantes_proveedor:anular` (exclusivo Supervisor de Compras) |
+
+`ANULADO` es terminal: no existe transición de vuelta a `ACTIVO`. No hay ninguna transición de edición de campos (`ACTIVO` → `ACTIVO` con datos modificados) — el servicio no expone esa operación bajo ninguna condición (ver 2.7, "Inmutabilidad estricta").
+
 ---
 
 ## 4. Eventos de Dominio (EDA)
@@ -319,6 +491,8 @@ El Módulo H es **emisor** hacia el Módulo D (encadenamiento SHA-256) y hacia e
 |---|---|---|---|
 | `proveedor:estado_cambiado` | 2.2 (manual) y 3.2 (automático) | Módulo D (`audit-log.listener.ts`) | `{ proveedor_id, usuario_id \| null (null si origen automático), estado_anterior, estado_nuevo, origen: "MANUAL" \| "AUTOMATICO", motivo }` |
 | `stock:recepcion_confirmada` | 2.6, tras `COMMIT` | Módulo A (listener de alta de stock, `lib/events/listeners/stock-recepcion.listener.ts`) | `{ recepcion_id, orden_compra_id, proveedor_id, items: [{ variante_sku_id, cantidad_recibida }], deposito_destino_id, recibida_por_id }` |
+| `comprobante_proveedor:registrado` | 2.7, tras `COMMIT` | Módulo D (`audit-log.listener.ts`) | `{ comprobante_id, orden_compra_id, proveedor_id, tipo, numero_comprobante, monto_total, registrado_por_id }` |
+| `comprobante_proveedor:anulado` | 2.7, tras `COMMIT` | Módulo D (`audit-log.listener.ts`) | `{ comprobante_id, orden_compra_id, proveedor_id, deletion_reason, anulado_por_id }` |
 
 **Eventos diferidos junto con sus HU:** `proveedor:variacion_precio_critica` y `proveedor:legajo_bancario_consultado` no se emiten en Sprint 2 porque dependen de HU-H2 (publicación de listas) y HU-H6 (consola de auditoría) respectivamente, ambas diferidas — ver `spec_modulo_H_diferido.md` sección 4 para su especificación completa.
 
@@ -336,3 +510,5 @@ El Módulo H es **emisor** hacia el Módulo D (encadenamiento SHA-256) y hacia e
 - **Endpoint de solicitud de homologación por Comprador (△-solicita, sección 2.2):** mencionado como flujo existente pero no detallado en este documento — fuera de alcance de código.
 - **Integración con Módulo I (devoluciones por defecto de fabricación como insumo de `EvaluacionProveedor`, sección 3.2):** el Módulo I no existe en este sprint. `EvaluacionProveedor.devoluciones_fabricacion` es nullable y se carga manualmente por ahora, conforme al comentario ya presente en el schema.
 - **Conciliación automática contra factura del proveedor (paso previo a `CERRAR`, sección 2.5):** este documento la modela como un flag operativo manual confirmado por el Comprador. Una integración real con comprobantes fiscales (AFIP, vía Módulo G conforme a `RULES.md` Regla N.° 3) queda fuera de alcance.
+- **Integración AFIP / facturación electrónica real (HU-H9, sección 2.7):** HU-H9 especifica exclusivamente la carga **manual** por el Comprador del comprobante ya emitido por el proveedor fuera del sistema — no incluye bajo ninguna forma la emisión de comprobantes, la consulta de padrones de AFIP, ni la validación de CAE. Esto es la misma integración diferida mencionada en el punto anterior (Regla N.° 3): HU-H9 es la entidad de datos que esa nota ya anticipaba, sin cerrar todavía el patrón Adapter/Gateway real hacia AFIP. Si en un sprint futuro se implementa esa integración, `ComprobanteProveedor` (2.7.1) es el modelo candidato a extenderse — no a reemplazarse — con los campos que requiera (ej. CAE, vencimiento de CAE), detrás de un Adapter dedicado, nunca acoplando el dominio directamente al SDK de AFIP.
+- **Asociación de `ComprobanteProveedor` a `CuentaPorPagar` (HU-G10, Módulo G):** HU-H9 deja el comprobante disponible como insumo, pero la asociación efectiva a una `CuentaPorPagar` y su uso como condición para que Tesorería marque el pago es HU-G10, fuera de alcance de este documento — ver la nota en 2.7.1 sobre el campo de relación que ese spec va a necesitar preparar en `CuentaPorPagar`.

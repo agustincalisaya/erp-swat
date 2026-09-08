@@ -526,6 +526,53 @@ export function iniciarAuditLogListener(): void {
     });
   });
 
+  // HU-H9 — alta de un ComprobanteProveedor contra una OC recibida
+  // (spec_modulo_H.md §2.7 / §4). El service
+  // (`comprobante-proveedor.service.ts`) NUNCA llama `registrarAuditLog()`
+  // directo: emite el evento post-COMMIT y este listener reacciona (misma
+  // regla de unificación que el resto del módulo). `tabla_afectada` usa el
+  // `@@map` en minúsculas (`comprobantes_proveedor`); `ip: "internal-event"`
+  // — mismo sentinel que `orden_compra:*` / `proveedor:*`, que también emiten
+  // post-COMMIT desde un service sin request HTTP directo asociado.
+  domainEventBus.on("comprobante_proveedor:registrado", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.registrado_por_id,
+      accion: "CREATE",
+      tabla_afectada: "comprobantes_proveedor",
+      registro_id: payload.comprobante_id,
+      ip: "internal-event",
+      valor_anterior: null,
+      valor_nuevo: {
+        orden_compra_id: payload.orden_compra_id,
+        proveedor_id: payload.proveedor_id,
+        tipo: payload.tipo,
+        numero_comprobante: payload.numero_comprobante,
+        monto_total: payload.monto_total,
+      },
+    });
+  });
+
+  // HU-H9 — anulación (baja lógica) de un ComprobanteProveedor
+  // (spec_modulo_H.md §2.7 / §3.6 · RULES.md Regla N.° 1). `valor_anterior`
+  // asume `is_active: true` porque el payload no trae snapshot previo (mismo
+  // criterio que `proveedor:baja_logica` / `inventario:variante_baja_logica`).
+  domainEventBus.on("comprobante_proveedor:anulado", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.anulado_por_id,
+      accion: "DELETE_LOGICO",
+      tabla_afectada: "comprobantes_proveedor",
+      registro_id: payload.comprobante_id,
+      ip: "internal-event",
+      valor_anterior: { is_active: true },
+      valor_nuevo: {
+        is_active: false,
+        orden_compra_id: payload.orden_compra_id,
+        proveedor_id: payload.proveedor_id,
+        deletion_reason: payload.deletion_reason,
+      },
+    });
+  });
+
   // HU-H1 — baja lógica de Proveedor (spec_modulo_H.md §3.5 · RULES.md §1).
   // El service (`darDeBajaProveedor()`) NUNCA llama `registrarAuditLog()`
   // directo: emite `proveedor:baja_logica` post-COMMIT y este listener

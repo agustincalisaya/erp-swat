@@ -55,7 +55,14 @@ import { DialogConfirmarOrdenCompra } from "@/components/compras/DialogConfirmar
 import { DialogCerrarOrdenCompra } from "@/components/compras/DialogCerrarOrdenCompra";
 import { DialogCancelarOrdenCompra } from "@/components/compras/DialogCancelarOrdenCompra";
 import { EditorItemsOrdenCompra } from "@/components/compras/EditorItemsOrdenCompra";
+import { ComprobantesProveedorCard } from "@/components/compras/ComprobantesProveedorCard";
 import { PERMISO_REGISTRAR_RECEPCION } from "@/lib/services/proveedores/recepcion.service";
+import {
+  listarComprobantesPorOrdenCompra,
+  PERMISO_CREAR as PERMISO_COMPROBANTE_CREAR,
+  PERMISO_ANULAR as PERMISO_COMPROBANTE_ANULAR,
+} from "@/lib/services/proveedores/comprobante-proveedor.service";
+import { ordenCompraAdmiteComprobante } from "@/lib/services/proveedores/comprobante-proveedor-reglas";
 
 import {
   Card,
@@ -125,24 +132,46 @@ export default async function DetalleOrdenCompraPage({
   if (!autorizado) redirect("/no-autorizado");
 
   const { id } = await params;
-  const [orden, puedeEnviar, puedeConfirmar, puedeCerrar, puedeCancelar, puedeRegistrarRecepcion] =
-    await Promise.all([
-      obtenerOrdenCompra(id),
-      usuarioTienePermiso(session.userId, PERMISO_POR_ACCION_ORDEN_COMPRA.ENVIAR),
-      usuarioTienePermiso(session.userId, PERMISO_POR_ACCION_ORDEN_COMPRA.CONFIRMAR),
-      usuarioTienePermiso(session.userId, PERMISO_POR_ACCION_ORDEN_COMPRA.CERRAR),
-      usuarioTienePermiso(session.userId, PERMISO_POR_ACCION_ORDEN_COMPRA.CANCELAR),
-      usuarioTienePermiso(session.userId, PERMISO_REGISTRAR_RECEPCION),
-    ]);
+  const [
+    orden,
+    puedeEnviar,
+    puedeConfirmar,
+    puedeCerrar,
+    puedeCancelar,
+    puedeRegistrarRecepcion,
+    puedeCrearComprobante,
+    puedeAnularComprobante,
+  ] = await Promise.all([
+    obtenerOrdenCompra(id),
+    usuarioTienePermiso(session.userId, PERMISO_POR_ACCION_ORDEN_COMPRA.ENVIAR),
+    usuarioTienePermiso(session.userId, PERMISO_POR_ACCION_ORDEN_COMPRA.CONFIRMAR),
+    usuarioTienePermiso(session.userId, PERMISO_POR_ACCION_ORDEN_COMPRA.CERRAR),
+    usuarioTienePermiso(session.userId, PERMISO_POR_ACCION_ORDEN_COMPRA.CANCELAR),
+    usuarioTienePermiso(session.userId, PERMISO_REGISTRAR_RECEPCION),
+    usuarioTienePermiso(session.userId, PERMISO_COMPROBANTE_CREAR),
+    usuarioTienePermiso(session.userId, PERMISO_COMPROBANTE_ANULAR),
+  ]);
 
   if (!orden) notFound();
 
   const enBorrador = orden.is_active && orden.estado === "BORRADOR";
 
+  // HU-H9 — precondición de estado para admitir carga de comprobante
+  // (RECIBIDA_COMPLETA o CERRADA, spec §2.7). El listado de esta vista
+  // operativa incluye los comprobantes anulados para mostrar el trail de
+  // correcciones de esta OC puntual; el listado global/API mantiene el
+  // filtro `is_active = true` por defecto (RULES.md Regla N.° 1).
+  const ordenAdmiteComprobante = ordenCompraAdmiteComprobante({
+    estado: orden.estado,
+    is_active: orden.is_active,
+    deleted_at: orden.deleted_at,
+  });
+
   // Las variantes del selector solo hacen falta si la orden es editable.
-  const [historial, variantesParaEditar] = await Promise.all([
+  const [historial, variantesParaEditar, comprobantes] = await Promise.all([
     obtenerHistorialOrdenCompra(id),
     enBorrador ? listarVariantesParaOrden() : Promise.resolve([]),
+    listarComprobantesPorOrdenCompra(id, { incluirAnulados: true }),
   ]);
 
   // "Comprador Solicita / Supervisor Emite" (Alcance §2.1 / §5): el botón solo
@@ -424,6 +453,18 @@ export default async function DetalleOrdenCompraPage({
               </p>
             </CardContent>
           </Card>
+        )}
+
+        {/* ── Comprobantes de proveedor (HU-H9) ───────────────────────── */}
+        {(ordenAdmiteComprobante || comprobantes.length > 0) && (
+          <ComprobantesProveedorCard
+            ordenCompraId={orden.id}
+            numeroOrden={orden.numero_orden}
+            ordenAdmiteComprobante={ordenAdmiteComprobante}
+            comprobantes={comprobantes}
+            puedeCrear={puedeCrearComprobante}
+            puedeAnular={puedeAnularComprobante}
+          />
         )}
 
         {/* ── Historial de estado ─────────────────────────────────────── */}

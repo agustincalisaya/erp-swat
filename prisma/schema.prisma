@@ -59,10 +59,11 @@ model Usuario {
   sesiones                   Sesion[]
 
   // --- Relaciones Sprint 2 (Módulo H / G) ---
-  ordenes_compra_creadas   OrdenCompra[]         @relation("OrdenCompraCreadaPor")
-  recepciones_registradas  Recepcion[]           @relation("RecepcionRecibidaPor")
-  evaluaciones_registradas EvaluacionProveedor[] @relation("EvaluacionRegistradaPor")
-  listas_precio_aprobadas  ListaPrecioVersion[]  @relation("ListaPrecioVersionAprobadaPor")
+  ordenes_compra_creadas   OrdenCompra[]          @relation("OrdenCompraCreadaPor")
+  recepciones_registradas  Recepcion[]            @relation("RecepcionRecibidaPor")
+  evaluaciones_registradas EvaluacionProveedor[]  @relation("EvaluacionRegistradaPor")
+  listas_precio_aprobadas  ListaPrecioVersion[]   @relation("ListaPrecioVersionAprobadaPor")
+  comprobantes_registrados ComprobanteProveedor[] @relation("ComprobanteProveedorRegistradoPor")
 
   // --- Relaciones HU-A9 (Reclasificación de Devueltos) ---
   reclasificaciones_solicitadas ReclasificacionSolicitud[] @relation("ReclasificacionSolicitadaPor")
@@ -719,6 +720,7 @@ model Proveedor {
   ordenes_compra OrdenCompra[]
   evaluaciones   EvaluacionProveedor[]
   listas_precio  ListaPrecio[]
+  comprobantes   ComprobanteProveedor[]
 
   @@index([estado, is_active])
   @@map("proveedores")
@@ -864,11 +866,12 @@ model OrdenCompra {
   updated_at DateTime @updatedAt
 
   // --- Relaciones ---
-  proveedor         Proveedor         @relation(fields: [proveedor_id], references: [id], onDelete: Restrict)
-  creada_por        Usuario           @relation("OrdenCompraCreadaPor", fields: [creada_por_id], references: [id], onDelete: Restrict)
+  proveedor         Proveedor              @relation(fields: [proveedor_id], references: [id], onDelete: Restrict)
+  creada_por        Usuario                @relation("OrdenCompraCreadaPor", fields: [creada_por_id], references: [id], onDelete: Restrict)
   items             OrdenCompraItem[]
   recepciones       Recepcion[]
   cuentas_por_pagar CuentaPorPagar[]
+  comprobantes      ComprobanteProveedor[]
 
   @@index([proveedor_id, estado])
   @@index([estado, is_active])
@@ -1060,6 +1063,76 @@ model EvaluacionProveedor {
 
   @@index([proveedor_id, fecha_evaluacion])
   @@map("evaluaciones_proveedor")
+}
+
+/// Comprobante fiscal (Factura A/B/C/M) que un Proveedor envía como respaldo
+/// de una OrdenCompra ya recibida (HU-H9, spec_modulo_H.md §2.7). Es carga
+/// MANUAL por el Comprador — no hay integración real con AFIP (RULES.md
+/// Regla N.° 3; ver advertencia de alcance en §2.7 y §5). Se asocia siempre
+/// a una OrdenCompra existente en estado RECIBIDA_COMPLETA o posterior; no
+/// se admite carga suelta sin OC de referencia. Inmutable una vez creado:
+/// toda corrección es baja lógica + alta de un comprobante nuevo, nunca un
+/// UPDATE sobre los campos ya persistidos (RULES.md Regla N.° 1).
+model ComprobanteProveedor {
+  id                  String          @id @default(uuid())
+  orden_compra_id     String
+  /// Desnormalizado desde `orden_compra.proveedor_id` en el momento de la
+  /// carga (ver 2.7, "Comportamiento esperado"). Se evaluó resolverlo
+  /// siempre vía join contra `orden_compra.proveedor_id` para no duplicar
+  /// el dato, pero se decidió desnormalizarlo por dos motivos: (1) el
+  /// criterio de unicidad de HU-H9 es compuesto
+  /// (`numero_comprobante` + `tipo` + `proveedor`) y Prisma solo puede
+  /// declarar `@@unique` sobre columnas propias del modelo, no sobre un
+  /// campo alcanzado a través de una relación — sin esta columna la
+  /// unicidad tendría que validarse únicamente en la capa de aplicación,
+  /// perdiendo la garantía a nivel de base de datos que sí tienen `cuit`
+  /// en `Proveedor` (línea 602) y `numero_orden` en `OrdenCompra`
+  /// (línea 757); (2) HU-G10 (Módulo G, fuera de alcance de este
+  /// documento) necesita listar/filtrar comprobantes por proveedor sin
+  /// forzar un join adicional contra `OrdenCompra` en cada consulta de
+  /// Tesorería. Mismo patrón de congelamiento que
+  /// `OrdenCompraItem.precio_unitario` (§2.4): se fija al crear y no se
+  /// recalcula después.
+  proveedor_id        String
+  tipo                TipoComprobante
+  numero_comprobante  String
+  fecha_emision       DateTime
+  monto_total         Decimal         @db.Decimal(12, 2)
+  /// URL del archivo digitalizado (PDF/imagen) en un storage externo.
+  /// Opcional — criterio de aceptación de HU-H9.
+  archivo_adjunto_url String?
+  registrado_por_id   String
+
+  // --- Soft delete estricto (RULES.md §1) ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  orden_compra   OrdenCompra @relation(fields: [orden_compra_id], references: [id], onDelete: Restrict)
+  proveedor      Proveedor   @relation(fields: [proveedor_id], references: [id], onDelete: Restrict)
+  registrado_por Usuario     @relation("ComprobanteProveedorRegistradoPor", fields: [registrado_por_id], references: [id], onDelete: Restrict)
+
+  /// Unicidad compuesta del criterio de aceptación de HU-H9: mismo número +
+  /// tipo + proveedor no puede repetirse entre comprobantes activos.
+  @@unique([numero_comprobante, tipo, proveedor_id])
+  @@index([orden_compra_id])
+  @@index([proveedor_id, is_active])
+  @@map("comprobantes_proveedor")
+}
+
+/// Tipos de comprobante fiscal admitidos por HU-H9 — enum cerrado, no texto
+/// libre, para que HU-G10 (Módulo G) pueda discriminar de forma confiable
+/// el tratamiento impositivo de cada comprobante.
+enum TipoComprobante {
+  FACTURA_A
+  FACTURA_B
+  FACTURA_C
+  FACTURA_M
 }
 
 // ============================================================================
