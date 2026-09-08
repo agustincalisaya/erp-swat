@@ -35,7 +35,7 @@ export default async function ProductosPage() {
 
   return (
     <main className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
-      <div className="max-w-4xl mx-auto space-y-5">
+      <div className="max-w-6xl mx-auto space-y-5">
         <div className="flex items-center gap-3">
           <div className="p-2 rounded-xl bg-blue-100 text-blue-600 shrink-0">
             <Package className="size-5" aria-hidden="true" />
