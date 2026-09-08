@@ -152,6 +152,14 @@ const PERMISO_PROVEEDORES_BAJA_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000014";
 const PERMISO_CXP_LEER_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000015";
 const PERMISO_CXP_PAGAR_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000016";
 
+// HU-H9 — permisos granulares de ComprobanteProveedor (spec_modulo_H.md §2.7:
+// un permiso por acción). `comprobantes_proveedor:anular` es EXCLUSIVO de
+// Supervisor de Compras (una baja lógica sobre un comprobante ya presentado
+// es una corrección sensible). Mismo patrón que HU-H1/H3/G8.
+const PERMISO_COMPROBANTES_CREAR_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000017";
+const PERMISO_COMPROBANTES_LEER_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000018";
+const PERMISO_COMPROBANTES_ANULAR_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000019";
+
 const PROVEEDOR_HOMOLOGADO_ID = "1a2b3c4d-6666-4a1a-8a1a-000000000001";
 const PROVEEDOR_PENDIENTE_ID = "1a2b3c4d-6666-4a1a-8a1a-000000000002";
 
@@ -172,6 +180,11 @@ const RECEPCION_ITEM_1_ID = "1a2b3c4d-8889-4a1a-8a1a-000000000001";
 const RECEPCION_DISCREPANCIA_1_ID = "1a2b3c4d-8890-4a1a-8a1a-000000000001";
 const CUENTA_POR_PAGAR_PROVISORIA_ID = "1a2b3c4d-9999-4a1a-8a1a-000000000001";
 const EVALUACION_PROVEEDOR_SEED_ID = "1a2b3c4d-aaaa-4a1a-8a1a-000000000001";
+// HU-H9 — fixture: OC ya RECIBIDA_COMPLETA para poder ejercitar la carga de
+// comprobantes de proveedor (spec_modulo_H.md §2.7) sin depender de conducir
+// una OC por toda la máquina de estados de H3/H4.
+const ORDEN_COMPRA_RECIBIDA_ID = "1a2b3c4d-7777-4a1a-8a1a-000000000002";
+const ORDEN_COMPRA_RECIBIDA_ITEM_ID = "1a2b3c4d-7778-4a1a-8a1a-000000000003";
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Helpers — Fechas
@@ -1055,6 +1068,32 @@ async function main() {
   );
   const [permisoCxpLeer, permisoCxpPagar] = permisosCuentaPorPagar;
 
+  // ── HU-H9 — permisos granulares de ComprobanteProveedor (spec_modulo_H.md §2.7) ──
+  //   - comprobantes_proveedor:crear  → Comprador Y Supervisor de Compras
+  //   - comprobantes_proveedor:leer   → Comprador, Supervisor de Compras, Auditor
+  //   - comprobantes_proveedor:anular → SOLO Supervisor de Compras (baja lógica
+  //                                     de un comprobante presentado — corrección sensible)
+  const permisosComprobantes = await Promise.all(
+    (
+      [
+        [PERMISO_COMPROBANTES_CREAR_ID, "comprobantes_proveedor:crear", "Registrar un comprobante fiscal (Factura A/B/C/M) de proveedor contra una OC recibida (HU-H9 §2.7)"],
+        [PERMISO_COMPROBANTES_LEER_ID, "comprobantes_proveedor:leer", "Consultar los comprobantes de proveedor registrados, por OC o global (HU-H9 §2.7)"],
+        [PERMISO_COMPROBANTES_ANULAR_ID, "comprobantes_proveedor:anular", "Anular (baja lógica) un comprobante de proveedor con motivo obligatorio — exclusivo Supervisor de Compras (HU-H9 §2.7 · RULES.md Regla N.° 1)"],
+      ] as const
+    ).map(([id, codigo, descripcion]) =>
+      prisma.permiso.upsert({
+        where: { id },
+        update: REACTIVAR_REFERENCIA_RBAC,
+        create: { id, codigo, descripcion, modulo: "MODULO_H" },
+      }),
+    ),
+  );
+  const [
+    permisoComprobantesCrear,
+    permisoComprobantesLeer,
+    permisoComprobantesAnular,
+  ] = permisosComprobantes;
+
   const rolComprador = await prisma.rol.upsert({
     where: { id: ROL_COMPRADOR_ID },
     update: REACTIVAR_REFERENCIA_RBAC,
@@ -1136,6 +1175,9 @@ async function main() {
     permisoOcCrear,
     permisoOcConfirmar,
     permisoOcCerrar,
+    // HU-H9: el Comprador registra y consulta comprobantes, pero NO los anula.
+    permisoComprobantesCrear,
+    permisoComprobantesLeer,
   ];
   const permisosSupervisorCompras = [
     permisoProveedoresCrear,
@@ -1148,6 +1190,10 @@ async function main() {
     permisoOcConfirmar,
     permisoOcCerrar,
     permisoOcCancelar,
+    // HU-H9: el Supervisor de Compras registra, consulta y es el ÚNICO que anula.
+    permisoComprobantesCrear,
+    permisoComprobantesLeer,
+    permisoComprobantesAnular,
   ];
 
   for (const permiso of permisosComprador) {
@@ -1247,6 +1293,21 @@ async function main() {
     },
     update: REACTIVAR_REFERENCIA_RBAC,
     create: { rol_id: rolTesorero.id, permiso_id: permisoCxpPagar.id },
+  });
+
+  // ── HU-H9 — comprobantes_proveedor:leer → también AUDITOR ─────────────────
+  // Comprador y Supervisor de Compras ya lo reciben vía `permisosComprador` /
+  // `permisosSupervisorCompras` (arriba). El Auditor lo necesita para la
+  // trazabilidad documental — mismo criterio que `cuentas_por_pagar:leer`.
+  await prisma.rolPermiso.upsert({
+    where: {
+      rol_id_permiso_id: {
+        rol_id: rolAuditor.id,
+        permiso_id: permisoComprobantesLeer.id,
+      },
+    },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: { rol_id: rolAuditor.id, permiso_id: permisoComprobantesLeer.id },
   });
 
   // ── Módulo D — Usuarios de ejemplo Sprint 2 (Comprador, Tesorero) ──────────
@@ -1560,6 +1621,43 @@ async function main() {
     },
   });
 
+  // ── Módulo H — Orden de Compra RECIBIDA_COMPLETA (fixture HU-H9) ───────────
+  //
+  // OC totalmente recibida contra el proveedor homologado, para poder
+  // ejercitar el alta/anulación de Comprobantes de Proveedor (HU-H9 §2.7) de
+  // punta a punta: la precondición del alta exige `estado` ∈
+  // {RECIBIDA_COMPLETA, CERRADA}. Un único ítem, sin recepción sembrada (el
+  // estado ya refleja el resultado final — HU-H9 no lee `RecepcionItem`).
+
+  const ordenCompraRecibida = await prisma.ordenCompra.upsert({
+    where: { id: ORDEN_COMPRA_RECIBIDA_ID },
+    update: {},
+    create: {
+      id: ORDEN_COMPRA_RECIBIDA_ID,
+      numero_orden: "OC-2026-0002",
+      proveedor_id: proveedorHomologado.id,
+      estado: "RECIBIDA_COMPLETA",
+      fecha_envio: diasAtras(12),
+      fecha_confirmacion: diasAtras(11),
+      observaciones: "OC recibida — fixture HU-H9 (carga de comprobantes)",
+      creada_por_id: usuarioComprador.id,
+      is_active: true,
+    },
+  });
+
+  await prisma.ordenCompraItem.upsert({
+    where: { id: ORDEN_COMPRA_RECIBIDA_ITEM_ID },
+    update: {},
+    create: {
+      id: ORDEN_COMPRA_RECIBIDA_ITEM_ID,
+      orden_compra_id: ordenCompraRecibida.id,
+      variante_sku_id: VARIANTE_BORCEGOS_1_ID,
+      cantidad_solicitada: 8,
+      precio_unitario: 42000.0,
+      is_active: true,
+    },
+  });
+
   // ── Módulo H — Evaluación de proveedor (HU-H5) ─────────────────────────────
   //
   // Un registro de evaluación ya cargado contra el proveedor homologado, para
@@ -1712,6 +1810,11 @@ async function main() {
     lista_precio_version_vigente_id: listaPrecioVersion.id,
     orden_compra_confirmada_id: ordenCompraConfirmada.id,
     orden_compra_numero: ordenCompraConfirmada.numero_orden,
+    orden_compra_recibida_id: ordenCompraRecibida.id,
+    orden_compra_recibida_numero: ordenCompraRecibida.numero_orden,
+    permiso_comprobantes_crear_id: permisoComprobantesCrear.id,
+    permiso_comprobantes_leer_id: permisoComprobantesLeer.id,
+    permiso_comprobantes_anular_id: permisoComprobantesAnular.id,
     recepcion_id: recepcionSeed.id,
     cuenta_por_pagar_id: CUENTA_POR_PAGAR_PROVISORIA_ID,
     evaluacion_proveedor_id: EVALUACION_PROVEEDOR_SEED_ID,

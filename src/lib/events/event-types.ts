@@ -542,6 +542,43 @@ export interface ProductoMaestroActualizadoPayload {
 }
 
 /**
+ * HU-H9 (Módulo H) — Payload emitido tras el alta de un `ComprobanteProveedor`
+ * (`registrarComprobanteProveedor()`, spec_modulo_H.md §2.7 / §4). Se emite
+ * SOLO después del `COMMIT` de la transacción de alta, nunca dentro de ella
+ * (spec §3.4, mismo patrón fire-and-forget que el resto del módulo — deuda
+ * técnica conocida documentada en el PR). Consumidor: Módulo D
+ * (`audit-log.listener.ts`).
+ *
+ * `monto_total` viaja como string (serialización de `Prisma.Decimal` a 2
+ * decimales), mismo criterio que `CuentaPorPagar.monto` en
+ * `CuentaPorPagarEstadoCambiadoPayload`. El payload NUNCA incluye datos
+ * bancarios del proveedor (regla de exclusión de datos sensibles de spec §4).
+ */
+export interface ComprobanteProveedorRegistradoPayload {
+  comprobante_id: string;
+  orden_compra_id: string;
+  proveedor_id: string;
+  tipo: string;
+  numero_comprobante: string;
+  monto_total: string;
+  registrado_por_id: string;
+}
+
+/**
+ * HU-H9 (Módulo H) — Payload emitido tras la anulación (baja lógica) de un
+ * `ComprobanteProveedor` (`anularComprobanteProveedor()`, spec_modulo_H.md
+ * §2.7 / §3.6 / §4 · RULES.md Regla N.° 1). `deletion_reason` es el motivo
+ * obligatorio. Emisión post-`COMMIT`.
+ */
+export interface ComprobanteProveedorAnuladoPayload {
+  comprobante_id: string;
+  orden_compra_id: string;
+  proveedor_id: string;
+  deletion_reason: string;
+  anulado_por_id: string;
+}
+
+/**
  * HU-A8 — Payload emitido tras editar atributos operativos de una
  * VarianteSKU (`editarVarianteOperativa()`, spec_modulo_A.md §2.7). Nunca
  * incluye talle/color/genero/modelo/sku — el schema Zod ya los excluye por
@@ -607,6 +644,10 @@ export interface DomainEventMap {
   "proveedor:estado_cambiado": ProveedorEstadoCambiadoPayload;
   /** HU-G8: se emite tras cada transición de estado de una CuentaPorPagar (CREAR/DEFINIR/PAGAR/CANCELAR). */
   "cuenta_por_pagar:estado_cambiado": CuentaPorPagarEstadoCambiadoPayload;
+  /** HU-H9: se emite tras el alta de un ComprobanteProveedor contra una OC recibida. */
+  "comprobante_proveedor:registrado": ComprobanteProveedorRegistradoPayload;
+  /** HU-H9: se emite tras la anulación (baja lógica) de un ComprobanteProveedor. */
+  "comprobante_proveedor:anulado": ComprobanteProveedorAnuladoPayload;
   /** HU-H1: se emite tras la baja lógica de un Proveedor (nunca DELETE físico). */
   "proveedor:baja_logica": ProveedorBajaLogicaPayload;
   /** HU-H1: se emite tras la edición del legajo de un Proveedor. */
