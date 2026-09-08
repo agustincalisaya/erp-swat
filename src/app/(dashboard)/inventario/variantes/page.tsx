@@ -116,6 +116,11 @@ export default async function VariantesPage({ searchParams }: VariantesPageProps
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
+            {/* ── Tabs Activas / Inactivas (estado en la URL, decisión D5) ─── */}
+            <Suspense fallback={null}>
+              <TabsActivasInactivas tab={filtros.tab} />
+            </Suspense>
+
             <Link
               href="/inventario/productos/variantes/nueva"
               className={buttonVariants({ variant: "outline" }) + " gap-2 shrink-0"}
@@ -123,13 +128,9 @@ export default async function VariantesPage({ searchParams }: VariantesPageProps
               <LayoutGrid className="size-4" aria-hidden="true" />
               Agregar variante
             </Link>
+
           </div>
         </div>
-
-        {/* ── Tabs Activas / Inactivas (estado en la URL, decisión D5) ─── */}
-        <Suspense fallback={null}>
-          <TabsActivasInactivas tab={filtros.tab} />
-        </Suspense>
 
         {/* ── Búsqueda + filtro (debounce 350ms, reset de page) ────────── */}
         <Suspense fallback={null}>

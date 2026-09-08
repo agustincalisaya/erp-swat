@@ -112,15 +112,15 @@ const SECCIONES: SeccionConfig[] = [
       // seed. El botón "Enviar" del detalle se gateará ahí por
       // `ordenes_compra:enviar`.
       {
+        label: "Proveedores",
+        href: "/compras/proveedores",
+        icon: Store,
+      },
+      {
         label: "Órdenes de Compra",
         href: "/compras/ordenes",
         icon: ClipboardList,
         permiso: "ordenes_compra:crear",
-      },
-      {
-        label: "Proveedores",
-        href: "/compras/proveedores",
-        icon: Store,
       },
       {
         label: "Recepción de Mercadería",
