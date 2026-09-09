@@ -178,7 +178,60 @@ spec, resueltas a favor del spec:
 - Permiso de anulación: exclusivo Supervisor de Compras (spec), no Comprador +
   Supervisor (task).
 
-### 2.7. Dependencias hacia adelante
+### 2.7. Relevamiento funcional post-implementación
+
+Tras el cierre del testing formal, se ejecutó un relevamiento funcional exploratorio de
+punta a punta (HU-H3 → HU-H4 → HU-H9, desde la creación de una OC nueva hasta el cierre),
+navegando la UI real con los cuatro roles del circuito (Comprador, Supervisor de Compras,
+Personal de Depósito, Tesorero Central).
+
+**Resultado: sin hallazgos críticos.** Todos los controles de permisos y de estado que
+debían bloquear, bloquearon correctamente; ninguna pantalla se rompió.
+
+Hallazgos relevantes surgidos de este relevamiento:
+
+- **De HU-H9 (corregidos, ver 2.8):** el listado de comprobantes no se actualizaba tras
+  el alta sin recargar la página, y faltaba feedback visual de éxito en alta y anulación.
+- **De HU-H9 (confirmado como diseño correcto, no bug):** un comprobante puede cargarse
+  con la OC ya en `CERRADA` — es el comportamiento buscado (ver 1.3), no un defecto.
+- **Fuera del alcance de HU-H9, para seguimiento del equipo:**
+  - No existe todavía ninguna pantalla de Tesorería / Cuentas por Pagar — hoy el estado
+    `PROVISORIO`/`DEFINITIVA` de HU-G8 solo es verificable por API. Es un vacío esperado
+    para el sprint actual, a cubrir por HU-G10/HU-G7.
+  - **Punto de negocio a definir con el equipo/PO:** la `CuentaPorPagar` pasa de
+    `PROVISORIO` a `DEFINITIVA` recién al ejecutarse el cierre manual de la OC
+    (`RECIBIDA_COMPLETA → CERRADA`), no al completarse la recepción total. El código
+    de HU-G8 sigue su criterio de aceptación literal, pero esto puede subestimar la
+    proyección de caja si una OC recibida completa nunca se cierra formalmente. No
+    resuelto en este PR — corresponde a HU-G8, ya implementada y cerrada.
+  - Detalles menores de wording y UX (título de pestaña por defecto en pantallas de
+    detalle, texto "Emitida" en estado `BORRADOR`, variantes sin precio no filtradas en
+    el selector de ítems de OC nueva) — no bloqueantes, candidatos a tasks cosméticas
+    aparte.
+
+### 2.8. Fixes de UI post-relevamiento
+
+**Bug 1 — Listado de comprobantes no se refrescaba tras el alta.**
+`FormularioRegistrarComprobante.tsx` cerraba el modal (`handleOpenChange(false)`, con el
+teardown del `Dialog` y el reseteo de estado que eso dispara) *antes* de llamar a
+`router.refresh()`, dejando el refetch sin efecto real hasta una recarga manual (F5).
+**Fix:** se reordenó para que `router.refresh()` corra primero, con el componente todavía
+montado y estable — mismo patrón ya usado en `PasoTransferencia` (HU-A11). Se agregó
+además un toast de éxito (`@/components/ui/toast`), que no existía. Verificado en
+runtime: alta visible sin F5, orden por `fecha_emision` desc correcto, casos de error
+(duplicado) sin regresión. Diff: 1 archivo, +11/−1.
+
+**Bug 2 (sospechado) — mismo problema en la anulación.**
+Se investigó si `DialogAnularComprobante.tsx` (mismo orden aparente `handleClose() →
+router.refresh()`) sufría el mismo problema. **Verificado en runtime: no se reproduce.**
+El componente usa `<AlertDialog>` con un `onClick` simple (sin `<form>`) y solo 3
+`setState` antes del refresh, contra los 8 `setState` y el submit de formulario del
+componente de alta — el refresh sobrevive al cierre sin inconvenientes. **No se aplicó
+ningún reorden** (no hay problema que corregir). Se agregó igualmente el toast de éxito,
+por ser un ítem de UX independiente ya decidido con el equipo, no una corrección de bug.
+Diff: 1 archivo, +6/−0.
+
+### 2.9. Dependencias hacia adelante
 
 HU-G10 (Módulo G, Tesorería) consumirá `ComprobanteProveedor` como insumo obligatorio
 antes de marcar una `CuentaPorPagar` como pagada. Ese spec deberá definir la cardinalidad

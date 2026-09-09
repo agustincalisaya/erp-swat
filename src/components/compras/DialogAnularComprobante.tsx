@@ -33,6 +33,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { toast } from "@/components/ui/toast";
 
 interface DialogAnularComprobanteProps {
   comprobanteId: string;
@@ -72,6 +73,11 @@ export function DialogAnularComprobante({
       }
       handleClose();
       router.refresh();
+      toast.add({
+        title: "Comprobante anulado",
+        description: `${descripcionComprobante} — baja lógica registrada.`,
+        type: "success",
+      });
     });
   };
 
