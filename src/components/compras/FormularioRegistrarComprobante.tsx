@@ -37,6 +37,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { toast } from "@/components/ui/toast";
 
 interface FormularioRegistrarComprobanteProps {
   ordenCompraId: string;
@@ -120,8 +121,16 @@ export function FormularioRegistrarComprobante({
         setServerError(resultado.error.message);
         return;
       }
-      handleOpenChange(false);
+      // Refetch del listado ANTES de resetear/cerrar el modal: mismo orden que
+      // `PasoTransferencia` (HU-A11) — `router.refresh()` corre con el
+      // componente montado y estable, sin teardown del Dialog de por medio.
       router.refresh();
+      toast.add({
+        title: "Comprobante registrado",
+        description: `${TIPO_LABEL[tipo]} N.° ${numero.trim()} — orden ${numeroOrden}.`,
+        type: "success",
+      });
+      handleOpenChange(false);
     });
   };
 
