@@ -233,6 +233,33 @@ async function main() {
     },
   });
 
+  // ── Módulo H — Proveedor HOMOLOGADO (InduSur) ──────────────────────────────
+  //
+  // Se crea ACÁ, antes de cualquier `VarianteSKU`, porque `proveedor_id` en
+  // VarianteSKU es NOT NULL (FK onDelete: Restrict, solo HOMOLOGADO): toda
+  // variante del seed se inserta apuntando a este proveedor. `proveedorPendiente`
+  // y el resto del bloque de Módulo H siguen más abajo, sin moverse.
+  const proveedorHomologado = await prisma.proveedor.upsert({
+    where: { id: PROVEEDOR_HOMOLOGADO_ID },
+    update: {
+      estado: "HOMOLOGADO",
+      is_active: true,
+    },
+    create: {
+      id: PROVEEDOR_HOMOLOGADO_ID,
+      razon_social: "Indumentaria Táctica del Sur S.A.",
+      nombre_fantasia: "InduSur",
+      cuit: "30-71234567-8",
+      condiciones_pago: "30 días FF",
+      categorias: ["Textil Táctico", "Calzado"],
+      estado: "HOMOLOGADO",
+      contacto_nombre: "Marcela Ibáñez",
+      contacto_email: "compras@indusur.example.com",
+      contacto_telefono: "+54 387 400-1234",
+      is_active: true,
+    },
+  });
+
   const productoMaestro = await prisma.productoMaestro.upsert({
     where: { id: PRODUCTO_MAESTRO_SEED_ID },
     update: {},
@@ -270,11 +297,13 @@ async function main() {
       color: "Azul",
       genero: "HOMBRE",
       modelo: "Policía",
+      proveedor_id: proveedorHomologado.id,
       is_active: true,
     },
     create: {
       id: VARIANTE_SKU_SEED_ID,
       producto_maestro_id: productoMaestro.id,
+      proveedor_id: proveedorHomologado.id,
       sku: skuVarianteSeed,
       ean_qr: "7791234500017",
       talle: "M",
@@ -773,11 +802,13 @@ async function main() {
         color: v.color,
         genero: v.genero,
         modelo: v.modelo,
+        proveedor_id: proveedorHomologado.id,
         is_active: true,
       },
       create: {
         id: v.id,
         producto_maestro_id: productoCamisaTactica.id,
+        proveedor_id: proveedorHomologado.id,
         sku,
         ean_qr: v.ean_qr,
         talle: v.talle,
@@ -807,11 +838,13 @@ async function main() {
         color: v.color,
         genero: v.genero,
         modelo: v.modelo,
+        proveedor_id: proveedorHomologado.id,
         is_active: true,
       },
       create: {
         id: v.id,
         producto_maestro_id: productoBorcegos.id,
+        proveedor_id: proveedorHomologado.id,
         sku,
         ean_qr: v.ean_qr,
         talle: v.talle,
@@ -1442,31 +1475,10 @@ async function main() {
 
   // ── Módulo H — Proveedores (HU-H1) ─────────────────────────────────────────
   //
-  // Dos proveedores: uno HOMOLOGADO (destraba a Tomás/HU-H3 sin esperar que
-  // Rama termine la lógica real de homologación) y uno PENDIENTE (para poder
-  // probar que un proveedor no homologado queda excluido de la selección en
-  // una nueva OC).
-
-  const proveedorHomologado = await prisma.proveedor.upsert({
-    where: { id: PROVEEDOR_HOMOLOGADO_ID },
-    update: {
-      estado: "HOMOLOGADO",
-      is_active: true,
-    },
-    create: {
-      id: PROVEEDOR_HOMOLOGADO_ID,
-      razon_social: "Indumentaria Táctica del Sur S.A.",
-      nombre_fantasia: "InduSur",
-      cuit: "30-71234567-8",
-      condiciones_pago: "30 días FF",
-      categorias: ["Textil Táctico", "Calzado"],
-      estado: "HOMOLOGADO",
-      contacto_nombre: "Marcela Ibáñez",
-      contacto_email: "compras@indusur.example.com",
-      contacto_telefono: "+54 387 400-1234",
-      is_active: true,
-    },
-  });
+  // `proveedorHomologado` (InduSur) se crea más arriba, antes de las variantes
+  // (ver comentario allá — `VarianteSKU.proveedor_id` es NOT NULL). Acá queda
+  // solo `proveedorPendiente`, para probar que un proveedor no homologado
+  // queda excluido de la selección en una nueva OC / Matriz de Variantes.
 
   const proveedorPendiente = await prisma.proveedor.upsert({
     where: { id: PROVEEDOR_PENDIENTE_ID },

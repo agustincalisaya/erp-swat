@@ -38,6 +38,10 @@ import {
   type ResultadoGenerarVariantesMatriz,
   type RubrosYCategoriasDistintos,
 } from "@/lib/services/inventario/producto.service";
+import {
+  listarProveedoresHomologados as listarProveedoresHomologadosService,
+  type ProveedorParaSelector,
+} from "@/lib/services/proveedores/orden-compra.service";
 
 type ActionError = { code: string; message: string; fieldErrors?: Record<string, string[]> };
 
@@ -128,6 +132,38 @@ export async function obtenerRubrosYCategorias(): Promise<ObtenerRubrosYCategori
     return { data: resultado, error: null };
   } catch (err) {
     console.error("[obtenerRubrosYCategorias action] Error inesperado:", err);
+    return { data: null, error: { code: "INTERNAL_ERROR", message: "Error interno. Intentá nuevamente." } };
+  }
+}
+
+type ListarProveedoresParaSelectorResult =
+  | { data: ProveedorParaSelector[]; error: null }
+  | { data: null; error: ActionError };
+
+/**
+ * Server Action de lectura liviana — lista de proveedores HOMOLOGADO para el
+ * `<select>` de "proveedor habitual" por fila en la Matriz de Variantes y para
+ * el `ComboboxFiltrable` de la edición de variante (HU-A8). Reutiliza
+ * `listarProveedoresHomologados()` de Módulo H (misma query: `estado =
+ * HOMOLOGADO`, `is_active = true`, `deleted_at = null`) para no duplicar la
+ * consulta — decisión de la task, es solo lectura sin lógica de Compras.
+ * Solo requiere sesión, sin permiso granular (mismo criterio que
+ * `buscarProductosActivos()`).
+ */
+export async function listarProveedoresParaSelector(): Promise<ListarProveedoresParaSelectorResult> {
+  const session = await getServerSession();
+  if (!session) {
+    return {
+      data: null,
+      error: { code: "UNAUTHORIZED", message: "Sesión requerida para realizar esta operación." },
+    };
+  }
+
+  try {
+    const proveedores = await listarProveedoresHomologadosService();
+    return { data: proveedores, error: null };
+  } catch (err) {
+    console.error("[listarProveedoresParaSelector action] Error inesperado:", err);
     return { data: null, error: { code: "INTERNAL_ERROR", message: "Error interno. Intentá nuevamente." } };
   }
 }

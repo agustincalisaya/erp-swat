@@ -47,9 +47,13 @@ export const POST = withAuth(async (req: NextRequest, session) => {
   } catch (err) {
     if (err instanceof ServiceError) {
       const status =
-        err.code === "PRODUCTO_MAESTRO_NO_ENCONTRADO" || err.code === "PRODUCTO_MAESTRO_INACTIVO"
+        err.code === "PRODUCTO_MAESTRO_NO_ENCONTRADO" ||
+        err.code === "PRODUCTO_MAESTRO_INACTIVO" ||
+        err.code === "PROVEEDOR_NO_ENCONTRADO"
           ? 404
-          : 400;
+          : err.code === "PROVEEDOR_NO_HOMOLOGADO"
+            ? 422
+            : 400;
       return NextResponse.json(
         { data: null, error: { code: err.code, message: err.message } },
         { status },

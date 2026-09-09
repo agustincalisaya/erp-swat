@@ -283,10 +283,13 @@ model VarianteSKU {
   genero              String
   modelo              String
 
-  /// STUB Sprint futuro — Módulo H (Compras): se vinculará cada variante
-  /// a su proveedor habitual. Se deja opcional para no requerir migración
-  /// destructiva cuando se implemente el Módulo H.
-  proveedor_id String?
+  /// Proveedor habitual de esta variante (Módulo A + Módulo H). OBLIGATORIO:
+  /// se asigna individualmente por variante en el momento del alta (Matriz de
+  /// Variantes) y solo puede ser un `Proveedor` en estado `HOMOLOGADO` — la
+  /// regla la aplican `generarVariantesMatriz()` y `editarVarianteOperativa()`
+  /// en la capa de servicios. Módulo H ya está implementado; esto dejó de ser
+  /// un stub opcional.
+  proveedor_id String
 
   // --- Soft delete estricto ---
   is_active       Boolean   @default(true)
@@ -299,6 +302,7 @@ model VarianteSKU {
 
   // --- Relaciones ---
   producto_maestro    ProductoMaestro          @relation(fields: [producto_maestro_id], references: [id], onDelete: Restrict)
+  proveedor           Proveedor                @relation(fields: [proveedor_id], references: [id], onDelete: Restrict)
   stock_depositos     StockDeposito[]
   movimiento_items    MovimientoStockItem[]
   transferencia_items TransferenciaStockItem[]
@@ -311,6 +315,7 @@ model VarianteSKU {
   // --- Relación HU-A9 (Reclasificación de Devueltos) ---
   reclasificaciones_solicitudes ReclasificacionSolicitud[]
 
+  @@index([proveedor_id])
   @@map("variantes_sku")
 }
 
@@ -717,10 +722,11 @@ model Proveedor {
   updated_at DateTime @updatedAt
 
   // --- Relaciones ---
-  ordenes_compra OrdenCompra[]
-  evaluaciones   EvaluacionProveedor[]
-  listas_precio  ListaPrecio[]
-  comprobantes   ComprobanteProveedor[]
+  ordenes_compra       OrdenCompra[]
+  evaluaciones         EvaluacionProveedor[]
+  listas_precio        ListaPrecio[]
+  comprobantes         ComprobanteProveedor[]
+  variantes_habituales VarianteSKU[]
 
   @@index([estado, is_active])
   @@map("proveedores")

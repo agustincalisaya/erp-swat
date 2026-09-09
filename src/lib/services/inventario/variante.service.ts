@@ -332,7 +332,8 @@ export async function listarProductosMaestroParaFiltro(): Promise<
 // ──────────────────────────────────────────────────────────────────────────────
 
 /**
- * @throws {ServiceError} VARIANTE_NO_ENCONTRADA | PROVEEDOR_NO_ENCONTRADO | EAN_QR_DUPLICADO
+ * @throws {ServiceError} VARIANTE_NO_ENCONTRADA | PROVEEDOR_NO_ENCONTRADO |
+ *                        PROVEEDOR_NO_HOMOLOGADO | EAN_QR_DUPLICADO
  */
 export async function editarVarianteOperativa(
   varianteId: string,
@@ -353,12 +354,21 @@ export async function editarVarianteOperativa(
   }
 
   if (input.proveedor_id !== undefined) {
+    // El proveedor habitual de una variante debe existir, estar activo y ser
+    // HOMOLOGADO. La regla vive acá (capa de servicios) y no solo en el
+    // `<select>` de la UI: un PATCH directo por API no puede saltearla.
     const proveedor = await prisma.proveedor.findFirst({
       where: { id: input.proveedor_id, is_active: true },
-      select: { id: true },
+      select: { id: true, estado: true },
     });
     if (!proveedor) {
       throw new ServiceError("PROVEEDOR_NO_ENCONTRADO", `No se encontró un Proveedor activo con id ${input.proveedor_id}.`);
+    }
+    if (proveedor.estado !== "HOMOLOGADO") {
+      throw new ServiceError(
+        "PROVEEDOR_NO_HOMOLOGADO",
+        `El proveedor ${input.proveedor_id} no está HOMOLOGADO — solo un proveedor homologado puede ser proveedor habitual de una variante.`,
+      );
     }
   }
 

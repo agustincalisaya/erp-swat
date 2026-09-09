@@ -1,5 +1,10 @@
 import { z } from "zod";
 
+// Ruta relativa con extensión `.ts` explícita (no alias `@/`, no sin extensión)
+// a propósito: este schema lo importan como valor tests que corren con
+// `node --experimental-strip-types`, que no resuelve paths ni infiere extensión.
+import { claveCombinacionVariante } from "../utils/sku.ts";
+
 // ──────────────────────────────────────────────────────────────────────────────
 // HU-A1 — Alta de Producto Maestro y generación en lote de Variantes SKU
 // ──────────────────────────────────────────────────────────────────────────────
@@ -51,17 +56,49 @@ export type CrearProductoMaestroInput = z.infer<typeof CrearProductoMaestroSchem
  * el usuario escaneó/tipeó el código de fábrica de la unidad física antes de
  * confirmar el lote (HU-A1, rediseño del escaneo por variante). Un cliente
  * que no manda este campo obtiene el mismo comportamiento de siempre.
+ *
+ * `proveedor_por_combinacion` — a diferencia de `ean_por_combinacion` — es
+ * OBLIGATORIO y COMPLETO: cada `VarianteSKU` nace con un proveedor habitual
+ * (`VarianteSKU.proveedor_id` es NOT NULL) que se elige por fila en la Matriz
+ * de Variantes. Misma clave normalizada que `ean_por_combinacion`
+ * (`claveCombinacionVariante()`). El `.refine()` exige que TODAS las
+ * combinaciones del producto cartesiano `talles × colores × generos` tengan
+ * una entrada — no se admite omitir filas. La capa de servicio revalida que
+ * cada `proveedor_id` sea de un proveedor activo y HOMOLOGADO.
  */
-export const GenerarVariantesMatrizSchema = z.object({
-  producto_maestro_id: z.string().uuid(),
-  modelo: z.string().min(1).max(10),
-  talles: z.array(z.string().min(1)).min(1),
-  colores: z.array(z.string().min(1)).min(1),
-  generos: z.array(z.enum(["HOMBRE", "MUJER", "UNISEX"])).min(1),
-  ean_por_combinacion: z
-    .record(z.string(), z.string().regex(/^\d{13}$/, "EAN-13 debe tener 13 dígitos"))
-    .optional(),
-});
+export const GenerarVariantesMatrizSchema = z
+  .object({
+    producto_maestro_id: z.string().uuid(),
+    modelo: z.string().min(1).max(10),
+    talles: z.array(z.string().min(1)).min(1),
+    colores: z.array(z.string().min(1)).min(1),
+    generos: z.array(z.enum(["HOMBRE", "MUJER", "UNISEX"])).min(1),
+    ean_por_combinacion: z
+      .record(z.string(), z.string().regex(/^\d{13}$/, "EAN-13 debe tener 13 dígitos"))
+      .optional(),
+    proveedor_por_combinacion: z.record(
+      z.string(),
+      z.string().uuid("Debe seleccionar un proveedor habitual"),
+    ),
+  })
+  .refine(
+    (data) => {
+      for (const talle of data.talles) {
+        for (const color of data.colores) {
+          for (const genero of data.generos) {
+            const clave = claveCombinacionVariante({ talle, color, genero });
+            if (!data.proveedor_por_combinacion[clave]) return false;
+          }
+        }
+      }
+      return true;
+    },
+    {
+      message:
+        "Falta seleccionar el proveedor habitual para al menos una combinación generada",
+      path: ["proveedor_por_combinacion"],
+    },
+  );
 
 export type GenerarVariantesMatrizInput = z.infer<typeof GenerarVariantesMatrizSchema>;
 
