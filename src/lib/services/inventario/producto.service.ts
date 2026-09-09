@@ -274,8 +274,16 @@ export interface ResultadoGenerarVariantesMatriz {
  *
  * No requiere `StockDeposito` — eso lo crea HU-A2 al primer ingreso.
  *
+ * `proveedor_id` de cada variante se resuelve desde
+ * `input.proveedor_por_combinacion` (obligatorio y completo — lo garantiza el
+ * `.refine()` del schema) con la misma `claveCombinacionVariante()`. Antes del
+ * `createMany` se valida explícitamente que cada proveedor referenciado exista,
+ * esté activo y sea `HOMOLOGADO` (spec_modulo_A.md §3.7 — la capa de servicios
+ * valida, no se delega solo en la FK), para no dejar caer la constraint a un 500.
+ *
  * @throws {ServiceError} PRODUCTO_MAESTRO_NO_ENCONTRADO | PRODUCTO_MAESTRO_INACTIVO |
- *                        LIMITE_COMBINACIONES_EXCEDIDO
+ *                        LIMITE_COMBINACIONES_EXCEDIDO | PROVEEDOR_NO_ENCONTRADO |
+ *                        PROVEEDOR_NO_HOMOLOGADO
  */
 export async function generarVariantesMatriz(
   input: GenerarVariantesMatrizInput,
@@ -314,7 +322,40 @@ export async function generarVariantesMatriz(
     }
   }
 
+  // Validación explícita del proveedor habitual de cada combinación (spec §3.7):
+  // debe existir, estar activo y ser HOMOLOGADO. Se chequean solo los ids que
+  // efectivamente se van a usar (una consulta, no una por fila).
+  const proveedorIdPorClave = new Map(
+    combinaciones.map(({ talle, color, genero }) => {
+      const clave = claveCombinacionVariante({ talle, color, genero });
+      return [clave, input.proveedor_por_combinacion[clave]] as const;
+    }),
+  );
+  const proveedorIdsRequeridos = [...new Set(proveedorIdPorClave.values())];
+  const proveedores = await prisma.proveedor.findMany({
+    where: { id: { in: proveedorIdsRequeridos } },
+    select: { id: true, is_active: true, estado: true },
+  });
+  const proveedorPorId = new Map(proveedores.map((p) => [p.id, p]));
+
+  for (const proveedorId of proveedorIdsRequeridos) {
+    const proveedor = proveedorPorId.get(proveedorId);
+    if (!proveedor || !proveedor.is_active) {
+      throw new ServiceError(
+        "PROVEEDOR_NO_ENCONTRADO",
+        `No se encontró un Proveedor activo con id ${proveedorId}.`,
+      );
+    }
+    if (proveedor.estado !== "HOMOLOGADO") {
+      throw new ServiceError(
+        "PROVEEDOR_NO_HOMOLOGADO",
+        `El proveedor ${proveedorId} no está HOMOLOGADO — solo un proveedor homologado puede ser proveedor habitual de una variante.`,
+      );
+    }
+  }
+
   const variantesAInsertar = combinaciones.map(({ talle, color, genero }) => {
+    const clave = claveCombinacionVariante({ talle, color, genero });
     const sku = generarSku({
       codigoProducto: productoMaestro.codigo_producto,
       modelo: input.modelo,
@@ -322,10 +363,11 @@ export async function generarVariantesMatriz(
       codigoColor: color,
       genero,
     });
-    const eanEscaneado = input.ean_por_combinacion?.[claveCombinacionVariante({ talle, color, genero })];
+    const eanEscaneado = input.ean_por_combinacion?.[clave];
 
     return {
       producto_maestro_id: productoMaestro.id,
+      proveedor_id: input.proveedor_por_combinacion[clave],
       sku,
       ean_qr: eanEscaneado ?? null,
       talle: talle.trim().toUpperCase(),

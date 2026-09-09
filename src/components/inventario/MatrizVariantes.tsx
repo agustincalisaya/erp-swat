@@ -37,12 +37,16 @@
  * recalculan (mismo `sku`, misma key).
  */
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { X, Loader2, LayoutGrid, CheckCircle2, ScanLine } from "lucide-react";
 
 import { generarSku, claveCombinacionVariante, type Genero } from "@/lib/utils/sku";
-import { generarVariantesMatriz } from "@/app/(dashboard)/inventario/productos/actions";
+import {
+  generarVariantesMatriz,
+  listarProveedoresParaSelector,
+} from "@/app/(dashboard)/inventario/productos/actions";
 import type { ResultadoGenerarVariantesMatriz } from "@/lib/services/inventario/producto.service";
+import type { ProveedorParaSelector } from "@/lib/services/proveedores/orden-compra.service";
 import { CameraBarcodeScanner } from "@/components/inventario/escaner/CameraBarcodeScanner";
 import { SelectorTalles } from "@/components/inventario/SelectorTalles";
 
@@ -152,10 +156,34 @@ export function MatrizVariantes({
   // recálculo del cartesiano — agregar/sacar un talle o color no debe borrar
   // lo ya tipeado/escaneado en las filas que siguen existiendo.
   const [eanPorFila, setEanPorFila] = useState<Record<string, string>>({});
+  // Proveedor habitual por fila del preview, misma key que `eanPorFila`. A
+  // diferencia del EAN-13, es OBLIGATORIO: `VarianteSKU.proveedor_id` es NOT
+  // NULL y solo admite proveedores HOMOLOGADO.
+  const [proveedorPorFila, setProveedorPorFila] = useState<Record<string, string>>({});
+  // Lista de proveedores HOMOLOGADO para los <select> por fila. Se carga una
+  // vez al montar (Server Action `listarProveedoresParaSelector`).
+  const [proveedores, setProveedores] = useState<ProveedorParaSelector[]>([]);
+  const [cargandoProveedores, setCargandoProveedores] = useState(true);
   // Key de la fila que abrió la cámara — controla el Dialog compartido.
   // `null` = cámara cerrada. Una sola instancia de CameraBarcodeScanner en
   // todo el componente (ver docstring del módulo).
   const [filaEscaneoActiva, setFilaEscaneoActiva] = useState<string | null>(null);
+
+  useEffect(() => {
+    let vigente = true;
+    listarProveedoresParaSelector()
+      .then((res) => {
+        if (!vigente) return;
+        if (res.data) setProveedores(res.data);
+        else setServerError(res.error.message);
+      })
+      .finally(() => {
+        if (vigente) setCargandoProveedores(false);
+      });
+    return () => {
+      vigente = false;
+    };
+  }, []);
 
   // Producto cartesiano en el cliente — solo preview, la fuente de verdad
   // (idempotencia, límite de combinaciones) sigue siendo el servicio.
@@ -195,6 +223,11 @@ export function MatrizVariantes({
     const eanPorCombinacion = Object.fromEntries(
       Object.entries(eanPorFila).filter(([, ean]) => ean.trim().length > 0),
     );
+    // Solo las claves de las filas que existen hoy en el preview — evita
+    // mandar proveedores de combinaciones que se sacaron (talle/color quitado).
+    const proveedorPorCombinacion = Object.fromEntries(
+      filasPreview.map((fila) => [fila.key, proveedorPorFila[fila.key]]),
+    );
 
     startTransition(async () => {
       const respuesta = await generarVariantesMatriz(productoMaestroId, {
@@ -203,6 +236,7 @@ export function MatrizVariantes({
         colores,
         generos,
         ean_por_combinacion: eanPorCombinacion,
+        proveedor_por_combinacion: proveedorPorCombinacion,
       });
 
       if (respuesta.error) {
@@ -222,10 +256,15 @@ export function MatrizVariantes({
     setColores([]);
     setGeneros([]);
     setEanPorFila({});
+    setProveedorPorFila({});
     setFilaEscaneoActiva(null);
   }
 
-  const puedeConfirmar = filasPreview.length > 0 && !isPending;
+  const sinProveedoresHomologados = !cargandoProveedores && proveedores.length === 0;
+  const todasLasFilasConProveedor =
+    filasPreview.length > 0 && filasPreview.every((fila) => proveedorPorFila[fila.key]);
+  const puedeConfirmar =
+    filasPreview.length > 0 && !isPending && todasLasFilasConProveedor && !sinProveedoresHomologados;
 
   // ── Resultado ya confirmado ──────────────────────────────────────────────
   if (resultado) {
@@ -328,6 +367,15 @@ export function MatrizVariantes({
           </div>
         </div>
 
+        {sinProveedoresHomologados && (
+          <Alert variant="destructive">
+            <AlertDescription>
+              No hay proveedores en estado HOMOLOGADO. No es posible generar
+              variantes hasta que exista al menos uno.
+            </AlertDescription>
+          </Alert>
+        )}
+
         <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-2">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
             Preview — {filasPreview.length} SKU(s)
@@ -337,34 +385,62 @@ export function MatrizVariantes({
               Completá modelo, al menos un talle, un color y un género para ver el preview.
             </p>
           ) : (
-            <ul className="max-h-64 overflow-y-auto space-y-1">
+            <ul className="max-h-72 overflow-y-auto space-y-2">
               {filasPreview.map((fila) => (
-                <li key={fila.key} className="flex items-center gap-2">
-                  <span className="flex-1 truncate font-mono text-sm">{fila.sku}</span>
-                  <Input
-                    value={eanPorFila[fila.key] ?? ""}
-                    onChange={(e) =>
-                      setEanPorFila((prev) => ({ ...prev, [fila.key]: e.target.value }))
-                    }
-                    placeholder="EAN-13 (opcional)"
-                    inputMode="numeric"
-                    maxLength={13}
-                    autoComplete="off"
-                    className="h-8 w-36 font-mono text-xs"
-                    aria-label={`EAN-13 para ${fila.sku}`}
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon-sm"
-                    onClick={() => setFilaEscaneoActiva(fila.key)}
-                    aria-label={`Escanear EAN-13 para ${fila.sku}`}
-                  >
-                    <ScanLine className="size-4" aria-hidden="true" />
-                  </Button>
+                <li
+                  key={fila.key}
+                  className="flex flex-col gap-1.5 rounded-md border border-slate-200 bg-white p-2"
+                >
+                  <span className="truncate font-mono text-sm">{fila.sku}</span>
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={proveedorPorFila[fila.key] ?? ""}
+                      onChange={(e) =>
+                        setProveedorPorFila((prev) => ({ ...prev, [fila.key]: e.target.value }))
+                      }
+                      disabled={cargandoProveedores || sinProveedoresHomologados}
+                      className="h-8 flex-1 rounded-md border border-input bg-background px-2 text-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
+                      aria-label={`Proveedor habitual para ${fila.sku}`}
+                    >
+                      <option value="" disabled>
+                        {cargandoProveedores ? "Cargando proveedores…" : "Elegí un proveedor…"}
+                      </option>
+                      {proveedores.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.nombre_fantasia ?? p.razon_social}
+                        </option>
+                      ))}
+                    </select>
+                    <Input
+                      value={eanPorFila[fila.key] ?? ""}
+                      onChange={(e) =>
+                        setEanPorFila((prev) => ({ ...prev, [fila.key]: e.target.value }))
+                      }
+                      placeholder="EAN-13 (opcional)"
+                      inputMode="numeric"
+                      maxLength={13}
+                      autoComplete="off"
+                      className="h-8 w-36 font-mono text-xs"
+                      aria-label={`EAN-13 para ${fila.sku}`}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon-sm"
+                      onClick={() => setFilaEscaneoActiva(fila.key)}
+                      aria-label={`Escanear EAN-13 para ${fila.sku}`}
+                    >
+                      <ScanLine className="size-4" aria-hidden="true" />
+                    </Button>
+                  </div>
                 </li>
               ))}
             </ul>
+          )}
+          {filasPreview.length > 0 && !todasLasFilasConProveedor && !sinProveedoresHomologados && (
+            <p className="text-xs text-amber-700">
+              Seleccioná el proveedor habitual de cada fila para poder generar.
+            </p>
           )}
         </div>
 

@@ -42,7 +42,10 @@ import {
 import {
   editarVarianteOperativaAction,
 } from "@/app/(dashboard)/inventario/variantes/actions";
+import { listarProveedoresParaSelector } from "@/app/(dashboard)/inventario/productos/actions";
 import type { VarianteParaEdicion } from "@/lib/services/inventario/variante.service";
+import type { ProveedorParaSelector } from "@/lib/services/proveedores/orden-compra.service";
+import { ComboboxFiltrable } from "@/components/inventario/ComboboxFiltrable";
 
 import {
   Form,
@@ -92,9 +95,25 @@ export function FormularioEditarVariante({
 }: FormularioEditarVarianteProps) {
   const [serverError, setServerError] = useState<string | null>(null);
   const [exito, setExito] = useState(false);
+  const [proveedores, setProveedores] = useState<ProveedorParaSelector[]>([]);
+  const [cargandoProveedores, setCargandoProveedores] = useState(true);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const valoresOriginales = valoresIniciales(variante);
+
+  useEffect(() => {
+    let vigente = true;
+    listarProveedoresParaSelector()
+      .then((res) => {
+        if (vigente && res.data) setProveedores(res.data);
+      })
+      .finally(() => {
+        if (vigente) setCargandoProveedores(false);
+      });
+    return () => {
+      vigente = false;
+    };
+  }, []);
 
   const form = useForm<EditarVarianteOperativaInput>({
     resolver: zodResolver(EditarVarianteOperativaSchema) as unknown as Resolver<EditarVarianteOperativaInput>,
@@ -205,24 +224,39 @@ export function FormularioEditarVariante({
         <FormField
           control={form.control}
           name="proveedor_id"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Proveedor</FormLabel>
-              <FormControl>
-                <Input
-                  {...field}
-                  value={field.value ?? ""}
-                  onChange={(e) => field.onChange(e.target.value === "" ? undefined : e.target.value)}
-                  placeholder="UUID del proveedor (opcional)"
-                  autoComplete="off"
-                />
-              </FormControl>
-              <FormDescription>
-                Debe ser el id de un Proveedor activo.
-              </FormDescription>
-              <FormMessage />
-            </FormItem>
-          )}
+          render={({ field }) => {
+            const seleccionEnLista =
+              !field.value || proveedores.some((p) => p.id === field.value);
+            return (
+              <FormItem>
+                <FormLabel>Proveedor habitual</FormLabel>
+                <FormControl>
+                  <ComboboxFiltrable<ProveedorParaSelector>
+                    items={proveedores}
+                    getId={(p) => p.id}
+                    getLabel={(p) => p.nombre_fantasia ?? p.razon_social}
+                    value={field.value ?? ""}
+                    onChange={(p) => field.onChange(p.id)}
+                    placeholder="Buscar proveedor homologado…"
+                    cargando={cargandoProveedores}
+                    cargandoLabel="Cargando proveedores…"
+                    emptyMessage="No hay proveedores homologados."
+                  />
+                </FormControl>
+                <FormDescription>
+                  Solo proveedores en estado HOMOLOGADO. Dejalo sin tocar para
+                  mantener el actual.
+                  {!cargandoProveedores && !seleccionEnLista && (
+                    <span className="block text-amber-700">
+                      El proveedor actual ya no está homologado — elegí uno
+                      homologado para reasignarlo.
+                    </span>
+                  )}
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            );
+          }}
         />
 
         <div className="flex justify-end pt-2 border-t border-slate-100">

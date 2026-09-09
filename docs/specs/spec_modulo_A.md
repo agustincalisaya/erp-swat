@@ -44,53 +44,75 @@ El módulo no ejecuta jamás sentencias `DELETE` (Regla N.° 1 de `RULES.md`): t
 
 ### 2.1. Alta de Producto Maestro y generación en lote de Variantes SKU
 
-**Ruta:** `POST /app/api/inventario/productos/route.ts`
-**Server Action equivalente:** `crearProductoConVariantes()` en `app/(dashboard)/inventario/productos/actions.ts`
+> **Nota de sincronización con el código (task_proveedor_obligatorio_variante_sku).**
+> El flujo real es de **dos pasos**, no uno. Los schemas `VarianteInputSchema` /
+> `CrearProductoConVariantesSchema` que figuraban aquí **no existen en el
+> código** — eran una versión conceptual anterior. Además `ean_qr` **no** es
+> requerido: es opcional y se completa por combinación cuando se conoce el
+> EAN-13 físico. Esta sección refleja la implementación vigente.
+
+**Paso 1 — Alta del Producto Maestro**
+**Ruta:** `POST /app/api/inventario/productos`
+**Server Action:** `crearProductoMaestro()` en `app/(dashboard)/inventario/productos/actions.ts`
+Schema real: `CrearProductoMaestroSchema` (`lib/schemas/inventario.schema.ts`) —
+`codigo_producto`, `nombre`, `rubro`, `categoria`, `unidad_medida?`,
+`descripcion?`, `proveedor_preferente?`, `costo_estandar_referencia`. **No**
+recibe variantes.
+
+**Paso 2 — Generación en lote de Variantes SKU**
+**Ruta:** `POST /app/api/inventario/productos/[id]/variantes/generar`
+**Server Action:** `generarVariantesMatriz(productoMaestroId, formData)`
 
 ```typescript
 // lib/schemas/inventario.schema.ts
-import { z } from "zod";
-
-export const VarianteInputSchema = z.object({
-  talle: z.string().min(1),
-  color: z.string().min(1),
-  genero: z.string().min(1),
-  modelo: z.string().min(1),
-  ean_qr: z.string().length(13, "EAN-13 debe tener 13 dígitos"),
-});
-
-export const CrearProductoConVariantesSchema = z.object({
-  nombre: z.string().min(2),
-  rubro: z.string().min(1),
-  categoria: z.string().min(1),
-  unidad_medida: z.enum(["UNIDAD", "PAR", "KG"]),
-  descripcion: z.string().optional(),
-  proveedor_preferente: z.string().optional(),
-  costo_estandar_referencia: z.number().positive(),
-  variantes: z.array(VarianteInputSchema).min(1, "Debe generarse al menos una variante"),
-});
-
-export type CrearProductoConVariantesInput = z.infer<typeof CrearProductoConVariantesSchema>;
+export const GenerarVariantesMatrizSchema = z
+  .object({
+    producto_maestro_id: z.string().uuid(),
+    modelo: z.string().min(1).max(10),
+    talles: z.array(z.string().min(1)).min(1),
+    colores: z.array(z.string().min(1)).min(1),
+    generos: z.array(z.enum(["HOMBRE", "MUJER", "UNISEX"])).min(1),
+    // Override OPCIONAL y parcial: mapa "TALLE|COLOR|GENERO" → EAN-13 real,
+    // solo para las combinaciones cuyo código físico ya se escaneó/tipeó.
+    ean_por_combinacion: z
+      .record(z.string(), z.string().regex(/^\d{13}$/, "EAN-13 debe tener 13 dígitos"))
+      .optional(),
+    // OBLIGATORIO y COMPLETO (a diferencia de ean_por_combinacion): cada
+    // VarianteSKU nace con su proveedor habitual (VarianteSKU.proveedor_id es
+    // NOT NULL). Misma clave normalizada. El .refine() exige una entrada por
+    // cada combinación del cartesiano talles × colores × generos.
+    proveedor_por_combinacion: z.record(
+      z.string(),
+      z.string().uuid("Debe seleccionar un proveedor habitual"),
+    ),
+  })
+  .refine(/* toda combinación generada tiene entrada en proveedor_por_combinacion */);
 ```
 
 **Comportamiento esperado:**
-- El `sku` de cada `VarianteSKU` **no** se recibe del cliente: se calcula server-side siguiendo la regla determinística `[PRODUCTO]-[MODELO]-[TALLE]-[COLOR]-[GENERO]` (normalizado a mayúsculas, sin espacios).
-- La creación del `ProductoMaestro` y sus N `VarianteSKU` es atómica (`prisma.$transaction`).
+- El `sku` de cada `VarianteSKU` se calcula server-side con la regla determinística `[PRODUCTO]-[MODELO]-[TALLE]-[COLOR]-[GENERO]` (`generarSku()`).
+- `ean_qr` queda `NULL` salvo que venga en `ean_por_combinacion`.
+- `proveedor_id` se resuelve por combinación desde `proveedor_por_combinacion`. La capa de servicio valida explícitamente que **cada** proveedor referenciado exista, esté `is_active` y tenga `estado = HOMOLOGADO` — antes del `createMany`, sin delegar solo en la FK.
+- Inserción en lote con `skipDuplicates` (idempotencia ante SKUs ya existentes).
 
 **Respuesta `201 Created`:**
 ```json
 {
   "data": {
-    "producto_maestro_id": "uuid",
-    "variantes_creadas": [
-      { "id": "uuid", "sku": "CAMISA-TACTICA-M-VERDE-MASCULINO", "ean_qr": "7791234567890" }
-    ]
+    "variantes_creadas": 4,
+    "variantes_omitidas_duplicadas": 0,
+    "variantes": [{ "id": "uuid", "sku": "CAMTAC-MANGALARGA-M-VERDE-HOMBRE", "ean_qr": null }]
   },
   "error": null
 }
 ```
 
-**Errores esperados:** `409 Conflict` si algún `sku` o `ean_qr` colisiona con un registro `is_active = true` existente.
+**Errores esperados:**
+- `400 VALIDATION_ERROR` — `proveedor_por_combinacion` incompleto (falta alguna combinación) o cualquier otro fallo de Zod.
+- `404 PRODUCTO_MAESTRO_NO_ENCONTRADO` — producto maestro inexistente/inactivo.
+- `404 PROVEEDOR_NO_ENCONTRADO` — algún `proveedor_id` no existe o está inactivo.
+- `422 PROVEEDOR_NO_HOMOLOGADO` — algún `proveedor_id` existe y está activo pero no es `HOMOLOGADO`.
+- `400 LIMITE_COMBINACIONES_EXCEDIDO` — la matriz supera el tope de 200 combinaciones por invocación.
 
 ---
 
@@ -352,14 +374,24 @@ export const EditarProductoMaestroSchema = z.object({
 
 ```typescript
 export const EditarVarianteOperativaSchema = z.object({
-  ean_qr: z.string().length(13).optional(), // permitido: completar EAN pendiente (ver comentario schema.prisma)
-  proveedor_id: z.string().uuid().optional(),
+  ean_qr: z.string().regex(/^\d{13}$/).optional(), // permitido: completar EAN pendiente (ver comentario schema.prisma)
+  proveedor_id: z.string().uuid().optional(),      // reasignar el proveedor habitual
 }).strict();
 // Campos deliberadamente ausentes de este schema: talle, color, genero, modelo, sku.
 // Su omisión no es un descuido: es la garantía de inmutabilidad a nivel de contrato Zod.
 // Un intento de enviar cualquiera de estos campos es rechazado por `.strict()` con 400,
 // sin necesidad de lógica condicional adicional en la capa de servicios.
 ```
+
+**`proveedor_id` en la edición (task_proveedor_obligatorio_variante_sku):**
+El campo es opcional **de omitir** en el PATCH (edición parcial), pero si se
+envía debe ser un UUID de un `Proveedor` que exista, esté `is_active` y tenga
+`estado = HOMOLOGADO`. La regla la aplica la capa de servicios
+(`editarVarianteOperativa()` en `variante.service.ts`), no solo el `<select>`
+de la UI — un PATCH directo por API con un proveedor PENDIENTE/SUSPENDIDO se
+rechaza con `422 PROVEEDOR_NO_HOMOLOGADO` (o `404 PROVEEDOR_NO_ENCONTRADO` si
+no existe / está inactivo). No se puede dejar `proveedor_id` en `null` desde
+este endpoint (la columna es `NOT NULL` desde el alta).
 
 **Comportamiento esperado:**
 - Ambos endpoints ejecutan un `UPDATE` directo (no requieren `$transaction` multi-tabla salvo el caso de cambio de `costo_estandar_referencia`, ver punto siguiente).
