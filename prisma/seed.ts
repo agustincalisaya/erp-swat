@@ -191,6 +191,10 @@ const EVALUACION_PROVEEDOR_SEED_ID = "1a2b3c4d-aaaa-4a1a-8a1a-000000000001";
 // una OC por toda la máquina de estados de H3/H4.
 const ORDEN_COMPRA_RECIBIDA_ID = "1a2b3c4d-7777-4a1a-8a1a-000000000002";
 const ORDEN_COMPRA_RECIBIDA_ITEM_ID = "1a2b3c4d-7778-4a1a-8a1a-000000000003";
+// HU-H4 V2 — OC independiente, sin recepciones, para probar manualmente el
+// único control físico operativo sin reutilizar los fixtures de H5/G8/H9.
+const ORDEN_COMPRA_H4_V2_MANUAL_ID = "1b3c4d5e-7777-4a1a-8a1a-000000000003";
+const ORDEN_COMPRA_H4_V2_MANUAL_ITEM_ID = "192b3c4d-7778-4a1a-8a1a-000000000004";
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Helpers — Fechas
@@ -1533,24 +1537,27 @@ async function main() {
     });
   }
 
-  // ── Módulo H — Orden de Compra confirmada (HU-H3) ──────────────────────────
+  // ── Módulo H — Orden de Compra controlada (HU-H4 V2) ───────────────────────
   //
-  // Estado CONFIRMADA: destraba a Emir/HU-H4 sin esperar que Tomás tenga el
-  // wizard de creación de OC funcionando de punta a punta. Dos ítems, contra
-  // variantes de Camisa Táctica y Borcegos que ya existen en el seed de
-  // Módulo A.
+  // El fixture compartido con H5/G8 representa un único control ya finalizado:
+  // H4 V2 deja la OC en RECIBIDA_COMPLETA aunque alguna línea no haya llegado.
 
   const ordenCompraConfirmada = await prisma.ordenCompra.upsert({
     where: { id: ORDEN_COMPRA_CONFIRMADA_ID },
-    update: {},
+    update: {
+      estado: "RECIBIDA_COMPLETA",
+      observaciones: "OC controlada — fixture HU-H4 V2",
+      is_active: true,
+      deleted_at: null,
+    },
     create: {
       id: ORDEN_COMPRA_CONFIRMADA_ID,
       numero_orden: "OC-2026-0001",
       proveedor_id: proveedorHomologado.id,
-      estado: "CONFIRMADA",
+      estado: "RECIBIDA_COMPLETA",
       fecha_envio: diasAtras(5),
       fecha_confirmacion: diasAtras(4),
-      observaciones: "OC de prueba — seed Sprint 2",
+      observaciones: "OC controlada — fixture HU-H4 V2",
       creada_por_id: usuarioComprador.id,
       is_active: true,
     },
@@ -1569,7 +1576,7 @@ async function main() {
     },
   });
 
-  const ordenCompraItem2 = await prisma.ordenCompraItem.upsert({
+  await prisma.ordenCompraItem.upsert({
     where: { id: ORDEN_COMPRA_ITEM_2_ID },
     update: {},
     create: {
@@ -1584,9 +1591,9 @@ async function main() {
 
   // ── Módulo H — Recepción con discrepancia (HU-H4) ──────────────────────────
   //
-  // Recepción parcial del ítem de Camisa Táctica (18 de 20 solicitadas, con
-  // una discrepancia de CANTIDAD documentada). Destraba a Adriel/HU-H5 sin
-  // esperar que Emir tenga la lógica real de recepción funcionando.
+  // Control único del ítem de Camisa Táctica (18 de 20 solicitadas, con una
+  // discrepancia de CANTIDAD). La línea de Borcegos no llegó y se omite, sin
+  // RecepcionItem en cero ni saldo funcional. El ID se conserva para H5/G8.
 
   const recepcionSeed = await prisma.recepcion.upsert({
     where: { id: RECEPCION_SEED_ID },
@@ -1594,6 +1601,9 @@ async function main() {
       deposito_destino_id: deposito.id,
       clave_idempotencia: RECEPCION_SEED_ID,
       payload_hash: "ceda5427d257e5ac7cc0c2c486c0d9ad0aea836f3779a16f01d087abd542cbb3",
+      observaciones: "Control finalizado HU-H4 V2 — la línea de Borcegos no llegó",
+      is_active: true,
+      deleted_at: null,
     },
     create: {
       id: RECEPCION_SEED_ID,
@@ -1605,7 +1615,7 @@ async function main() {
       numero_remito_proveedor: "REM-0001-00012345",
       fecha_recepcion: diasAtras(2),
       recibida_por_id: usuarioEncargado.id,
-      observaciones: "Recepción parcial — seed Sprint 2",
+      observaciones: "Control finalizado HU-H4 V2 — la línea de Borcegos no llegó",
       is_active: true,
     },
   });
@@ -1640,8 +1650,8 @@ async function main() {
   // Nace en PROVISORIO al enviarse la OC (ver decisión de diseño reportada
   // por Claude Code: "aprobarse la OC" se interpreta como el paso a ENVIADA
   // hasta que el equipo defina si hace falta un estado de aprobación
-  // separado). Todavía sin recepcion_id definitivo porque la recepción de
-  // arriba es parcial, no total.
+  // separado). Permanece PROVISORIO hasta que H3 cierre la OC; recién entonces
+  // G8 recalcula el monto definitivo sobre la cantidad aceptada.
 
   await prisma.cuentaPorPagar.upsert({
     where: { id: CUENTA_POR_PAGAR_PROVISORIA_ID },
@@ -1688,6 +1698,44 @@ async function main() {
       variante_sku_id: VARIANTE_BORCEGOS_1_ID,
       cantidad_solicitada: 8,
       precio_unitario: 42000.0,
+      is_active: true,
+    },
+  });
+
+  // ── HU-H4 V2 — OC CONFIRMADA exclusiva para prueba manual ─────────────────
+  // No comparte recepciones, evaluaciones ni CxP con los fixtures de H5/G8/H9.
+  // Una reejecución no revierte su estado si ya fue recibida; los tests de
+  // integración crean sus propias OC aisladas.
+  const ordenCompraH4V2Manual = await prisma.ordenCompra.upsert({
+    where: { id: ORDEN_COMPRA_H4_V2_MANUAL_ID },
+    update: {},
+    create: {
+      id: ORDEN_COMPRA_H4_V2_MANUAL_ID,
+      numero_orden: "OC-2026-0003",
+      proveedor_id: proveedorHomologado.id,
+      estado: "CONFIRMADA",
+      fecha_envio: diasAtras(2),
+      fecha_confirmacion: diasAtras(1),
+      observaciones: "OC exclusiva para prueba manual HU-H4 V2",
+      creada_por_id: usuarioComprador.id,
+      is_active: true,
+    },
+  });
+
+  await prisma.ordenCompraItem.upsert({
+    where: { id: ORDEN_COMPRA_H4_V2_MANUAL_ITEM_ID },
+    update: {
+      cantidad_solicitada: 10,
+      precio_unitario: 15800.0,
+      is_active: true,
+      deleted_at: null,
+    },
+    create: {
+      id: ORDEN_COMPRA_H4_V2_MANUAL_ITEM_ID,
+      orden_compra_id: ordenCompraH4V2Manual.id,
+      variante_sku_id: VARIANTE_CAMISA_TACTICA_1_ID,
+      cantidad_solicitada: 10,
+      precio_unitario: 15800.0,
       is_active: true,
     },
   });
@@ -1846,6 +1894,8 @@ async function main() {
     orden_compra_numero: ordenCompraConfirmada.numero_orden,
     orden_compra_recibida_id: ordenCompraRecibida.id,
     orden_compra_recibida_numero: ordenCompraRecibida.numero_orden,
+    orden_compra_h4_v2_manual_id: ordenCompraH4V2Manual.id,
+    orden_compra_h4_v2_manual_numero: ordenCompraH4V2Manual.numero_orden,
     permiso_comprobantes_crear_id: permisoComprobantesCrear.id,
     permiso_comprobantes_leer_id: permisoComprobantesLeer.id,
     permiso_comprobantes_anular_id: permisoComprobantesAnular.id,
