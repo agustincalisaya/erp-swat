@@ -278,6 +278,24 @@ Ninguna sección implementa hashing propio. Todas las transiciones emiten `cuent
 ### 3.5. Idempotencia de listeners
 Cada rama es idempotente: la rama de creación verifica un `PROVISORIO` activo previo; las ramas de actualización usan `updateMany` guardado por `estado` y tratan `count === 0` como no-op (retornan `null`), no como error. `iniciarCuentaPorPagarListener()` tiene guarda de registro único (`let registrado = false`).
 
+#### 3.5.1. Asimetría de guardas de `estado_anterior` entre las 3 ramas — intencional
+
+Solo `consolidarCuentaPorPagarDefinitiva` (2.2) lleva una guarda explícita de `estado_anterior` (`if (payload.estado_anterior !== "RECIBIDA_COMPLETA") return null`, `cuenta-por-pagar.service.ts:316`). `generarCuentaPorPagarProvisoria` (2.1) y `cancelarCuentaPorPagar` (2.3) **no la tienen, y es correcto que no la tengan** — no es un olvido.
+
+El criterio es *qué pasa si la rama se dispara desde un estado no esperado* (por un cambio futuro en la máquina de estados de Módulo H, que HU-G8 no controla):
+
+| Rama | Se defiende por | Si se dispara desde un estado "equivocado" |
+|---|---|---|
+| `generar` (2.1) | **Existencia**: `if (existente PROVISORIO) return null` | Crea un `PROVISORIO` sobre `Σ cantidad_solicitada`, o no-op si ya hay uno. Una OC que sale de `BORRADOR` *debe* tener compromiso provisorio → **sin resultado incorrecto**. |
+| `consolidar` (2.2) | **Estado**: `estado_anterior === "RECIBIDA_COMPLETA"` | Recalcula el monto con `calcularMontoDesdeRecepcion`, que suma `RecepcionItem.cantidad_aceptada` sobre las `Recepcion` de la orden. Disparada desde, p. ej., un hipotético `CONFIRMADA → CERRADA` (cierre sin recepción), sumaría **sobre cero filas** → **`DEFINITIVA` con `monto: 0.00`**: una deuda finalizada de $0 para una orden nunca recibida. **Resultado de negocio incorrecto** → por eso lleva la guarda de estado. |
+| `cancelar` (2.3) | **Inexistencia**: `if (!provisoria) return null`, y el `updateMany` filtra por `estado: "PROVISORIO"` | Cancela el `PROVISORIO` si existe. Si la OC se cancela, su compromiso *debe* morir; el filtro por `PROVISORIO` impide tocar una `DEFINITIVA`/`PAGADA` → **sin resultado incorrecto**. |
+
+`consolidar` es la única rama donde dispararse desde el estado equivocado **escribe un dato incorrecto** en vez de hacer un no-op. Los gates por existencia/inexistencia de un `PROVISORIO` activo de las otras dos son, además, más robustos que una guarda de estado para lo que esas ramas hacen: cubren también los reintentos del bus (una guarda de `estado_anterior` no).
+
+Agregar una guarda simétrica `estado_anterior !== "BORRADOR"` a `generar` fue **evaluado y descartado** (decisión del 09/09/2026): no previene ningún resultado incorrecto, su hazard real (`PROVISORIO` duplicado) ya lo cubre la idempotencia, y podría inducir a un lector futuro a asumir una razón semántica que no existe.
+
+> **Sobre `orden-compra.service.ts:72-77` (`const TRANSICIONES`):** hoy tanto `ENVIAR` (`origenes: ["BORRADOR"]`) como `CERRAR` (`origenes: ["RECIBIDA_COMPLETA"]`) tienen **un único origen**, validado por `cambiarEstadoOrdenCompra` antes de emitir el evento. La guarda de `consolidar` es por eso *redundante hoy* contra la máquina de estados actual (lo dice su propio comentario) — se mantiene como blindaje del contrato entre módulos porque su ausencia habilitaría un write incorrecto ante un cambio en Módulo H; la de `generar` no aportaría esa protección.
+
 ### 3.6. Fallo del listener — sin conciliación en este slice
 El evento `orden_compra:estado_cambiado` es post-commit fire-and-forget: si `generarCuentaPorPagarProvisoria` falla, la OC ya está `ENVIADA` y no hay `CuentaPorPagar`. **No hay job de conciliación en HU-G8.** La recuperación es replay manual, guiado por el `console.error` (que debe incluir `orden_compra_id`). Detectar OC en `ENVIADA` sin `CuentaPorPagar` asociada es el lugar natural de HU-G7. Cada rama del listener envuelve `servicio + emit` en un `try/catch` que loguea y **nunca relanza** hacia el bus.
 
