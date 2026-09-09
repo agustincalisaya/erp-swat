@@ -7,9 +7,8 @@
  * directamente (sin fetch HTTP) y delega los filtros interactivos a
  * `TablaOrdenesCompra` (Client Component sincronizado con la URL).
  *
- * Gate de acceso: `ordenes_compra:crear` (decisión para esta pantalla —
- * split Comprador/Supervisor de Compras se aplica en la tarea de permisos
- * finales, donde el rol Supervisor todavía debe crearse en el seed).
+ * Gate de acceso: `ordenes_compra:leer` (Alcance §5 — permiso de lectura
+ * separado de `crear`). Lo tienen Comprador, Supervisor de Compras y Auditor.
  */
 
 import { Suspense } from "react";
@@ -22,7 +21,7 @@ import { usuarioTienePermiso } from "@/lib/auth/with-permission";
 import {
   listarOrdenesCompra,
   listarProveedoresHomologados,
-  PERMISO_CREAR_ORDEN_COMPRA,
+  PERMISO_LEER_ORDEN_COMPRA,
 } from "@/lib/services/proveedores/orden-compra.service";
 import { FiltrosListadoOrdenesCompraSchema } from "@/lib/schemas/ordenes-compra.schema";
 import { TablaOrdenesCompra } from "@/components/compras/TablaOrdenesCompra";
@@ -97,7 +96,7 @@ export default async function OrdenesCompraPage({
 
   const autorizado = await usuarioTienePermiso(
     session.userId,
-    PERMISO_CREAR_ORDEN_COMPRA,
+    PERMISO_LEER_ORDEN_COMPRA,
   );
   if (!autorizado) redirect("/no-autorizado");
 

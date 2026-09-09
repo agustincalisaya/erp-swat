@@ -47,6 +47,7 @@ import {
   obtenerOrdenCompra,
   obtenerHistorialOrdenCompra,
   listarVariantesParaOrden,
+  PERMISO_LEER_ORDEN_COMPRA,
   PERMISO_POR_ACCION_ORDEN_COMPRA,
 } from "@/lib/services/proveedores/orden-compra.service";
 import { EstadoOrdenCompraBadge } from "@/components/compras/EstadoOrdenCompraBadge";
@@ -126,8 +127,8 @@ export default async function DetalleOrdenCompraPage({
 
   const autorizado = await usuarioTienePermiso(
     session.userId,
-    // Gate de lectura del módulo — misma decisión que el listado.
-    "ordenes_compra:crear",
+    // Gate de lectura del módulo (Alcance §5) — mismo permiso que el listado.
+    PERMISO_LEER_ORDEN_COMPRA,
   );
   if (!autorizado) redirect("/no-autorizado");
 

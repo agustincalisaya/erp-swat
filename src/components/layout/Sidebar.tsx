@@ -106,11 +106,10 @@ const SECCIONES: SeccionConfig[] = [
     label: "Compras",
     icon: ShoppingCart,
     items: [
-      // Gate por `ordenes_compra:crear` para esta pantalla — el split
-      // Comprador/Supervisor de Compras (Alcance §2.1 / §5) se aplica en la
-      // tarea de permisos finales; el rol Supervisor todavía no existe en el
-      // seed. El botón "Enviar" del detalle se gateará ahí por
-      // `ordenes_compra:enviar`.
+      // Gate por `ordenes_compra:leer` (Alcance §5) — permiso de lectura
+      // separado de `crear`. Lo tienen Comprador, Supervisor de Compras y
+      // Auditor. Las acciones de transición (enviar/confirmar/cerrar/cancelar)
+      // se gatean por sus permisos granulares en el detalle.
       {
         label: "Proveedores",
         href: "/compras/proveedores",
@@ -120,7 +119,7 @@ const SECCIONES: SeccionConfig[] = [
         label: "Órdenes de Compra",
         href: "/compras/ordenes",
         icon: ClipboardList,
-        permiso: "ordenes_compra:crear",
+        permiso: "ordenes_compra:leer",
       },
       {
         label: "Recepción de Mercadería",

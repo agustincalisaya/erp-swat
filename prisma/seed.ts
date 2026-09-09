@@ -134,6 +134,12 @@ const PERMISO_OC_ENVIAR_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000006";
 const PERMISO_OC_CONFIRMAR_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000007";
 const PERMISO_OC_CERRAR_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000008";
 const PERMISO_OC_CANCELAR_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000009";
+// Permiso de lectura separado (Alcance Funcional §5, fila "Consultar el
+// historial de precios y órdenes de un proveedor"). Antes las pantallas de
+// listado/detalle usaban `ordenes_compra:crear` como gate de lectura, lo que
+// dejaba fuera a roles de solo lectura (Auditor). Mismo patrón que
+// `proveedores:leer` (HU-H1). Siguiente UUID libre del namespace: 020.
+const PERMISO_OC_LEER_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000020";
 
 // HU-H1 — permisos granulares de Proveedor (spec_modulo_H.md §2.1/§2.2: un
 // permiso independiente por acción, NO un único `proveedores:administrar`).
@@ -1127,6 +1133,7 @@ async function main() {
         [PERMISO_OC_CONFIRMAR_ID, "ordenes_compra:confirmar", "Confirmar una orden ENVIADA → CONFIRMADA con fecha de entrega (HU-H3 §2.5)"],
         [PERMISO_OC_CERRAR_ID, "ordenes_compra:cerrar", "Cerrar una orden RECIBIDA_COMPLETA → CERRADA (HU-H3 §2.5)"],
         [PERMISO_OC_CANCELAR_ID, "ordenes_compra:cancelar", "Cancelar (baja lógica) una orden BORRADOR/ENVIADA (HU-H3 §2.5)"],
+        [PERMISO_OC_LEER_ID, "ordenes_compra:leer", "Consultar el listado y el detalle de órdenes de compra (Alcance §5 — acceso de lectura, separado de crear)"],
       ] as const
     ).map(([id, codigo, descripcion]) =>
       prisma.permiso.upsert({
@@ -1142,6 +1149,7 @@ async function main() {
     permisoOcConfirmar,
     permisoOcCerrar,
     permisoOcCancelar,
+    permisoOcLeer,
   ] = permisosOrdenCompra;
 
   // ── Rol Supervisor de Compras (Alcance Funcional §2.1 / §5) ───────────────
@@ -1167,6 +1175,11 @@ async function main() {
   //   - ordenes_compra:cerrar    → Comprador Y Supervisor (conciliación administrativa)
   //   - ordenes_compra:cancelar  → SOLO Supervisor de Compras (revertir una orden
   //                                impacta la negociación — mismo criterio que enviar)
+  //   - ordenes_compra:leer      → Comprador Y Supervisor (directo, Alcance §5). El
+  //                                Auditor lo recibe aparte (bloque de más abajo).
+  //                                Personal de Depósito NO: su fila es "△ solicita"
+  //                                y su consulta puntual la cubre el flujo de
+  //                                recepción (HU-H4), igual que `proveedores:leer`.
   const permisosComprador = [
     permisoProveedoresCrear,
     permisoProveedoresEditar,
@@ -1175,6 +1188,7 @@ async function main() {
     permisoOcCrear,
     permisoOcConfirmar,
     permisoOcCerrar,
+    permisoOcLeer,
     // HU-H9: el Comprador registra y consulta comprobantes, pero NO los anula.
     permisoComprobantesCrear,
     permisoComprobantesLeer,
@@ -1190,6 +1204,7 @@ async function main() {
     permisoOcConfirmar,
     permisoOcCerrar,
     permisoOcCancelar,
+    permisoOcLeer,
     // HU-H9: el Supervisor de Compras registra, consulta y es el ÚNICO que anula.
     permisoComprobantesCrear,
     permisoComprobantesLeer,
@@ -1308,6 +1323,25 @@ async function main() {
     },
     update: REACTIVAR_REFERENCIA_RBAC,
     create: { rol_id: rolAuditor.id, permiso_id: permisoComprobantesLeer.id },
+  });
+
+  // ── HU-H3 (consistencia) — ordenes_compra:leer → también AUDITOR ──────────
+  // Alcance §5, fila "Consultar el historial de precios y órdenes de un
+  // proveedor": el Auditor tiene acceso de lectura directo (✓). Comprador y
+  // Supervisor de Compras ya lo reciben vía `permisosComprador` /
+  // `permisosSupervisorCompras`. Mismo criterio que `cuentas_por_pagar:leer` y
+  // `comprobantes_proveedor:leer` — acceso de lectura ampliado del Auditor, sin
+  // capacidad de ejecutar ninguna transición (crear/enviar/confirmar/cerrar/
+  // cancelar siguen exclusivas de sus permisos granulares).
+  await prisma.rolPermiso.upsert({
+    where: {
+      rol_id_permiso_id: {
+        rol_id: rolAuditor.id,
+        permiso_id: permisoOcLeer.id,
+      },
+    },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: { rol_id: rolAuditor.id, permiso_id: permisoOcLeer.id },
   });
 
   // ── Módulo D — Usuarios de ejemplo Sprint 2 (Comprador, Tesorero) ──────────
