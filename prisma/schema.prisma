@@ -345,7 +345,7 @@ model Deposito {
 
   // --- Relación HU-A9 (Reclasificación de Devueltos) ---
   reclasificaciones_solicitudes ReclasificacionSolicitud[]
-  recepciones            Recepcion[]
+  recepciones                   Recepcion[]
 
   @@map("depositos")
 }
@@ -474,7 +474,7 @@ model MovimientoStockItem {
 /// solo nacen de un control de calidad NO_APTO sobre el umbral, por lo que
 /// la aprobación siempre transiciona a `BAJA_MERMA`.
 model ReclasificacionSolicitud {
-  id              String                             @id @default(uuid())
+  id              String @id @default(uuid())
   variante_sku_id String
   deposito_id     String
   cantidad        Int
@@ -487,7 +487,7 @@ model ReclasificacionSolicitud {
   /// dominio); el FK se agrega cuando el Módulo I exista.
   rma_id String?
 
-  estado           EstadoReclasificacionSolicitud @default(PENDIENTE_APROBACION)
+  estado            EstadoReclasificacionSolicitud @default(PENDIENTE_APROBACION)
   /// Usuario que detectó la unidad y solicitó la reclasificación.
   solicitada_por_id String
   /// Usuario Administrador que resolvió la solicitud (solo si se aprobó).
@@ -1123,6 +1123,9 @@ model ComprobanteProveedor {
   proveedor      Proveedor   @relation(fields: [proveedor_id], references: [id], onDelete: Restrict)
   registrado_por Usuario     @relation("ComprobanteProveedorRegistradoPor", fields: [registrado_por_id], references: [id], onDelete: Restrict)
 
+  /// HU-G10 — imputaciones de este comprobante a cuentas por pagar pagadas.
+  pagos CuentaPorPagarComprobante[]
+
   /// Unicidad compuesta del criterio de aceptación de HU-H9: mismo número +
   /// tipo + proveedor no puede repetirse entre comprobantes activos.
   @@unique([numero_comprobante, tipo, proveedor_id])
@@ -1163,6 +1166,19 @@ model CuentaPorPagar {
   fecha_vencimiento DateTime?
   fecha_pago        DateTime?
 
+  /// HU-G10 — medio de pago registrado en la transición manual
+  /// `DEFINITIVA → PAGADA`. Nullable y sin `@default`: las cuentas que aún no
+  /// se pagaron (o se pagaron antes de HU-G10) no tienen valor.
+  medio_pago       MedioPago?
+  /// HU-G10 — referencia LIBRE a la cuenta de origen del pago
+  /// (`src/lib/tesoreria/cuentas-origen.ts`). Sin FK porque todavía no existe
+  /// una entidad `CuentaBancaria` / `CajaChica` en el modelo.
+  /// TODO(HU futura): migrar a FK cuando exista esa entidad.
+  cuenta_origen_id String?
+  /// HU-G10 — nota libre opcional del pago. Máx. 500 caracteres validado en
+  /// la capa Zod (`cuentas-por-pagar.schema.ts`).
+  observaciones    String?
+
   // --- Soft delete estricto ---
   is_active       Boolean   @default(true)
   deleted_at      DateTime?
@@ -1173,8 +1189,9 @@ model CuentaPorPagar {
   updated_at DateTime @updatedAt
 
   // --- Relaciones ---
-  orden_compra OrdenCompra @relation(fields: [orden_compra_id], references: [id], onDelete: Restrict)
-  recepcion    Recepcion?  @relation(fields: [recepcion_id], references: [id], onDelete: Restrict)
+  orden_compra OrdenCompra                 @relation(fields: [orden_compra_id], references: [id], onDelete: Restrict)
+  recepcion    Recepcion?                  @relation(fields: [recepcion_id], references: [id], onDelete: Restrict)
+  comprobantes CuentaPorPagarComprobante[]
 
   @@index([estado, is_active])
   @@index([orden_compra_id, estado])
@@ -1186,4 +1203,37 @@ enum EstadoCuentaPorPagar {
   DEFINITIVA
   PAGADA
   CANCELADA
+}
+
+/// HU-G10 — medios de pago admitidos al registrar el pago de una Cuenta por
+/// Pagar. Enum cerrado (no texto libre) para que la auditoría y los reportes
+/// de Tesorería puedan discriminar de forma confiable.
+enum MedioPago {
+  TRANSFERENCIA
+  CHEQUE
+  EFECTIVO
+}
+
+/// HU-G10 — imputación de un `ComprobanteProveedor` a una `CuentaPorPagar`
+/// pagada. Fila-hecho histórica e inmutable: se crea junto con la transición
+/// `DEFINITIVA → PAGADA` y no se vuelve a tocar.
+///
+/// SIN bloque de soft delete a diferencia del resto del proyecto
+/// (RULES.md §1): la vigencia del comprobante deriva de
+/// `ComprobanteProveedor.is_active`; duplicarla acá crearía dos fuentes de
+/// verdad. La fila registra un hecho de una cuenta en estado terminal
+/// (`PAGADA`). Ver design HU-G10 ADR-3.
+model CuentaPorPagarComprobante {
+  id                       String   @id @default(uuid())
+  cuenta_por_pagar_id      String
+  comprobante_proveedor_id String
+  created_at               DateTime @default(now())
+
+  // --- Relaciones ---
+  cuenta_por_pagar      CuentaPorPagar       @relation(fields: [cuenta_por_pagar_id], references: [id], onDelete: Restrict)
+  comprobante_proveedor ComprobanteProveedor @relation(fields: [comprobante_proveedor_id], references: [id], onDelete: Restrict)
+
+  @@unique([cuenta_por_pagar_id, comprobante_proveedor_id])
+  @@index([comprobante_proveedor_id])
+  @@map("cuentas_por_pagar_comprobantes")
 }
