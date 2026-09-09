@@ -8,7 +8,7 @@
  */
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { Search, PackagePlus } from "lucide-react";
+import { Search, PackagePlus, LayoutGrid } from "lucide-react";
 
 import type { ProductoMaestroListado } from "@/lib/services/inventario/producto.service";
 import { Input } from "@/components/ui/input";
@@ -65,13 +65,13 @@ export function ListadoProductos({ productos, puedeEditar }: ListadoProductosPro
               <th className="px-4 py-3 font-semibold">Cod Producto</th>
               <th className="px-4 py-3 font-semibold">Nombre</th>
               <th className="px-4 py-3 font-semibold">Rubro</th>
-              {puedeEditar && <th className="px-4 py-3 text-right font-semibold">Acciones</th>}
+              <th className="px-4 py-3 text-right font-semibold">Acciones</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
             {productosFiltrados.length === 0 ? (
               <tr>
-                <td colSpan={puedeEditar ? 4 : 3} className="px-4 py-8 text-center text-muted-foreground">
+                <td colSpan={4} className="px-4 py-8 text-center text-muted-foreground">
                   {productos.length === 0
                     ? "No hay productos maestro activos."
                     : `Ningún producto activo coincide con "${query.trim()}".`}
@@ -85,11 +85,21 @@ export function ListadoProductos({ productos, puedeEditar }: ListadoProductosPro
                   </td>
                   <td className="px-4 py-3 text-gray-900">{producto.nombre}</td>
                   <td className="px-4 py-3 text-gray-700">{producto.rubro}</td>
-                  {puedeEditar && (
-                    <td className="px-4 py-3 text-right">
-                      <EditarProductoMaestroDialog productoId={producto.id} />
-                    </td>
-                  )}
+                  <td className="px-4 py-3 text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      {/* Atajo contextual: entra a la Matriz con este producto ya
+                          resuelto (`?producto=<id>`), sin pasar por el selector.
+                          Sin gate de permiso — igual que la entrada genérica. */}
+                      <Link
+                        href={`/inventario/variantes/nueva?producto=${producto.id}`}
+                        className={buttonVariants({ variant: "outline", size: "sm" }) + " gap-1.5"}
+                      >
+                        <LayoutGrid className="size-3.5" aria-hidden="true" />
+                        Agregar variante
+                      </Link>
+                      {puedeEditar && <EditarProductoMaestroDialog productoId={producto.id} />}
+                    </div>
+                  </td>
                 </tr>
               ))
             )}
