@@ -41,6 +41,11 @@ import type {
 
 export const PERMISO_CREAR_ORDEN_COMPRA = "ordenes_compra:crear";
 
+// Gate de LECTURA (listado + detalle), separado de `crear` (Alcance §5). Lo
+// tienen Comprador, Supervisor de Compras y Auditor. No habilita ninguna
+// transición de estado.
+export const PERMISO_LEER_ORDEN_COMPRA = "ordenes_compra:leer";
+
 export const PERMISO_POR_ACCION_ORDEN_COMPRA: Record<AccionOrdenCompra, string> = {
   ENVIAR: "ordenes_compra:enviar",
   CONFIRMAR: "ordenes_compra:confirmar",
