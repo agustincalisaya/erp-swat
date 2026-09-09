@@ -1,14 +1,24 @@
 "use client";
 
-import { useMemo, useState, type FormEvent } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { CheckCircle2, ChevronDown, ChevronRight, PackageCheck } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-
-type TipoDiscrepancia = "CANTIDAD" | "TALLE" | "COLOR" | "CALIDAD";
+import { construirQueryRecepciones } from "@/lib/services/proveedores/recepcion-reglas";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 
 interface OrdenRecepcionable {
-  orden_compra_id: string;
+  id: string;
   numero_orden: string;
+  fecha_emision: string;
   estado: string;
   proveedor: string;
   items: Array<{
@@ -16,8 +26,6 @@ interface OrdenRecepcionable {
     sku: string;
     producto: string;
     cantidad_solicitada: number;
-    cantidad_recibida: number;
-    cantidad_pendiente: number;
   }>;
 }
 
@@ -27,205 +35,375 @@ interface DepositoRecepcion {
   tipo: string;
 }
 
-interface ItemFormulario {
-  orden_compra_item_id: string;
-  cantidad_recibida: number;
-  cantidad_aceptada: number;
-  discrepancias: Array<{ tipo: TipoDiscrepancia; detalle: string }>;
+interface ProveedorFiltroRecepcion {
+  id: string;
+  razon_social: string;
+}
+
+interface EstadoRecepcionPorOrden {
+  deposito_destino_id: string;
+  clave_idempotencia: string;
+  isSubmitting: boolean;
+  completada: boolean;
+  resultado: { tipo: "ok" | "error"; texto: string } | null;
+}
+
+function formatearFecha(fecha: string): string {
+  return new Intl.DateTimeFormat("es-AR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(new Date(fecha));
 }
 
 export function FormularioRecepcionMercaderia({
   ordenes,
   depositos,
+  proveedores,
+  proveedorSeleccionado,
+  fechaSeleccionada,
+  page,
+  totalPages,
   ordenInicialId,
 }: {
   ordenes: OrdenRecepcionable[];
   depositos: DepositoRecepcion[];
+  proveedores: ProveedorFiltroRecepcion[];
+  proveedorSeleccionado?: string;
+  fechaSeleccionada?: string;
+  page: number;
+  totalPages: number;
   ordenInicialId?: string;
 }) {
   const router = useRouter();
-  const inicial = ordenes.some((orden) => orden.orden_compra_id === ordenInicialId)
-    ? ordenInicialId!
-    : ordenes[0]?.orden_compra_id ?? "";
-  const [ordenId, setOrdenId] = useState(inicial);
-  const [depositoId, setDepositoId] = useState(depositos[0]?.id ?? "");
-  const [remito, setRemito] = useState("");
-  const [observaciones, setObservaciones] = useState("");
-  const [claveIdempotencia, setClaveIdempotencia] = useState(() => crypto.randomUUID());
-  const [itemsPorOrden, setItemsPorOrden] = useState<Record<string, ItemFormulario[]>>({});
-  const [enviando, setEnviando] = useState(false);
-  const [mensaje, setMensaje] = useState<{ tipo: "ok" | "error"; texto: string } | null>(null);
-
-  const orden = useMemo(
-    () => ordenes.find((candidata) => candidata.orden_compra_id === ordenId),
-    [ordenes, ordenId],
+  const [ordenExpandidaId, setOrdenExpandidaId] = useState<string | null>(() =>
+    ordenes.some((orden) => orden.id === ordenInicialId) ? ordenInicialId! : null,
   );
-  const items = itemsPorOrden[ordenId] ?? orden?.items.map((item) => ({
-    orden_compra_item_id: item.orden_compra_item_id,
-    cantidad_recibida: item.cantidad_pendiente,
-    cantidad_aceptada: item.cantidad_pendiente,
-    discrepancias: [],
-  })) ?? [];
+  const [estadosPorOrden, setEstadosPorOrden] = useState<Record<string, EstadoRecepcionPorOrden>>(
+    () => Object.fromEntries(ordenes.map((orden) => [
+      orden.id,
+      {
+        deposito_destino_id: depositos[0]?.id ?? "",
+        clave_idempotencia: crypto.randomUUID(),
+        isSubmitting: false,
+        completada: false,
+        resultado: null,
+      },
+    ])),
+  );
+  const [confirmacion, setConfirmacion] = useState<string | null>(null);
 
-  function actualizarItems(nuevos: ItemFormulario[]) {
-    setItemsPorOrden((actual) => ({ ...actual, [ordenId]: nuevos }));
-  }
+  const ordenesVisibles = useMemo(
+    () => ordenes.filter((orden) => !estadosPorOrden[orden.id]?.completada),
+    [ordenes, estadosPorOrden],
+  );
 
-  function actualizarCantidad(index: number, campo: "cantidad_recibida" | "cantidad_aceptada", valor: number) {
-    actualizarItems(items.map((item, posicion) => {
-      if (posicion !== index) return item;
-      const cantidad = Math.max(0, valor || 0);
-      if (campo === "cantidad_recibida") {
-        return {
-          ...item,
-          cantidad_recibida: cantidad,
-          cantidad_aceptada: Math.min(item.cantidad_aceptada, cantidad),
-        };
-      }
-      return { ...item, cantidad_aceptada: cantidad };
+  function actualizarEstado(
+    ordenId: string,
+    cambio: Partial<EstadoRecepcionPorOrden>,
+  ): void {
+    setEstadosPorOrden((actual) => ({
+      ...actual,
+      [ordenId]: { ...actual[ordenId]!, ...cambio },
     }));
   }
 
-  function agregarDiscrepancia(index: number) {
-    actualizarItems(items.map((item, posicion) => posicion === index
-      ? { ...item, discrepancias: [...item.discrepancias, { tipo: "CANTIDAD", detalle: "" }] }
-      : item));
+  function actualizarFiltros(cambio: {
+    proveedorId?: string;
+    fechaEmision?: string;
+  }): void {
+    const proveedorId = cambio.proveedorId ?? proveedorSeleccionado ?? "";
+    const fechaEmision = cambio.fechaEmision ?? fechaSeleccionada ?? "";
+    const query = construirQueryRecepciones({ proveedorId, fechaEmision, page: 1 });
+    router.push(`/compras/recepciones/nueva${query ? `?${query}` : ""}`);
   }
 
-  function actualizarDiscrepancia(index: number, discrepanciaIndex: number, cambio: Partial<{ tipo: TipoDiscrepancia; detalle: string }>) {
-    actualizarItems(items.map((item, posicion) => posicion === index
-      ? {
-          ...item,
-          discrepancias: item.discrepancias.map((discrepancia, posicionDiscrepancia) =>
-            posicionDiscrepancia === discrepanciaIndex ? { ...discrepancia, ...cambio } : discrepancia),
-        }
-      : item));
+  function navegarPagina(nuevaPagina: number): void {
+    const query = construirQueryRecepciones({
+      proveedorId: proveedorSeleccionado,
+      fechaEmision: fechaSeleccionada,
+      page: nuevaPagina,
+    });
+    router.push(`/compras/recepciones/nueva${query ? `?${query}` : ""}`);
   }
 
-  function quitarDiscrepancia(index: number, discrepanciaIndex: number) {
-    actualizarItems(items.map((item, posicion) => posicion === index
-      ? { ...item, discrepancias: item.discrepancias.filter((_, i) => i !== discrepanciaIndex) }
-      : item));
-  }
-
-  async function enviar(event: FormEvent) {
-    event.preventDefault();
-    setMensaje(null);
-    const itemsRecibidos = items.filter((item) => item.cantidad_recibida > 0);
-    if (!ordenId || !depositoId || itemsRecibidos.length === 0) {
-      setMensaje({ tipo: "error", texto: "Seleccioná orden, depósito y al menos un ítem recibido." });
+  async function confirmarRecepcion(orden: OrdenRecepcionable): Promise<void> {
+    const estado = estadosPorOrden[orden.id]!;
+    if (orden.items.length === 0) {
+      actualizarEstado(orden.id, {
+        resultado: { tipo: "error", texto: "La orden no tiene materiales activos para recibir." },
+      });
       return;
     }
-    if (itemsRecibidos.some((item) => (
-      item.cantidad_aceptada < item.cantidad_recibida
-      && item.discrepancias.length === 0
-    ))) {
-      setMensaje({
-        tipo: "error",
-        texto: "Documentá al menos una discrepancia para cada ítem observado.",
+    if (!estado.deposito_destino_id) {
+      actualizarEstado(orden.id, {
+        resultado: { tipo: "error", texto: "Seleccioná un depósito destino." },
       });
       return;
     }
 
-    setEnviando(true);
+    actualizarEstado(orden.id, { isSubmitting: true, resultado: null });
     try {
-      const respuesta = await fetch(`/api/ordenes-compra/${ordenId}/recepciones`, {
+      const respuesta = await fetch(`/api/ordenes-compra/${orden.id}/recepciones`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          deposito_destino_id: depositoId,
-          clave_idempotencia: claveIdempotencia,
-          numero_remito_proveedor: remito || undefined,
-          observaciones: observaciones || undefined,
-          items: itemsRecibidos,
+          deposito_destino_id: estado.deposito_destino_id,
+          clave_idempotencia: estado.clave_idempotencia,
         }),
       });
       const cuerpo = await respuesta.json();
       if (!respuesta.ok) {
-        setMensaje({ tipo: "error", texto: cuerpo.error?.message ?? "No se pudo registrar la recepción." });
+        actualizarEstado(orden.id, {
+          resultado: {
+            tipo: "error",
+            texto: cuerpo.error?.message ?? "No se pudo registrar la recepción.",
+          },
+        });
         return;
       }
 
       const avisoEvaluacion = cuerpo.data.evaluacion_proveedor === "FALLO"
         ? " La recepción quedó confirmada, pero falló la evaluación del proveedor."
         : "";
-      setMensaje({
-        tipo: "ok",
-        texto: `${cuerpo.data.idempotente ? "Recepción ya registrada" : "Recepción registrada"}: ${cuerpo.data.recepcion_id}.${avisoEvaluacion}`,
+      const mensaje = `Recepción confirmada para ${orden.numero_orden}.${avisoEvaluacion}`;
+      actualizarEstado(orden.id, {
+        completada: true,
+        resultado: { tipo: "ok", texto: mensaje },
       });
-      setClaveIdempotencia(crypto.randomUUID());
+      setConfirmacion(mensaje);
+      setOrdenExpandidaId(null);
       router.refresh();
     } catch {
-      // La clave se conserva: un retry tras timeout no duplica la recepción.
-      setMensaje({ tipo: "error", texto: "No se recibió respuesta. Reintentá: la operación es idempotente." });
+      // La clave de esta OC se conserva: un retry tras timeout no duplica efectos.
+      actualizarEstado(orden.id, {
+        resultado: {
+          tipo: "error",
+          texto: "No se recibió respuesta. Reintentá: la operación es idempotente.",
+        },
+      });
     } finally {
-      setEnviando(false);
+      actualizarEstado(orden.id, { isSubmitting: false });
     }
   }
 
-  if (ordenes.length === 0) {
-    return <p className="text-sm text-muted-foreground">No hay órdenes confirmadas con cantidades pendientes.</p>;
-  }
-
   return (
-    <form onSubmit={enviar} className="space-y-6">
-      <div className="grid gap-4 md:grid-cols-2">
+    <div className="space-y-4">
+      <div className="grid gap-4 rounded-lg border p-4 md:grid-cols-[minmax(220px,1fr)_minmax(180px,auto)_auto] md:items-end">
         <label className="space-y-1 text-sm">
-          <span className="font-medium">Orden de compra</span>
-          <select className="w-full rounded-md border bg-white px-3 py-2" value={ordenId} onChange={(e) => setOrdenId(e.target.value)}>
-            {ordenes.map((item) => <option key={item.orden_compra_id} value={item.orden_compra_id}>{item.numero_orden} · {item.proveedor}</option>)}
+          <span className="font-medium">Proveedor</span>
+          <select
+            className="w-full rounded-md border bg-white px-3 py-2"
+            value={proveedorSeleccionado ?? ""}
+            onChange={(event) => actualizarFiltros({ proveedorId: event.target.value })}
+          >
+            <option value="">Todos los proveedores</option>
+            {proveedores.map((proveedor) => (
+              <option key={proveedor.id} value={proveedor.id}>
+                {proveedor.razon_social}
+              </option>
+            ))}
           </select>
         </label>
+
         <label className="space-y-1 text-sm">
-          <span className="font-medium">Depósito destino</span>
-          <select className="w-full rounded-md border bg-white px-3 py-2" value={depositoId} onChange={(e) => setDepositoId(e.target.value)}>
-            {depositos.map((item) => <option key={item.id} value={item.id}>{item.nombre} ({item.tipo})</option>)}
-          </select>
+          <span className="font-medium">Fecha de emisión</span>
+          <input
+            type="date"
+            className="w-full rounded-md border bg-white px-3 py-2"
+            value={fechaSeleccionada ?? ""}
+            onChange={(event) => actualizarFiltros({ fechaEmision: event.target.value })}
+          />
         </label>
-        <label className="space-y-1 text-sm">
-          <span className="font-medium">Remito del proveedor</span>
-          <input className="w-full rounded-md border px-3 py-2" maxLength={100} value={remito} onChange={(e) => setRemito(e.target.value)} />
-        </label>
-        <label className="space-y-1 text-sm">
-          <span className="font-medium">Observaciones</span>
-          <input className="w-full rounded-md border px-3 py-2" maxLength={1000} value={observaciones} onChange={(e) => setObservaciones(e.target.value)} />
-        </label>
+
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full md:w-auto"
+          onClick={() => router.push("/compras/recepciones/nueva")}
+        >
+          Limpiar filtros
+        </Button>
       </div>
 
-      <div className="space-y-4">
-        <div>
-          <h2 className="font-semibold">Mercadería recibida</h2>
-          <p className="text-sm text-muted-foreground">La cantidad física avanza la OC; solo la aceptada ingresa al stock disponible.</p>
+      {confirmacion && (
+        <p role="status" className="flex items-center gap-2 rounded-md bg-emerald-50 p-3 text-sm text-emerald-800">
+          <CheckCircle2 className="size-4" aria-hidden="true" /> {confirmacion}
+        </p>
+      )}
+
+      {ordenesVisibles.length === 0 ? (
+        <p className="py-6 text-center text-sm text-muted-foreground">
+          No hay órdenes confirmadas que coincidan con los filtros seleccionados.
+        </p>
+      ) : (
+        <div className="space-y-4">
+          <div className="overflow-hidden rounded-lg border">
+            <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Orden</TableHead>
+              <TableHead>Proveedor</TableHead>
+              <TableHead>Fecha emisión</TableHead>
+              <TableHead className="text-right">Ítems</TableHead>
+              <TableHead>Estado</TableHead>
+              <TableHead className="text-right">Acción</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {ordenesVisibles.map((orden) => {
+              const expandida = ordenExpandidaId === orden.id;
+              const estado = estadosPorOrden[orden.id]!;
+
+              return (
+                <Fragment key={orden.id}>
+                  <TableRow>
+                    <TableCell className="font-mono text-xs font-semibold">
+                      {orden.numero_orden}
+                    </TableCell>
+                    <TableCell>{orden.proveedor}</TableCell>
+                    <TableCell className="whitespace-nowrap">
+                      {formatearFecha(orden.fecha_emision)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {orden.items.length}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline">CONFIRMADA</Badge>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        aria-expanded={expandida}
+                        aria-controls={`materiales-${orden.id}`}
+                        onClick={() => setOrdenExpandidaId(expandida ? null : orden.id)}
+                      >
+                        {expandida
+                          ? <ChevronDown className="size-4" aria-hidden="true" />
+                          : <ChevronRight className="size-4" aria-hidden="true" />}
+                        Ver materiales
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+
+                  {expandida && (
+                    <TableRow id={`materiales-${orden.id}`}>
+                      <TableCell colSpan={6} className="bg-muted/20 p-0">
+                        <div className="space-y-6 px-4 py-5 sm:px-6">
+                          <div className="space-y-3">
+                            <h3 className="font-semibold">Materiales</h3>
+                            <div className="overflow-hidden rounded-md border bg-background">
+                              <Table>
+                                <TableHeader>
+                                  <TableRow>
+                                    <TableHead>Producto</TableHead>
+                                    <TableHead>SKU</TableHead>
+                                    <TableHead className="text-right">Cantidad</TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {orden.items.map((item) => (
+                                    <TableRow key={item.orden_compra_item_id}>
+                                      <TableCell>{item.producto}</TableCell>
+                                      <TableCell className="font-mono text-xs">{item.sku}</TableCell>
+                                      <TableCell className="text-right tabular-nums">
+                                        {item.cantidad_solicitada}
+                                      </TableCell>
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                            </div>
+                          </div>
+
+                          <div className="space-y-3">
+                            <h3 className="font-semibold">Recepción</h3>
+                            <div className="grid gap-3 rounded-md border bg-background p-4 sm:p-5 md:grid-cols-[auto_minmax(240px,1fr)_auto] md:items-center md:gap-4">
+                              <label
+                                htmlFor={`deposito-${orden.id}`}
+                                className="text-sm font-medium"
+                              >
+                                Depósito destino
+                              </label>
+                              <select
+                                id={`deposito-${orden.id}`}
+                                className="w-full rounded-md border bg-white px-3 py-2"
+                                value={estado.deposito_destino_id}
+                                disabled={estado.isSubmitting || depositos.length === 0}
+                                onChange={(event) => actualizarEstado(orden.id, {
+                                  deposito_destino_id: event.target.value,
+                                  resultado: null,
+                                })}
+                              >
+                                {depositos.map((deposito) => (
+                                  <option key={deposito.id} value={deposito.id}>
+                                    {deposito.nombre} ({deposito.tipo})
+                                  </option>
+                                ))}
+                              </select>
+
+                              <Button
+                                type="button"
+                                className="w-full md:w-auto"
+                                disabled={
+                                  estado.isSubmitting
+                                  || depositos.length === 0
+                                  || orden.items.length === 0
+                                }
+                                onClick={() => void confirmarRecepcion(orden)}
+                              >
+                                <PackageCheck className="size-4" aria-hidden="true" />
+                                {estado.isSubmitting ? "Confirmando…" : "Confirmar recepción"}
+                              </Button>
+                            </div>
+                          </div>
+
+                          {estado.resultado?.tipo === "error" && (
+                            <p role="status" className="rounded-md bg-red-50 p-3 text-sm text-red-800">
+                              {estado.resultado.texto}
+                            </p>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </Fragment>
+              );
+            })}
+          </TableBody>
+            </Table>
+          </div>
+
+          {totalPages > 1 && (
+            <nav
+              aria-label="Paginación de órdenes recepcionables"
+              className="flex items-center justify-between gap-4"
+            >
+              <Button
+                type="button"
+                variant="outline"
+                disabled={page <= 1}
+                onClick={() => navegarPagina(page - 1)}
+              >
+                Anterior
+              </Button>
+              <span className="text-sm text-muted-foreground">
+                Página {page} de {totalPages}
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={page >= totalPages}
+                onClick={() => navegarPagina(page + 1)}
+              >
+                Siguiente
+              </Button>
+            </nav>
+          )}
         </div>
-        {orden?.items.map((itemOrden, index) => {
-          const item = items[index];
-          return (
-            <section key={itemOrden.orden_compra_item_id} className="rounded-lg border p-4 space-y-3">
-              <div>
-                <p className="font-medium">{itemOrden.producto} <span className="font-mono text-xs">{itemOrden.sku}</span></p>
-                <p className="text-xs text-muted-foreground">Solicitado: {itemOrden.cantidad_solicitada} · Recibido antes: {itemOrden.cantidad_recibida} · Pendiente: {itemOrden.cantidad_pendiente}</p>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <label className="text-sm space-y-1"><span>Recibida</span><input type="number" min={0} max={itemOrden.cantidad_pendiente} step={1} className="w-full rounded-md border px-3 py-2" value={item.cantidad_recibida} onChange={(e) => actualizarCantidad(index, "cantidad_recibida", Number(e.target.value))} /></label>
-                <label className="text-sm space-y-1"><span>Aceptada</span><input type="number" min={0} max={item.cantidad_recibida} step={1} className="w-full rounded-md border px-3 py-2" value={item.cantidad_aceptada} onChange={(e) => actualizarCantidad(index, "cantidad_aceptada", Number(e.target.value))} /></label>
-              </div>
-              {item.discrepancias.map((discrepancia, discrepanciaIndex) => (
-                <div key={discrepanciaIndex} className="grid gap-2 sm:grid-cols-[150px_1fr_auto]">
-                  <select className="rounded-md border px-2 py-2 text-sm" value={discrepancia.tipo} onChange={(e) => actualizarDiscrepancia(index, discrepanciaIndex, { tipo: e.target.value as TipoDiscrepancia })}>
-                    {(["CANTIDAD", "TALLE", "COLOR", "CALIDAD"] as const).map((tipo) => <option key={tipo}>{tipo}</option>)}
-                  </select>
-                  <input required className="rounded-md border px-3 py-2 text-sm" placeholder="Detalle obligatorio" value={discrepancia.detalle} onChange={(e) => actualizarDiscrepancia(index, discrepanciaIndex, { detalle: e.target.value })} />
-                  <Button type="button" variant="ghost" onClick={() => quitarDiscrepancia(index, discrepanciaIndex)}>Quitar</Button>
-                </div>
-              ))}
-              <Button type="button" variant="outline" size="sm" onClick={() => agregarDiscrepancia(index)}>Agregar discrepancia</Button>
-            </section>
-          );
-        })}
-      </div>
-
-      {mensaje && <p role="status" className={`rounded-md p-3 text-sm ${mensaje.tipo === "ok" ? "bg-emerald-50 text-emerald-800" : "bg-red-50 text-red-800"}`}>{mensaje.texto}</p>}
-      <Button type="submit" disabled={enviando || depositos.length === 0}>{enviando ? "Registrando…" : "Confirmar recepción"}</Button>
-    </form>
+      )}
+    </div>
   );
 }

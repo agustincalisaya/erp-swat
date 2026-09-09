@@ -15,15 +15,14 @@
  *  - "Confirmar orden" (ENVIADA → CONFIRMADA): `ordenes_compra:confirmar`
  *    (ambos roles). Captura la `fecha_entrega_comprometida` (obligatoria).
  *  - "Cerrar orden" (RECIBIDA_COMPLETA → CERRADA): `ordenes_compra:cerrar`
- *    (ambos roles). Hoy inejercitable end-to-end: nada produce
- *    RECIBIDA_COMPLETA hasta la integración con HU-H4 (Emir).
+ *    (ambos roles).
  *  - "Cancelar orden" (baja lógica): `ordenes_compra:cancelar`, exclusivo del
  *    Supervisor de Compras, en BORRADOR o ENVIADA. Sin permiso, chip de solo
  *    lectura.
  *
- * Esta pantalla no dispara las transiciones de recepción (CONFIRMADA →
- * RECEPCION_PARCIAL → RECIBIDA_COMPLETA) — las gobierna HU-H4 (Emir) desde
- * `/compras/recepciones/nueva`. Sí las muestra en modo lectura en la card
+ * Esta pantalla no dispara la transición de recepción (CONFIRMADA →
+ * RECIBIDA_COMPLETA) — la gobierna HU-H4 desde `/compras/recepciones/nueva`.
+ * Sí muestra las transiciones históricas en modo lectura en la card
  * "Historial de estado", leídas del ledger de auditoría junto con las de H3.
  */
 
@@ -182,8 +181,7 @@ export default async function DetalleOrdenCompraPage({
   const mostrarPendienteAprobacion = enBorrador && !puedeEnviar;
 
   // Confirmar (ENVIADA → CONFIRMADA) y Cerrar (RECIBIDA_COMPLETA → CERRADA):
-  // ambos roles, cada uno solo en su estado válido. Cerrar hoy no es
-  // ejercitable — nada produce RECIBIDA_COMPLETA sin HU-H4.
+  // ambos roles, cada uno solo en su estado válido.
   const mostrarBotonConfirmar =
     orden.is_active && orden.estado === "ENVIADA" && puedeConfirmar;
   const mostrarBotonCerrar =
@@ -253,7 +251,7 @@ export default async function DetalleOrdenCompraPage({
                 />
               )}
               {orden.is_active &&
-                (orden.estado === "CONFIRMADA" || orden.estado === "RECEPCION_PARCIAL") &&
+                orden.estado === "CONFIRMADA" &&
                 puedeRegistrarRecepcion && (
                   <Link
                     href={`/compras/recepciones/nueva?orden_compra_id=${orden.id}`}

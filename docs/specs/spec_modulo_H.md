@@ -218,48 +218,59 @@ export type CambiarEstadoOrdenCompraInput = z.infer<typeof CambiarEstadoOrdenCom
 
 ### 2.6. Registrar Recepción física de mercadería (HU-H4)
 
-**Ruta:** `POST /app/api/ordenes-compra/[id]/recepciones/route.ts`
-**Server Action equivalente:** `registrarRecepcion()` en `app/(dashboard)/deposito/recepciones/actions.ts`
-**Permiso requerido:** `recepciones:registrar` (Personal de Depósito directo; Supervisor de Compras solo *solicita*)
+**Alcance vigente:** HU-H4 V2.1 modela una recepción perfecta, completa y única. El flujo operativo es `CONFIRMADA` → visualizar materiales → seleccionar depósito destino → confirmar recepción → ingresar stock → `RECIBIDA_COMPLETA`.
+
+**Pantalla:** `GET /compras/recepciones/nueva`
+**Ruta de escritura:** `POST /api/ordenes-compra/[id]/recepciones`
+**Servicios:** `listarOrdenesRecepcionables()` y `registrarRecepcion()` en `src/lib/services/proveedores/recepcion.service.ts`
+**Permiso requerido:** `recepciones:registrar` (`ADMINISTRADOR` y `ENCARGADO_DEPOSITO`). Este permiso protege la entrada específica de H4 y no reemplaza ni amplía `ordenes_compra:leer`, perteneciente a H3.
+
+**Listado server-side:** la pantalla presenta una tabla de OC con estado `CONFIRMADA`, activas, no eliminadas y con al menos un `OrdenCompraItem` activo y no eliminado. Cada fila puede desplegar producto, SKU y cantidad solicitada; la única decisión operativa es seleccionar el depósito destino y confirmar.
+
+- Admite los query params opcionales `proveedor_id`, `fecha_emision`, `page` y `orden_compra_id` para la apertura inicial de una OC alcanzable por el listado.
+- `proveedor_id` filtra por identificador. El selector ofrece únicamente proveedores que tienen al menos una OC recepcionable, sin ampliar permisos ni modificar H1.
+- `fecha_emision` se valida como fecha calendario y se aplica mediante un rango de día completo (`>= inicio`, `< inicio del día siguiente`), no mediante coincidencia parcial de texto.
+- `page` debe ser un entero mayor o igual a 1 y vale 1 por defecto. Los filtros se aplican antes del conteo y de la paginación; `take` nunca supera 10 y `skip = (page - 1) * pageSize`.
+- El servicio devuelve `{ ordenes, total, page, pageSize, totalPages }`; el `count` usa los mismos filtros sin limitar los resultados. Una página superior al total se normaliza a la última válida y la ruta redirige conservando los filtros.
+- El orden es estable: `fecha_emision DESC`, con `numero_orden DESC` como desempate. Los filtros se conservan al paginar y cualquier cambio de filtro vuelve a la página 1.
+- Si no hay resultados, se informa «No hay órdenes confirmadas que coincidan con los filtros.» en lugar de mostrar una tabla vacía. El frontend también deshabilita la confirmación si, por defensa, recibe una OC sin ítems.
 
 ```typescript
 export const RegistrarRecepcionSchema = z.object({
-  numero_remito_proveedor: z.string().optional(),
-  observaciones: z.string().optional(),
-  items: z
-    .array(
-      z.object({
-        orden_compra_item_id: z.string().uuid(),
-        cantidad_recibida: z.number().int().nonnegative(),
-        discrepancias: z
-          .array(
-            z.object({
-              tipo: z.enum(["CANTIDAD", "TALLE", "COLOR", "CALIDAD"]),
-              detalle: z.string().min(1, "El detalle de la discrepancia es obligatorio"),
-            })
-          )
-          .optional(),
-      })
-    )
-    .min(1, "La recepción debe incluir al menos un ítem"),
-});
+  deposito_destino_id: z.string().uuid(),
+  clave_idempotencia: z.string().uuid(),
+}).strict();
 export type RegistrarRecepcionInput = z.infer<typeof RegistrarRecepcionSchema>;
 ```
 
 **Comportamiento esperado:**
-- Precondición: `OrdenCompra.estado` debe estar en `CONFIRMADA` o `RECEPCION_PARCIAL`. En cualquier otro estado, `409` con `code: "ORDEN_NO_RECEPCIONABLE"`.
-- Cada `orden_compra_item_id` recibido se valida contra el saldo pendiente real: `cantidad_solicitada - SUM(cantidad_recibida de RecepcionItem previos no dados de baja para ese ítem)`. Si `cantidad_recibida` excede ese saldo, `422` con `code: "CANTIDAD_EXCEDE_SALDO_PENDIENTE"` — nunca se acepta silenciosamente un exceso ni se trunca.
-- Transacción atómica (`prisma.$transaction`) que, en un único paso: (1) crea `Recepcion`, (2) crea N `RecepcionItem`, (3) crea las `RecepcionDiscrepancia` asociadas si las hubiera, (4) recalcula el saldo pendiente total de la `OrdenCompra` y actualiza su `estado` a `RECEPCION_PARCIAL` (saldo > 0 tras esta recepción) o `RECIBIDA_COMPLETA` (saldo = 0).
-- **Tras el `COMMIT`** (nunca dentro de la transacción de Prisma — ver 3.4), se emite el evento `stock:recepcion_confirmada` hacia el Módulo A para el alta de stock disponible (sección 4). El Módulo H no escribe directamente sobre `StockDeposito` ni `MovimientoStock`: esa responsabilidad es exclusiva del Módulo A, que consume el evento.
+- La OC debe estar activa, no eliminada y exactamente en `CONFIRMADA`. Cualquier otro estado, incluido el legado histórico `RECEPCION_PARCIAL`, responde `409 ORDEN_NO_RECEPCIONABLE`; por lo tanto, una segunda recepción operativa queda rechazada.
+- La OC debe contener al menos un `OrdenCompraItem` activo y no eliminado. El listado excluye órdenes sin líneas recepcionables y `registrarRecepcion()` conserva la defensa adicional `ORDEN_SIN_ITEMS_RECEPCIONABLES`.
+- El cliente no envía ítems, cantidades, discrepancias, remito ni observaciones; el schema estricto rechaza esos campos legacy. El backend es la fuente de verdad e incluye todas las líneas activas, sin permitir omitirlas ni agregar líneas ajenas.
+- Para cada línea, el backend deriva `cantidad_recibida = cantidad_aceptada = cantidad_solicitada`. No existen cantidades pendientes, diferidas o acumuladas en el flujo vigente.
+- Las nuevas recepciones no crean `RecepcionDiscrepancia`; `numero_remito_proveedor` y `observaciones` quedan `null`. Los modelos, campos y datos históricos se conservan sin reutilizarlos para nuevas recepciones.
+- La transacción con aislamiento `Serializable` crea una única `Recepcion`, sus `RecepcionItem`, un único ingreso mediante `registrarIngresoStockTx()` y cambia la OC de `CONFIRMADA` a `RECIBIDA_COMPLETA` mediante un `updateMany` condicionado. Los conflictos serializables `P2034` se reintentan y solo una confirmación concurrente puede persistir.
+- El stock se incrementa exclusivamente por las cantidades aceptadas, que en V2.1 equivalen a las solicitadas. La trazabilidad queda `MovimientoStock` → `Recepcion` → `OrdenCompra` → `Proveedor`.
+- La idempotencia usa `clave_idempotencia` única y el SHA-256 de la intención canónica `{ orden_compra_id, deposito_destino_id }`. Un retry idéntico devuelve la recepción existente sin duplicar recepción, stock, movimiento, transición de OC, auditoría ni evaluación H5; reutilizar la clave con otra intención se rechaza.
+- Tras el `COMMIT` se emiten `recepcion:registrada` e `inventario:ingreso_stock_registrado`; luego se invoca una sola vez `registrarEvaluacionDesdeRecepcion(recepcionId, usuarioId)` de HU-H5.
+
+**Integraciones preservadas:**
+- **H3:** H4 produce `CONFIRMADA` → `RECIBIDA_COMPLETA`; H3 conserva `RECIBIDA_COMPLETA` → `CERRADA` y el permiso separado `ordenes_compra:leer`.
+- **H5:** conserva una evaluación por `Recepcion` y su contrato actual; H4 no modifica el modelo ni el servicio de evaluación.
+- **G8:** H4 no crea ni consolida directamente `CuentaPorPagar`. G8 actúa cuando H3 lleva la OC a `CERRADA`.
+- **H9:** `RECIBIDA_COMPLETA` y `CERRADA` continúan siendo estados compatibles con el flujo de comprobantes; H4 no modifica H9.
+- **Inventario:** H4 reutiliza el núcleo transaccional público existente; no modifica `movimiento.service.ts`.
+
+**Persistencia y fixtures:** HU-H4 V2.1 no requiere cambios en `prisma/schema.prisma` ni en `prisma/migrations/**`. Los campos y estados históricos permanecen por compatibilidad. `prisma/seed.ts` vigente en `develop` es la fuente de verdad y no se modifica; sus IDs compartidos se preservan.
 
 **Respuesta `201 Created`:**
 ```json
-{ "data": { "recepcion_id": "uuid", "orden_compra_estado": "RECEPCION_PARCIAL", "saldo_pendiente_total": 12 }, "error": null }
+{ "data": { "recepcion_id": "uuid", "estado_orden_compra": "RECIBIDA_COMPLETA", "movimiento_stock_id": "uuid", "idempotente": false, "evaluacion_proveedor": "REGISTRADA" }, "error": null }
 ```
 
-**Respuesta `422 Unprocessable Entity`:**
+**Respuesta `409 Conflict` para una segunda recepción operativa:**
 ```json
-{ "data": null, "error": { "code": "CANTIDAD_EXCEDE_SALDO_PENDIENTE", "message": "El ítem admite un máximo de 8 unidades pendientes; se recibieron 12" } }
+{ "data": null, "error": { "code": "ORDEN_NO_RECEPCIONABLE", "message": "La orden OC-2026-0001 no admite recepciones en estado RECIBIDA_COMPLETA" } }
 ```
 
 ### 2.7. Registro de Comprobante de Proveedor (HU-H9)
@@ -435,14 +446,13 @@ Transiciones válidas — cualquier transición no listada debe rechazarse con `
 | — | Alta (2.4) | `BORRADOR` | Proveedor `HOMOLOGADO`; todos los ítems con precio vigente resuelto |
 | `BORRADOR` | `ENVIAR` (2.5) | `ENVIADA` | Requiere permiso de Supervisor de Compras; congela edición de ítems |
 | `ENVIADA` | `CONFIRMAR` (2.5) | `CONFIRMADA` | Requiere `fecha_entrega_comprometida` |
-| `CONFIRMADA` | Recepción parcial (2.6) | `RECEPCION_PARCIAL` | Saldo pendiente > 0 tras la recepción |
-| `RECEPCION_PARCIAL` | Recepción parcial (2.6) | `RECEPCION_PARCIAL` | Saldo pendiente > 0 tras la recepción (permanece en el mismo estado) |
-| `RECEPCION_PARCIAL` | Recepción final (2.6) | `RECIBIDA_COMPLETA` | Saldo pendiente = 0 tras la recepción |
-| `CONFIRMADA` | Recepción total en un solo paso (2.6) | `RECIBIDA_COMPLETA` | Saldo pendiente = 0 tras la recepción |
+| `CONFIRMADA` | Recepción/control único (2.6) | `RECIBIDA_COMPLETA` | Todos los ítems activos se reciben y aceptan por la cantidad solicitada |
 | `RECIBIDA_COMPLETA` | `CERRAR` (2.5) | `CERRADA` | Conciliación contra factura confirmada por el Comprador |
 | `BORRADOR` / `ENVIADA` | `CANCELAR` (2.5) | `CANCELADA` | `deletion_reason` obligatorio; es baja lógica, no elimina la fila |
 
 `CERRADA` y `CANCELADA` son estados terminales: ninguna transición sale de ellos. El servicio debe validar el estado origen leído dentro de la misma transacción que realiza el `UPDATE` (usar `prisma.$transaction` con lectura + escritura en el mismo bloque, no una lectura previa fuera de la transacción) para evitar condiciones de carrera entre dos requests concurrentes sobre la misma orden.
+
+`RECEPCION_PARCIAL` permanece en el enum y puede visualizarse en datos históricos, pero HU-H4 V2.1 no lo produce ni admite nuevas recepciones desde ese estado.
 
 ### 3.2. Recalculo incremental del puntaje de evaluación de Proveedor (HU-H5)
 
@@ -490,7 +500,8 @@ El Módulo H es **emisor** hacia el Módulo D (encadenamiento SHA-256) y hacia e
 | Evento | Disparado por | Consumidor | Payload mínimo |
 |---|---|---|---|
 | `proveedor:estado_cambiado` | 2.2 (manual) y 3.2 (automático) | Módulo D (`audit-log.listener.ts`) | `{ proveedor_id, usuario_id \| null (null si origen automático), estado_anterior, estado_nuevo, origen: "MANUAL" \| "AUTOMATICO", motivo }` |
-| `stock:recepcion_confirmada` | 2.6, tras `COMMIT` | Módulo A (listener de alta de stock, `lib/events/listeners/stock-recepcion.listener.ts`) | `{ recepcion_id, orden_compra_id, proveedor_id, items: [{ variante_sku_id, cantidad_recibida }], deposito_destino_id, recibida_por_id }` |
+| `recepcion:registrada` | 2.6, tras `COMMIT` | Módulo D (`audit-log.listener.ts`) | `{ recepcion_id, orden_compra_id, numero_orden, deposito_destino_id, recibida_por_id, fecha_recepcion, estado_anterior_oc: "CONFIRMADA", estado_nuevo_oc: "RECIBIDA_COMPLETA" }` |
+| `inventario:ingreso_stock_registrado` | 2.6, tras `COMMIT`, solo si hubo cantidad aceptada | Consumidores de Inventario | `{ movimiento_id, deposito_destino_id, items: [{ variante_sku_id, cantidad, estado_destino, cantidad_resultante }], usuario_id }` |
 | `comprobante_proveedor:registrado` | 2.7, tras `COMMIT` | Módulo D (`audit-log.listener.ts`) | `{ comprobante_id, orden_compra_id, proveedor_id, tipo, numero_comprobante, monto_total, registrado_por_id }` |
 | `comprobante_proveedor:anulado` | 2.7, tras `COMMIT` | Módulo D (`audit-log.listener.ts`) | `{ comprobante_id, orden_compra_id, proveedor_id, deletion_reason, anulado_por_id }` |
 
@@ -498,7 +509,7 @@ El Módulo H es **emisor** hacia el Módulo D (encadenamiento SHA-256) y hacia e
 
 **Regla de exclusión de datos sensibles en el payload (misma convención que `spec_modulo_D.md` §5.1):** ningún evento de este módulo incluye en su payload el valor en claro de `datos_bancarios`, ni `password`/`password_hash` de `Usuario`. El emisor (capa de servicios del Módulo H) es responsable de excluir estos campos antes de publicar al bus; `audit-log.listener.ts` no realiza sanitización adicional sobre eventos entrantes.
 
-**Nota sobre `deposito_destino_id` en `stock:recepcion_confirmada`:** el schema actual de `Recepcion` (`schema.prisma` líneas 646–671) no incluye un campo de depósito destino explícito. Si el Módulo A requiere ese dato para resolver a qué `Deposito` dar de alta el stock recibido, es un **faltante de schema adicional** a resolver junto con el owner del Módulo A antes de implementar este evento — no asumir un depósito por defecto en el código sin esa definición explícita.
+`Recepcion.deposito_destino_id` es obligatorio. El alta de stock se ejecuta dentro de la misma transacción de H4 mediante el núcleo transaccional de Inventario; los eventos anteriores se emiten únicamente después del commit.
 
 ---
 
