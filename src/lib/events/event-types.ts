@@ -4,6 +4,8 @@
  * consume estos eventos para construir el `AuditLog` encadenado por SHA-256.
  */
 
+import type { EstadoOrdenCompra } from "@prisma/client";
+
 /**
  * HU-A1 — Payload emitido tras el alta de un `ProductoMaestro`
  * (`crearProductoMaestro()`, sección 6.1 de task_relos.md).
@@ -300,8 +302,8 @@ export interface OrdenCompraCreadaPayload {
 export interface OrdenCompraEstadoCambiadoPayload {
   orden_compra_id: string;
   numero_orden: string;
-  estado_anterior: string;
-  estado_nuevo: string;
+  estado_anterior: EstadoOrdenCompra;
+  estado_nuevo: EstadoOrdenCompra;
   accion: "ENVIAR" | "CONFIRMAR" | "CERRAR" | "CANCELAR";
   cambiado_por: string;
   /** Presente solo en `CONFIRMAR`. ISO 8601. */
@@ -373,10 +375,11 @@ export interface ProveedorEstadoCambiadoPayload {
  * `CuentaPorPagar`, por las tres ramas del listener reactivo
  * (`cuenta-por-pagar.listener.ts`: `CREAR` / `DEFINIR` / `CANCELAR`) y por la
  * mutación manual de pago (`marcarCuentaPorPagarPagada()`: `PAGAR`). Único
- * consumidor: `audit-log.listener.ts`, que lo mapea a un asiento
- * `AuditLog` encadenado por SHA-256 (spec_modulo_G.md §3.3 / §4.1). El
- * Módulo H se suscribe además filtrando `accion === "PAGAR"` para reflejar el
- * pago en el historial del proveedor (§2.4).
+ * consumidor hoy: `audit-log.listener.ts`, que lo mapea a un asiento
+ * `AuditLog` encadenado por SHA-256 (spec_modulo_G.md §3.3 / §4.1). El payload
+ * lleva `proveedor_id` para que Módulo H pueda suscribirse filtrando
+ * `accion === "PAGAR"` y reflejar el pago en el historial del proveedor
+ * (§2.4) — ese listener del lado de H todavía no existe.
  *
  * Emisión SIEMPRE post-`COMMIT`, fire-and-forget, nunca dentro de la
  * `prisma.$transaction` que hace la escritura (mismo patrón que el resto de

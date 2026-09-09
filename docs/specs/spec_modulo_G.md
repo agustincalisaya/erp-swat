@@ -14,13 +14,13 @@
 
 **HU-G10 no crea un endpoint ni una función de servicio paralela.** Amplía directamente `marcarCuentaPorPagarPagada()` y `MarcarPagadaSchema`, ya entregados y testeados por HU-G8 (sección 2.4 de la Revisión 2), agregando los campos de evidencia de pago. No hay una segunda vía de mutación sobre la transición `DEFINITIVA → PAGADA`.
 
-**El modelo `CuentaPorPagar` y el enum `EstadoCuentaPorPagar` YA EXISTEN migrados** (`prisma/schema.prisma:906-938`, migración `20260831031138_sprint2`). HU-G8 no creó modelo nuevo. **HU-G10 sí requiere una migración adicional** — ver sección 5: campos nuevos en `CuentaPorPagar` y la relación hacia `ComprobanteProveedor` (HU-H9), que hoy no existe en `schema.prisma`.
+**El modelo `CuentaPorPagar` y el enum `EstadoCuentaPorPagar` YA EXISTEN migrados** (`prisma/schema.prisma:1151-1183` — model `1151-1176`, enum `1178-1183`; migración `20260831031138_sprint2`). HU-G8 no creó modelo nuevo. **HU-G10 sí requiere una migración adicional** — ver sección 5: campos nuevos en `CuentaPorPagar` y la relación hacia `ComprobanteProveedor` (HU-H9), que hoy no existe en `schema.prisma`.
 
 **Estado de las dependencias externas:**
 
 | Dependencia | Estado |
 |---|---|
-| Evento `orden_compra:estado_cambiado` (HU-H3) | ✅ Confirmado y mergeado. Se emite en las transiciones a `ENVIADA`, `CONFIRMADA`, `CERRADA` y `CANCELADA` (`src/lib/services/proveedores/orden-compra.service.ts:432-444`). |
+| Evento `orden_compra:estado_cambiado` (HU-H3) | ✅ Confirmado y mergeado. Se emite en las transiciones a `ENVIADA`, `CONFIRMADA`, `CERRADA` y `CANCELADA` (`src/lib/services/proveedores/orden-compra.service.ts:437-449`). |
 | Evento propio de "recepción total cerrada" (HU-H4) | ❌ **No se necesita.** La hipótesis de la Revisión 1 quedó confirmada: el evento genérico de HU-H3 ya cubre la transición `RECIBIDA_COMPLETA → CERRADA` y alcanza para disparar la consolidación a `DEFINITIVA`. Ver sección 2.2. |
 | `recepcion.service.ts` (HU-H4) | ✅ Integrado. Deja la OC en `RECIBIDA_COMPLETA` por el camino real; habilita la verificación end-to-end de `PROVISORIO → DEFINITIVA` y el recálculo del `monto` sobre `RecepcionItem.cantidad_aceptada`. Ver secciones 2.2 y 5. |
 | Modelo `ComprobanteProveedor` (HU-H9) | 🔴 **Bloqueante para HU-G10.** No existe todavía en `schema.prisma` — verificado, sin coincidencias en el repo actual. HU-G10 exige asociar al menos un comprobante vigente de la misma OC como precondición (`422` si no existe); sin el modelo migrado, la validación del paso 2 en 2.4 no tiene contra qué consultar. No bloquea HU-G8, que ya está cerrada. Coordinar con quien tome HU-H9 antes de implementar esta ampliación. |
@@ -48,14 +48,14 @@ No hay UI de creación propia en el alcance de HU-G8.
 
 ### Payload consumido — `OrdenCompraEstadoCambiadoPayload`
 
-Definición real en `src/lib/events/event-types.ts:265-276` (verificada). **La Revisión 1 asumía nombres incorrectos.** Shape real:
+Definición real en `src/lib/events/event-types.ts:302-313` (verificada). **La Revisión 1 asumía nombres incorrectos.** Shape real:
 
 ```typescript
 interface OrdenCompraEstadoCambiadoPayload {
   orden_compra_id: string;
   numero_orden: string;
-  estado_anterior: string;                 // EstadoOrdenCompra
-  estado_nuevo: string;                    // EstadoOrdenCompra  (NO "nuevo_estado")
+  estado_anterior: EstadoOrdenCompra;      // era `string` suelto hasta el commit b3dbf89 (09/09/2026)
+  estado_nuevo: EstadoOrdenCompra;         // (NO "nuevo_estado")
   accion: "ENVIAR" | "CONFIRMAR" | "CERRAR" | "CANCELAR";
   cambiado_por: string;                    // usuario_id         (NO "usuario_id")
   fecha_entrega_comprometida: string | null; // presente solo en CONFIRMAR, ISO 8601
@@ -63,8 +63,10 @@ interface OrdenCompraEstadoCambiadoPayload {
 }
 ```
 
-Valores de `EstadoOrdenCompra` (`schema.prisma:719-727`): `BORRADOR`, `ENVIADA`, `CONFIRMADA`, `RECEPCION_PARCIAL`, `RECIBIDA_COMPLETA`, `CERRADA`, `CANCELADA`.
-`CANCELAR` solo es válido desde `[BORRADOR, ENVIADA]` (`orden-compra.service.ts:67-72`).
+`EstadoOrdenCompra` se importa de `@prisma/client` (`import type`). El endurecimiento del tipo (`string` → `EstadoOrdenCompra`) en `b3dbf89` protege la guarda de 2.2 ante un rename del enum — ver §5.
+
+Valores de `EstadoOrdenCompra` (`schema.prisma:881-889`): `BORRADOR`, `ENVIADA`, `CONFIRMADA`, `RECEPCION_PARCIAL`, `RECIBIDA_COMPLETA`, `CERRADA`, `CANCELADA`.
+`CANCELAR` solo es válido desde `[BORRADOR, ENVIADA]` (`orden-compra.service.ts:72-77`, const `TRANSICIONES`).
 
 El listener **discrimina por `payload.accion`**, no por `estado_nuevo`.
 
@@ -85,7 +87,7 @@ El listener **discrimina por `payload.accion`**, no por `estado_nuevo`.
 
 **Post-commit:** emite `cuenta_por_pagar:estado_cambiado` con `accion: "CREAR"` (`estado_anterior: null`, `monto_anterior: null`, `monto_nuevo: monto.toString()`). Patrón fire-and-forget, después de que la transacción resuelve.
 
-**`fecha_vencimiento`:** queda `null`. `Proveedor.condiciones_pago` **sí existe migrado** (`schema.prisma:530`, `String?`), pero es **texto libre** ("Contado", "30 días", "60 días FF") — no parseable de forma confiable a una cantidad de días. Ningún criterio de aceptación de HU-G8 define el cálculo del vencimiento. Queda `null` hasta que el campo se estructure en otra HU.
+**`fecha_vencimiento`:** queda `null`. `Proveedor.condiciones_pago` **sí existe migrado** (`schema.prisma:690`, `String?`), pero es **texto libre** ("Contado", "30 días", "60 días FF") — no parseable de forma confiable a una cantidad de días. Ningún criterio de aceptación de HU-G8 define el cálculo del vencimiento. Queda `null` hasta que el campo se estructure en otra HU.
 
 ---
 
@@ -93,7 +95,7 @@ El listener **discrimina por `payload.accion`**, no por `estado_nuevo`.
 
 **Disparador:** `payload.accion === "CERRAR"` (`estado_nuevo === "CERRADA"`), con guarda adicional `estado_anterior === "RECIBIDA_COMPLETA"` — para no reaccionar ante otras rutas hacia `CERRADA` que no correspondan al cierre por conciliación de factura.
 
-**Hipótesis de la Revisión 1 — CONFIRMADA.** El evento `orden_compra:estado_cambiado` ya cubre la transición `RECIBIDA_COMPLETA → CERRADA` (acción `CERRAR`, `orden-compra.service.ts:67-72`). **HU-G8 no necesita un evento propio de HU-H4** para saber *cuándo* consolidar. Para saber *qué* `Recepcion` asociar, se resuelve por query directa contra `Recepcion` (no por evento).
+**Hipótesis de la Revisión 1 — CONFIRMADA.** El evento `orden_compra:estado_cambiado` ya cubre la transición `RECIBIDA_COMPLETA → CERRADA` (acción `CERRAR`, `orden-compra.service.ts:72-77` const `TRANSICIONES`). **HU-G8 no necesita un evento propio de HU-H4** para saber *cuándo* consolidar. Para saber *qué* `Recepcion` asociar, se resuelve por query directa contra `Recepcion` (no por evento).
 
 **Servicio:** `consolidarCuentaPorPagarDefinitiva(payload)`.
 
@@ -170,9 +172,9 @@ export const MarcarPagadaSchema = z.object({
 
 `fecha_pago = input.fecha_pago ?? new Date()`.
 
-**Post-commit (dentro del servicio, como `orden-compra.service.ts:432`):** emite `cuenta_por_pagar:estado_cambiado` con `accion: "PAGAR"`, `estado_anterior: "DEFINITIVA"`, `estado_nuevo: "PAGADA"`, `fecha_pago: fecha_pago.toISOString()`, `proveedor_id`, y los campos nuevos `medio_pago`, `cuenta_origen_id`, `comprobante_proveedor_ids` (ver payload ampliado en 4.1).
+**Post-commit (dentro del servicio, como `orden-compra.service.ts:437`):** emite `cuenta_por_pagar:estado_cambiado` con `accion: "PAGAR"`, `estado_anterior: "DEFINITIVA"`, `estado_nuevo: "PAGADA"`, `fecha_pago: fecha_pago.toISOString()`, `proveedor_id`. **En HU-G10** el payload sumaría además `medio_pago`, `cuenta_origen_id`, `comprobante_proveedor_ids` — no implementado hoy (ver §5; el payload real de HU-G8 termina en `deletion_reason`, §4.1).
 
-**Notificación al Módulo H (criterio 5 — "reflejarlo en el historial del proveedor"):** sin cambios respecto a HU-G8. El payload lleva `proveedor_id`. Módulo H se suscribe a `cuenta_por_pagar:estado_cambiado` filtrando `accion === "PAGAR"`; no se define un evento dedicado.
+**Notificación al Módulo H (criterio 5 — "reflejarlo en el historial del proveedor"):** sin cambios respecto a HU-G8. El evento `cuenta_por_pagar:estado_cambiado` se emite con `proveedor_id` en el payload, para que Módulo H pueda reaccionar filtrando `accion === "PAGAR"`; no se define un evento dedicado. **Hoy Módulo H no tiene ningún listener suscripto a ese evento** — el único suscriptor es el handler de auditoría (ver §4.4). Consumir el evento del lado de H queda pendiente de ese módulo.
 
 **Respuesta `200 OK`:**
 ```json
@@ -253,7 +255,7 @@ select: {
 }
 ```
 
-> **Nunca `include: true` sobre `Proveedor`.** El `Proveedor` tiene `datos_bancarios_cifrado` y `datos_bancarios_iv` (`schema.prisma:544,548`), que el Alcance §5.1 restringe a Tesorero Central y Administrador únicamente, con independencia de este permiso de lectura general. El `select` explícito los excluye siempre. La verificación (7.5) debe aseverar que el objeto `proveedor` de cada fila trae **solo** los 5 campos de la whitelist.
+> **Nunca `include: true` sobre `Proveedor`.** El `Proveedor` tiene `datos_bancarios_cifrado` y `datos_bancarios_iv` (`schema.prisma:704,708`), que el Alcance §5.1 restringe a Tesorero Central y Administrador únicamente, con independencia de este permiso de lectura general. El `select` explícito los excluye siempre. La verificación (7.5) debe aseverar que el objeto `proveedor` de cada fila trae **solo** los 5 campos de la whitelist.
 
 No existe UI propia para este endpoint en Sprint 2 (no hay HU-G7 que la consuma). Su propósito ahora es permitir verificación con evidencia (Postman) de las tres ramas del listener y de la mutación de pago.
 
@@ -262,7 +264,7 @@ No existe UI propia para este endpoint en Sprint 2 (no hay HU-G7 que la consuma)
 ## 3. Reglas de Negocio Estrictas (Capa de Servicios)
 
 ### 3.1. El `PROVISORIO` nunca es deuda exigible
-Es informativo. El `GET` (2.5) expone `estado` por fila tal cual. Excluir `PROVISORIO` de cualquier agregado de "deuda pendiente" o proyección de caja es **responsabilidad de HU-G7**, no de HU-G8. El modelo no lo impide a nivel de constraint (mismo criterio en el JSDoc de `CuentaPorPagar` en `schema.prisma:897-905`).
+Es informativo. El `GET` (2.5) expone `estado` por fila tal cual. Excluir `PROVISORIO` de cualquier agregado de "deuda pendiente" o proyección de caja es **responsabilidad de HU-G7**, no de HU-G8. El modelo no lo impide a nivel de constraint (mismo criterio en el JSDoc de `CuentaPorPagar` en `schema.prisma:1142-1150`).
 
 ### 3.2. Transiciones de estado exclusivamente vía listener o el endpoint de pago
 No existe (ni debe existir) un `PATCH` genérico de `estado` sobre `CuentaPorPagar`. Las únicas mutaciones válidas son las tres ramas automáticas de 2.1/2.2/2.3 y la mutación manual de 2.4.
@@ -276,6 +278,24 @@ Ninguna sección implementa hashing propio. Todas las transiciones emiten `cuent
 ### 3.5. Idempotencia de listeners
 Cada rama es idempotente: la rama de creación verifica un `PROVISORIO` activo previo; las ramas de actualización usan `updateMany` guardado por `estado` y tratan `count === 0` como no-op (retornan `null`), no como error. `iniciarCuentaPorPagarListener()` tiene guarda de registro único (`let registrado = false`).
 
+#### 3.5.1. Asimetría de guardas de `estado_anterior` entre las 3 ramas — intencional
+
+Solo `consolidarCuentaPorPagarDefinitiva` (2.2) lleva una guarda explícita de `estado_anterior` (`if (payload.estado_anterior !== "RECIBIDA_COMPLETA") return null`, `cuenta-por-pagar.service.ts:316`). `generarCuentaPorPagarProvisoria` (2.1) y `cancelarCuentaPorPagar` (2.3) **no la tienen, y es correcto que no la tengan** — no es un olvido.
+
+El criterio es *qué pasa si la rama se dispara desde un estado no esperado* (por un cambio futuro en la máquina de estados de Módulo H, que HU-G8 no controla):
+
+| Rama | Se defiende por | Si se dispara desde un estado "equivocado" |
+|---|---|---|
+| `generar` (2.1) | **Existencia**: `if (existente PROVISORIO) return null` | Crea un `PROVISORIO` sobre `Σ cantidad_solicitada`, o no-op si ya hay uno. Una OC que sale de `BORRADOR` *debe* tener compromiso provisorio → **sin resultado incorrecto**. |
+| `consolidar` (2.2) | **Estado**: `estado_anterior === "RECIBIDA_COMPLETA"` | Recalcula el monto con `calcularMontoDesdeRecepcion`, que suma `RecepcionItem.cantidad_aceptada` sobre las `Recepcion` de la orden. Disparada desde, p. ej., un hipotético `CONFIRMADA → CERRADA` (cierre sin recepción), sumaría **sobre cero filas** → **`DEFINITIVA` con `monto: 0.00`**: una deuda finalizada de $0 para una orden nunca recibida. **Resultado de negocio incorrecto** → por eso lleva la guarda de estado. |
+| `cancelar` (2.3) | **Inexistencia**: `if (!provisoria) return null`, y el `updateMany` filtra por `estado: "PROVISORIO"` | Cancela el `PROVISORIO` si existe. Si la OC se cancela, su compromiso *debe* morir; el filtro por `PROVISORIO` impide tocar una `DEFINITIVA`/`PAGADA` → **sin resultado incorrecto**. |
+
+`consolidar` es la única rama donde dispararse desde el estado equivocado **escribe un dato incorrecto** en vez de hacer un no-op. Los gates por existencia/inexistencia de un `PROVISORIO` activo de las otras dos son, además, más robustos que una guarda de estado para lo que esas ramas hacen: cubren también los reintentos del bus (una guarda de `estado_anterior` no).
+
+Agregar una guarda simétrica `estado_anterior !== "BORRADOR"` a `generar` fue **evaluado y descartado** (decisión del 09/09/2026): no previene ningún resultado incorrecto, su hazard real (`PROVISORIO` duplicado) ya lo cubre la idempotencia, y podría inducir a un lector futuro a asumir una razón semántica que no existe.
+
+> **Sobre `orden-compra.service.ts:72-77` (`const TRANSICIONES`):** hoy tanto `ENVIAR` (`origenes: ["BORRADOR"]`) como `CERRAR` (`origenes: ["RECIBIDA_COMPLETA"]`) tienen **un único origen**, validado por `cambiarEstadoOrdenCompra` antes de emitir el evento. La guarda de `consolidar` es por eso *redundante hoy* contra la máquina de estados actual (lo dice su propio comentario) — se mantiene como blindaje del contrato entre módulos porque su ausencia habilitaría un write incorrecto ante un cambio en Módulo H; la de `generar` no aportaría esa protección.
+
 ### 3.6. Fallo del listener — sin conciliación en este slice
 El evento `orden_compra:estado_cambiado` es post-commit fire-and-forget: si `generarCuentaPorPagarProvisoria` falla, la OC ya está `ENVIADA` y no hay `CuentaPorPagar`. **No hay job de conciliación en HU-G8.** La recuperación es replay manual, guiado por el `console.error` (que debe incluir `orden_compra_id`). Detectar OC en `ENVIADA` sin `CuentaPorPagar` asociada es el lugar natural de HU-G7. Cada rama del listener envuelve `servicio + emit` en un `try/catch` que loguea y **nunca relanza** hacia el bus.
 
@@ -288,12 +308,14 @@ Ningún pago se efectiviza sin al menos un `ComprobanteProveedor` (HU-H9) vigent
 
 | Evento | Disparado por | Consumidor | Payload |
 |---|---|---|---|
-| `orden_compra:estado_cambiado` *(consumido)* | HU-H3 | Listener de 2.1/2.2/2.3 | Ver "Payload consumido" arriba — shape real de `event-types.ts:265-276` |
+| `orden_compra:estado_cambiado` *(consumido)* | HU-H3 | Listener de 2.1/2.2/2.3 | Ver "Payload consumido" arriba — shape real de `event-types.ts:302-313` |
 | `cuenta_por_pagar:estado_cambiado` *(nuevo)* | 2.1, 2.2, 2.3, 2.4 | `audit-log.listener.ts` | Ver abajo |
 
 ### 4.1. `CuentaPorPagarEstadoCambiadoPayload`
 
 Se agrega a `src/lib/events/event-types.ts` (interface después de `ProveedorEstadoCambiadoPayload`, más una entrada en `DomainEventMap`). Convenciones: `monto_*` como `string` (`Prisma.Decimal` serializado), fechas ISO 8601 o `null`.
+
+Shape **real de HU-G8** (`src/lib/events/event-types.ts:391-412`, verificado):
 
 ```typescript
 interface CuentaPorPagarEstadoCambiadoPayload {
@@ -311,24 +333,22 @@ interface CuentaPorPagarEstadoCambiadoPayload {
   fecha_vencimiento: string | null; // siempre null en HU-G8
   fecha_pago: string | null;      // presente solo en PAGAR
   deletion_reason: string | null; // presente solo en CANCELAR
-  // --- Campos nuevos (HU-G10) — presentes únicamente cuando accion === "PAGAR" ---
-  medio_pago: "TRANSFERENCIA" | "CHEQUE" | "EFECTIVO" | null;
-  cuenta_origen_id: string | null;
-  comprobante_proveedor_ids: string[] | null;
 }
 ```
+
+> **HU-G10 (no implementado).** La ampliación de HU-G10 agregaría a este payload, únicamente cuando `accion === "PAGAR"`, los campos `medio_pago: "TRANSFERENCIA" | "CHEQUE" | "EFECTIVO" | null`, `cuenta_origen_id: string | null` y `comprobante_proveedor_ids: string[] | null`. **Ninguno existe hoy en el código** (`event-types.ts`, `schema.prisma` y `seed.ts` sin coincidencias, verificado 09/09/2026). HU-G10 está bloqueada por HU-H9 — ver §5. La interface de arriba es exactamente la que emite HU-G8.
 
 ### 4.2. Handler de auditoría
 
 Bloque `domainEventBus.on("cuenta_por_pagar:estado_cambiado", ...)` agregado dentro de `iniciarAuditLogListener()`, después del bloque de `proveedor:estado_cambiado`:
 
 - `usuario_id: payload.cambiado_por`
-- `accion: payload.accion === "CREAR" ? "CREATE" : "UPDATE_ESTADO"` — **incluido `CANCELAR`, que mapea a `UPDATE_ESTADO`, no a `DELETE_LOGICO`** (la fila sigue `is_active: true`; es un cambio de estado, no una baja lógica). Diverge a propósito del handler de `orden_compra:estado_cambiado`, que mapea su `CANCELAR` a `DELETE_LOGICO`. Llevar un comentario como el de `audit-log.listener.ts:412-417`.
+- `accion: payload.accion === "CREAR" ? "CREATE" : "UPDATE_ESTADO"` — **incluido `CANCELAR`, que mapea a `UPDATE_ESTADO`, no a `DELETE_LOGICO`** (la fila sigue `is_active: true`; es un cambio de estado, no una baja lógica). Diverge a propósito del handler de `orden_compra:estado_cambiado`, que mapea su `CANCELAR` a `DELETE_LOGICO`. Llevar un comentario como el de `audit-log.listener.ts:392-394`.
 - `tabla_afectada: "cuentas_por_pagar"`
 - `registro_id: payload.cuenta_por_pagar_id`
 - `ip: "internal-event"` (evento de servicio post-commit sin request HTTP)
 - `valor_anterior`: `null` en `CREAR`; si no, `{ estado: payload.estado_anterior, monto: payload.monto_anterior }`
-- `valor_nuevo`: `{ estado, accion, monto: monto_nuevo, orden_compra_id, numero_orden, proveedor_id, ...(recepcion_id ? { recepcion_id } : {}), ...(fecha_pago ? { fecha_pago } : {}), ...(deletion_reason ? { deletion_reason } : {}), ...(medio_pago ? { medio_pago, cuenta_origen_id, comprobante_proveedor_ids } : {}) }` — el spread condicional de los tres campos de HU-G10 sigue el mismo patrón que `recepcion_id`/`fecha_pago`/`deletion_reason`: solo aparecen en el registro de auditoría cuando `accion === "PAGAR"`.
+- `valor_nuevo` (real en HU-G8, `audit-log.listener.ts:513-525`): `{ estado, accion, monto: monto_nuevo, orden_compra_id, numero_orden, proveedor_id, ...(recepcion_id ? { recepcion_id } : {}), ...(fecha_pago ? { fecha_pago } : {}), ...(deletion_reason ? { deletion_reason } : {}) }` — los tres spreads condicionales solo aparecen en el registro de auditoría cuando corresponde (`recepcion_id` en `DEFINIR`, `fecha_pago` en `PAGAR`, `deletion_reason` en `CANCELAR`). En **HU-G10** se sumaría un cuarto spread `...(medio_pago ? { medio_pago, cuenta_origen_id, comprobante_proveedor_ids } : {})` — no implementado (§5).
 
 Los campos planos `monto_anterior` / `monto_nuevo` son la única traza de una discrepancia de monto en la consolidación (2.2) — se reconstruyen a `valor_*` en el handler, como hacen los demás handlers del proyecto (ninguno recibe un `valor_*` pre-armado).
 
@@ -359,6 +379,7 @@ PATCH /pagar ──► marcarCuentaPorPagarPagada ──► cuenta_por_pagar:est
 - **El `monto` de la `DEFINITIVA` usa `cantidad_aceptada`, no `cantidad_recibida`.** El criterio 4 dice "sobre lo efectivamente **recibido y validado**". `cantidad_recibida` es lo que llegó físicamente; `cantidad_aceptada` es lo que además pasó control (la mercadería recibida pero rechazada por calidad/discrepancia queda con `cantidad_aceptada < cantidad_recibida` y una `RecepcionDiscrepancia`). Facturar sobre `cantidad_recibida` incluiría unidades no validadas; por eso `calcularMontoDesdeRecepcion` suma `cantidad_aceptada`. Ejemplo verificado: OC de 368000 pedidos, ítem con 3 de 10 unidades rechazadas por calidad ⇒ `DEFINITIVA` = 320600, no 368000.
 - **`fecha_vencimiento` del `PROVISORIO`** — `null`. `Proveedor.condiciones_pago` existe pero es texto libre. Estructurar el campo es materia de otra HU.
 - **`recepcion_id` en la consolidación** — resuelto (HU-H4 integrada): la `Recepcion` activa más reciente de la orden. El `monto` de la `DEFINITIVA` se recalcula sobre `RecepcionItem.cantidad_aceptada` (ver nota anterior).
+- **Tipado de la guarda del disparador de 2.2 — resuelto (2026-09-09).** La guarda es `if (payload.estado_anterior !== "RECIBIDA_COMPLETA") return null;` (`cuenta-por-pagar.service.ts:316`). Hasta esta fecha `OrdenCompraEstadoCambiadoPayload.estado_anterior` / `estado_nuevo` estaban tipados como `string` suelto, así que un rename del valor `RECIBIDA_COMPLETA` en el enum `EstadoOrdenCompra` sin actualizar esta línea habría pasado `tsc` y fallado **en silencio en runtime** (la `CuentaPorPagar` nunca pasaría de `PROVISORIO` a `DEFINITIVA`). Ambos campos pasaron a tiparse como `EstadoOrdenCompra` (importado de `@prisma/client`, `src/lib/events/event-types.ts`). Ahora la comparación de la línea 316 está **protegida por `tsc`**: un rename del valor del enum sin tocar esta línea produce `error TS2367 — 'EstadoOrdenCompra' y '"RECIBIDA_COMPLETA"' no tienen overlap` (verificado). El fallo silencioso ya no es posible. **Esta mejora de tipado es independiente de la decisión de la Daily sobre simplificar el enum** — no cambia ningún valor de `EstadoOrdenCompra` ni el string comparado; solo endurece el tipo del campo que ya existía. Si la Daily decide renombrar/eliminar `RECIBIDA_COMPLETA`, el compilador va a señalar exactamente esta línea (y las de HU-H3 en `orden-compra.service.ts`, ya tipadas contra el enum).
 - **Sin uniqueness a nivel DB** de un `PROVISORIO` activo por OC (no se permite migración en esta HU). La garantía es solo de capa de aplicación; un doble-emit genuinamente simultáneo podría crear dos filas. Aceptado.
 - **HU-G7 y el resto de Módulo G** — fuera de este documento.
 
