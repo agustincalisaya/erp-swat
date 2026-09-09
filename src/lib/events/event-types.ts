@@ -409,6 +409,14 @@ export interface CuentaPorPagarEstadoCambiadoPayload {
   fecha_pago: string | null;
   /** Presente solo en `CANCELAR` — motivo de la cancelación funcional, NO baja lógica. */
   deletion_reason: string | null;
+  /** Presente solo en `PAGAR` (HU-G10). */
+  medio_pago: "TRANSFERENCIA" | "CHEQUE" | "EFECTIVO" | null;
+  /** Presente solo en `PAGAR` (HU-G10). */
+  cuenta_origen_id: string | null;
+  /** Presente solo en `PAGAR` (HU-G10). */
+  comprobante_proveedor_ids: string[] | null;
+  /** Presente solo en `PAGAR` (HU-G10). */
+  observaciones: string | null;
 }
 
 /**

@@ -20,10 +20,12 @@ import type {
   EstadoCuentaPorPagar,
   EstadoOrdenCompra,
   EstadoProveedor,
+  MedioPago,
 } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { domainEventBus } from "@/lib/events/domain-event-bus";
 import { ServiceError } from "@/lib/errors/service-error";
+import { validarComprobantesDePago } from "@/lib/services/tesoreria/cuenta-por-pagar.comprobantes";
 import type {
   CuentaPorPagarEstadoCambiadoPayload,
   OrdenCompraEstadoCambiadoPayload,
@@ -61,6 +63,14 @@ export const PERMISO_PAGAR_CUENTA_POR_PAGAR = "cuentas_por_pagar:pagar";
 
 export interface MarcarCuentaPorPagarPagadaInput {
   fecha_pago?: Date;
+  /** HU-G10 — medio de pago (obligatorio desde HU-G10). */
+  medio_pago: MedioPago;
+  /** HU-G10 — id de catálogo de la cuenta de origen (obligatorio desde HU-G10). */
+  cuenta_origen_id: string;
+  /** HU-G10 — comprobantes a imputar al pago (al menos uno, obligatorio). */
+  comprobante_proveedor_ids: string[];
+  /** HU-G10 — nota libre opcional (<=500 chars, validado en Zod). */
+  observaciones?: string;
 }
 
 export interface CuentaPorPagarPagada {
@@ -68,6 +78,14 @@ export interface CuentaPorPagarPagada {
   estado_anterior: "DEFINITIVA";
   estado_nuevo: "PAGADA";
   fecha_pago: Date;
+  /** HU-G10 */
+  medio_pago: MedioPago;
+  /** HU-G10 */
+  cuenta_origen_id: string;
+  /** HU-G10 — ids efectivamente imputados en este pago. */
+  comprobante_proveedor_ids: string[];
+  /** HU-G10 */
+  observaciones: string | null;
 }
 
 /**
@@ -283,6 +301,11 @@ export async function generarCuentaPorPagarProvisoria(
       fecha_vencimiento: null,
       fecha_pago: null,
       deletion_reason: null,
+      // HU-G10 — campos de PAGAR: nulos en las transiciones reactivas.
+      medio_pago: null,
+      cuenta_origen_id: null,
+      comprobante_proveedor_ids: null,
+      observaciones: null,
     };
   });
 }
@@ -379,6 +402,11 @@ export async function consolidarCuentaPorPagarDefinitiva(
       fecha_vencimiento: null,
       fecha_pago: null,
       deletion_reason: null,
+      // HU-G10 — campos de PAGAR: nulos en las transiciones reactivas.
+      medio_pago: null,
+      cuenta_origen_id: null,
+      comprobante_proveedor_ids: null,
+      observaciones: null,
     };
   });
 }
@@ -444,6 +472,11 @@ export async function cancelarCuentaPorPagar(
       fecha_vencimiento: null,
       fecha_pago: null,
       deletion_reason: payload.deletion_reason,
+      // HU-G10 — campos de PAGAR: nulos en las transiciones reactivas.
+      medio_pago: null,
+      cuenta_origen_id: null,
+      comprobante_proveedor_ids: null,
+      observaciones: null,
     };
   });
 }
@@ -465,6 +498,7 @@ export async function marcarCuentaPorPagarPagada(
   usuarioId: string,
 ): Promise<CuentaPorPagarPagada> {
   const resultado = await prisma.$transaction(async (tx) => {
+    // 1. Estado de la cuenta.
     const cuenta = await tx.cuentaPorPagar.findFirst({
       where: { id: cuentaPorPagarId },
       select: {
@@ -482,31 +516,76 @@ export async function marcarCuentaPorPagarPagada(
         "La cuenta por pagar indicada no existe",
       );
     }
-    if (!cuenta.is_active) {
-      throw new ServiceError(
-        "TRANSICION_INVALIDA",
-        `La cuenta por pagar ${cuentaPorPagarId} no está activa`,
-      );
-    }
-    if (cuenta.estado !== "DEFINITIVA") {
+    if (!cuenta.is_active || cuenta.estado !== "DEFINITIVA") {
       throw new ServiceError(
         "TRANSICION_INVALIDA",
         "No es posible pagar una cuenta en estado " + cuenta.estado,
       );
     }
 
-    const fechaPago = input.fecha_pago ?? new Date();
-
-    const cambio = await tx.cuentaPorPagar.updateMany({
-      where: { id: cuentaPorPagarId, estado: "DEFINITIVA", is_active: true },
-      data: { estado: "PAGADA", fecha_pago: fechaPago },
+    // 2. Comprobantes realmente existentes (SIN filtro is_active: hace falta
+    //    para distinguir ANULADO de INEXISTENTE en `validarComprobantesDePago`).
+    const encontrados = await tx.comprobanteProveedor.findMany({
+      where: { id: { in: input.comprobante_proveedor_ids } },
+      select: { id: true, orden_compra_id: true, is_active: true },
     });
-    if (cambio.count === 0) {
+
+    // 2b. Comprobantes ya imputados a OTRA CuentaPorPagar PAGADA.
+    const yaImputados = await tx.cuentaPorPagarComprobante.findMany({
+      where: {
+        comprobante_proveedor_id: { in: input.comprobante_proveedor_ids },
+        cuenta_por_pagar_id: { not: cuentaPorPagarId },
+        cuenta_por_pagar: { is: { estado: "PAGADA" } },
+      },
+      select: { comprobante_proveedor_id: true },
+    });
+    const idsYaImputadosEnOtrosPagos = new Set(
+      yaImputados.map((r) => r.comprobante_proveedor_id),
+    );
+
+    // 3. Validación de la imputación. Cualquier detalle ⇒ rollback total.
+    const detalles = validarComprobantesDePago(
+      input.comprobante_proveedor_ids,
+      encontrados,
+      cuenta.orden_compra_id,
+      idsYaImputadosEnOtrosPagos,
+    );
+    if (detalles.length > 0) {
+      throw new ServiceError(
+        "COMPROBANTE_PROVEEDOR_REQUERIDO",
+        "Hay comprobantes que no se pueden imputar a este pago",
+        detalles,
+      );
+    }
+
+    const fechaPago = input.fecha_pago ?? new Date();
+    const observaciones = input.observaciones ?? null;
+
+    // 4. Transición DEFINITIVA → PAGADA (guardada por estado: concurrencia).
+    const { count } = await tx.cuentaPorPagar.updateMany({
+      where: { id: cuentaPorPagarId, estado: "DEFINITIVA", is_active: true },
+      data: {
+        estado: "PAGADA",
+        fecha_pago: fechaPago,
+        medio_pago: input.medio_pago,
+        cuenta_origen_id: input.cuenta_origen_id,
+        observaciones,
+      },
+    });
+    if (count === 0) {
       throw new ServiceError(
         "TRANSICION_INVALIDA",
         "El estado de la cuenta cambió durante la operación; reintentá",
       );
     }
+
+    // 5. Imputación histórica e inmutable de los comprobantes.
+    await tx.cuentaPorPagarComprobante.createMany({
+      data: input.comprobante_proveedor_ids.map((cid) => ({
+        cuenta_por_pagar_id: cuentaPorPagarId,
+        comprobante_proveedor_id: cid,
+      })),
+    });
 
     return {
       orden_compra_id: cuenta.orden_compra_id,
@@ -514,6 +593,7 @@ export async function marcarCuentaPorPagarPagada(
       proveedor_id: cuenta.orden_compra.proveedor_id,
       monto: cuenta.monto,
       fecha_pago: fechaPago,
+      observaciones,
     };
   });
 
@@ -535,6 +615,11 @@ export async function marcarCuentaPorPagarPagada(
     fecha_vencimiento: null,
     fecha_pago: resultado.fecha_pago.toISOString(),
     deletion_reason: null,
+    // HU-G10 — presentes solo en PAGAR.
+    medio_pago: input.medio_pago,
+    cuenta_origen_id: input.cuenta_origen_id,
+    comprobante_proveedor_ids: input.comprobante_proveedor_ids,
+    observaciones: resultado.observaciones,
   });
 
   return {
@@ -542,6 +627,10 @@ export async function marcarCuentaPorPagarPagada(
     estado_anterior: "DEFINITIVA",
     estado_nuevo: "PAGADA",
     fecha_pago: resultado.fecha_pago,
+    medio_pago: input.medio_pago,
+    cuenta_origen_id: input.cuenta_origen_id,
+    comprobante_proveedor_ids: input.comprobante_proveedor_ids,
+    observaciones: resultado.observaciones,
   };
 }
 

@@ -13,7 +13,8 @@
  *
  * Respuestas: 200 OK · 400 VALIDATION_ERROR · 401 UNAUTHORIZED ·
  * 403 FORBIDDEN · 404 CUENTA_POR_PAGAR_NO_ENCONTRADA ·
- * 409 TRANSICION_INVALIDA · 500 INTERNAL_ERROR.
+ * 409 TRANSICION_INVALIDA · 422 COMPROBANTE_PROVEEDOR_REQUERIDO (con
+ * `error.details`: detalle por comprobante inválido) · 500 INTERNAL_ERROR.
  */
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
@@ -33,6 +34,7 @@ type Context = { params: Promise<{ id: string }> };
 const STATUS_POR_CODIGO: Record<string, number> = {
   CUENTA_POR_PAGAR_NO_ENCONTRADA: 404,
   TRANSICION_INVALIDA: 409,
+  COMPROBANTE_PROVEEDOR_REQUERIDO: 422,
 };
 
 export const PATCH = withAuth(async (req: NextRequest, session, rawContext) => {
@@ -46,7 +48,7 @@ export const PATCH = withAuth(async (req: NextRequest, session, rawContext) => {
   }
 
   const body = await req.json().catch(() => null);
-  const parsed = MarcarPagadaSchema.safeParse(body ?? {});
+  const parsed = MarcarPagadaSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json(
       {
@@ -87,6 +89,10 @@ export const PATCH = withAuth(async (req: NextRequest, session, rawContext) => {
           estado_anterior: resultado.estado_anterior,
           estado_nuevo: resultado.estado_nuevo,
           fecha_pago: resultado.fecha_pago,
+          medio_pago: resultado.medio_pago,
+          cuenta_origen_id: resultado.cuenta_origen_id,
+          comprobante_proveedor_ids: resultado.comprobante_proveedor_ids,
+          observaciones: resultado.observaciones,
         },
         error: null,
       },
@@ -95,7 +101,14 @@ export const PATCH = withAuth(async (req: NextRequest, session, rawContext) => {
   } catch (err) {
     if (err instanceof ServiceError) {
       return NextResponse.json(
-        { data: null, error: { code: err.code, message: err.message } },
+        {
+          data: null,
+          error: {
+            code: err.code,
+            message: err.message,
+            ...(err.details ? { details: err.details } : {}),
+          },
+        },
         { status: STATUS_POR_CODIGO[err.code] ?? 400 },
       );
     }
