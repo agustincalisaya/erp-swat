@@ -122,7 +122,7 @@ export default async function VariantesPage({ searchParams }: VariantesPageProps
             </Suspense>
 
             <Link
-              href="/inventario/productos/variantes/nueva"
+              href="/inventario/variantes/nueva"
               className={buttonVariants({ variant: "outline" }) + " gap-2 shrink-0"}
             >
               <LayoutGrid className="size-4" aria-hidden="true" />
