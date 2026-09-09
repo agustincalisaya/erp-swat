@@ -10,17 +10,14 @@ import { registrarIngresoStockTx } from "@/lib/services/inventario/movimiento.se
 import { registrarEvaluacionDesdeRecepcion } from "@/lib/services/proveedores/evaluacion.service";
 import { calcularPayloadHashRecepcion } from "@/lib/services/proveedores/recepcion-idempotencia";
 import {
+  construirConsultaOrdenesRecepcionables,
+  construirItemsRecepcionPerfecta,
   construirPayloadRecepcionRegistrada,
-  determinarEstadoFisicoOrden,
-  FILTRO_ACUMULADO_RECEPCIONES_ACTIVAS,
+  FILTRO_BASE_ORDEN_RECEPCIONABLE,
+  type FiltrosOrdenesRecepcionables,
 } from "@/lib/services/proveedores/recepcion-reglas";
 
 export const PERMISO_REGISTRAR_RECEPCION = "recepciones:registrar";
-
-const ESTADOS_RECEPCION_HABILITADOS: EstadoOrdenCompra[] = [
-  "CONFIRMADA",
-  "RECEPCION_PARCIAL",
-];
 
 const RECEPCION_RESULTADO_SELECT = {
   id: true,
@@ -55,8 +52,8 @@ export type RegistrarRecepcionServiceInput = RegistrarRecepcionInput & {
 interface ResultadoTransaccion {
   recepcion: RecepcionResultadoDb;
   creada: boolean;
-  estadoAnterior: "CONFIRMADA" | "RECEPCION_PARCIAL";
-  estadoNuevo: "RECEPCION_PARCIAL" | "RECIBIDA_COMPLETA";
+  estadoAnterior: "CONFIRMADA";
+  estadoNuevo: "RECIBIDA_COMPLETA";
   itemsStock: Array<{
     variante_sku_id: string;
     cantidad: number;
@@ -106,9 +103,9 @@ async function resolverRepeticion(
 }
 
 /**
- * Registra una recepción física completa o parcial. HU-H4 gobierna en la
- * misma transacción la recepción, sus ítems/discrepancias, el stock aceptado,
- * el movimiento (si corresponde) y el estado físico de la orden.
+ * Registra el único control físico operativo de una OC confirmada. Todos los
+ * ítems y cantidades se derivan de la OC: lo solicitado se persiste como
+ * recibido y aceptado, ingresa a stock y la orden pasa a RECIBIDA_COMPLETA.
  */
 interface DependenciasRecepcion {
   registrarEvaluacion: typeof registrarEvaluacionDesdeRecepcion;
@@ -142,10 +139,8 @@ export async function registrarRecepcionConDependencias(
             return {
               recepcion: existente,
               creada: false,
-              estadoAnterior: "RECEPCION_PARCIAL",
-              estadoNuevo: existente.orden_compra.estado === "RECIBIDA_COMPLETA"
-                ? "RECIBIDA_COMPLETA"
-                : "RECEPCION_PARCIAL",
+              estadoAnterior: "CONFIRMADA",
+              estadoNuevo: "RECIBIDA_COMPLETA",
               itemsStock: [],
             };
           }
@@ -156,6 +151,7 @@ export async function registrarRecepcionConDependencias(
               id: true,
               numero_orden: true,
               estado: true,
+              proveedor: { select: { id: true } },
               items: {
                 where: { is_active: true, deleted_at: null },
                 select: {
@@ -169,7 +165,7 @@ export async function registrarRecepcionConDependencias(
           if (!orden) {
             throw new ServiceError("ORDEN_NO_ENCONTRADA", "La orden de compra indicada no existe");
           }
-          if (!ESTADOS_RECEPCION_HABILITADOS.includes(orden.estado)) {
+          if (orden.estado !== "CONFIRMADA") {
             throw new ServiceError(
               "ORDEN_NO_RECEPCIONABLE",
               `La orden ${orden.numero_orden} no admite recepciones en estado ${orden.estado}`,
@@ -184,49 +180,15 @@ export async function registrarRecepcionConDependencias(
             throw new ServiceError("DEPOSITO_NO_ENCONTRADO", "El depósito destino no existe o está inactivo");
           }
 
-          const itemOrdenPorId = new Map(orden.items.map((item) => [item.id, item]));
-          for (const item of input.items) {
-            if (!itemOrdenPorId.has(item.orden_compra_item_id)) {
-              throw new ServiceError(
-                "ITEM_NO_PERTENECE_A_ORDEN",
-                "Uno de los ítems recibidos no pertenece a la orden de compra activa",
-              );
-            }
+          const itemsRecepcion = construirItemsRecepcionPerfecta(orden.items);
+          if (itemsRecepcion.length === 0) {
+            throw new ServiceError(
+              "ORDEN_SIN_ITEMS_RECEPCIONABLES",
+              `La orden ${orden.numero_orden} no tiene ítems activos para recibir`,
+            );
           }
 
-          const acumulados = await tx.recepcionItem.groupBy({
-            by: ["orden_compra_item_id"],
-            where: {
-              orden_compra_item_id: { in: orden.items.map((item) => item.id) },
-              ...FILTRO_ACUMULADO_RECEPCIONES_ACTIVAS,
-            },
-            _sum: { cantidad_recibida: true },
-          });
-          const recibidoPrevio = new Map(
-            acumulados.map((item) => [item.orden_compra_item_id, item._sum.cantidad_recibida ?? 0]),
-          );
-
-          for (const item of input.items) {
-            const itemOrden = itemOrdenPorId.get(item.orden_compra_item_id)!;
-            const pendiente = itemOrden.cantidad_solicitada - (recibidoPrevio.get(itemOrden.id) ?? 0);
-            if (item.cantidad_recibida > pendiente) {
-              throw new ServiceError(
-                "CANTIDAD_EXCEDE_PENDIENTE",
-                `La cantidad recibida supera el pendiente del ítem ${itemOrden.id}`,
-              );
-            }
-          }
-
-          const recibidoEnEstaOperacion = new Map(
-            input.items.map((item) => [item.orden_compra_item_id, item.cantidad_recibida]),
-          );
-          const estadoNuevo = determinarEstadoFisicoOrden(
-            orden.items.map((item) => ({
-              cantidad_solicitada: item.cantidad_solicitada,
-              cantidad_recibida_previa: recibidoPrevio.get(item.id) ?? 0,
-              cantidad_recibida_actual: recibidoEnEstaOperacion.get(item.id) ?? 0,
-            })),
-          );
+          const estadoNuevo = "RECIBIDA_COMPLETA" as const;
           const recepcionId = randomUUID();
 
           await tx.recepcion.create({
@@ -236,24 +198,20 @@ export async function registrarRecepcionConDependencias(
               deposito_destino_id: input.deposito_destino_id,
               clave_idempotencia: input.clave_idempotencia,
               payload_hash: payloadHash,
-              numero_remito_proveedor: input.numero_remito_proveedor ?? null,
               recibida_por_id: usuarioId,
-              observaciones: input.observaciones ?? null,
               items: {
-                create: input.items.map((item) => ({
+                create: itemsRecepcion.map((item) => ({
                   orden_compra_item_id: item.orden_compra_item_id,
                   cantidad_recibida: item.cantidad_recibida,
                   cantidad_aceptada: item.cantidad_aceptada,
-                  discrepancias: { create: item.discrepancias },
                 })),
               },
             },
           });
 
           const aceptadoPorVariante = new Map<string, number>();
-          for (const item of input.items) {
-            if (item.cantidad_aceptada === 0) continue;
-            const varianteId = itemOrdenPorId.get(item.orden_compra_item_id)!.variante_sku_id;
+          for (const item of itemsRecepcion) {
+            const varianteId = item.variante_sku_id;
             aceptadoPorVariante.set(
               varianteId,
               (aceptadoPorVariante.get(varianteId) ?? 0) + item.cantidad_aceptada,
@@ -287,7 +245,7 @@ export async function registrarRecepcionConDependencias(
           const cambioEstado = await tx.ordenCompra.updateMany({
             where: {
               id: orden.id,
-              estado: orden.estado,
+              estado: "CONFIRMADA",
               is_active: true,
               deleted_at: null,
             },
@@ -307,7 +265,7 @@ export async function registrarRecepcionConDependencias(
           return {
             recepcion,
             creada: true,
-            estadoAnterior: orden.estado as "CONFIRMADA" | "RECEPCION_PARCIAL",
+            estadoAnterior: "CONFIRMADA",
             estadoNuevo,
             itemsStock,
           };
@@ -383,16 +341,21 @@ export async function listarDepositosParaRecepcion() {
   });
 }
 
-export async function listarOrdenesRecepcionables() {
+export async function listarOrdenesRecepcionables(
+  filtros: FiltrosOrdenesRecepcionables = {},
+) {
+  const consultaBase = construirConsultaOrdenesRecepcionables(filtros);
+  const total = await prisma.ordenCompra.count({ where: consultaBase.where });
+  const consulta = construirConsultaOrdenesRecepcionables(filtros, total);
   const ordenes = await prisma.ordenCompra.findMany({
-    where: {
-      estado: { in: ESTADOS_RECEPCION_HABILITADOS },
-      is_active: true,
-      deleted_at: null,
-    },
+    where: consulta.where,
+    orderBy: consulta.orderBy,
+    skip: consulta.skip,
+    take: consulta.take,
     select: {
       id: true,
       numero_orden: true,
+      fecha_emision: true,
       estado: true,
       proveedor: { select: { razon_social: true } },
       items: {
@@ -406,38 +369,40 @@ export async function listarOrdenesRecepcionables() {
               producto_maestro: { select: { nombre: true } },
             },
           },
-          recepcion_items: {
-            where: {
-              is_active: true,
-              deleted_at: null,
-              recepcion: { is_active: true, deleted_at: null },
-            },
-            select: { cantidad_recibida: true },
-          },
         },
       },
     },
-    orderBy: { created_at: "asc" },
   });
 
-  return ordenes.map((orden) => ({
-    orden_compra_id: orden.id,
+  const ordenesSerializadas = ordenes.map((orden) => ({
+    id: orden.id,
     numero_orden: orden.numero_orden,
+    fecha_emision: orden.fecha_emision.toISOString(),
     estado: orden.estado,
     proveedor: orden.proveedor.razon_social,
-    items: orden.items.map((item) => {
-      const cantidadRecibida = item.recepcion_items.reduce(
-        (total, recepcion) => total + recepcion.cantidad_recibida,
-        0,
-      );
-      return {
-        orden_compra_item_id: item.id,
-        sku: item.variante_sku.sku,
-        producto: item.variante_sku.producto_maestro.nombre,
-        cantidad_solicitada: item.cantidad_solicitada,
-        cantidad_recibida: cantidadRecibida,
-        cantidad_pendiente: Math.max(0, item.cantidad_solicitada - cantidadRecibida),
-      };
-    }),
-  })).filter((orden) => orden.items.some((item) => item.cantidad_pendiente > 0));
+    items: orden.items.map((item) => ({
+      orden_compra_item_id: item.id,
+      sku: item.variante_sku.sku,
+      producto: item.variante_sku.producto_maestro.nombre,
+      cantidad_solicitada: item.cantidad_solicitada,
+    })),
+  }));
+
+  return {
+    ordenes: ordenesSerializadas,
+    total,
+    page: consulta.page,
+    pageSize: consulta.pageSize,
+    totalPages: consulta.totalPages ?? 0,
+  };
+}
+
+export async function listarProveedoresConOrdenesRecepcionables() {
+  return prisma.proveedor.findMany({
+    where: {
+      ordenes_compra: { some: FILTRO_BASE_ORDEN_RECEPCIONABLE },
+    },
+    select: { id: true, razon_social: true },
+    orderBy: { razon_social: "asc" },
+  });
 }
