@@ -4,6 +4,8 @@
  * consume estos eventos para construir el `AuditLog` encadenado por SHA-256.
  */
 
+import type { EstadoOrdenCompra } from "@prisma/client";
+
 /**
  * HU-A1 — Payload emitido tras el alta de un `ProductoMaestro`
  * (`crearProductoMaestro()`, sección 6.1 de task_relos.md).
@@ -300,8 +302,8 @@ export interface OrdenCompraCreadaPayload {
 export interface OrdenCompraEstadoCambiadoPayload {
   orden_compra_id: string;
   numero_orden: string;
-  estado_anterior: string;
-  estado_nuevo: string;
+  estado_anterior: EstadoOrdenCompra;
+  estado_nuevo: EstadoOrdenCompra;
   accion: "ENVIAR" | "CONFIRMAR" | "CERRAR" | "CANCELAR";
   cambiado_por: string;
   /** Presente solo en `CONFIRMAR`. ISO 8601. */
