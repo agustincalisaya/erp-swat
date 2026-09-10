@@ -1010,7 +1010,7 @@ async function main() {
   // Reparto (matriz Alcance §5 + decisión del equipo):
   //   - proveedores:crear     → Comprador Y Supervisor de Compras
   //   - proveedores:editar    → Comprador Y Supervisor de Compras
-  //   - proveedores:leer      → Comprador Y Supervisor de Compras
+  //   - proveedores:leer      → Comprador Y Supervisor de Compras (+ AUDITOR, lectura — bloque más abajo)
   //   - proveedores:homologar → SOLO Supervisor de Compras
   //   - proveedores:baja      → SOLO Supervisor de Compras
   const permisosProveedores = await Promise.all(
@@ -1379,6 +1379,25 @@ async function main() {
     },
     update: REACTIVAR_REFERENCIA_RBAC,
     create: { rol_id: rolAuditor.id, permiso_id: permisoOcLeer.id },
+  });
+
+  // ── HU-H1 (consistencia) — proveedores:leer → también AUDITOR ─────────────
+  // Matriz Alcance §5: el Auditor tiene acceso de lectura directo (✓) a los
+  // legajos de proveedores. Comprador y Supervisor de Compras ya lo reciben
+  // vía `permisosComprador` / `permisosSupervisorCompras`. Mismo criterio que
+  // `cuentas_por_pagar:leer`, `comprobantes_proveedor:leer` y
+  // `ordenes_compra:leer` — lectura ampliada del Auditor, sin capacidad de
+  // ejecutar ninguna transición (crear/editar/homologar/baja siguen
+  // exclusivas de sus permisos granulares).
+  await prisma.rolPermiso.upsert({
+    where: {
+      rol_id_permiso_id: {
+        rol_id: rolAuditor.id,
+        permiso_id: permisoProveedoresLeer.id,
+      },
+    },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: { rol_id: rolAuditor.id, permiso_id: permisoProveedoresLeer.id },
   });
 
   // ── Módulo D — Usuarios de ejemplo Sprint 2 (Comprador, Tesorero) ──────────
