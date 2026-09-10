@@ -18,18 +18,17 @@
  * `DialogBaja`) se renderizan como HERMANOS del `DropdownMenu` (nunca
  * anidados en `DropdownMenuContent`), mismo criterio que el precedente de
  * auditoría: cerrar el menú al hacer click en un ítem no desmonta un diálogo
- * a mitad de apertura ni compiten dos overlays por el foco. Diferencia con ese
- * precedente: los diálogos de proveedores NO son controlados — manejan su
- * propio `open` y renderizan su propio botón trigger. Para no modificar sus
- * internals, se montan dentro de un wrapper `hidden` y el ítem del menú abre
- * el diálogo disparando un `.click()` programático sobre ese trigger oculto
- * (el único mecanismo de apertura que expone el diálogo sin tocarlo).
+ * a mitad de apertura ni compiten dos overlays por el foco. A diferencia del
+ * precedente (que abría el diálogo con un click programático sobre un trigger
+ * oculto — mecanismo que Base UI bloquea), acá los diálogos se usan en MODO
+ * CONTROLADO: un único estado `accionAbierta` selecciona cuál renderiza su
+ * `open`, y `onOpenChange` lo limpia al cerrar.
  *
  * Restricción de spec §2.2 respetada: PENDIENTE NO ofrece "Suspender" (la
  * transición P→S no es válida) — solo HOMOLOGADO lo hace.
  */
 
-import { useRef, type RefObject } from "react";
+import { useState } from "react";
 import { BadgeCheck, Ban, MoreVertical, RotateCcw, Trash2 } from "lucide-react";
 
 import { DialogBaja } from "@/components/compras/DialogBaja";
@@ -52,20 +51,16 @@ interface AccionesProveedorMenuProps {
   permisos: PermisosProveedores;
 }
 
+/** Acciones con diálogo propio que ofrece el menú según estado y permisos. */
+type AccionDialogo = "homologar" | "suspender" | "volverPendiente" | "baja";
+
 export function AccionesProveedorMenu({
   proveedor,
   permisos,
 }: AccionesProveedorMenuProps) {
-  const homologarRef = useRef<HTMLDivElement>(null);
-  const suspenderRef = useRef<HTMLDivElement>(null);
-  const volverPendienteRef = useRef<HTMLDivElement>(null);
-  const bajaRef = useRef<HTMLDivElement>(null);
+  const [accionAbierta, setAccionAbierta] = useState<null | AccionDialogo>(null);
 
   const estado = proveedor.estado;
-
-  const abrirDialogo = (ref: RefObject<HTMLDivElement | null>) => () => {
-    ref.current?.querySelector<HTMLButtonElement>("button")?.click();
-  };
 
   const hayAccionesDeEstado =
     permisos.homologar &&
@@ -92,14 +87,14 @@ export function AccionesProveedorMenu({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             {permisos.homologar && estado === "PENDIENTE" && (
-              <DropdownMenuItem onClick={() => abrirDialogo(homologarRef)}>
+              <DropdownMenuItem onClick={() => setAccionAbierta("homologar")}>
                 <BadgeCheck className="size-3.5" aria-hidden="true" />
                 Homologar
               </DropdownMenuItem>
             )}
 
             {permisos.homologar && estado === "HOMOLOGADO" && (
-              <DropdownMenuItem onClick={() => abrirDialogo(suspenderRef)}>
+              <DropdownMenuItem onClick={() => setAccionAbierta("suspender")}>
                 <Ban className="size-3.5" aria-hidden="true" />
                 Suspender
               </DropdownMenuItem>
@@ -107,7 +102,7 @@ export function AccionesProveedorMenu({
 
             {permisos.homologar &&
               (estado === "HOMOLOGADO" || estado === "SUSPENDIDO") && (
-                <DropdownMenuItem onClick={() => abrirDialogo(volverPendienteRef)}>
+                <DropdownMenuItem onClick={() => setAccionAbierta("volverPendiente")}>
                   <RotateCcw className="size-3.5" aria-hidden="true" />
                   Volver a PENDIENTE
                 </DropdownMenuItem>
@@ -118,7 +113,7 @@ export function AccionesProveedorMenu({
                 {hayAccionesDeEstado && <DropdownMenuSeparator />}
                 <DropdownMenuItem
                   variant="destructive"
-                  onClick={() => abrirDialogo(bajaRef)}
+                  onClick={() => setAccionAbierta("baja")}
                 >
                   <Trash2 className="size-3.5" aria-hidden="true" />
                   Dar de baja
@@ -129,39 +124,53 @@ export function AccionesProveedorMenu({
         </DropdownMenu>
       )}
 
-      {/* Diálogos como hermanos del menú, con su trigger oculto: el ítem del
-          menú los abre con un click programático (ver docblock). */}
-      <div ref={homologarRef} className="hidden">
-        {permisos.homologar && (estado === "PENDIENTE" || estado === "SUSPENDIDO") && (
-          <DialogHomologar
-            proveedorId={proveedor.id}
-            razonSocial={proveedor.razon_social}
-            estadoActual={estado}
-          />
-        )}
-      </div>
+      {/* Diálogos como hermanos del menú, controlados: el ítem del menú
+          selecciona cuál abrir y `onOpenChange` limpia el estado al cerrar. */}
+      {permisos.homologar && (estado === "PENDIENTE" || estado === "SUSPENDIDO") && (
+        <DialogHomologar
+          proveedorId={proveedor.id}
+          razonSocial={proveedor.razon_social}
+          estadoActual={estado}
+          open={accionAbierta === "homologar"}
+          onOpenChange={(open) => {
+            if (!open) setAccionAbierta(null);
+          }}
+        />
+      )}
 
-      <div ref={suspenderRef} className="hidden">
-        {permisos.homologar && estado === "HOMOLOGADO" && (
-          <DialogSuspender proveedorId={proveedor.id} razonSocial={proveedor.razon_social} />
-        )}
-      </div>
+      {permisos.homologar && estado === "HOMOLOGADO" && (
+        <DialogSuspender
+          proveedorId={proveedor.id}
+          razonSocial={proveedor.razon_social}
+          open={accionAbierta === "suspender"}
+          onOpenChange={(open) => {
+            if (!open) setAccionAbierta(null);
+          }}
+        />
+      )}
 
-      <div ref={volverPendienteRef} className="hidden">
-        {permisos.homologar && (estado === "HOMOLOGADO" || estado === "SUSPENDIDO") && (
-          <DialogVolverPendiente
-            proveedorId={proveedor.id}
-            razonSocial={proveedor.razon_social}
-            estadoActual={estado}
-          />
-        )}
-      </div>
+      {permisos.homologar && (estado === "HOMOLOGADO" || estado === "SUSPENDIDO") && (
+        <DialogVolverPendiente
+          proveedorId={proveedor.id}
+          razonSocial={proveedor.razon_social}
+          estadoActual={estado}
+          open={accionAbierta === "volverPendiente"}
+          onOpenChange={(open) => {
+            if (!open) setAccionAbierta(null);
+          }}
+        />
+      )}
 
-      <div ref={bajaRef} className="hidden">
-        {permisos.baja && (
-          <DialogBaja proveedorId={proveedor.id} razonSocial={proveedor.razon_social} />
-        )}
-      </div>
+      {permisos.baja && (
+        <DialogBaja
+          proveedorId={proveedor.id}
+          razonSocial={proveedor.razon_social}
+          open={accionAbierta === "baja"}
+          onOpenChange={(open) => {
+            if (!open) setAccionAbierta(null);
+          }}
+        />
+      )}
     </>
   );
 }

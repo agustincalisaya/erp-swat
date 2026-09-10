@@ -31,22 +31,33 @@ interface DialogHomologarProps {
   razonSocial: string;
   /** Estado actual (para el mensaje de contexto). */
   estadoActual: "PENDIENTE" | "SUSPENDIDO";
+  /** Modo controlado: el padre maneja el estado de apertura (AccionesProveedorMenu). */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 export function DialogHomologar({
   proveedorId,
   razonSocial,
   estadoActual,
+  open,
+  onOpenChange,
 }: DialogHomologarProps) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
+  const [openInterno, setOpenInterno] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
+  const esControlado = open !== undefined;
+
   const handleClose = useCallback(() => {
-    setOpen(false);
+    if (esControlado) {
+      onOpenChange?.(false);
+    } else {
+      setOpenInterno(false);
+    }
     setServerError(null);
-  }, []);
+  }, [esControlado, onOpenChange]);
 
   const handleConfirm = () => {
     setServerError(null);
@@ -64,17 +75,28 @@ export function DialogHomologar({
   };
 
   return (
-    <AlertDialog open={open} onOpenChange={(o) => (o ? setOpen(true) : handleClose())}>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="gap-1.5 text-blue-700 border-blue-200 bg-blue-50 hover:bg-blue-100"
-        onClick={() => setOpen(true)}
-      >
-        <BadgeCheck className="size-3.5" aria-hidden="true" />
-        Homologar
-      </Button>
+    <AlertDialog
+      open={esControlado ? open : openInterno}
+      onOpenChange={(o) => {
+        if (!o) {
+          handleClose();
+        } else if (!esControlado) {
+          setOpenInterno(true);
+        }
+      }}
+    >
+      {!esControlado && (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="gap-1.5 text-blue-700 border-blue-200 bg-blue-50 hover:bg-blue-100"
+          onClick={() => setOpenInterno(true)}
+        >
+          <BadgeCheck className="size-3.5" aria-hidden="true" />
+          Homologar
+        </Button>
+      )}
 
       <AlertDialogContent>
         <AlertDialogHeader>

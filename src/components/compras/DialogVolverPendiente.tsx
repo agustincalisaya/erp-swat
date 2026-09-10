@@ -31,6 +31,9 @@ interface DialogVolverPendienteProps {
   razonSocial: string;
   /** Estado actual (para el mensaje de contexto). */
   estadoActual: "HOMOLOGADO" | "SUSPENDIDO";
+  /** Modo controlado: el padre maneja el estado de apertura (AccionesProveedorMenu). */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 /** Mensajes amigables por código de error (fallback: mensaje del server). */
@@ -45,16 +48,24 @@ export function DialogVolverPendiente({
   proveedorId,
   razonSocial,
   estadoActual,
+  open,
+  onOpenChange,
 }: DialogVolverPendienteProps) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
+  const [openInterno, setOpenInterno] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
+  const esControlado = open !== undefined;
+
   const handleClose = useCallback(() => {
-    setOpen(false);
+    if (esControlado) {
+      onOpenChange?.(false);
+    } else {
+      setOpenInterno(false);
+    }
     setServerError(null);
-  }, []);
+  }, [esControlado, onOpenChange]);
 
   const handleConfirm = () => {
     setServerError(null);
@@ -74,17 +85,28 @@ export function DialogVolverPendiente({
   };
 
   return (
-    <AlertDialog open={open} onOpenChange={(o) => (o ? setOpen(true) : handleClose())}>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="gap-1.5 text-blue-700 border-blue-200 bg-blue-50 hover:bg-blue-100"
-        onClick={() => setOpen(true)}
-      >
-        <RotateCcw className="size-3.5" aria-hidden="true" />
-        Volver a PENDIENTE
-      </Button>
+    <AlertDialog
+      open={esControlado ? open : openInterno}
+      onOpenChange={(o) => {
+        if (!o) {
+          handleClose();
+        } else if (!esControlado) {
+          setOpenInterno(true);
+        }
+      }}
+    >
+      {!esControlado && (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="gap-1.5 text-blue-700 border-blue-200 bg-blue-50 hover:bg-blue-100"
+          onClick={() => setOpenInterno(true)}
+        >
+          <RotateCcw className="size-3.5" aria-hidden="true" />
+          Volver a PENDIENTE
+        </Button>
+      )}
 
       <AlertDialogContent>
         <AlertDialogHeader>
