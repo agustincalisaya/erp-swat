@@ -1,6 +1,9 @@
 # Especificación Técnica — Módulo G (Gestión de Caja y Tesorería)
 ## Contenido para Sprint 2 — HU-G8 + HU-G10 (recorte por asignación de equipo)
 ## Revisión 3 — incorpora HU-G10 (registro de pago con evidencia) sobre la Revisión 2 verificada contra el repositorio
+## Revisión 4 — HU-G10 implementada y verificada en runtime (2026-09-10); reconcilia el pseudocódigo de la Rev. 3 contra el código real
+
+> **Estado de HU-G10 al 2026-09-10.** Implementada y verificada. Se entregó en tres PRs encadenados (`feature-branch-chain`, sin rama-tracker intermedia): **PR1** `feature/HU-G10-pago-backend` (contrato backend, base `develop`), **PR2a** `feature/HU-G10-pago-ui-lista` (consola de solo lectura), **PR2b** `feature/HU-G10-pago-ui-form` (form + server actions + modal). El bloqueante de HU-H9 quedó resuelto (`ComprobanteProveedor` mergeado). Cinco decisiones fijadas en la Rev. 3 se implementaron con ajustes respecto del pseudocódigo — ver anotaciones `— implementado (2026-09-10)` en §2.4, §3.7, §4.1, §4.2 y §5. Verificación en runtime: Fase 11 corrida dos veces (pre y post-merge de `origin/develop`), `verificar-cadena → integra: true`, `audit_logs` 3 → 10 (delta +7, sin filas de más), + walkthrough de browser de la consola.
 
 **Metodología:** Specification-Driven Development (SDD)
 **Stack:** Next.js 16 (App Router) · Node.js · PostgreSQL 16 · Prisma ORM 6 · TypeScript (strict) · Zod
@@ -139,23 +142,32 @@ El listener **discrimina por `payload.accion`**, no por `estado_nuevo`.
 
 Esta sigue siendo la **única mutación manual** de HU-G8/HU-G10. No hay modelo `OrdenPago` propio: "efectivizar" es este mismo endpoint, que persiste el resultado directamente sobre `CuentaPorPagar`. **HU-G10 no habilita pago parcial** — sigue siendo todo-o-nada: `estado: PAGADA` + `fecha_pago`, ahora acompañados de la evidencia de cómo y contra qué documentación se pagó.
 
-**Decisión de equipo (a ratificar antes de implementar):** los campos nuevos (`medio_pago`, `cuenta_origen_id`, `comprobante_proveedor_ids`) se modelan como **obligatorios**. El Backlog dejaba abierta esta definición señalando que no rompe compatibilidad porque HU-G8 no tenía frontend propio consumiendo el schema viejo — este documento toma esa apertura como la oportunidad de fijar el contrato correcto desde el día uno, en vez de introducir opcionalidad que HU-G10 tendría que revertir después. Si el equipo prefiere mantenerlos opcionales, el único cambio es relajar `.min(1)` de `comprobante_proveedor_ids` a `.optional()` y quitar el `refine` de la sección 3.7 — el resto del contrato no cambia.
+**Decisión de equipo — ratificada e implementada (2026-09-10).** Los tres campos nuevos (`medio_pago`, `cuenta_origen_id`, `comprobante_proveedor_ids`) son **obligatorios** en el body. Se agregó además `observaciones` como campo opcional (no contemplado en la Rev. 3) acotado a 500 caracteres, y `fecha_pago` pasó a ser explícitamente **retrodatable con tope "no futura"**. Rama: `feature/HU-G10-pago-backend`. Archivos: `src/lib/schemas/cuentas-por-pagar.schema.ts` (`MEDIOS_PAGO`, `esFechaPagoNoFutura`, `MarcarPagadaSchema`).
 
 ```typescript
 export const MarcarPagadaSchema = z.object({
-  fecha_pago: z.coerce.date().default(() => new Date()),
-  medio_pago: z.enum(["TRANSFERENCIA", "CHEQUE", "EFECTIVO"]), // ampliar el enum si Tesorería define otros medios
-  cuenta_origen_id: z.string().uuid("La cuenta de origen debe ser un UUID válido"),
+  fecha_pago: z
+    .coerce.date()
+    .default(() => new Date())
+    .refine((d) => esFechaPagoNoFutura(d), "La fecha de pago no puede ser futura"),
+  medio_pago: z.enum(MEDIOS_PAGO), // MEDIOS_PAGO = ["TRANSFERENCIA","CHEQUE","EFECTIVO"] as const — espejo del enum Prisma MedioPago
+  cuenta_origen_id: z
+    .string()
+    .refine(esCuentaOrigenValida, "La cuenta de origen no existe"), // valida contra el catálogo const (ver §5), NO .uuid()
   comprobante_proveedor_ids: z
     .array(z.string().uuid())
-    .min(1, "Debe asociarse al menos un Comprobante de Proveedor vigente"),
-  observaciones: z.string().optional(),
+    .min(1, "Debés imputar al menos un comprobante")
+    .refine((ids) => new Set(ids).size === ids.length, "No podés imputar el mismo comprobante dos veces"),
+  observaciones: z
+    .string()
+    .max(500, "Las observaciones no pueden superar los 500 caracteres")
+    .optional(),
 });
-// El body ya no es opcional en su totalidad: fecha_pago sigue teniendo default,
-// pero medio_pago, cuenta_origen_id y comprobante_proveedor_ids son obligatorios.
-// La route usa MarcarPagadaSchema.safeParse(body) — ya no `body ?? {}`, porque un
-// body vacío ahora falla la validación de campos obligatorios, que es el comportamiento
-// correcto (antes, con todos los campos opcionales, {} era un body válido).
+// Implementado (2026-09-10). La route usa MarcarPagadaSchema.safeParse(body) — ya no
+// `body ?? {}`: un body vacío falla la validación de campos obligatorios.
+// `cuenta_origen_id` NO es un uuid: es un id del catálogo const `src/lib/tesoreria/cuentas-origen.ts`,
+// validado por membership (`esCuentaOrigenValida`), sin FK real (ver §5).
+// `fecha_pago` acepta pasado, rechaza futuro (`esFechaPagoNoFutura`, helper puro testeable).
 ```
 
 **Servicio:** `marcarCuentaPorPagarPagada(cuentaPorPagarId, input, usuarioId)` — misma firma que en HU-G8, sin cambios en el orden de argumentos.
@@ -166,13 +178,26 @@ export const MarcarPagadaSchema = z.object({
    - No existe → `ServiceError("CUENTA_POR_PAGAR_NO_ENCONTRADA")`.
    - `!is_active` → `ServiceError("TRANSICION_INVALIDA")`.
    - `estado !== "DEFINITIVA"` → `ServiceError("TRANSICION_INVALIDA", "No es posible pagar una cuenta en estado " + estado)`.
-2. **Nuevo (HU-G10):** valida que **al menos uno** de los IDs en `comprobante_proveedor_ids` corresponda a un `ComprobanteProveedor` vigente (`is_active: true`, no anulado) asociado a la **misma** `orden_compra_id` que la `CuentaPorPagar` que se está pagando (`prisma.comprobanteProveedor.count({ where: { id: { in: comprobante_proveedor_ids }, orden_compra_id, is_active: true } })`). Si el conteo es `0` → `ServiceError("COMPROBANTE_PROVEEDOR_REQUERIDO", "No existe un Comprobante de Proveedor vigente asociado a la Orden de Compra " + numero_orden)`. Este paso depende de que el modelo `ComprobanteProveedor` (HU-H9) esté migrado — ver bloqueante en el encabezado del documento.
-3. `updateMany({ where: { id, estado: "DEFINITIVA", is_active: true }, data: { estado: "PAGADA", fecha_pago, medio_pago, cuenta_origen_id, observaciones } })`. Si `count === 0` → `ServiceError("TRANSICION_INVALIDA", "El estado de la cuenta cambió durante la operación; reintentá")`.
-4. **Nuevo (HU-G10):** dentro de la misma transacción, `createMany` sobre la tabla intermedia `CuentaPorPagarComprobante` (una fila por cada `comprobante_proveedor_id` recibido, no solo por el que validó el paso 2 — el Backlog admite comprobante**s** en plural). Ver faltante de schema en la sección 5.
+2. **HU-G10 — implementado (2026-09-10), validación TODO-O-NADA (no "al menos uno").** Se cargan los comprobantes realmente existentes con `tx.comprobanteProveedor.findMany({ where: { id: { in: comprobante_proveedor_ids } }, select: { id, orden_compra_id, is_active } })` — **sin** filtro `is_active`, para poder distinguir `ANULADO` de `INEXISTENTE`.
+   **2b.** Se resuelven los ids ya imputados a **otra** `CuentaPorPagar` en estado `PAGADA` (`tx.cuentaPorPagarComprobante.findMany(... cuenta_por_pagar_id: { not: id }, cuenta_por_pagar: { is: { estado: "PAGADA" } })`) → `idsYaImputadosEnOtrosPagos`.
+   **3.** `const detalles = validarComprobantesDePago(idsSolicitados, encontrados, cuenta.orden_compra_id, idsYaImputadosEnOtrosPagos)` (helper puro, `src/lib/services/tesoreria/cuenta-por-pagar.comprobantes.ts`). Devuelve un `DetalleComprobanteInvalido { id, motivo }` por **cada** id que no se puede imputar; `motivo` es un CÓDIGO de un enum de 5 valores:
+
+   ```typescript
+   type MotivoComprobanteInvalido =
+     | "NINGUNO_ENVIADO"   // el array llegó vacío (id: "")
+     | "ANULADO"           // existe pero is_active: false
+     | "DE_OTRA_OC"        // existe y activo, pero de otra orden_compra_id
+     | "INEXISTENTE"       // no está en `encontrados`
+     | "YA_IMPUTADO";      // ya imputado a otra CuentaPorPagar PAGADA
+   ```
+
+   Precedencia cuando aplican varios motivos: `INEXISTENTE > DE_OTRA_OC > ANULADO > YA_IMPUTADO` (`cuenta-por-pagar.comprobantes.ts`, JSDoc del helper). El backend nunca emite texto humano para el motivo — lo mapea la capa HTTP / el frontend. Si `detalles.length > 0` → `throw new ServiceError("COMPROBANTE_PROVEEDOR_REQUERIDO", "Hay comprobantes que no se pueden imputar a este pago", detalles)` → **rollback total, no se persiste nada** (a diferencia de la Rev. 3, que exigía solo ≥1 válido y persistía todos los ids recibidos).
+4. `updateMany({ where: { id, estado: "DEFINITIVA", is_active: true }, data: { estado: "PAGADA", fecha_pago, medio_pago, cuenta_origen_id, observaciones } })`. Si `count === 0` → `ServiceError("TRANSICION_INVALIDA", "El estado de la cuenta cambió durante la operación; reintentá")`.
+5. **HU-G10 — implementado.** Dentro de la misma transacción, `createMany` sobre `CuentaPorPagarComprobante` (una fila por cada id — como llegado a este punto todos son válidos, no hay ids inválidos que persistir). La tabla existe en `schema.prisma` (`model CuentaPorPagarComprobante`, migración `20260909231426_hu_g10_registro_pago_cxp`), sin bloque de baja lógica propio: la vigencia deriva del `is_active` del `ComprobanteProveedor` referenciado.
 
 `fecha_pago = input.fecha_pago ?? new Date()`.
 
-**Post-commit (dentro del servicio, como `orden-compra.service.ts:437`):** emite `cuenta_por_pagar:estado_cambiado` con `accion: "PAGAR"`, `estado_anterior: "DEFINITIVA"`, `estado_nuevo: "PAGADA"`, `fecha_pago: fecha_pago.toISOString()`, `proveedor_id`. **En HU-G10** el payload sumaría además `medio_pago`, `cuenta_origen_id`, `comprobante_proveedor_ids` — no implementado hoy (ver §5; el payload real de HU-G8 termina en `deletion_reason`, §4.1).
+**Post-commit (dentro del servicio, como `orden-compra.service.ts:432`):** emite `cuenta_por_pagar:estado_cambiado` con `accion: "PAGAR"`, `estado_anterior: "DEFINITIVA"`, `estado_nuevo: "PAGADA"`, `fecha_pago: fecha_pago.toISOString()`, `proveedor_id`, y —**HU-G10, implementado (2026-09-10)**— `medio_pago`, `cuenta_origen_id`, `comprobante_proveedor_ids`, `observaciones`. Estos 4 campos son parte del contrato del payload (§4.1) y valen `null` en las otras 3 acciones (`CREAR`/`DEFINIR`/`CANCELAR`), que los emiten explícitamente en `null`.
 
 **Notificación al Módulo H (criterio 5 — "reflejarlo en el historial del proveedor"):** sin cambios respecto a HU-G8. El evento `cuenta_por_pagar:estado_cambiado` se emite con `proveedor_id` en el payload, para que Módulo H pueda reaccionar filtrando `accion === "PAGAR"`; no se define un evento dedicado. **Hoy Módulo H no tiene ningún listener suscripto a ese evento** — el único suscriptor es el handler de auditoría (ver §4.4). Consumir el evento del lado de H queda pendiente de ese módulo.
 
@@ -185,8 +210,9 @@ export const MarcarPagadaSchema = z.object({
     "estado_nuevo": "PAGADA",
     "fecha_pago": "2026-09-10T14:00:00.000Z",
     "medio_pago": "TRANSFERENCIA",
-    "cuenta_origen_id": "uuid",
-    "comprobante_proveedor_ids": ["uuid"]
+    "cuenta_origen_id": "banco-nacion-cc-principal",
+    "comprobante_proveedor_ids": ["uuid"],
+    "observaciones": "texto libre o null"
   },
   "error": null
 }
@@ -200,10 +226,12 @@ export const MarcarPagadaSchema = z.object({
 | `FORBIDDEN` | 403 | El usuario no tiene `cuentas_por_pagar:pagar` |
 | `CUENTA_POR_PAGAR_NO_ENCONTRADA` | 404 | No existe la fila |
 | `TRANSICION_INVALIDA` | 409 | La cuenta no está `DEFINITIVA` (está `PROVISORIO`, `PAGADA` o `CANCELADA`), o cambió durante la operación |
-| `COMPROBANTE_PROVEEDOR_REQUERIDO` | 422 | **Nuevo (HU-G10).** Ninguno de los `comprobante_proveedor_ids` recibidos corresponde a un `ComprobanteProveedor` vigente de la misma OC |
+| `COMPROBANTE_PROVEEDOR_REQUERIDO` | 422 | **HU-G10 — implementado.** Al menos un id en `comprobante_proveedor_ids` no se puede imputar (o el array llegó vacío). El envelope agrega `error.details: [{ id, motivo }]` con `motivo ∈ { NINGUNO_ENVIADO, ANULADO, DE_OTRA_OC, INEXISTENTE, YA_IMPUTADO }` (código, no texto). Rechazo total: nada se persiste. `error.details` viaja por un 3er argumento opcional agregado a `ServiceError` (`src/lib/errors/service-error.ts`) y se propaga en la route con `...(err.details ? { details: err.details } : {})` |
 | `INTERNAL_ERROR` | 500 | Error inesperado |
 
 > El código es **`TRANSICION_INVALIDA`**, no el `ESTADO_INVALIDO` que asumía la Revisión 1 — es la convención `ServiceError` ya usada por Módulo H. `COMPROBANTE_PROVEEDOR_REQUERIDO` sigue la misma convención de nombre-en-mayúsculas descriptivo.
+>
+> **HU-G10 (2026-09-10).** `ServiceError` no tenía canal para datos estructurados: se le agregó un 3er argumento opcional `details?: unknown` (`readonly`). Auditados ~40 catch blocks de `src/app/api` — ninguno hace `...err` (todos arman `{ code, message }` explícito), así que el campo opcional no filtra en ningún endpoint preexistente; solo `.../pagar` lo expone.
 
 **Orden de validación en la route:** (1) `id` de path → (2) body → (3) permiso → (4) precondición de estado (paso 1 del servicio) → (5) precondición de comprobante (paso 2 del servicio, nuevo en HU-G10).
 
@@ -241,9 +269,6 @@ export const FiltrosListadoCuentasPorPagarSchema = z.object({
 select: {
   id: true, orden_compra_id: true, recepcion_id: true, monto: true, estado: true,
   fecha_vencimiento: true, fecha_pago: true, is_active: true, deletion_reason: true, created_at: true,
-  // --- Campos nuevos (HU-G10) — solo tienen valor una vez que estado === "PAGADA" ---
-  medio_pago: true, cuenta_origen_id: true,
-  comprobantes: { select: { comprobante_proveedor_id: true } }, // tabla intermedia CuentaPorPagarComprobante — ver sección 5
   orden_compra: {
     select: {
       id: true, numero_orden: true, estado: true, fecha_emision: true,
@@ -256,6 +281,8 @@ select: {
 ```
 
 > **Nunca `include: true` sobre `Proveedor`.** El `Proveedor` tiene `datos_bancarios_cifrado` y `datos_bancarios_iv` (`schema.prisma:704,708`), que el Alcance §5.1 restringe a Tesorero Central y Administrador únicamente, con independencia de este permiso de lectura general. El `select` explícito los excluye siempre. La verificación (7.5) debe aseverar que el objeto `proveedor` de cada fila trae **solo** los 5 campos de la whitelist.
+>
+> **HU-G10 (2026-09-10) — el `select` NO se amplió.** `listarCuentasPorPagar` quedó sin cambios: la consola de Tesorería (PR2a) consume este listado filtrado a `estado=DEFINITIVA`, donde `medio_pago`/`cuenta_origen_id`/`observaciones` siempre serían `null`; el read-back del pago (modal de PR2b) se arma con el body del `200` de `PATCH .../pagar`, no con este `select`. Si HU-G7 necesita mostrar el detalle de pago (medio, cuenta de origen, observaciones, comprobantes imputados) de cuentas `PAGADA` desde el listado, hay que agregar esos campos al `select` y la relación `comprobantes: { select: { comprobante_proveedor_id: true } }` en ese momento.
 
 No existe UI propia para este endpoint en Sprint 2 (no hay HU-G7 que la consuma). Su propósito ahora es permitir verificación con evidencia (Postman) de las tres ramas del listener y de la mutación de pago.
 
@@ -300,7 +327,7 @@ Agregar una guarda simétrica `estado_anterior !== "BORRADOR"` a `generar` fue *
 El evento `orden_compra:estado_cambiado` es post-commit fire-and-forget: si `generarCuentaPorPagarProvisoria` falla, la OC ya está `ENVIADA` y no hay `CuentaPorPagar`. **No hay job de conciliación en HU-G8.** La recuperación es replay manual, guiado por el `console.error` (que debe incluir `orden_compra_id`). Detectar OC en `ENVIADA` sin `CuentaPorPagar` asociada es el lugar natural de HU-G7. Cada rama del listener envuelve `servicio + emit` en un `try/catch` que loguea y **nunca relanza** hacia el bus.
 
 ### 3.7. Comprobante de Proveedor vigente como precondición de pago (HU-G10)
-Ningún pago se efectiviza sin al menos un `ComprobanteProveedor` (HU-H9) vigente asociado a la misma `OrdenCompra` de la `CuentaPorPagar`. "Vigente" significa `is_active: true` y no anulado — un comprobante dado de baja lógica (anulación por error de carga, según la especificación de HU-H9) no habilita el pago aunque su ID llegue en `comprobante_proveedor_ids`. La validación es responsabilidad exclusiva de la capa de servicios (paso 2 de 2.4) — el schema Zod solo valida formato (`uuid`, `min(1)`), nunca existencia real contra la base de datos, siguiendo la misma convención que el resto del proyecto. Esta regla no se relaja aunque el usuario tenga el permiso `cuentas_por_pagar:pagar`: el permiso autoriza a *intentar* la acción, no reemplaza la precondición documental.
+**Implementado (2026-09-10) como validación TODO-O-NADA, no "al menos uno".** Cada id en `comprobante_proveedor_ids` debe corresponder a un `ComprobanteProveedor` (HU-H9) `is_active: true` de la **misma** `OrdenCompra` de la `CuentaPorPagar`, y no estar ya imputado a otra `CuentaPorPagar` `PAGADA`. Si cualquiera falla (o el array llega vacío) → `422 COMPROBANTE_PROVEEDOR_REQUERIDO` con `details` por-id y rollback total. "Vigente" = `is_active: true` (una anulación de HU-H9 es baja lógica pura). La validación vive solo en la capa de servicios (`validarComprobantesDePago`, helper puro sin I/O); el schema Zod solo valida formato (`uuid`, `min(1)`, sin ids repetidos) y nunca existencia real, siguiendo la convención del proyecto. La regla no se relaja por tener `cuentas_por_pagar:pagar`: el permiso autoriza a *intentar*, no reemplaza la precondición documental. Archivos: `src/lib/services/tesoreria/cuenta-por-pagar.comprobantes.ts` (+ `.test.ts`), paso 2/2b/3 de 2.4 en `cuenta-por-pagar.service.ts`.
 
 ---
 
@@ -315,7 +342,7 @@ Ningún pago se efectiviza sin al menos un `ComprobanteProveedor` (HU-H9) vigent
 
 Se agrega a `src/lib/events/event-types.ts` (interface después de `ProveedorEstadoCambiadoPayload`, más una entrada en `DomainEventMap`). Convenciones: `monto_*` como `string` (`Prisma.Decimal` serializado), fechas ISO 8601 o `null`.
 
-Shape **real de HU-G8** (`src/lib/events/event-types.ts:391-412`, verificado):
+Shape **real** (`src/lib/events/event-types.ts:391-420`, verificado 2026-09-10 — incluye los 4 campos de HU-G10 al final):
 
 ```typescript
 interface CuentaPorPagarEstadoCambiadoPayload {
@@ -333,10 +360,14 @@ interface CuentaPorPagarEstadoCambiadoPayload {
   fecha_vencimiento: string | null; // siempre null en HU-G8
   fecha_pago: string | null;      // presente solo en PAGAR
   deletion_reason: string | null; // presente solo en CANCELAR
+  medio_pago: "TRANSFERENCIA" | "CHEQUE" | "EFECTIVO" | null; // HU-G10 — presente solo en PAGAR
+  cuenta_origen_id: string | null;          // HU-G10 — presente solo en PAGAR. Id del catálogo `cuentas-origen.ts`, sin FK
+  comprobante_proveedor_ids: string[] | null; // HU-G10 — presente solo en PAGAR
+  observaciones: string | null;              // HU-G10 — presente solo en PAGAR
 }
 ```
 
-> **HU-G10 (no implementado).** La ampliación de HU-G10 agregaría a este payload, únicamente cuando `accion === "PAGAR"`, los campos `medio_pago: "TRANSFERENCIA" | "CHEQUE" | "EFECTIVO" | null`, `cuenta_origen_id: string | null` y `comprobante_proveedor_ids: string[] | null`. **Ninguno existe hoy en el código** (`event-types.ts`, `schema.prisma` y `seed.ts` sin coincidencias, verificado 09/09/2026). HU-G10 está bloqueada por HU-H9 — ver §5. La interface de arriba es exactamente la que emite HU-G8.
+> **HU-G10 — implementado (2026-09-10).** Los 4 campos son parte del contrato (`src/lib/events/event-types.ts:412-420`, verificado). Solo `PAGAR` los emite con valor; `CREAR`/`DEFINIR`/`CANCELAR` los emiten explícitamente en `null` (obligado por el tipo compartido — si no fueran nullable, `next build` rompería en los 3 emisores no-PAGAR y en el listener). Ese `null` **no** llega al `AuditLog`: el handler de §4.2 los omite con spreads falsy, así que el `valor_nuevo` de las 3 acciones no-PAGAR queda byte-idéntico a HU-G8.
 
 ### 4.2. Handler de auditoría
 
@@ -348,7 +379,7 @@ Bloque `domainEventBus.on("cuenta_por_pagar:estado_cambiado", ...)` agregado den
 - `registro_id: payload.cuenta_por_pagar_id`
 - `ip: "internal-event"` (evento de servicio post-commit sin request HTTP)
 - `valor_anterior`: `null` en `CREAR`; si no, `{ estado: payload.estado_anterior, monto: payload.monto_anterior }`
-- `valor_nuevo` (real en HU-G8, `audit-log.listener.ts:513-525`): `{ estado, accion, monto: monto_nuevo, orden_compra_id, numero_orden, proveedor_id, ...(recepcion_id ? { recepcion_id } : {}), ...(fecha_pago ? { fecha_pago } : {}), ...(deletion_reason ? { deletion_reason } : {}) }` — los tres spreads condicionales solo aparecen en el registro de auditoría cuando corresponde (`recepcion_id` en `DEFINIR`, `fecha_pago` en `PAGAR`, `deletion_reason` en `CANCELAR`). En **HU-G10** se sumaría un cuarto spread `...(medio_pago ? { medio_pago, cuenta_origen_id, comprobante_proveedor_ids } : {})` — no implementado (§5).
+- `valor_nuevo` (real, `audit-log.listener.ts:513-536`): base `{ estado, accion, monto: monto_nuevo, orden_compra_id, numero_orden, proveedor_id }` + spreads condicionales `...(recepcion_id ? { recepcion_id } : {})` (DEFINIR), `...(fecha_pago ? { fecha_pago } : {})` (PAGAR), `...(deletion_reason ? { deletion_reason } : {})` (CANCELAR), y **HU-G10 — implementado (2026-09-10)**: cuatro spreads **separados** (no uno combinado) `...(medio_pago ? { medio_pago } : {})`, `...(cuenta_origen_id ? { cuenta_origen_id } : {})`, `...(comprobante_proveedor_ids?.length ? { comprobante_proveedor_ids } : {})`, `...(observaciones ? { observaciones } : {})`. Los 4 solo aparecen en `PAGAR`; para las otras 3 acciones las guardas son falsy y el `valor_nuevo` queda byte-idéntico al de HU-G8. Un solo `registrarAuditLog` por evento — el contrato de la cadena SHA-256 no cambia.
 
 Los campos planos `monto_anterior` / `monto_nuevo` son la única traza de una discrepancia de monto en la consolidación (2.2) — se reconstruyen a `valor_*` en el handler, como hacen los demás handlers del proyecto (ninguno recibe un `valor_*` pre-armado).
 
@@ -385,11 +416,11 @@ PATCH /pagar ──► marcarCuentaPorPagarPagada ──► cuenta_por_pagar:est
 
 ### Pendientes específicos de HU-G10
 
-- **🔴 Bloqueante — modelo `ComprobanteProveedor` (HU-H9) no migrado.** `schema.prisma` no tiene hoy ningún modelo de comprobante fiscal de proveedor. HU-G10 no puede implementarse hasta que HU-H9 migre ese modelo. Coordinar secuencia con quien tome HU-H9 — puede desarrollarse en paralelo (según el propio Backlog) pero HU-G10 no puede cerrar antes que la migración de HU-H9 esté mergeada.
-- **🔴 Faltante de schema — campos nuevos en `CuentaPorPagar`.** Requiere migración aditiva: `medio_pago` (enum nuevo `MedioPago { TRANSFERENCIA, CHEQUE, EFECTIVO }`, nullable hasta el pago), `cuenta_origen_id` (`String?`, sin FK propia salvo que el equipo defina un modelo `CuentaBancaria`/`CajaChica` — fuera de alcance de este documento, se modela como string libre de referencia hasta que exista esa entidad), `observaciones` (`String?`, ya contemplado en el `MarcarPagadaSchema` de esta revisión pero no en el modelo Prisma actual).
-- **🔴 Faltante de schema — tabla intermedia `CuentaPorPagarComprobante`.** No existe relación entre `CuentaPorPagar` y `ComprobanteProveedor` en el schema actual. Dado que el Backlog admite comprobante**s** en plural, se requiere una tabla N:N (`cuenta_por_pagar_id`, `comprobante_proveedor_id`, con los campos estándar de auditoría `created_at`) en vez de una FK simple. Esta tabla no lleva bloque de baja lógica propio — la vigencia se determina por el `is_active` del `ComprobanteProveedor` referenciado, no por la fila de asociación.
-- **`cuenta_origen_id` sin validación de existencia real:** mientras no exista un modelo `CuentaBancaria`/`CajaChica`, el servicio no puede validar que el UUID recibido corresponda a una cuenta real — queda como un valor de referencia libre hasta que el equipo defina esa entidad (probablemente en un sprint posterior, junto con HU-G7).
-- **Ratificación de "obligatorio" para `medio_pago`/`cuenta_origen_id`/`comprobante_proveedor_ids`:** este documento fija los tres como obligatorios (ver 2.4); el Backlog dejaba la decisión abierta al equipo — confirmar antes de implementar, dado que revertirlo a opcional cambia el `MarcarPagadaSchema` y elimina la regla 3.7.
+- **`ComprobanteProveedor` (HU-H9) — resuelto (2026-09-10).** El modelo está mergeado; el bloqueante ya no aplica.
+- **Campos nuevos en `CuentaPorPagar` + enum `MedioPago` — resuelto (2026-09-10).** Migración aditiva `20260909231426_hu_g10_registro_pago_cxp` (`feature/HU-G10-pago-backend`): `enum MedioPago { TRANSFERENCIA CHEQUE EFECTIVO }`; `medio_pago MedioPago?`, `cuenta_origen_id String?`, `observaciones String?` en `CuentaPorPagar` (todas nullable, sin backfill: filas `PAGADA` previas quedan legítimamente en `NULL`).
+- **Tabla intermedia `CuentaPorPagarComprobante` — resuelto (2026-09-10).** Creada en la misma migración: `cuenta_por_pagar_id`, `comprobante_proveedor_id`, `created_at`, FKs `onDelete: Restrict`, `@@unique([cuenta_por_pagar_id, comprobante_proveedor_id])`, **sin** bloque de baja lógica (la vigencia deriva del `is_active` del `ComprobanteProveedor`; la fila es un hecho histórico inmutable de una cuenta en estado terminal).
+- **`cuenta_origen_id` sin entidad real — resuelto por catálogo const (2026-09-10).** No se creó modelo `CuentaBancaria`/`CajaChica`. La columna queda `String?` **sin FK**; la validación de existencia se hace contra un catálogo const de backend (`src/lib/tesoreria/cuentas-origen.ts`, `{ id, label }[]`, función `esCuentaOrigenValida`) que hoy trae entradas placeholder marcadas `// TODO`. Cuando exista la entidad real, los `id` del catálogo son estables y se convierten en FK sin reescritura de datos. Documentado en JSDoc de la columna como referencia libre.
+- **Ratificación de "obligatorio" — ratificada (2026-09-10).** Los tres son obligatorios en el body; ver §2.4.
 
 ---
 
@@ -406,9 +437,11 @@ Evidencia obligatoria: **Postman + SQL + capturas**. Compilar sin errores **no**
 | 5 | `GET` con filtros `estado` + `proveedor_id` + paginación; el objeto `proveedor` expone **solo** los 5 campos de la whitelist (sin `datos_bancarios_*`) | Verificable ahora |
 | 6 | `/api/auditoria/verificar-cadena` reporta la cadena íntegra tras todo lo anterior | Verificable ahora |
 | 7 | `CERRAR → DEFINITIVA` end-to-end | **Cerrado** — verificado en runtime por el camino real de HU-H4 (`ENVIAR → CONFIRMAR → recepción física → RECIBIDA_COMPLETA → CERRAR`); misma fila `PROVISORIO → DEFINITIVA`, `monto` sobre `cantidad_aceptada`, `recepcion_id` real |
-| 8 | `PATCH .../pagar` con `comprobante_proveedor_ids` apuntando a un comprobante vigente de la misma OC → `PAGADA` + `medio_pago` + `cuenta_origen_id` persistidos + fila(s) en `CuentaPorPagarComprobante` | **Bloqueado** — depende de HU-H9 (migración de `ComprobanteProveedor`) |
-| 9 | `PATCH .../pagar` sin `comprobante_proveedor_ids`, o con IDs de comprobantes inexistentes/anulados/de otra OC → `422 COMPROBANTE_PROVEEDOR_REQUERIDO` | **Bloqueado** — depende de HU-H9 |
-| 10 | `PATCH .../pagar` con body faltando `medio_pago` o `cuenta_origen_id` → `400 VALIDATION_ERROR` con `fieldErrors` señalando el campo faltante | Verificable ahora (no depende de HU-H9 — es validación de schema) |
+| 8 | `PATCH .../pagar` con `comprobante_proveedor_ids` vigentes de la misma OC → `PAGADA` + `medio_pago`/`cuenta_origen_id`/`observaciones` persistidos + N filas en `cuentas_por_pagar_comprobantes` + `audit_logs` PAGAR con los 4 campos en `valor_nuevo` | **Cerrado (2026-09-10)** — Fase 11, corrida pre y post-merge de `origin/develop`, PASS 27/27 |
+| 9 | `PATCH .../pagar` con array vacío, o ids inexistentes / anulados / de otra OC / duplicados / ya imputados → `400` (schema) o `422 COMPROBANTE_PROVEEDOR_REQUERIDO` con `error.details: [{ id, motivo }]`, sin persistir nada | **Cerrado (2026-09-10)** — Fase 11: 8×400 + 3×422 (ANULADO/DE_OTRA_OC/INEXISTENTE), cada uno con guarda SQL "estado sigue DEFINITIVA, join=0". `YA_IMPUTADO` y `NINGUNO_ENVIADO` cubiertos por unit test, no por HTTP (ver §5) |
+| 10 | `PATCH .../pagar` con body faltando `medio_pago`/`cuenta_origen_id`/`comprobante_proveedor_ids`, o `fecha_pago` futura, o `observaciones` > 500, o `cuenta_origen_id` fuera de catálogo → `400 VALIDATION_ERROR` | **Cerrado (2026-09-10)** — Fase 11 |
+| 11 | Re-pago de una `CuentaPorPagar` ya `PAGADA` → `409 TRANSICION_INVALIDA` (verificado también en la consola de PR2b: alerta inline, form editable, sin redirect) | **Cerrado (2026-09-10)** — Fase 11 + walkthrough de browser |
+| 12 | `/api/auditoria/verificar-cadena` reporta `integra: true` tras la secuencia completa; `audit_logs` avanza exactamente 1 por transición; el `valor_nuevo` de `DEFINIR`/`CANCELAR` queda byte-idéntico a pre-HU-G10 (guardas falsy) | **Cerrado (2026-09-10)** — Fase 11: `integra: true` en baseline (3 registros) y final (10), delta **+7** sin filas de más |
 
 ---
 
@@ -431,17 +464,22 @@ Evidencia obligatoria: **Postman + SQL + capturas**. Compilar sin errores **no**
 
 | Archivo | Acción |
 |---|---|
-| `src/lib/events/event-types.ts` | Modificar — `CuentaPorPagarEstadoCambiadoPayload` + entrada en `DomainEventMap` (HU-G8; ampliado con 3 campos por HU-G10) |
-| `src/lib/events/domain-event-bus.ts` | Modificar — segundo import dinámico de registro |
-| `src/lib/events/listeners/audit-log.listener.ts` | Modificar — handler de `cuenta_por_pagar:estado_cambiado` (HU-G8; spread condicional de campos nuevos por HU-G10) |
-| `src/lib/events/listeners/cuenta-por-pagar.listener.ts` | **Crear** — listener reactivo (ramas 2.1/2.2/2.3) |
-| `src/lib/services/tesoreria/cuenta-por-pagar.service.ts` | **Crear** — carpeta `tesoreria/` nueva; lógica transaccional + helpers puros + constantes de permiso. HU-G10 agrega el paso de validación de comprobante y el `createMany` sobre `CuentaPorPagarComprobante` dentro de `marcarCuentaPorPagarPagada()` |
-| `src/lib/schemas/cuentas-por-pagar.schema.ts` | **Crear** — Zod (`CuentaPorPagarIdSchema`, `MarcarPagadaSchema`, `FiltrosListadoCuentasPorPagarSchema`). HU-G10 amplía `MarcarPagadaSchema` con `medio_pago`, `cuenta_origen_id`, `comprobante_proveedor_ids` |
-| `src/app/api/tesoreria/cuentas-por-pagar/route.ts` | **Crear** — `GET` listado. HU-G10 agrega los campos nuevos al `select` (2.5) |
-| `src/app/api/tesoreria/cuentas-por-pagar/[id]/pagar/route.ts` | **Crear** — `PATCH` pago. HU-G10 mapea el nuevo código de error `422 COMPROBANTE_PROVEEDOR_REQUERIDO` en `STATUS_POR_CODIGO` |
-| `prisma/schema.prisma` | **Modificar (nuevo en HU-G10)** — agregar `medio_pago` (enum `MedioPago`), `cuenta_origen_id`, `observaciones` a `CuentaPorPagar`; crear tabla intermedia `CuentaPorPagarComprobante`. Bloqueado hasta que HU-H9 migre `ComprobanteProveedor` (ver sección 5) |
-| `prisma/seed.ts` | Modificar — dos permisos + vínculos de rol; retiro del vínculo `tesoreria:operar` (HU-G8). Sin permisos nuevos en HU-G10 — reutiliza `cuentas_por_pagar:pagar` |
-| `src/lib/services/tesoreria/cuenta-por-pagar.monto.test.ts` | **Crear** — unit test de `calcularMontoDesdeItems` |
-| `src/lib/services/tesoreria/cuenta-por-pagar.estado.test.ts` | **Crear** — unit test de `esTransicionValidaCuentaPorPagar` + mapeo de ramas del listener |
-| `src/lib/services/tesoreria/cuenta-por-pagar.pago.test.ts` | **Crear (nuevo en HU-G10)** — unit test de la validación de comprobante vigente (paso 2 de 2.4): casos comprobante inexistente, anulado, y de otra OC, todos deben resultar en `COMPROBANTE_PROVEEDOR_REQUERIDO` |
-| `package.json` | Modificar — agregar los `.test.ts` nuevos a la lista `node --test` de la línea 10 (si no, no corren) |
+| `src/lib/events/event-types.ts` | **Hecho (2026-09-10)** — `CuentaPorPagarEstadoCambiadoPayload` + `DomainEventMap` (HU-G8); HU-G10 sumó **4** campos nullable (`medio_pago`, `cuenta_origen_id`, `comprobante_proveedor_ids`, `observaciones`), `PAGAR`-only |
+| `src/lib/events/domain-event-bus.ts` | Modificar (HU-G8) — segundo import dinámico de registro. Sin cambios en HU-G10 |
+| `src/lib/events/listeners/audit-log.listener.ts` | **Hecho (2026-09-10)** — handler de `cuenta_por_pagar:estado_cambiado`; HU-G10 sumó 4 spreads condicionales separados en `valor_nuevo`, `PAGAR`-only (byte-idéntico para las otras acciones) |
+| `src/lib/events/listeners/cuenta-por-pagar.listener.ts` | Crear (HU-G8) — listener reactivo (ramas 2.1/2.2/2.3). Sin cambios en HU-G10 |
+| `src/lib/services/tesoreria/cuenta-por-pagar.service.ts` | **Hecho (2026-09-10)** — HU-G10 amplió `marcarCuentaPorPagarPagada()` (pasos 2/2b/3 de validación de comprobantes + `createMany` sobre `CuentaPorPagarComprobante` + emit ampliado). `listarCuentasPorPagar` **NO se tocó** (ver §2.5) |
+| `src/lib/schemas/cuentas-por-pagar.schema.ts` | **Hecho (2026-09-10)** — HU-G10 agregó `MEDIOS_PAGO`, `esFechaPagoNoFutura` y amplió `MarcarPagadaSchema` (`medio_pago` `z.enum`, `cuenta_origen_id` `.refine(esCuentaOrigenValida)`, `comprobante_proveedor_ids` `.array().min(1)` + refine anti-duplicados, `observaciones` `.max(500).optional()`, `fecha_pago` `.refine` no-futura) |
+| `src/lib/errors/service-error.ts` | **Hecho (2026-09-10)** — 3er argumento opcional `details?: unknown` (`readonly`) para el `422` estructurado. Cross-módulo; auditados ~40 catch blocks de `src/app/api`, ninguno hace `...err` → no filtra en endpoints preexistentes |
+| `src/lib/tesoreria/cuentas-origen.ts` (+ `cuentas-origen.test.ts`) | **Creado (2026-09-10)** — catálogo const `{ id, label }[]` de cuentas de origen (entradas placeholder marcadas `// TODO`) + `esCuentaOrigenValida` / `listarCuentasOrigen`. Sin `server-only` (lo importan el schema y el form) |
+| `src/lib/services/tesoreria/cuenta-por-pagar.comprobantes.ts` (+ `.test.ts`) | **Creado (2026-09-10)** — helper puro `validarComprobantesDePago` (5 motivos, precedencia `INEXISTENTE > DE_OTRA_OC > ANULADO > YA_IMPUTADO`), testeable sin Prisma |
+| `src/app/api/tesoreria/cuentas-por-pagar/route.ts` | **Sin cambios en HU-G10** — el `select` del listado no se amplió (ver §2.5) |
+| `src/app/api/tesoreria/cuentas-por-pagar/[id]/pagar/route.ts` | **Hecho (2026-09-10)** — `STATUS_POR_CODIGO` += `COMPROBANTE_PROVEEDOR_REQUERIDO: 422`; `safeParse(body)` (ya no `body ?? {}`); passthrough de `error.details`; el `200` devuelve los 4 campos nuevos |
+| `prisma/schema.prisma` | **Hecho (2026-09-10)** — `enum MedioPago { TRANSFERENCIA CHEQUE EFECTIVO }`; `medio_pago`/`cuenta_origen_id`/`observaciones` (nullable) en `CuentaPorPagar`; `model CuentaPorPagarComprobante` (sin soft-delete). Ya no bloqueado (HU-H9 mergeado) |
+| `prisma/migrations/20260909231426_hu_g10_registro_pago_cxp/migration.sql` | **Creado (2026-09-10)** — migración aditiva (CREATE TYPE + 3 ADD COLUMN nullable + CREATE TABLE + unique/index/FKs); sin `DROP`/`UPDATE`, sin backfill |
+| `prisma/seed.ts` | **Sin cambios en HU-G10** — reutiliza `cuentas_por_pagar:pagar` (los cambios de la fila son de HU-G8) |
+| `src/lib/services/tesoreria/cuenta-por-pagar.monto.test.ts` | Crear (HU-G8) — unit test de `calcularMontoDesdeItems` |
+| `src/lib/services/tesoreria/cuenta-por-pagar.estado.test.ts` | Crear (HU-G8) — unit test de `esTransicionValidaCuentaPorPagar` + mapeo de ramas del listener |
+| `src/lib/schemas/cuentas-por-pagar.pago.test.ts` | **Creado (2026-09-10)** — unit test del `MarcarPagadaSchema` ampliado (campos requeridos, `.max(500)`, array vacío, ids duplicados, `medio_pago` inválido, `fecha_pago` futura). *(El nombre real es este, bajo `schemas/`, no `services/tesoreria/cuenta-por-pagar.pago.test.ts` como decía esta fila en la Rev. 3.)* |
+| `package.json` | **Hecho (2026-09-10)** — los 3 `.test.ts` nuevos de HU-G10 (`cuentas-origen`, `cuenta-por-pagar.comprobantes`, `cuentas-por-pagar.pago`) agregados a la lista `node --test` de la línea 10 |
+| `src/app/(dashboard)/tesoreria/cuentas-por-pagar/{page.tsx,actions.ts}` · `src/components/tesoreria/{ListaCuentasPorPagar,FormularioRegistroPago,ModalPagoRegistrado}.tsx` · `src/components/layout/Sidebar.tsx` | **Creado (2026-09-10, PR2a/PR2b)** — consola de solo lectura + form de pago + modal read-back + entrada de sidebar. Detalle en `HU10_MODULO_G.md` |
