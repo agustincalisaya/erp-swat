@@ -32,7 +32,7 @@
  */
 import type { LucideIcon } from "lucide-react";
 // 1. Agregamos el ícono "Layers" a la importación
-import { ScrollText, ShieldCheck, Users, Package, Warehouse, ScanBarcode, Layers, FileSearch, ShoppingCart, ClipboardList, Store, PackageCheck, Undo2 } from "lucide-react";
+import { ScrollText, ShieldCheck, Users, Package, Warehouse, ScanBarcode, Layers, FileSearch, ShoppingCart, ClipboardList, Store, PackageCheck, Undo2, Wallet, Banknote } from "lucide-react";
 import { getServerSession } from "@/lib/auth/session";
 import { usuarioTienePermiso } from "@/lib/auth/with-permission";
 import { SidebarNav, type SidebarNavSection } from "@/components/layout/SidebarNav";
@@ -126,6 +126,21 @@ const SECCIONES: SeccionConfig[] = [
         href: "/compras/recepciones/nueva",
         icon: PackageCheck,
         permiso: "recepciones:registrar",
+      },
+    ],
+  },
+  {
+    label: "Tesorería",
+    icon: Wallet,
+    items: [
+      // Gate por `cuentas_por_pagar:leer` (HU-G10 / spec_modulo_G.md §7). El
+      // registro del pago se gatea aparte por `cuentas_por_pagar:pagar` en la
+      // propia consola; acá solo se filtra la visibilidad de la navegación.
+      {
+        label: "Cuentas por Pagar",
+        href: "/tesoreria/cuentas-por-pagar",
+        icon: Banknote,
+        permiso: "cuentas_por_pagar:leer",
       },
     ],
   },
