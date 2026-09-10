@@ -33,20 +33,34 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 interface DialogBajaProps {
   proveedorId: string;
   razonSocial: string;
+  /** Modo controlado: el padre maneja el estado de apertura (AccionesProveedorMenu). */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
-export function DialogBaja({ proveedorId, razonSocial }: DialogBajaProps) {
+export function DialogBaja({
+  proveedorId,
+  razonSocial,
+  open,
+  onOpenChange,
+}: DialogBajaProps) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
+  const [openInterno, setOpenInterno] = useState(false);
   const [motivo, setMotivo] = useState("");
   const [serverError, setServerError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
+  const esControlado = open !== undefined;
+
   const handleClose = useCallback(() => {
-    setOpen(false);
+    if (esControlado) {
+      onOpenChange?.(false);
+    } else {
+      setOpenInterno(false);
+    }
     setMotivo("");
     setServerError(null);
-  }, []);
+  }, [esControlado, onOpenChange]);
 
   const handleConfirm = () => {
     setServerError(null);
@@ -66,17 +80,28 @@ export function DialogBaja({ proveedorId, razonSocial }: DialogBajaProps) {
   const motivoValido = motivo.trim().length > 0;
 
   return (
-    <AlertDialog open={open} onOpenChange={(o) => (o ? setOpen(true) : handleClose())}>
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        className="gap-1.5 text-muted-foreground hover:text-destructive hover:bg-red-50"
-        onClick={() => setOpen(true)}
-      >
-        <Trash2 className="size-3.5" aria-hidden="true" />
-        Dar de baja
-      </Button>
+    <AlertDialog
+      open={esControlado ? open : openInterno}
+      onOpenChange={(o) => {
+        if (!o) {
+          handleClose();
+        } else if (!esControlado) {
+          setOpenInterno(true);
+        }
+      }}
+    >
+      {!esControlado && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="gap-1.5 text-muted-foreground hover:text-destructive hover:bg-red-50"
+          onClick={() => setOpenInterno(true)}
+        >
+          <Trash2 className="size-3.5" aria-hidden="true" />
+          Dar de baja
+        </Button>
+      )}
 
       <AlertDialogContent>
         <AlertDialogHeader>

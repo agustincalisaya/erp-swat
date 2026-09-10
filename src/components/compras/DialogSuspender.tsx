@@ -33,20 +33,34 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 interface DialogSuspenderProps {
   proveedorId: string;
   razonSocial: string;
+  /** Modo controlado: el padre maneja el estado de apertura (AccionesProveedorMenu). */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
-export function DialogSuspender({ proveedorId, razonSocial }: DialogSuspenderProps) {
+export function DialogSuspender({
+  proveedorId,
+  razonSocial,
+  open,
+  onOpenChange,
+}: DialogSuspenderProps) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
+  const [openInterno, setOpenInterno] = useState(false);
   const [motivo, setMotivo] = useState("");
   const [serverError, setServerError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
+  const esControlado = open !== undefined;
+
   const handleClose = useCallback(() => {
-    setOpen(false);
+    if (esControlado) {
+      onOpenChange?.(false);
+    } else {
+      setOpenInterno(false);
+    }
     setMotivo("");
     setServerError(null);
-  }, []);
+  }, [esControlado, onOpenChange]);
 
   const handleConfirm = () => {
     setServerError(null);
@@ -67,17 +81,28 @@ export function DialogSuspender({ proveedorId, razonSocial }: DialogSuspenderPro
   const motivoValido = motivo.trim().length > 0;
 
   return (
-    <AlertDialog open={open} onOpenChange={(o) => (o ? setOpen(true) : handleClose())}>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="gap-1.5 text-red-700 border-red-200 bg-red-50 hover:bg-red-100"
-        onClick={() => setOpen(true)}
-      >
-        <Ban className="size-3.5" aria-hidden="true" />
-        Suspender
-      </Button>
+    <AlertDialog
+      open={esControlado ? open : openInterno}
+      onOpenChange={(o) => {
+        if (!o) {
+          handleClose();
+        } else if (!esControlado) {
+          setOpenInterno(true);
+        }
+      }}
+    >
+      {!esControlado && (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="gap-1.5 text-red-700 border-red-200 bg-red-50 hover:bg-red-100"
+          onClick={() => setOpenInterno(true)}
+        >
+          <Ban className="size-3.5" aria-hidden="true" />
+          Suspender
+        </Button>
+      )}
 
       <AlertDialogContent>
         <AlertDialogHeader>
