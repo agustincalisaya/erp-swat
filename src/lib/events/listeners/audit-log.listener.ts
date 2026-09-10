@@ -522,6 +522,16 @@ export function iniciarAuditLogListener(): void {
         ...(payload.deletion_reason
           ? { deletion_reason: payload.deletion_reason }
           : {}),
+        // HU-G10 — presentes solo en PAGAR; guardas falsy ⇒ valor_nuevo
+        // byte-idéntico al previo para CREAR / DEFINIR / CANCELAR.
+        ...(payload.medio_pago ? { medio_pago: payload.medio_pago } : {}),
+        ...(payload.cuenta_origen_id
+          ? { cuenta_origen_id: payload.cuenta_origen_id }
+          : {}),
+        ...(payload.comprobante_proveedor_ids?.length
+          ? { comprobante_proveedor_ids: payload.comprobante_proveedor_ids }
+          : {}),
+        ...(payload.observaciones ? { observaciones: payload.observaciones } : {}),
       },
     });
   });
