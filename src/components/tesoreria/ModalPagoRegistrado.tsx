@@ -40,6 +40,17 @@ function etiquetaMedioPago(medio: string): string {
   return MEDIO_PAGO_LABEL[medio as (typeof MEDIOS_PAGO)[number]] ?? medio;
 }
 
+/**
+ * `fecha_pago` es una fecha de calendario que en la DB queda a medianoche UTC
+ * (`z.coerce.date()` sobre un `YYYY-MM-DD`). Se formatea tomando año/mes/día
+ * del ISO en UTC — NO se pasa por `toLocaleDateString` con la zona horaria
+ * local del browser, que en UTC-3 correría el día mostrado un día hacia atrás.
+ */
+function formatearFechaPago(fecha: Date | string): string {
+  const [anio, mes, dia] = new Date(fecha).toISOString().slice(0, 10).split("-");
+  return `${dia}/${mes}/${anio}`;
+}
+
 interface ModalPagoRegistradoProps {
   data: CuentaPorPagarPagada | null;
   numeroOrden: string;
@@ -79,7 +90,7 @@ export function ModalPagoRegistrado({
               </dd>
 
               <dt className="text-muted-foreground">Fecha de pago</dt>
-              <dd>{new Date(data.fecha_pago).toLocaleDateString("es-AR")}</dd>
+              <dd>{formatearFechaPago(data.fecha_pago)}</dd>
 
               <dt className="text-muted-foreground">Medio de pago</dt>
               <dd>{etiquetaMedioPago(data.medio_pago)}</dd>
