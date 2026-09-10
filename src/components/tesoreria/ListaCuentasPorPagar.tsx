@@ -2,14 +2,15 @@
 
 /**
  * @component ListaCuentasPorPagar
- * @description HU-G10 — grilla de solo lectura de Cuentas por Pagar en estado
- * `DEFINITIVA` (spec_modulo_G.md §2.5). Solo presentación: el listado ya llega
- * resuelto y filtrado por el RSC padre. El registro de pago se agrega en una
- * entrega posterior.
+ * @description HU-G10 — grilla de Cuentas por Pagar en estado `DEFINITIVA`
+ * (spec_modulo_G.md §2.5). Cada fila ofrece la acción "Registrar pago", que
+ * abre `FormularioRegistroPago` para esa cuenta. Solo presentación: el
+ * listado ya llega resuelto y filtrado por el RSC padre.
  *
  * Hydration: no se generan `id`/`htmlFor` acá. Los `key` de fila usan el
  * `id` estable de la cuenta (nunca `crypto.randomUUID()` en un atributo
- * renderizado).
+ * renderizado). La convención `useId()` + índice para atributos vive en
+ * `FormularioRegistroPago`.
  */
 
 import type { CuentaPorPagarResumen } from "@/lib/services/tesoreria/cuenta-por-pagar.service";
@@ -22,6 +23,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { FormularioRegistroPago } from "@/components/tesoreria/FormularioRegistroPago";
 
 interface ListaCuentasPorPagarProps {
   cuentas: CuentaPorPagarResumen[];
@@ -52,7 +54,10 @@ function nombreProveedor(p: CuentaPorPagarResumen["orden_compra"]["proveedor"]):
     : p.razon_social;
 }
 
-export function ListaCuentasPorPagar({ cuentas }: ListaCuentasPorPagarProps) {
+export function ListaCuentasPorPagar({
+  cuentas,
+  puedePagar,
+}: ListaCuentasPorPagarProps) {
   if (cuentas.length === 0) {
     return (
       <p className="py-12 text-center text-sm text-muted-foreground">
@@ -69,6 +74,7 @@ export function ListaCuentasPorPagar({ cuentas }: ListaCuentasPorPagarProps) {
           <TableHead>Proveedor</TableHead>
           <TableHead className="text-right">Monto</TableHead>
           <TableHead>Emisión</TableHead>
+          <TableHead className="text-right">Acciones</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -82,6 +88,16 @@ export function ListaCuentasPorPagar({ cuentas }: ListaCuentasPorPagarProps) {
               {formatearMonto(cuenta.monto)}
             </TableCell>
             <TableCell>{formatearFecha(cuenta.orden_compra.fecha_emision)}</TableCell>
+            <TableCell className="text-right">
+              {puedePagar ? (
+                <FormularioRegistroPago
+                  cuentaPorPagarId={cuenta.id}
+                  numeroOrden={cuenta.orden_compra.numero_orden}
+                />
+              ) : (
+                <span className="text-xs text-muted-foreground">Sin permiso</span>
+              )}
+            </TableCell>
           </TableRow>
         ))}
       </TableBody>
