@@ -13,8 +13,6 @@
  * negocio vive acá.
  */
 
-import { revalidatePath } from "next/cache";
-
 import { getServerSession } from "@/lib/auth/session";
 import { usuarioTienePermiso } from "@/lib/auth/with-permission";
 import { prisma } from "@/lib/db/prisma";
@@ -159,7 +157,11 @@ export async function registrarPagoCuentaPorPagarAction(
       parsed.data,
       session.userId,
     );
-    revalidatePath("/tesoreria/cuentas-por-pagar");
+    // NO `revalidatePath` acá a propósito: en un Server Action refetchea la
+    // ruta apenas retorna, desmontando la fila pagada (y con ella el
+    // `<ModalPagoRegistrado>` que cuelga del `<FormularioRegistroPago>` de esa
+    // fila) antes de que el read-back llegue a pintarse. El único refresh es el
+    // `router.refresh()` del `onClose` del modal (FormularioRegistroPago.tsx).
     return { data: resultado, error: null };
   } catch (err) {
     if (err instanceof ServiceError) return fallo(err.code, err.message, err.details);
