@@ -6,22 +6,52 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "node --experimental-strip-types --test src/lib/utils/sku.test.ts src/lib/services/inventario/transferencia.test.ts src/lib/services/inventario/reserva.test.ts src/lib/services/inventario/reclasificacion.service.test.ts src/lib/schemas/inventario.matriz-proveedor.test.ts src/lib/services/proveedores/evaluacion.calculo.test.ts src/lib/services/proveedores/evaluacion.service.test.ts src/lib/crypto/aes.test.ts src/lib/services/proveedores/proveedor.service.test.ts src/lib/services/proveedores/recepcion.test.ts src/lib/services/proveedores/comprobante-proveedor-reglas.test.ts src/lib/services/tesoreria/cuenta-por-pagar.monto.test.ts src/lib/services/tesoreria/cuenta-por-pagar.recepcion-monto.test.ts src/lib/services/tesoreria/cuenta-por-pagar.estado.test.ts src/lib/events/listeners/cuenta-por-pagar.listener.routing.test.ts src/lib/tesoreria/cuentas-origen.test.ts src/lib/schemas/cuentas-por-pagar.pago.test.ts src/lib/services/tesoreria/cuenta-por-pagar.comprobantes.test.ts",
+    "test:integration:h4": "node --conditions=react-server --import tsx --test --test-concurrency=1 src/lib/services/proveedores/recepcion.integration.test.ts"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
-    "next": "16.3.0",
+    "@base-ui/react": "^1.7.0",
+    "@hookform/resolvers": "^5.9.0",
+    "@node-rs/argon2": "^2.1.0",
+    "@prisma/client": "^6.19.3",
+    "@zxing/browser": "^0.2.1",
+    "@zxing/library": "^0.23.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "jose": "^6.2.9",
+    "lucide-react": "^1.31.0",
+    "next": "^16.3.4",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "react-hook-form": "^7.85.0",
+    "server-only": "^0.0.1",
+    "shadcn": "^4.18.0",
+    "tailwind-merge": "^3.6.0",
+    "tw-animate-css": "^1.4.0",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "dotenv": "^17.4.2",
     "eslint": "^9",
     "eslint-config-next": "16.3.0",
     "prisma": "^6.19.3",
     "tailwindcss": "^4",
+    "tsx": "^4.23.12",
     "typescript": "^5"
+  },
+  "allowScripts": {
+    "@prisma/client@6.19.3": true,
+    "@prisma/engines@6.19.3": true,
+    "esbuild@0.28.2": true,
+    "prisma@6.19.3": true,
+    "unrs-resolver@1.12.2": true
   }
 }

@@ -41,3 +41,27 @@ yarn-error.log*
 next-env.d.ts
 
 /app/generated/prisma
+
+# SDD skill registry (local index, regenerable)
+.atl/
+
+# SDD artifact store (local-only trail, not for the team repo)
+/openspec/
+
+# Personal HU prompts (dev-only workflow, not team docs)
+/prompts/
+docs/tasks/prompts/
+# Configuraciones locales de IA y Guardian Angel
+.gga
+.windsurf/
+AGENTS.md
+CLAUDE.md
+
+# Alcance Funcional (copia personal de referencia, no versionada)
+docs/Documento Alcance Funcional Tecnico SWAT.md
+#Product Backlog
+docs/Product Backlog - SWAT Indumentarias.xlsx
+
+# Workspace local de Postman (generado por la app, no es contenido del equipo)
+postman/
+.postman/

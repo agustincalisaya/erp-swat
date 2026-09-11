@@ -1,3 +1,17 @@
+// ============================================================================
+// SWAT INDUMENTARIAS ERP — SPRINT 1
+// Módulo D: Seguridad, RBAC y Auditoría Forense
+// Módulo A: Inventario, SKUs, Depósitos y Movimientos
+// ============================================================================
+// Reglas transversales aplicadas:
+//  - Soft Delete estricto (is_active, deleted_at, deleted_by, deletion_reason)
+//    en TODA tabla transaccional o de catálogo.
+//  - Integridad referencial: onDelete: Restrict en TODAS las relaciones.
+//    Prohibido el borrado en cascada.
+//  - Nomenclatura: modelos PascalCase, campos snake_case, tablas @@map
+//    en minúsculas y plural.
+// ============================================================================
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -5,4 +19,1221 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// --- MÓDULO D: GESTIÓN DE USUARIOS, RBAC Y AUDITORÍA ---
+// ============================================================================
+
+/// Usuario del sistema. Almacena credenciales con hash+sal, nunca la
+/// contraseña en texto plano. Controla intentos fallidos para políticas
+/// de bloqueo por fuerza bruta.
+model Usuario {
+  id                String        @id @default(uuid())
+  nombre_usuario    String        @unique
+  email             String        @unique
+  password_hash     String
+  password_salt     String
+  nombre_completo   String
+  estado            EstadoUsuario @default(ACTIVO)
+  intentos_fallidos Int           @default(0)
+  bloqueado_hasta   DateTime?
+  ultimo_login      DateTime?
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  roles                      UsuarioRol[]
+  audit_logs                 AuditLog[]
+  movimientos_registrados    MovimientoStock[]    @relation("MovimientoRegistradoPor")
+  transferencias_despachadas TransferenciaStock[] @relation("TransferenciaDespachadaPor")
+  transferencias_recibidas   TransferenciaStock[] @relation("TransferenciaRecibidaPor")
+  reservas_registradas       Reserva[]            @relation("ReservaRegistradaPor")
+  sesiones                   Sesion[]
+
+  // --- Relaciones Sprint 2 (Módulo H / G) ---
+  ordenes_compra_creadas   OrdenCompra[]          @relation("OrdenCompraCreadaPor")
+  recepciones_registradas  Recepcion[]            @relation("RecepcionRecibidaPor")
+  evaluaciones_registradas EvaluacionProveedor[]  @relation("EvaluacionRegistradaPor")
+  listas_precio_aprobadas  ListaPrecioVersion[]   @relation("ListaPrecioVersionAprobadaPor")
+  comprobantes_registrados ComprobanteProveedor[] @relation("ComprobanteProveedorRegistradoPor")
+
+  // --- Relaciones HU-A9 (Reclasificación de Devueltos) ---
+  reclasificaciones_solicitadas ReclasificacionSolicitud[] @relation("ReclasificacionSolicitadaPor")
+  reclasificaciones_aprobadas   ReclasificacionSolicitud[] @relation("ReclasificacionAprobadaPor")
+
+  @@map("usuarios")
+}
+
+enum EstadoUsuario {
+  ACTIVO
+  SUSPENDIDO
+  BLOQUEADO
+  INACTIVO
+}
+
+/// Rol funcional dentro del sistema RBAC (ej: ADMIN, DEPOSITO, AUDITOR).
+/// Se vincula a Permiso mediante tabla pivote N:M (RolPermiso).
+model Rol {
+  id          String  @id @default(uuid())
+  nombre      String  @unique
+  descripcion String?
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  usuarios UsuarioRol[]
+  permisos RolPermiso[]
+
+  @@map("roles")
+}
+
+/// Permiso granular atómico (ej: "inventario:crear", "auditoria:leer").
+/// Principio de menor privilegio: cada permiso debe representar la unidad
+/// mínima de acción posible.
+model Permiso {
+  id          String  @id @default(uuid())
+  codigo      String  @unique
+  descripcion String?
+  modulo      String // Ej: "MODULO_A", "MODULO_D"
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  roles RolPermiso[]
+
+  @@map("permisos")
+}
+
+/// Tabla pivote N:M entre Usuario y Rol.
+/// Un usuario puede tener múltiples roles asignados simultáneamente.
+model UsuarioRol {
+  id         String @id @default(uuid())
+  usuario_id String
+  rol_id     String
+
+  usuario Usuario @relation(fields: [usuario_id], references: [id], onDelete: Restrict)
+  rol     Rol     @relation(fields: [rol_id], references: [id], onDelete: Restrict)
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@unique([usuario_id, rol_id])
+  @@map("usuario_roles")
+}
+
+/// Tabla pivote N:M entre Rol y Permiso. Define el control RBAC granular.
+model RolPermiso {
+  id         String @id @default(uuid())
+  rol_id     String
+  permiso_id String
+
+  rol     Rol     @relation(fields: [rol_id], references: [id], onDelete: Restrict)
+  permiso Permiso @relation(fields: [permiso_id], references: [id], onDelete: Restrict)
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@unique([rol_id, permiso_id])
+  @@map("rol_permisos")
+}
+
+/// Ledger inmutable (append-only) para trazabilidad forense.
+/// NUNCA debe actualizarse ni borrarse un registro existente: solo INSERT.
+/// Implementa cadena de hashes SHA-256 (hash_actual encadenado con
+/// hash_anterior) para garantizar integridad e inmutabilidad verificable.
+/// Nota: por tratarse de un ledger append-only, NO lleva soft delete
+/// (is_active/deleted_at) ya que un log de auditoría jamás se "elimina".
+model AuditLog {
+  id             String  @id @default(uuid())
+  usuario_id     String?
+  accion         String // Ej: "CREATE", "UPDATE", "DELETE", "LOGIN_FAILED"
+  tabla_afectada String
+  registro_id    String?
+  ip             String
+  valor_anterior Json?
+  valor_nuevo    Json?
+
+  /// Hash SHA-256 del registro anterior en la cadena (integridad forense)
+  hash_anterior String
+  /// Hash SHA-256 calculado sobre este registro + hash_anterior
+  hash_actual   String @unique
+
+  created_at DateTime @default(now())
+
+  // --- Relación ---
+  usuario Usuario? @relation(fields: [usuario_id], references: [id], onDelete: Restrict)
+
+  @@map("audit_logs")
+}
+
+/// Sesión activa de un Usuario autenticado (HU-3). Permite revocación
+/// instantánea independiente de la expiración del JWT (spec_modulo_D.md
+/// §3.3 y HU-2) — el JWT solo prueba identidad e integridad; esta tabla es
+/// la fuente de verdad sobre si la sesión sigue siendo válida.
+/// Nota: no usa el soft delete estándar de RULES.md §1 (`is_active`/
+/// `deleted_at`) porque no es una entidad de catálogo/transaccional de
+/// negocio — revocada/expirada/activa son tres estados propios de un
+/// artefacto técnico de autenticación, no un simple activo/inactivo.
+model Sesion {
+  id              String    @id @default(uuid())
+  usuario_id      String
+  jwt_id          String    @unique // claim "jti" del JWT — vincula el token emitido con esta fila
+  ip_origen       String
+  user_agent      String?
+  emitida_en      DateTime  @default(now())
+  expira_en       DateTime
+  revocada        Boolean   @default(false)
+  revocada_en     DateTime?
+  revocada_motivo String? // ej. "logout", "baja_logica_usuario", "cambio_password"
+
+  usuario Usuario @relation(fields: [usuario_id], references: [id], onDelete: Restrict)
+
+  @@index([usuario_id])
+  @@map("sesiones")
+}
+
+// ============================================================================
+// --- MÓDULO A: INVENTARIO Y DEPÓSITO ---
+// ============================================================================
+
+/// Producto base/genérico del catálogo (ej: "Camisa Táctica", "Borcegos").
+/// No representa una unidad vendible; las variantes concretas están en
+/// VarianteSKU.
+model ProductoMaestro {
+  id                        String  @id @default(uuid())
+  /// Código corto usado como segmento [PRODUCTO] del SKU determinístico
+  /// generado por `generarSku()` (ej. "CAMP" para "Campera Softshell Nivel III").
+  /// Definido explícitamente al crear el producto — no se deriva del nombre.
+  /// Deliberadamente NO único: dos ProductoMaestro de la misma familia (ej.
+  /// dos modelos de campera) pueden compartir el mismo código de categoría —
+  /// la unicidad real del SKU la garantiza VarianteSKU.sku @unique.
+  codigo_producto           String
+  nombre                    String
+  rubro                     String
+  categoria                 String
+  unidad_medida             String // Ej: "UNIDAD", "PAR", "KG"
+  descripcion               String?
+  proveedor_preferente      String?
+  costo_estandar_referencia Decimal @db.Decimal(10, 2) // Mejor que Float para finanzas
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  variantes VarianteSKU[]
+
+  @@map("productos_maestros")
+}
+
+/// Variante concreta y vendible de un ProductoMaestro, definida por las
+/// 4 dimensiones tácticas: talle, color, genero y modelo.
+/// El campo `sku` es único y determinístico (generado a partir de las
+/// dimensiones); `ean_qr` es el código de trazabilidad unitaria
+/// (EAN-13/QR) usado en el escaneo físico de depósito. Es opcional: queda
+/// NULL hasta que se conoce el EAN-13 real de la unidad física (por
+/// escaneo en el preview de la Matriz de Variantes o al primer ingreso a
+/// depósito) — no se rellena con ningún valor sintético mientras tanto.
+model VarianteSKU {
+  id                  String  @id @default(uuid())
+  producto_maestro_id String
+  sku                 String  @unique
+  ean_qr              String? @unique
+  talle               String
+  color               String
+  genero              String
+  modelo              String
+
+  /// Proveedor habitual de esta variante (Módulo A + Módulo H). OBLIGATORIO:
+  /// se asigna individualmente por variante en el momento del alta (Matriz de
+  /// Variantes) y solo puede ser un `Proveedor` en estado `HOMOLOGADO` — la
+  /// regla la aplican `generarVariantesMatriz()` y `editarVarianteOperativa()`
+  /// en la capa de servicios. Módulo H ya está implementado; esto dejó de ser
+  /// un stub opcional.
+  proveedor_id String
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  producto_maestro    ProductoMaestro          @relation(fields: [producto_maestro_id], references: [id], onDelete: Restrict)
+  proveedor           Proveedor                @relation(fields: [proveedor_id], references: [id], onDelete: Restrict)
+  stock_depositos     StockDeposito[]
+  movimiento_items    MovimientoStockItem[]
+  transferencia_items TransferenciaStockItem[]
+  reservas            Reserva[]
+
+  // --- Relación Sprint 2 (Módulo H) ---
+  orden_compra_items OrdenCompraItem[]
+  lista_precio_items ListaPrecioItem[]
+
+  // --- Relación HU-A9 (Reclasificación de Devueltos) ---
+  reclasificaciones_solicitudes ReclasificacionSolicitud[]
+
+  @@index([proveedor_id])
+  @@map("variantes_sku")
+}
+
+/// Ubicación física de almacenamiento (Central, Showroom, Móvil, etc.).
+model Deposito {
+  id        String  @id @default(uuid())
+  nombre    String  @unique
+  tipo      String // Ej: "CENTRAL", "SHOWROOM", "MOVIL"
+  direccion String?
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  stock_items            StockDeposito[]
+  movimientos_origen     MovimientoStock[]    @relation("MovimientoOrigen")
+  movimientos_destino    MovimientoStock[]    @relation("MovimientoDestino")
+  transferencias_origen  TransferenciaStock[] @relation("TransferenciaOrigen")
+  transferencias_destino TransferenciaStock[] @relation("TransferenciaDestino")
+  reservas               Reserva[]
+
+  // --- Relación HU-A9 (Reclasificación de Devueltos) ---
+  reclasificaciones_solicitudes ReclasificacionSolicitud[]
+  recepciones                   Recepcion[]
+
+  @@map("depositos")
+}
+
+/// Tabla pivote que indica la cantidad disponible de un VarianteSKU en un
+/// Deposito específico. Define umbrales de reposición (`punto_pedido`) y
+/// stock mínimo de seguridad (`stock_seguridad`).
+model StockDeposito {
+  id              String @id @default(uuid())
+  variante_sku_id String
+  deposito_id     String
+  cantidad        Int    @default(0)
+  punto_pedido    Int    @default(0)
+  stock_seguridad Int    @default(0)
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  variante_sku VarianteSKU @relation(fields: [variante_sku_id], references: [id], onDelete: Restrict)
+  deposito     Deposito    @relation(fields: [deposito_id], references: [id], onDelete: Restrict)
+
+  @@unique([variante_sku_id, deposito_id])
+  @@map("stock_depositos")
+}
+
+/// Cabecera inmutable y transaccional de todo movimiento de stock (ingreso,
+/// egreso, transferencia, ajuste). Una vez creada, no debe actualizarse:
+/// cualquier corrección se modela como un nuevo movimiento compensatorio
+/// (principio de inmutabilidad contable). Desde HU-A11 (multi-ítem) cubre
+/// múltiples variantes a través de `MovimientoStockItem` — nunca vuelve a
+/// tener `variante_sku_id`/`cantidad` propios.
+model MovimientoStock {
+  id                     String         @id @default(uuid())
+  deposito_origen_id     String?
+  deposito_destino_id    String?
+  tipo_movimiento        TipoMovimiento
+  comprobante_referencia String?
+  registrado_por_id      String
+  recepcion_id           String?        @unique
+
+  /// STUB Sprint futuro — Módulo B (POS): vinculará el movimiento de
+  /// egreso con la venta que lo originó. Opcional para no romper el
+  /// modelo actual cuando se integre el módulo de ventas.
+  venta_id String?
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  deposito_origen  Deposito?             @relation("MovimientoOrigen", fields: [deposito_origen_id], references: [id], onDelete: Restrict)
+  deposito_destino Deposito?             @relation("MovimientoDestino", fields: [deposito_destino_id], references: [id], onDelete: Restrict)
+  registrado_por   Usuario               @relation("MovimientoRegistradoPor", fields: [registrado_por_id], references: [id], onDelete: Restrict)
+  recepcion        Recepcion?            @relation(fields: [recepcion_id], references: [id], onDelete: Restrict)
+  items            MovimientoStockItem[]
+
+  @@index([deposito_origen_id])
+  @@index([deposito_destino_id])
+  @@index([tipo_movimiento])
+  @@index([recepcion_id])
+  @@index([created_at])
+  @@map("movimientos_stock")
+}
+
+/// Línea de un `MovimientoStock`: una variante y cantidad puntual dentro de
+/// la cabecera (HU-A11, multi-ítem). `estado_origen`/`estado_destino` migran
+/// acá desde la cabecera — cada ítem puede tener un estado propio (ej. un
+/// ingreso con un ítem DISPONIBLE y otro VENDIDO en el mismo lote).
+model MovimientoStockItem {
+  id              String  @id @default(uuid())
+  movimiento_id   String
+  variante_sku_id String
+  cantidad        Int
+  estado_origen   String?
+  estado_destino  String?
+  numero_serie    String?
+
+  /// HU-A9 — Motivo de la reclasificación de una unidad devuelta
+  /// (spec_modulo_A.md §2.8). Obligatorio cuando el control de calidad es
+  /// NO_APTO (misma regla de motivo de la sección 3.5). Texto libre de
+  /// trazabilidad, nunca se normaliza ni se valida contra otro módulo.
+  motivo String?
+
+  /// HU-A9 — Referencia opcional a un ticket RMA del Módulo I (garantía).
+  /// SIN FK a propósito: el Módulo A no valida la existencia del RMA contra
+  /// el Módulo I (aislamiento de dominio, RULES.md Regla N.° 3) — el FK se
+  /// agrega cuando el Módulo I exista.
+  rma_id String?
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  movimiento   MovimientoStock @relation(fields: [movimiento_id], references: [id], onDelete: Restrict)
+  variante_sku VarianteSKU     @relation(fields: [variante_sku_id], references: [id], onDelete: Restrict)
+
+  @@index([movimiento_id])
+  @@index([variante_sku_id])
+  @@map("movimiento_stock_items")
+}
+
+/// HU-A9 — Solicitud de reclasificación de unidades DEVUELTO que superan el
+/// umbral de baja/merma (`UMBRAL_BAJA_MERMA_UNIDADES`, spec_modulo_A.md §3.8).
+/// Mientras está `PENDIENTE_APROBACION` NO impacta `StockDeposito` ni
+/// `MovimientoStock` (regla §3.8: un ajuste pendiente nunca se persiste en
+/// `MovimientoStock`, que por definición es un hecho consumado): el
+/// movimiento compensatorio solo se inserta al aprobarse. Las solicitudes
+/// solo nacen de un control de calidad NO_APTO sobre el umbral, por lo que
+/// la aprobación siempre transiciona a `BAJA_MERMA`.
+model ReclasificacionSolicitud {
+  id              String @id @default(uuid())
+  variante_sku_id String
+  deposito_id     String
+  cantidad        Int
+
+  /// Motivo de la baja por rotura/obsolescencia (obligatorio — toda
+  /// solicitud proviene de un resultado NO_APTO sobre umbral).
+  motivo String?
+
+  /// Referencia opcional a RMA del Módulo I. Sin FK (aislamiento de
+  /// dominio); el FK se agrega cuando el Módulo I exista.
+  rma_id String?
+
+  estado            EstadoReclasificacionSolicitud @default(PENDIENTE_APROBACION)
+  /// Usuario que detectó la unidad y solicitó la reclasificación.
+  solicitada_por_id String
+  /// Usuario Administrador que resolvió la solicitud (solo si se aprobó).
+  aprobada_por_id   String?
+  aprobada_at       DateTime?
+  /// Motivo del rechazo (obligatorio cuando la solicitud se rechaza).
+  rechazada_motivo  String?
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  variante_sku   VarianteSKU @relation(fields: [variante_sku_id], references: [id], onDelete: Restrict)
+  deposito       Deposito    @relation(fields: [deposito_id], references: [id], onDelete: Restrict)
+  solicitada_por Usuario     @relation("ReclasificacionSolicitadaPor", fields: [solicitada_por_id], references: [id], onDelete: Restrict)
+  aprobada_por   Usuario?    @relation("ReclasificacionAprobadaPor", fields: [aprobada_por_id], references: [id], onDelete: Restrict)
+
+  @@index([estado, is_active])
+  @@index([variante_sku_id])
+  @@index([deposito_id])
+  @@map("reclasificacion_solicitudes")
+}
+
+/// Remito interno de una transferencia de stock en dos fases. Mientras un
+/// ítem se encuentra pendiente, su cantidad es stock fisico no disponible en
+/// ningun deposito. Desde HU-A11 (multi-ítem + recepción parcial) cubre
+/// múltiples variantes a través de `TransferenciaStockItem` — nunca vuelve a
+/// tener `variante_sku_id`/`cantidad` propios.
+model TransferenciaStock {
+  id                  String              @id @default(uuid())
+  numero_remito       String              @unique
+  deposito_origen_id  String
+  deposito_destino_id String
+  estado              EstadoTransferencia @default(EN_TRANSITO)
+  despachada_por_id   String
+  despachada_at       DateTime            @default(now())
+  recibida_por_id     String?
+  recibida_at         DateTime?
+
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+
+  deposito_origen  Deposito                 @relation("TransferenciaOrigen", fields: [deposito_origen_id], references: [id], onDelete: Restrict)
+  deposito_destino Deposito                 @relation("TransferenciaDestino", fields: [deposito_destino_id], references: [id], onDelete: Restrict)
+  despachada_por   Usuario                  @relation("TransferenciaDespachadaPor", fields: [despachada_por_id], references: [id], onDelete: Restrict)
+  recibida_por     Usuario?                 @relation("TransferenciaRecibidaPor", fields: [recibida_por_id], references: [id], onDelete: Restrict)
+  items            TransferenciaStockItem[]
+
+  @@index([deposito_destino_id, estado, is_active])
+  @@index([estado, is_active])
+  @@map("transferencias_stock")
+}
+
+/// Línea de una `TransferenciaStock`: una variante, la cantidad despachada y
+/// el acumulado recibido hasta el momento (HU-A11, recepción parcial).
+/// `cantidad_recibida` es un contador mutable (igual que `StockDeposito.cantidad`
+/// en otro lado del schema) — no rompe el principio de inmutabilidad contable
+/// porque el rastro append-only real vive en `MovimientoStock`/`MovimientoStockItem`.
+model TransferenciaStockItem {
+  id                String                  @id @default(uuid())
+  transferencia_id  String
+  variante_sku_id   String
+  cantidad          Int
+  cantidad_recibida Int                     @default(0)
+  estado_item       EstadoItemTransferencia @default(PENDIENTE)
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  transferencia TransferenciaStock @relation(fields: [transferencia_id], references: [id], onDelete: Restrict)
+  variante_sku  VarianteSKU        @relation(fields: [variante_sku_id], references: [id], onDelete: Restrict)
+
+  @@index([transferencia_id])
+  @@index([variante_sku_id])
+  @@map("transferencia_stock_items")
+}
+
+enum EstadoTransferencia {
+  EN_TRANSITO
+  PARCIAL
+  RECIBIDA
+}
+
+enum EstadoItemTransferencia {
+  PENDIENTE
+  RECIBIDO_PARCIAL
+  RECIBIDO_TOTAL
+}
+
+enum TipoMovimiento {
+  INGRESO
+  EGRESO
+  TRANSFERENCIA
+  AJUSTE
+}
+
+/// HU-A9 — Ciclo de vida de una solicitud de reclasificación de unidades
+/// DEVUELTO sobre el umbral (spec_modulo_A.md §3.8). Contrato aprobado del
+/// flujo: difiere del naming genérico de la spec (`APROBADO|RECHAZADO`) —
+/// `APROBADA|RECHAZADA` coincide con el género de la entidad `Solicitud`.
+enum EstadoReclasificacionSolicitud {
+  PENDIENTE_APROBACION
+  APROBADA
+  RECHAZADA
+}
+
+/// Reserva temporal de una unidad de stock originada por una seña o
+/// licitación (Criterio 5 — Máquina de Estados). El TTL por defecto es
+/// de 72 horas: si `fecha_fin_reserva` sigue siendo NULL transcurrido ese
+/// tiempo, la API Cron `/api/cron/check-pruebas-vencidas` devuelve el stock
+/// atómicamente al estado DISPONIBLE.
+///
+/// Relación con el stock:
+///  - Al crear la Reserva → `StockDeposito.cantidad` se decrementa (DISPONIBLE → RESERVADO).
+///  - Al liberar por TTL → `StockDeposito.cantidad` se incrementa (RESERVADO → DISPONIBLE)
+///    + se registra un MovimientoStock INGRESO compensatorio.
+///  - Al confirmar la venta → `fecha_fin_reserva` se setea (RESERVADO → VENDIDO).
+model Reserva {
+  id              String @id @default(uuid())
+  variante_sku_id String
+  deposito_id     String
+  cantidad        Int
+
+  /// Momento en que se inicia la reserva (inicio del TTL de 72 horas).
+  fecha_inicio_reserva DateTime  @default(now())
+  /// NULL = reserva activa. Se setea al confirmar venta o al liberar por TTL.
+  fecha_fin_reserva    DateTime?
+
+  /// Motivo legible de la reserva (ej: "Seña N.° 1234", "Licitación GCBA-2026-001").
+  /// Opcional pero recomendado para trazabilidad.
+  motivo String?
+
+  /// Origen estructurado de la reserva (HU-A10, Sprint 2). Complementa a
+  /// `motivo` (texto libre) sin reemplazarlo — permite filtrar/reportar por
+  /// tipo de origen. Opcional y agregado con NULL por defecto para no
+  /// romper las reservas creadas en Sprint 1 antes de este campo.
+  origen_reserva OrigenReserva?
+
+  /// ID del vendedor o usuario que creó la reserva.
+  registrado_por_id String
+
+  // --- Soft delete estricto (RULES.md §1) ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  variante_sku   VarianteSKU @relation(fields: [variante_sku_id], references: [id], onDelete: Restrict)
+  deposito       Deposito    @relation(fields: [deposito_id], references: [id], onDelete: Restrict)
+  registrado_por Usuario     @relation("ReservaRegistradaPor", fields: [registrado_por_id], references: [id], onDelete: Restrict)
+
+  /// Índice compuesto para la query del cron: busca reservas activas sin cierre
+  /// dentro de una ventana temporal (fecha_inicio_reserva < umbral).
+  @@index([is_active, fecha_fin_reserva, fecha_inicio_reserva])
+  @@map("reservas")
+}
+
+/// Origen estructurado de una Reserva (HU-A10, Sprint 2): distingue los 3
+/// orígenes válidos definidos por la HU. Campo opcional en Reserva — ver
+/// comentario en el modelo.
+enum OrigenReserva {
+  SENIA
+  LICITACION
+  PEDIDO_INSTITUCIONAL
+}
+
+// ============================================================================
+// --- MÓDULO H: COMPRAS Y PROVEEDORES (SPRINT 2) ---
+// ============================================================================
+
+/// Legajo comercial de un Proveedor (HU-H1). Solo los proveedores en estado
+/// HOMOLOGADO son seleccionables al crear una nueva OrdenCompra — esta
+/// validación es responsabilidad de la capa de aplicación, no de este
+/// modelo. No se elimina físicamente ningún proveedor: su historial de
+/// órdenes de compra y evaluaciones se preserva vía baja lógica.
+model Proveedor {
+  id                String          @id @default(uuid())
+  razon_social      String
+  nombre_fantasia   String?
+  /// CUIT u otro identificador impositivo equivalente.
+  cuit              String          @unique
+  /// Ej: "Contado", "30 días", "60 días FF". Texto libre: la variedad de
+  /// condiciones comerciales reales no se presta a un enum cerrado.
+  condiciones_pago  String?
+  /// Categorías de producto que abastece (ej: ["Calzado", "Textil Táctico"]).
+  categorias        String[]
+  estado            EstadoProveedor @default(PENDIENTE)
+  contacto_nombre   String?
+  contacto_email    String?
+  contacto_telefono String?
+
+  /// Ciphertext AES-256 de los datos bancarios del legajo (CBU / alias /
+  /// banco). NUNCA se persiste el CBU ni el alias en texto plano
+  /// (RULES.md Regla N.° 2 · Ley N.° 25.326). El cifrado/descifrado vive
+  /// exclusivamente en `lib/crypto/aes.ts`, invocado solo por la capa de
+  /// servicios (spec_modulo_H.md §3.3). Nullable: `datos_bancarios` es
+  /// opcional en `CrearProveedorSchema` (spec §2.1).
+  datos_bancarios_cifrado String?
+  /// Vector de inicialización (IV) asociado al ciphertext de
+  /// `datos_bancarios_cifrado`. Se genera aleatorio por cada operación de
+  /// cifrado y se almacena junto al ciphertext para permitir el descifrado.
+  datos_bancarios_iv      String?
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  ordenes_compra       OrdenCompra[]
+  evaluaciones         EvaluacionProveedor[]
+  listas_precio        ListaPrecio[]
+  comprobantes         ComprobanteProveedor[]
+  variantes_habituales VarianteSKU[]
+
+  @@index([estado, is_active])
+  @@map("proveedores")
+}
+
+enum EstadoProveedor {
+  PENDIENTE
+  HOMOLOGADO
+  SUSPENDIDO
+}
+
+/// Cabecera lógica de la lista de precios de un Proveedor (HU-H2). No
+/// almacena precios: es el ancla estable (1:N) sobre la que se apilan las
+/// `ListaPrecioVersion` inmutables. La "versión vigente" jamás se marca
+/// aquí con un flag — se resuelve por consulta sobre `ListaPrecioVersion`
+/// (`publicada = true AND fecha_inicio_vigencia <= now()`, orden `desc`,
+/// `take(1)`), conforme a spec_modulo_H.md §3.4. Baja lógica estándar: una
+/// lista dada de baja se preserva para reconstrucción forense (§3.6).
+model ListaPrecio {
+  id           String @id @default(uuid())
+  proveedor_id String
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  proveedor Proveedor            @relation(fields: [proveedor_id], references: [id], onDelete: Restrict)
+  versiones ListaPrecioVersion[]
+
+  @@index([proveedor_id])
+  @@map("listas_precio")
+}
+
+/// Versión inmutable de una `ListaPrecio` (HU-H2, spec_modulo_H.md §3.4).
+/// Una vez creada NO admite `UPDATE`: toda corrección de precio —incluido
+/// un error de tipeo— nace como una versión nueva con nueva
+/// `fecha_inicio_vigencia`. `variacion_porcentual_maxima` se calcula una
+/// sola vez, al crear la versión, contra la versión previamente vigente;
+/// nunca se recalcula después. `publicada = false` únicamente mientras la
+/// versión espera aprobación por superar el umbral crítico de variación
+/// (spec §2.3); en ese estado no es seleccionable para nuevas OrdenCompra
+/// hasta que un Supervisor de Compras la apruebe (`aprobada_por_id` /
+/// `aprobada_at`).
+model ListaPrecioVersion {
+  id                          String    @id @default(uuid())
+  lista_precio_id             String
+  fecha_inicio_vigencia       DateTime
+  variacion_porcentual_maxima Decimal   @db.Decimal(5, 2)
+  requiere_aprobacion         Boolean   @default(false)
+  publicada                   Boolean   @default(true)
+  aprobada_por_id             String?
+  aprobada_at                 DateTime?
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  lista_precio ListaPrecio       @relation(fields: [lista_precio_id], references: [id], onDelete: Restrict)
+  aprobada_por Usuario?          @relation("ListaPrecioVersionAprobadaPor", fields: [aprobada_por_id], references: [id], onDelete: Restrict)
+  items        ListaPrecioItem[]
+
+  /// Índice de la consulta de "versión vigente" (spec §2.3 / §3.4):
+  /// filtra por lista + `publicada` y ordena por `fecha_inicio_vigencia`.
+  @@index([lista_precio_id, publicada, fecha_inicio_vigencia])
+  @@map("listas_precio_version")
+}
+
+/// Línea de precio de una `ListaPrecioVersion`: `precio_unitario` pactado
+/// para una `VarianteSKU`. Inmutable igual que su versión padre — nunca se
+/// ejecuta `UPDATE` sobre el precio; un cambio implica una
+/// `ListaPrecioVersion` nueva. `OrdenCompraItem.precio_unitario` congela
+/// este valor al emitirse la orden y no se recalcula si la lista cambia
+/// después (regla de no-retroactividad, spec §3.4).
+model ListaPrecioItem {
+  id                      String  @id @default(uuid())
+  lista_precio_version_id String
+  variante_sku_id         String
+  precio_unitario         Decimal @db.Decimal(10, 2)
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  lista_precio_version ListaPrecioVersion @relation(fields: [lista_precio_version_id], references: [id], onDelete: Restrict)
+  variante_sku         VarianteSKU        @relation(fields: [variante_sku_id], references: [id], onDelete: Restrict)
+
+  /// La comparativa de precios (spec §2.8) y el costo de reposición
+  /// (spec §2.9) filtran frecuentemente por SKU.
+  @@index([variante_sku_id])
+  @@map("listas_precio_item")
+}
+
+/// Orden de compra a un Proveedor (HU-H3). Cubre múltiples variantes a
+/// través de OrdenCompraItem. Una vez en estado ENVIADA la orden queda
+/// bloqueada para edición de ítems y cantidades — esta validación es
+/// responsabilidad de la capa de aplicación, no de este modelo. La
+/// cancelación (estado CANCELADA) exige motivo obligatorio: se registra en
+/// el campo estándar `deletion_reason` del bloque de baja lógica, siguiendo
+/// el mismo patrón que el resto del sistema.
+model OrdenCompra {
+  id                         String            @id @default(uuid())
+  numero_orden               String            @unique
+  proveedor_id               String
+  estado                     EstadoOrdenCompra @default(BORRADOR)
+  fecha_emision              DateTime          @default(now())
+  fecha_envio                DateTime?
+  fecha_confirmacion         DateTime?
+  /// Fecha de entrega comprometida por el proveedor, capturada en la
+  /// transición ENVIADA → CONFIRMADA (spec_modulo_H.md §2.5 / §3.1;
+  /// Alcance §2.1: "base del seguimiento de cumplimiento"). Nullable: solo
+  /// se setea al CONFIRMAR; una orden en BORRADOR/ENVIADA todavía no la tiene.
+  /// Distinta de `fecha_confirmacion`, que es el instante en que se confirmó.
+  fecha_entrega_comprometida DateTime?
+  fecha_cierre               DateTime?
+  observaciones              String?
+  creada_por_id              String
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  proveedor         Proveedor              @relation(fields: [proveedor_id], references: [id], onDelete: Restrict)
+  creada_por        Usuario                @relation("OrdenCompraCreadaPor", fields: [creada_por_id], references: [id], onDelete: Restrict)
+  items             OrdenCompraItem[]
+  recepciones       Recepcion[]
+  cuentas_por_pagar CuentaPorPagar[]
+  comprobantes      ComprobanteProveedor[]
+
+  @@index([proveedor_id, estado])
+  @@index([estado, is_active])
+  @@map("ordenes_compra")
+}
+
+enum EstadoOrdenCompra {
+  BORRADOR
+  ENVIADA
+  CONFIRMADA
+  RECEPCION_PARCIAL
+  RECIBIDA_COMPLETA
+  CERRADA
+  CANCELADA
+}
+
+/// Línea de ítem de una OrdenCompra: cantidad solicitada de una VarianteSKU
+/// puntual a un precio unitario pactado. Una OC cubre múltiples variantes
+/// mediante múltiples OrdenCompraItem.
+model OrdenCompraItem {
+  id                  String  @id @default(uuid())
+  orden_compra_id     String
+  variante_sku_id     String
+  cantidad_solicitada Int
+  precio_unitario     Decimal @db.Decimal(10, 2)
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  orden_compra    OrdenCompra     @relation(fields: [orden_compra_id], references: [id], onDelete: Restrict)
+  variante_sku    VarianteSKU     @relation(fields: [variante_sku_id], references: [id], onDelete: Restrict)
+  recepcion_items RecepcionItem[]
+
+  @@index([orden_compra_id])
+  @@map("orden_compra_items")
+}
+
+/// Recepción de mercadería contra una OrdenCompra (HU-H4). Puede existir
+/// más de una Recepcion por OrdenCompra para soportar recepción parcial
+/// (OrdenCompra.estado = RECEPCION_PARCIAL hasta que la suma de cantidades
+/// recibidas cubra lo solicitado, y RECIBIDA_COMPLETA cuando se completa).
+/// HU-H4 registra atómicamente las cantidades aceptadas en stock. Si existe
+/// al menos una unidad aceptada, crea un único MovimientoStock de INGRESO
+/// vinculado directamente a esta recepción; un rechazo total no lo crea.
+model Recepcion {
+  id                      String   @id @default(uuid())
+  orden_compra_id         String
+  deposito_destino_id     String
+  clave_idempotencia      String   @unique @db.Uuid
+  payload_hash            String
+  numero_remito_proveedor String?
+  fecha_recepcion         DateTime @default(now())
+  recibida_por_id         String
+  observaciones           String?
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  orden_compra      OrdenCompra          @relation(fields: [orden_compra_id], references: [id], onDelete: Restrict)
+  deposito_destino  Deposito             @relation(fields: [deposito_destino_id], references: [id], onDelete: Restrict)
+  recibida_por      Usuario              @relation("RecepcionRecibidaPor", fields: [recibida_por_id], references: [id], onDelete: Restrict)
+  movimiento_stock  MovimientoStock?
+  items             RecepcionItem[]
+  cuentas_por_pagar CuentaPorPagar[]
+  evaluacion        EvaluacionProveedor?
+
+  @@index([orden_compra_id])
+  @@index([deposito_destino_id])
+  @@map("recepciones")
+}
+
+/// Línea de recepción: separa cantidad física recibida (avance de la OC) de
+/// cantidad aceptada (alta de stock). Las discrepancias documentan la
+/// diferencia y no bloquean la persistencia de la recepción.
+model RecepcionItem {
+  id                   String @id @default(uuid())
+  recepcion_id         String
+  orden_compra_item_id String
+  cantidad_recibida    Int
+  cantidad_aceptada    Int
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  recepcion         Recepcion               @relation(fields: [recepcion_id], references: [id], onDelete: Restrict)
+  orden_compra_item OrdenCompraItem         @relation(fields: [orden_compra_item_id], references: [id], onDelete: Restrict)
+  discrepancias     RecepcionDiscrepancia[]
+
+  @@unique([recepcion_id, orden_compra_item_id])
+  @@index([recepcion_id])
+  @@map("recepcion_items")
+}
+
+/// Observación estructurada de discrepancia detectada durante una recepción
+/// (HU-H4): cantidad, talle, color o calidad. Es informativa — no bloquea
+/// el alta de stock — y sirve como insumo para HU-H5 (evaluación de
+/// proveedores) y eventuales reclamos/devoluciones.
+model RecepcionDiscrepancia {
+  id                String           @id @default(uuid())
+  recepcion_item_id String
+  tipo              TipoDiscrepancia
+  detalle           String
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  recepcion_item RecepcionItem @relation(fields: [recepcion_item_id], references: [id], onDelete: Restrict)
+
+  @@index([tipo])
+  @@map("recepcion_discrepancias")
+}
+
+enum TipoDiscrepancia {
+  CANTIDAD
+  TALLE
+  COLOR
+  CALIDAD
+}
+
+/// Evaluación de desempeño de un Proveedor (HU-H5). Cada evaluación es un
+/// registro nuevo e inmutable: el historial nunca se sobreescribe y queda
+/// consultable de forma permanente.
+model EvaluacionProveedor {
+  id                          String  @id @default(uuid())
+  proveedor_id                String
+  /// Recepción que originó esta evaluación (fix de idempotencia/trazabilidad,
+  /// HU-H5): `recepcion_id` es único porque cada `Recepcion` dispara como
+  /// máximo una `EvaluacionProveedor` — reintentar la invocación con el mismo
+  /// `recepcion_id` (ej. reintento de red desde `recepcion.service.ts`) debe
+  /// devolver la evaluación ya creada, nunca duplicarla.
+  recepcion_id                String  @unique
+  puntaje_cumplimiento_plazos Int // 0-100
+  puntaje_calidad_recepcion   Int // 0-100
+  puntaje_documentacion       Int // 0-100
+  /// Puntaje ponderado final (combinación de los 3 puntajes anteriores
+  /// según la fórmula que defina el negocio).
+  puntaje_total               Decimal @db.Decimal(5, 2)
+
+  /// Insumo opcional de devoluciones por defecto de fabricación,
+  /// coordinado con el Módulo I (todavía no existe). Se carga manualmente
+  /// por ahora; se automatiza cuando ese módulo exista.
+  devoluciones_fabricacion Int?
+
+  observaciones    String?
+  evaluado_por_id  String
+  fecha_evaluacion DateTime @default(now())
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  proveedor    Proveedor @relation(fields: [proveedor_id], references: [id], onDelete: Restrict)
+  recepcion    Recepcion @relation(fields: [recepcion_id], references: [id], onDelete: Restrict)
+  evaluado_por Usuario   @relation("EvaluacionRegistradaPor", fields: [evaluado_por_id], references: [id], onDelete: Restrict)
+
+  @@index([proveedor_id, fecha_evaluacion])
+  @@map("evaluaciones_proveedor")
+}
+
+/// Comprobante fiscal (Factura A/B/C/M) que un Proveedor envía como respaldo
+/// de una OrdenCompra ya recibida (HU-H9, spec_modulo_H.md §2.7). Es carga
+/// MANUAL por el Comprador — no hay integración real con AFIP (RULES.md
+/// Regla N.° 3; ver advertencia de alcance en §2.7 y §5). Se asocia siempre
+/// a una OrdenCompra existente en estado RECIBIDA_COMPLETA o posterior; no
+/// se admite carga suelta sin OC de referencia. Inmutable una vez creado:
+/// toda corrección es baja lógica + alta de un comprobante nuevo, nunca un
+/// UPDATE sobre los campos ya persistidos (RULES.md Regla N.° 1).
+model ComprobanteProveedor {
+  id                  String          @id @default(uuid())
+  orden_compra_id     String
+  /// Desnormalizado desde `orden_compra.proveedor_id` en el momento de la
+  /// carga (ver 2.7, "Comportamiento esperado"). Se evaluó resolverlo
+  /// siempre vía join contra `orden_compra.proveedor_id` para no duplicar
+  /// el dato, pero se decidió desnormalizarlo por dos motivos: (1) el
+  /// criterio de unicidad de HU-H9 es compuesto
+  /// (`numero_comprobante` + `tipo` + `proveedor`) y Prisma solo puede
+  /// declarar `@@unique` sobre columnas propias del modelo, no sobre un
+  /// campo alcanzado a través de una relación — sin esta columna la
+  /// unicidad tendría que validarse únicamente en la capa de aplicación,
+  /// perdiendo la garantía a nivel de base de datos que sí tienen `cuit`
+  /// en `Proveedor` (línea 602) y `numero_orden` en `OrdenCompra`
+  /// (línea 757); (2) HU-G10 (Módulo G, fuera de alcance de este
+  /// documento) necesita listar/filtrar comprobantes por proveedor sin
+  /// forzar un join adicional contra `OrdenCompra` en cada consulta de
+  /// Tesorería. Mismo patrón de congelamiento que
+  /// `OrdenCompraItem.precio_unitario` (§2.4): se fija al crear y no se
+  /// recalcula después.
+  proveedor_id        String
+  tipo                TipoComprobante
+  numero_comprobante  String
+  fecha_emision       DateTime
+  monto_total         Decimal         @db.Decimal(12, 2)
+  /// URL del archivo digitalizado (PDF/imagen) en un storage externo.
+  /// Opcional — criterio de aceptación de HU-H9.
+  archivo_adjunto_url String?
+  registrado_por_id   String
+
+  // --- Soft delete estricto (RULES.md §1) ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  orden_compra   OrdenCompra @relation(fields: [orden_compra_id], references: [id], onDelete: Restrict)
+  proveedor      Proveedor   @relation(fields: [proveedor_id], references: [id], onDelete: Restrict)
+  registrado_por Usuario     @relation("ComprobanteProveedorRegistradoPor", fields: [registrado_por_id], references: [id], onDelete: Restrict)
+
+  /// HU-G10 — imputaciones de este comprobante a cuentas por pagar pagadas.
+  pagos CuentaPorPagarComprobante[]
+
+  /// Unicidad compuesta del criterio de aceptación de HU-H9: mismo número +
+  /// tipo + proveedor no puede repetirse entre comprobantes activos.
+  @@unique([numero_comprobante, tipo, proveedor_id])
+  @@index([orden_compra_id])
+  @@index([proveedor_id, is_active])
+  @@map("comprobantes_proveedor")
+}
+
+/// Tipos de comprobante fiscal admitidos por HU-H9 — enum cerrado, no texto
+/// libre, para que HU-G10 (Módulo G) pueda discriminar de forma confiable
+/// el tratamiento impositivo de cada comprobante.
+enum TipoComprobante {
+  FACTURA_A
+  FACTURA_B
+  FACTURA_C
+  FACTURA_M
+}
+
+// ============================================================================
+// --- MÓDULO G: CUENTAS POR PAGAR (SPRINT 2) ---
+// ============================================================================
+
+/// Compromiso de pago / Cuenta por Pagar generado a partir de una
+/// OrdenCompra (HU-G8). Nace en estado PROVISORIO cuando la orden se envía
+/// al proveedor y pasa a DEFINITIVA cuando la recepción total se cierra
+/// (OrdenCompra.estado = RECIBIDA_COMPLETA/CERRADA). El monto PROVISORIO
+/// nunca se contabiliza como deuda cerrada — es responsabilidad de la capa
+/// de aplicación excluirlo de los reportes de deuda exigible. Cada
+/// transición de estado se audita vía el AuditLog ya existente (hash
+/// SHA-256 encadenado); este modelo no replica un mecanismo de hashing
+/// propio.
+model CuentaPorPagar {
+  id                String               @id @default(uuid())
+  orden_compra_id   String
+  recepcion_id      String?
+  monto             Decimal              @db.Decimal(12, 2)
+  estado            EstadoCuentaPorPagar @default(PROVISORIO)
+  fecha_vencimiento DateTime?
+  fecha_pago        DateTime?
+
+  /// HU-G10 — medio de pago registrado en la transición manual
+  /// `DEFINITIVA → PAGADA`. Nullable y sin `@default`: las cuentas que aún no
+  /// se pagaron (o se pagaron antes de HU-G10) no tienen valor.
+  medio_pago       MedioPago?
+  /// HU-G10 — referencia LIBRE a la cuenta de origen del pago
+  /// (`src/lib/tesoreria/cuentas-origen.ts`). Sin FK porque todavía no existe
+  /// una entidad `CuentaBancaria` / `CajaChica` en el modelo.
+  /// TODO(HU futura): migrar a FK cuando exista esa entidad.
+  cuenta_origen_id String?
+  /// HU-G10 — nota libre opcional del pago. Máx. 500 caracteres validado en
+  /// la capa Zod (`cuentas-por-pagar.schema.ts`).
+  observaciones    String?
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  orden_compra OrdenCompra                 @relation(fields: [orden_compra_id], references: [id], onDelete: Restrict)
+  recepcion    Recepcion?                  @relation(fields: [recepcion_id], references: [id], onDelete: Restrict)
+  comprobantes CuentaPorPagarComprobante[]
+
+  @@index([estado, is_active])
+  @@index([orden_compra_id, estado])
+  @@map("cuentas_por_pagar")
+}
+
+enum EstadoCuentaPorPagar {
+  PROVISORIO
+  DEFINITIVA
+  PAGADA
+  CANCELADA
+}
+
+/// HU-G10 — medios de pago admitidos al registrar el pago de una Cuenta por
+/// Pagar. Enum cerrado (no texto libre) para que la auditoría y los reportes
+/// de Tesorería puedan discriminar de forma confiable.
+enum MedioPago {
+  TRANSFERENCIA
+  CHEQUE
+  EFECTIVO
+}
+
+/// HU-G10 — imputación de un `ComprobanteProveedor` a una `CuentaPorPagar`
+/// pagada. Fila-hecho histórica e inmutable: se crea junto con la transición
+/// `DEFINITIVA → PAGADA` y no se vuelve a tocar.
+///
+/// SIN bloque de soft delete a diferencia del resto del proyecto
+/// (RULES.md §1): la vigencia del comprobante deriva de
+/// `ComprobanteProveedor.is_active`; duplicarla acá crearía dos fuentes de
+/// verdad. La fila registra un hecho de una cuenta en estado terminal
+/// (`PAGADA`). Ver design HU-G10 ADR-3.
+model CuentaPorPagarComprobante {
+  id                       String   @id @default(uuid())
+  cuenta_por_pagar_id      String
+  comprobante_proveedor_id String
+  created_at               DateTime @default(now())
+
+  // --- Relaciones ---
+  cuenta_por_pagar      CuentaPorPagar       @relation(fields: [cuenta_por_pagar_id], references: [id], onDelete: Restrict)
+  comprobante_proveedor ComprobanteProveedor @relation(fields: [comprobante_proveedor_id], references: [id], onDelete: Restrict)
+
+  @@unique([cuenta_por_pagar_id, comprobante_proveedor_id])
+  @@index([comprobante_proveedor_id])
+  @@map("cuentas_por_pagar_comprobantes")
 }
