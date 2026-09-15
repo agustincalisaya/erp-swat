@@ -151,7 +151,7 @@ export async function Sidebar() {
 
   if (!session) return null;
 
-  const secciones: SidebarNavSection[] = await Promise.all(
+  const seccionesConVacias: SidebarNavSection[] = await Promise.all(
     SECCIONES.map(async (seccion) => {
       const SeccionIcon = seccion.icon;
       const items = (
@@ -197,6 +197,11 @@ export async function Sidebar() {
       };
     }),
   );
+
+  // Una sección sin ítems visibles (todos filtrados por permiso) no debe
+  // renderizar ni su header ni su chevron — la sección entera desaparece,
+  // no solo sus ítems.
+  const secciones = seccionesConVacias.filter((seccion) => seccion.items.length > 0);
 
   return <SidebarNav sections={secciones} />;
 }
