@@ -70,6 +70,13 @@ export function FormularioNuevaOrdenCompra({
     [variantes],
   );
 
+  // Variantes ya elegidas en alguna fila del formulario actual — se recalcula
+  // en cada render a partir del estado vivo, así que al quitar una fila la
+  // variante vuelve a estar disponible en el resto de los desplegables.
+  const varianteSkuIdsSeleccionados = new Set(
+    items.filter((f) => f.variante_sku_id).map((f) => f.variante_sku_id),
+  );
+
   const setFila = (key: string, cambios: Partial<ItemFila>) => {
     setItems((prev) =>
       prev.map((fila) => (fila.key === key ? { ...fila, ...cambios } : fila)),
@@ -236,6 +243,11 @@ export function FormularioNuevaOrdenCompra({
           {items.map((fila, indice) => {
             const varId = `${formId}-var-${indice}`;
             const cantId = `${formId}-cant-${indice}`;
+            const variantesDisponibles = variantes.filter(
+              (v) =>
+                v.id === fila.variante_sku_id ||
+                !varianteSkuIdsSeleccionados.has(v.id),
+            );
             return (
             <div
               key={fila.key}
@@ -247,7 +259,7 @@ export function FormularioNuevaOrdenCompra({
                 </Label>
                 <ComboboxFiltrable
                   id={varId}
-                  items={variantes}
+                  items={variantesDisponibles}
                   getId={(v) => v.id}
                   getLabel={(v) => `${v.sku} — ${v.descripcion}`}
                   value={fila.variante_sku_id}
