@@ -97,6 +97,13 @@ export function EditorItemsOrdenCompra({
     [variantes],
   );
 
+  // Variantes ya elegidas en alguna fila del editor actual — se recalcula en
+  // cada render a partir del estado vivo, así que al quitar una fila la
+  // variante vuelve a estar disponible en el resto de los desplegables.
+  const varianteSkuIdsSeleccionados = new Set(
+    items.filter((f) => f.variante_sku_id).map((f) => f.variante_sku_id),
+  );
+
   const firmaInicial = useMemo(
     () =>
       firma(
@@ -234,6 +241,11 @@ export function EditorItemsOrdenCompra({
         {items.map((fila, indice) => {
           const varId = `${editorId}-var-${indice}`;
           const cantId = `${editorId}-cant-${indice}`;
+          const variantesDisponibles = variantes.filter(
+            (v) =>
+              v.id === fila.variante_sku_id ||
+              !varianteSkuIdsSeleccionados.has(v.id),
+          );
           return (
           <div
             key={fila.key}
@@ -245,7 +257,7 @@ export function EditorItemsOrdenCompra({
               </Label>
               <ComboboxFiltrable
                 id={varId}
-                items={variantes}
+                items={variantesDisponibles}
                 getId={(v) => v.id}
                 getLabel={(v) => `${v.sku} — ${v.descripcion}`}
                 value={fila.variante_sku_id}
