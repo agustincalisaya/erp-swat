@@ -32,7 +32,7 @@
  */
 import type { LucideIcon } from "lucide-react";
 // 1. Agregamos el ícono "Layers" a la importación
-import { ScrollText, ShieldCheck, Users, Package, Warehouse, ScanBarcode, Layers, FileSearch, ShoppingCart, ClipboardList, Store, PackageCheck, Undo2, Wallet, Banknote } from "lucide-react";
+import { ScrollText, ShieldCheck, Users, Package, Warehouse, ScanBarcode, Layers, FileSearch, ShoppingCart, ClipboardList, Store, PackageCheck, Undo2, Wallet, Banknote, Receipt, FileText } from "lucide-react";
 import { getServerSession } from "@/lib/auth/session";
 import { usuarioTienePermiso } from "@/lib/auth/with-permission";
 import { SidebarNav, type SidebarNavSection } from "@/components/layout/SidebarNav";
@@ -126,6 +126,22 @@ const SECCIONES: SeccionConfig[] = [
         href: "/compras/recepciones/nueva",
         icon: PackageCheck,
         permiso: "recepciones:registrar",
+      },
+    ],
+  },
+  {
+    label: "Ventas",
+    icon: Receipt,
+    items: [
+      // Gate por `ventas:leer` (HU-B3, spec_modulo_B.md §2.3) — permiso de
+      // lectura del módulo, separado de `ventas:emitir_cotizacion`. El botón
+      // "Nuevo presupuesto" y la acción de aceptar se gatean aparte por ese
+      // permiso granular dentro de las propias páginas.
+      {
+        label: "Presupuestos",
+        href: "/ventas/presupuestos",
+        icon: FileText,
+        permiso: "ventas:leer",
       },
     ],
   },

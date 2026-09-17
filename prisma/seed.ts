@@ -299,15 +299,34 @@ const PERMISO_VENTAS_ANULAR_PEDIDO_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000039";
 const PERMISO_VENTAS_LEER_LOG_OPERATIVO_ID =
   "1a2b3c4d-1111-4a1a-8a1a-000000000040";
 
-// Usuarios de prueba para Módulo B — SIN asignación de Rol (Cajero POS y
-// Supervisor de Ventas no existen todavía como Rol, ver nota de permisos
-// arriba). Sirven únicamente como FK realista para `registrado_por_id` /
-// `usuario_id` / `emitido_por_id` / `creado_por_id` de las entidades de
-// Ventas (RULES.md Regla N.° 2 exige responsable trazable en toda
-// mutación), no como fixture de RBAC completo.
+// HU-B8 — roles operativos de Ventas (agrupan los permisos `ventas:*` de
+// arriba, ningún permiso nuevo). Mapeo confirmado en el relevamiento de
+// HU-B8: CAJERO_POS agrupa registrar_venta_mostrador, gestionar_turno_caja,
+// emitir_cotizacion, aplicar_descuento_margen, gestionar_cuenta_corriente,
+// leer. SUPERVISOR_VENTAS agrupa todo lo anterior (decisión explícita del
+// equipo — nota: spec_modulo_B.md §2.1/§2.3 documenta
+// registrar_venta_mostrador/emitir_cotizacion como "exclusivo Cajero POS,
+// Supervisor no tiene ✓ directo"; el equipo confirmó igual otorgárselos acá
+// para que el Supervisor pueda operar como Cajero de respaldo — no es un
+// olvido) más autorizar_excepcion_descuento, autorizar_excepcion_credito,
+// anular_pedido y leer_log_operativo.
+const ROL_CAJERO_POS_ID = "1a2b3c4d-2222-4a1a-8a1a-000000000004";
+const ROL_SUPERVISOR_VENTAS_ID = "1a2b3c4d-2222-4a1a-8a1a-000000000005";
+
+// Usuarios de prueba para Módulo B — desde HU-B8 tienen Rol asignado
+// (ver ROL_CAJERO_POS_ID / ROL_SUPERVISOR_VENTAS_ID y su asignación más
+// abajo). Siguen sirviendo también como FK realista para
+// `registrado_por_id` / `usuario_id` / `emitido_por_id` / `creado_por_id`
+// de las entidades de Ventas (RULES.md Regla N.° 2 exige responsable
+// trazable en toda mutación).
 const USUARIO_CAJERO_SEED_ID = "1a2b3c4d-4444-4a1a-8a1a-000000000004";
 const USUARIO_SUPERVISOR_VENTAS_SEED_ID =
   "1a2b3c4d-4444-4a1a-8a1a-000000000005";
+
+// HU-B8 — asignación Usuario → Rol de los dos usuarios de prueba de arriba.
+const USUARIO_ROL_CAJERO_ID = "1a2b3c4d-5555-4a1a-8a1a-000000000004";
+const USUARIO_ROL_SUPERVISOR_VENTAS_ID =
+  "1a2b3c4d-5555-4a1a-8a1a-000000000005";
 
 // HU-B2 §2.2: turno de caja abierto (fecha_cierre = null) del Cajero de prueba.
 const TURNO_CAJA_ABIERTO_ID = "1a2b3c4d-be01-4a1a-8a1a-000000000001";
@@ -1385,8 +1404,9 @@ async function main() {
   //   - ventas:leer                          → todos los roles del módulo (catálogo/precios/comprobantes propios)
   //   - ventas:anular_pedido                 → exclusivo Supervisor de Ventas (HU-B7 §2.8)
   //   - ventas:leer_log_operativo            → exclusivo Supervisor de Ventas, acceso restringido (HU-B6 §2.6)
-  // Ningún rol Cajero POS/Supervisor de Ventas existe todavía — quedan
-  // sembrados sin asignar a ningún Rol (ver nota de las constantes arriba).
+  // HU-B8 crea los roles CAJERO_POS y SUPERVISOR_VENTAS y les asigna estos
+  // permisos — ver bloque "Módulo B (Sprint 3) — Roles operativos de
+  // Ventas" más abajo, junto a los usuarios de prueba.
   await Promise.all(
     (
       [
@@ -1597,7 +1617,12 @@ async function main() {
   });
 
   // cuentas_por_pagar:leer → TESORERO_CENTRAL, AUDITOR, ADMINISTRADOR.
-  // (CAJERO_POS se agregará cuando Módulo B / RBAC cree ese rol — spec_modulo_G.md §5.)
+  // CAJERO_POS ya existe desde HU-B8, pero deliberadamente NO se le asigna
+  // este permiso acá: es de Módulo G (Cuentas por Pagar), que todavía no
+  // tiene código implementado — spec_modulo_G.md §5 lo deja como pendiente
+  // explícito, fuera del alcance de HU-B8 (decisión confirmada en su
+  // relevamiento). Queda documentado como deuda pendiente, a resolver
+  // cuando se implemente el módulo de Cuentas por Pagar.
   for (const rol of [rolTesorero, rolAuditor, rolAdministrador]) {
     await prisma.rolPermiso.upsert({
       where: {
@@ -2338,7 +2363,6 @@ async function main() {
   });
 
   // ── Módulo B (Sprint 3) — Usuarios de prueba ────────────────────────────────
-  // Sin Rol asignado — ver nota en la declaración de las constantes de id.
   const usuarioCajero = await prisma.usuario.upsert({
     where: { nombre_usuario: "cajero.seed" },
     update: {},
@@ -2366,6 +2390,96 @@ async function main() {
       nombre_completo: "Supervisor de Ventas Seed (Módulo B)",
       estado: "ACTIVO",
       is_active: true,
+    },
+  });
+
+  // ── Módulo B (Sprint 3) — Roles operativos de Ventas (HU-B8) ────────────────
+  // Agrupan los permisos `ventas:*` ya sembrados más arriba — ningún permiso
+  // nuevo se crea acá (ver ROL_CAJERO_POS_ID / ROL_SUPERVISOR_VENTAS_ID para
+  // el detalle del mapeo confirmado y la nota sobre la superposición con
+  // spec_modulo_B.md §2.1/§2.3).
+  const rolCajeroPos = await prisma.rol.upsert({
+    where: { id: ROL_CAJERO_POS_ID },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: {
+      id: ROL_CAJERO_POS_ID,
+      nombre: "CAJERO_POS",
+      descripcion: "Operación de punto de venta (Módulo B) — cobro de mostrador, turno de caja y cotizaciones",
+    },
+  });
+
+  const rolSupervisorVentas = await prisma.rol.upsert({
+    where: { id: ROL_SUPERVISOR_VENTAS_ID },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: {
+      id: ROL_SUPERVISOR_VENTAS_ID,
+      nombre: "SUPERVISOR_VENTAS",
+      descripcion: "Supervisión del circuito de Ventas (Módulo B) — autoriza excepciones de descuento/crédito, anula pedidos y consulta el log operativo",
+    },
+  });
+
+  const permisosCajeroPos = [
+    PERMISO_VENTAS_REGISTRAR_MOSTRADOR_ID,
+    PERMISO_VENTAS_GESTIONAR_TURNO_CAJA_ID,
+    PERMISO_VENTAS_EMITIR_COTIZACION_ID,
+    PERMISO_VENTAS_APLICAR_DESCUENTO_MARGEN_ID,
+    PERMISO_VENTAS_GESTIONAR_CUENTA_CORRIENTE_ID,
+    PERMISO_VENTAS_LEER_ID,
+  ];
+
+  for (const permiso_id of permisosCajeroPos) {
+    await prisma.rolPermiso.upsert({
+      where: { rol_id_permiso_id: { rol_id: rolCajeroPos.id, permiso_id } },
+      update: REACTIVAR_REFERENCIA_RBAC,
+      create: { rol_id: rolCajeroPos.id, permiso_id },
+    });
+  }
+
+  // SUPERVISOR_VENTAS agrupa todo lo de CAJERO_POS más sus 4 permisos
+  // exclusivos.
+  const permisosSupervisorVentas = [
+    ...permisosCajeroPos,
+    PERMISO_VENTAS_AUTORIZAR_EXCEPCION_DESCUENTO_ID,
+    PERMISO_VENTAS_AUTORIZAR_EXCEPCION_CREDITO_ID,
+    PERMISO_VENTAS_ANULAR_PEDIDO_ID,
+    PERMISO_VENTAS_LEER_LOG_OPERATIVO_ID,
+  ];
+
+  for (const permiso_id of permisosSupervisorVentas) {
+    await prisma.rolPermiso.upsert({
+      where: { rol_id_permiso_id: { rol_id: rolSupervisorVentas.id, permiso_id } },
+      update: REACTIVAR_REFERENCIA_RBAC,
+      create: { rol_id: rolSupervisorVentas.id, permiso_id },
+    });
+  }
+
+  await prisma.usuarioRol.upsert({
+    where: {
+      usuario_id_rol_id: {
+        usuario_id: usuarioCajero.id,
+        rol_id: rolCajeroPos.id,
+      },
+    },
+    update: {},
+    create: {
+      id: USUARIO_ROL_CAJERO_ID,
+      usuario_id: usuarioCajero.id,
+      rol_id: rolCajeroPos.id,
+    },
+  });
+
+  await prisma.usuarioRol.upsert({
+    where: {
+      usuario_id_rol_id: {
+        usuario_id: usuarioSupervisorVentas.id,
+        rol_id: rolSupervisorVentas.id,
+      },
+    },
+    update: {},
+    create: {
+      id: USUARIO_ROL_SUPERVISOR_VENTAS_ID,
+      usuario_id: usuarioSupervisorVentas.id,
+      rol_id: rolSupervisorVentas.id,
     },
   });
 
