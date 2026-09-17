@@ -69,6 +69,14 @@ model Usuario {
   reclasificaciones_solicitadas ReclasificacionSolicitud[] @relation("ReclasificacionSolicitadaPor")
   reclasificaciones_aprobadas   ReclasificacionSolicitud[] @relation("ReclasificacionAprobadaPor")
 
+  // --- Relaciones Sprint 3 (Módulo B) ---
+  presupuestos_creados           Presupuesto[]              @relation("PresupuestoCreadoPor")
+  pedidos_venta_registrados      PedidoVenta[]              @relation("PedidoVentaRegistradoPor")
+  turnos_caja                    TurnoCaja[]                @relation("TurnoCajaUsuario")
+  comprobantes_fiscales_emitidos ComprobanteFiscal[]        @relation("ComprobanteFiscalEmitidoPor")
+  pedido_venta_items_autorizados PedidoVentaItem[]          @relation("PedidoVentaItemAutorizadoPor")
+  operaciones_cc_autorizadas     CuentaCorrienteOperacion[] @relation("CuentaCorrienteOperacionAutorizadaPor")
+
   @@map("usuarios")
 }
 
@@ -314,6 +322,10 @@ model VarianteSKU {
 
   // --- Relación HU-A9 (Reclasificación de Devueltos) ---
   reclasificaciones_solicitudes ReclasificacionSolicitud[]
+
+  // --- Relación Sprint 3 (Módulo B) ---
+  presupuesto_items  PresupuestoItem[]
+  pedido_venta_items PedidoVentaItem[]
 
   @@index([proveedor_id])
   @@map("variantes_sku")
@@ -660,6 +672,12 @@ model Reserva {
   deposito       Deposito    @relation(fields: [deposito_id], references: [id], onDelete: Restrict)
   registrado_por Usuario     @relation("ReservaRegistradaPor", fields: [registrado_por_id], references: [id], onDelete: Restrict)
 
+  // --- Relación Sprint 3 (Módulo B) ---
+  /// Una Reserva nunca se comparte entre más de un ítem de Ventas — ver
+  /// `@unique` en `PresupuestoItem.reserva_id` / `PedidoVentaItem.reserva_id`.
+  presupuesto_item  PresupuestoItem?  @relation("PresupuestoItemReserva")
+  pedido_venta_item PedidoVentaItem?  @relation("PedidoVentaItemReserva")
+
   /// Índice compuesto para la query del cron: busca reservas activas sin cierre
   /// dentro de una ventana temporal (fecha_inicio_reserva < umbral).
   @@index([is_active, fecha_fin_reserva, fecha_inicio_reserva])
@@ -782,7 +800,11 @@ model ListaPrecioVersion {
   fecha_inicio_vigencia       DateTime
   variacion_porcentual_maxima Decimal   @db.Decimal(5, 2)
   requiere_aprobacion         Boolean   @default(false)
-  publicada                   Boolean   @default(true)
+  /// `false` por defecto (spec_modulo_H.md §2.3): un default `true` sería
+  /// fail-unsafe — la capa de servicios es quien resuelve explícitamente
+  /// `true`/`false` dentro de la misma transacción que crea la versión,
+  /// según si `variacion_porcentual_maxima` supera el umbral crítico.
+  publicada                   Boolean   @default(false)
   aprobada_por_id             String?
   aprobada_at                 DateTime?
 
@@ -831,8 +853,8 @@ model ListaPrecioItem {
   lista_precio_version ListaPrecioVersion @relation(fields: [lista_precio_version_id], references: [id], onDelete: Restrict)
   variante_sku         VarianteSKU        @relation(fields: [variante_sku_id], references: [id], onDelete: Restrict)
 
-  /// La comparativa de precios (spec §2.8) y el costo de reposición
-  /// (spec §2.9) filtran frecuentemente por SKU.
+  /// La comparativa de precios (spec §2.10) y el costo de reposición
+  /// (spec §2.11) filtran frecuentemente por SKU.
   @@index([variante_sku_id])
   @@map("listas_precio_item")
 }
@@ -1236,4 +1258,549 @@ model CuentaPorPagarComprobante {
   @@unique([cuenta_por_pagar_id, comprobante_proveedor_id])
   @@index([comprobante_proveedor_id])
   @@map("cuentas_por_pagar_comprobantes")
+}
+
+// ============================================================================
+// --- MÓDULO C: CLIENTES (SPRINT 3) ---
+// ============================================================================
+
+/// Identidad comercial única de todo cliente de SWAT Indumentarias
+/// (spec_modulo_C.md §1). Sin subtipos por organismo/fuerza/jerarquía y SIN
+/// condición de IVA ni CUIT/CUIL (directiva del PO 14/09/2026, ver nota al
+/// inicio de spec_modulo_C.md) — se identifica exclusivamente por `dni`.
+/// No lleva un campo `direccion` propio: toda dirección se modela en
+/// `DireccionCliente` (HU-C3), incluida la primera que se cargue en el alta.
+model Cliente {
+  id              String            @id @default(uuid())
+  /// Regex de 7-8 dígitos y unicidad de "recuperar en vez de duplicar"
+  /// (HU-C1) se validan en la capa de servicios/Zod, no acá — el `@unique`
+  /// solo garantiza la integridad a nivel de base de datos.
+  dni             String            @unique
+  nombre          String
+  telefono        String?
+  email           String?
+  /// Sin default explícito en el spec (HU-C3/H-C9, §2.3): no se recibe en el
+  /// alta (HU-C1) y se asume nulo hasta que el Vendedor lo defina.
+  canal_preferido CanalContacto?
+  segmento        SegmentoComercial @default(MINORISTA)
+
+  /// Redirección lógica hacia el cliente primario cuando este registro fue
+  /// desactivado por fusión (HU-C5 §2.5.1). Inmutable una vez seteado — no
+  /// existe "deshacer fusión" (spec §3.2). `onDelete: Restrict` porque
+  /// ninguna entidad del módulo admite `DELETE` físico (RULES.md Regla N.° 1).
+  fusionado_en_id     String?
+  fusionado_en        Cliente?  @relation("FusionCliente", fields: [fusionado_en_id], references: [id], onDelete: Restrict)
+  clientes_fusionados Cliente[] @relation("FusionCliente")
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  direcciones     DireccionCliente[]
+  consentimientos ConsentimientoCliente[]
+
+  // --- Relaciones Sprint 3 (Módulo B) ---
+  presupuestos     Presupuesto[]
+  pedidos_venta    PedidoVenta[]
+  cuenta_corriente CuentaCorrienteCliente?
+
+  @@map("clientes")
+}
+
+/// Dirección de un Cliente (HU-C3, §2.3). Un cliente puede tener varias;
+/// si tiene al menos una, debe existir entre ellas una `FACTURACION` — regla
+/// de obligatoriedad estructural validada en la capa de servicios, no acá
+/// (spec §2.3), sin relación con ninguna condición fiscal del cliente.
+model DireccionCliente {
+  id                 String               @id @default(uuid())
+  cliente_id         String
+  /// Identificador libre a cargo del cliente/vendedor (ej. "Casa", "Depósito").
+  rotulo             String
+  tipo               TipoDireccionCliente
+  direccion_completa String
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  cliente Cliente @relation(fields: [cliente_id], references: [id], onDelete: Restrict)
+
+  @@index([cliente_id])
+  @@map("direcciones_cliente")
+}
+
+/// Consentimiento de tratamiento de datos personales (Ley N.° 25.326,
+/// HU-C4 §2.4). Entidad propia (no un boolean en Cliente) para conservar
+/// trazabilidad completa de alcance/finalidad/fecha a lo largo del tiempo.
+/// Todo alta de Cliente exige uno en la misma transacción. La revocación es
+/// baja lógica (`is_active = false`, `deletion_reason` reutiliza el
+/// `motivo` recibido) — nunca se borra el registro histórico.
+model ConsentimientoCliente {
+  id                   String                @id @default(uuid())
+  cliente_id           String
+  alcance              AlcanceConsentimiento
+  finalidad            String
+  fecha_consentimiento DateTime              @default(now())
+
+  // --- Soft delete estricto (revocación = baja lógica) ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  cliente Cliente @relation(fields: [cliente_id], references: [id], onDelete: Restrict)
+
+  @@index([cliente_id])
+  @@map("consentimientos_cliente")
+}
+
+/// Segmentación comercial de un Cliente (HU-C8 §2.8). `MINORISTA` es el
+/// default de todo cliente recién dado de alta. Sin entidad de
+/// configuración de umbrales todavía — asignación manual en este sprint.
+enum SegmentoComercial {
+  MINORISTA
+  MAYORISTA
+  CLIENTE_FRECUENTE
+}
+
+/// Canal de contacto preferido de un Cliente (HU-C9, cubierta junto con
+/// HU-C3 en spec_modulo_C.md §2.3). Consumido por el Motor de
+/// Notificaciones (Módulo F, todavía no construido).
+enum CanalContacto {
+  WHATSAPP
+  EMAIL
+  AMBOS
+}
+
+/// Tipo de una DireccionCliente (HU-C3 §2.3). La obligatoriedad de que
+/// exista al menos una FACTURACION cuando hay alguna dirección cargada es
+/// puramente estructural — no depende de ninguna condición fiscal del
+/// cliente (ver directiva del PO al inicio de spec_modulo_C.md).
+enum TipoDireccionCliente {
+  FACTURACION
+  ENVIO
+}
+
+/// Alcance de un ConsentimientoCliente (HU-C4 §2.4, Ley N.° 25.326).
+enum AlcanceConsentimiento {
+  VENTA_ASISTIDA
+  COMUNICACIONES_COMERCIALES
+  AMBOS
+}
+
+// ============================================================================
+// --- MÓDULO B: VENTAS Y PUNTO DE VENTA (SPRINT 3) ---
+// ============================================================================
+
+/// Cotización/presupuesto con reserva de stock (HU-B3, spec_modulo_B.md
+/// §2.3). La emisión (alta con ítems) congela stock invocando el servicio
+/// centralizado de Reserva de Módulo A (spec_modulo_A.md §2.9) una vez por
+/// ítem — Módulo B no implementa lógica de congelamiento propia (§3.2). Al
+/// vencer sin conversión, `estado` transiciona a VENCIDO y es Módulo A
+/// quien libera la reserva por su propio job de TTL, sin intervención de
+/// este módulo. Al aceptarse, genera un único `PedidoVenta` vinculado
+/// (`presupuesto_origen_id` es `@unique` del lado del pedido); el
+/// presupuesto origen nunca se elimina, queda vinculado (baja lógica
+/// estándar, nunca DELETE físico — RULES.md Regla N.° 1).
+model Presupuesto {
+  id                      String            @id @default(uuid())
+  cliente_id              String
+  estado                  EstadoPresupuesto @default(BORRADOR)
+  vigencia_dias           Int
+  /// Resuelto por la capa de servicios al emitir (`now() + vigencia_dias`),
+  /// nunca calculado ni recibido del cliente de la API.
+  vigencia_hasta          DateTime?
+  condiciones_comerciales String?
+  creado_por_id           String
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  cliente      Cliente           @relation(fields: [cliente_id], references: [id], onDelete: Restrict)
+  creado_por   Usuario           @relation("PresupuestoCreadoPor", fields: [creado_por_id], references: [id], onDelete: Restrict)
+  items        PresupuestoItem[]
+  pedido_venta PedidoVenta?
+
+  @@index([cliente_id])
+  @@index([estado, vigencia_hasta])
+  @@map("presupuestos")
+}
+
+/// Estados de `Presupuesto` (HU-B3, spec_modulo_B.md §3.1). `VENCIDO` es
+/// baja lógica (libera la reserva de stock asociada vía Módulo A).
+enum EstadoPresupuesto {
+  BORRADOR
+  EMITIDO
+  VENCIDO
+}
+
+/// Línea de ítem de un Presupuesto: cantidad cotizada de una VarianteSKU a
+/// un precio pactado, con su propia Reserva de Módulo A asociada
+/// (congelamiento por ítem, spec_modulo_B.md §2.3). `reserva_id` es
+/// `@unique`: una misma Reserva de Módulo A nunca se comparte entre más de
+/// un ítem de Ventas — la confirmación/liberación de Módulo A opera sobre
+/// la reserva completa como unidad atómica (spec_modulo_A.md §2.9).
+model PresupuestoItem {
+  id              String  @id @default(uuid())
+  presupuesto_id  String
+  variante_sku_id String
+  cantidad        Int
+  precio_cotizado Decimal @db.Decimal(10, 2)
+  reserva_id      String? @unique
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  presupuesto  Presupuesto @relation(fields: [presupuesto_id], references: [id], onDelete: Restrict)
+  variante_sku VarianteSKU @relation(fields: [variante_sku_id], references: [id], onDelete: Restrict)
+  reserva      Reserva?    @relation("PresupuestoItemReserva", fields: [reserva_id], references: [id], onDelete: Restrict)
+
+  @@index([presupuesto_id])
+  @@map("presupuesto_items")
+}
+
+/// Pedido de venta — núcleo transaccional de Módulo B (spec_modulo_B.md
+/// §3.1). Cubre tanto la venta de mostrador sin cotización previa (HU-B1)
+/// como la conversión de un `Presupuesto` aceptado (HU-B3). Máquina de
+/// estados: RESERVADO → FACTURADO → REMITO_EMITIDO (repetible por entregas
+/// parciales) → CERRADO, o RESERVADO → ANULADO (baja lógica, nunca
+/// físicamente eliminado). `total` y `fecha_facturacion` se persisten
+/// explícitamente (no se recalculan on-demand desde los ítems) porque
+/// HU-C7 (spec_modulo_C.md §2.7, `resolverHistorialCompras`) los necesita
+/// para agregar `monto_total_historico`/`ultima_compra` sin recorrer los
+/// ítems en cada consulta de historial de compras — ver
+/// `@@index([cliente_id, estado])`, agregado con ese mismo propósito.
+model PedidoVenta {
+  id                    String            @id @default(uuid())
+  numero_venta          String            @unique
+  /// Opcional: HU-B1 admite venta de mostrador sin cliente identificado.
+  cliente_id            String?
+  /// Presente solo si el pedido nace de la aceptación de un Presupuesto
+  /// (HU-B3). `@unique`: un Presupuesto genera a lo sumo un PedidoVenta.
+  presupuesto_origen_id String?           @unique
+  /// Presente cuando el pedido se originó/cobró dentro de un TurnoCaja
+  /// (HU-B1). Nulo para pedidos que aún no llegaron a instancia de cobro
+  /// (ej. recién generados desde HU-B3, todavía sin facturar).
+  turno_caja_id         String?
+  estado                EstadoPedidoVenta @default(RESERVADO)
+  total                 Decimal           @db.Decimal(12, 2)
+  /// Seteado al transicionar RESERVADO → FACTURADO (total o primera entrega
+  /// parcial). Nombre literal esperado por `resolverHistorialCompras` de
+  /// HU-C7 (spec_modulo_C.md §2.7, "máximo de fecha_facturacion").
+  fecha_facturacion     DateTime?
+  registrado_por_id     String
+
+  // --- Soft delete estricto (ANULADO reutiliza este mismo bloque —
+  // spec_modulo_B.md §3.1: "PedidoVenta: ANULADO (baja lógica)") ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  cliente                     Cliente?                   @relation(fields: [cliente_id], references: [id], onDelete: Restrict)
+  presupuesto_origen          Presupuesto?               @relation(fields: [presupuesto_origen_id], references: [id], onDelete: Restrict)
+  turno_caja                  TurnoCaja?                 @relation(fields: [turno_caja_id], references: [id], onDelete: Restrict)
+  registrado_por              Usuario                    @relation("PedidoVentaRegistradoPor", fields: [registrado_por_id], references: [id], onDelete: Restrict)
+  items                       PedidoVentaItem[]
+  medios_pago                 VentaMedioPago[]
+  comprobantes                ComprobanteFiscal[]
+  operaciones_cuenta_corriente CuentaCorrienteOperacion[]
+
+  /// Fuente directa de HU-C7 (spec_modulo_C.md §2.7): filtro por
+  /// `cliente_id` + `estado IN (FACTURADO, REMITO_EMITIDO, CERRADO)`.
+  @@index([cliente_id, estado])
+  @@index([turno_caja_id])
+  @@map("pedidos_venta")
+}
+
+/// Estados de `PedidoVenta` (HU-B1/B3/B5, spec_modulo_B.md §3.1). `CERRADO`
+/// y `ANULADO` son terminales.
+enum EstadoPedidoVenta {
+  RESERVADO
+  FACTURADO
+  REMITO_EMITIDO
+  CERRADO
+  ANULADO
+}
+
+/// Línea de ítem de un PedidoVenta. `reserva_id` es `@unique` por el mismo
+/// motivo que `PresupuestoItem.reserva_id` — nunca compartida entre dos
+/// ítems; nula cuando el ítem proviene de una venta de mostrador sin
+/// reserva previa (HU-B1, "flujo de egreso directo" de Módulo A, spec
+/// §2.1). Los contadores `cantidad_facturada`/`cantidad_entregada` cubren
+/// las entregas parciales de HU-B3 (§3.1: "cada remito repite el ciclo
+/// Facturación → Remito") sin requerir una entidad de remito separada — no
+/// hay HU en este sprint que exija listar remitos como entidad propia.
+/// `requiere_autorizacion`/`autorizado_por_id` cubren el estado de espera
+/// de aprobación de HU-B4 (§2.4) sin una tabla de autorizaciones propia:
+/// el `id` del evento sensible correspondiente en `AuditLog` (Módulo D) es
+/// la referencia de auditoría (`autorizacion_id` de la respuesta 2.4) —
+/// Módulo B no es propietario del `AuditLog` (spec §2.6).
+model PedidoVentaItem {
+  id                    String   @id @default(uuid())
+  pedido_venta_id       String
+  variante_sku_id       String
+  cantidad              Int
+  precio_unitario       Decimal  @db.Decimal(10, 2)
+  descuento_porcentual  Decimal? @db.Decimal(5, 2)
+  reserva_id            String?  @unique
+  cantidad_facturada    Int      @default(0)
+  cantidad_entregada    Int      @default(0)
+  requiere_autorizacion Boolean  @default(false)
+  autorizado_por_id     String?
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  pedido_venta   PedidoVenta @relation(fields: [pedido_venta_id], references: [id], onDelete: Restrict)
+  variante_sku   VarianteSKU @relation(fields: [variante_sku_id], references: [id], onDelete: Restrict)
+  reserva        Reserva?    @relation("PedidoVentaItemReserva", fields: [reserva_id], references: [id], onDelete: Restrict)
+  autorizado_por Usuario?    @relation("PedidoVentaItemAutorizadoPor", fields: [autorizado_por_id], references: [id], onDelete: Restrict)
+
+  @@index([pedido_venta_id])
+  @@map("pedido_venta_items")
+}
+
+/// Turno de caja de un Cajero POS (HU-B2, spec_modulo_B.md §2.2). Arqueo
+/// ciego: `saldo_esperado` se calcula y persiste recién al cierre, después
+/// de recibir `conteo_fisico_declarado` — nunca se expone antes de eso
+/// (regla de la capa de servicios, no de este modelo). La unicidad de "un
+/// solo turno abierto por Cajero a la vez" (`fecha_cierre = null`) se
+/// valida en capa de servicios, sin constraint de base de datos — mismo
+/// criterio que la resolución de "versión vigente" de `ListaPrecioVersion`
+/// (spec_modulo_H.md §3.4), confirmado en el Paso 0.
+model TurnoCaja {
+  id                      String    @id @default(uuid())
+  usuario_id              String
+  fondo_fijo_inicial      Decimal   @db.Decimal(12, 2)
+  fecha_apertura          DateTime  @default(now())
+  /// NULL = turno abierto.
+  fecha_cierre            DateTime?
+  saldo_esperado          Decimal?  @db.Decimal(12, 2)
+  conteo_fisico_declarado Decimal?  @db.Decimal(12, 2)
+  diferencia              Decimal?  @db.Decimal(12, 2)
+  justificacion           String?
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  usuario Usuario       @relation("TurnoCajaUsuario", fields: [usuario_id], references: [id], onDelete: Restrict)
+  ventas  PedidoVenta[]
+
+  @@index([usuario_id, fecha_cierre])
+  @@map("turnos_caja")
+}
+
+/// Línea de cobro de un PedidoVenta (HU-B1 §2.1). Cada medio de pago se
+/// persiste como fila independiente — permite a Tesorería (Módulo G)
+/// conciliar cada medio contra su fuente externa por separado.
+model VentaMedioPago {
+  id              String         @id @default(uuid())
+  pedido_venta_id String
+  medio           MedioPagoVenta
+  importe         Decimal        @db.Decimal(12, 2)
+  referencia      String?
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  pedido_venta PedidoVenta @relation(fields: [pedido_venta_id], references: [id], onDelete: Restrict)
+
+  @@index([pedido_venta_id])
+  @@map("venta_medios_pago")
+}
+
+/// Medios de pago admitidos en el cobro de una venta (HU-B1 §2.1). Enum
+/// propio de Módulo B — distinto de `MedioPago` (Módulo G/H, pago a
+/// Proveedores), que tiene un conjunto de valores diferente
+/// (TRANSFERENCIA/CHEQUE/EFECTIVO); no se reutiliza para evitar mezclar
+/// dominios de pago con vocabularios distintos.
+enum MedioPagoVenta {
+  EFECTIVO
+  TRANSFERENCIA
+  E_CHEQ
+  MERCADO_PAGO
+  TARJETA
+  CUENTA_CORRIENTE
+}
+
+/// Comprobante fiscal emitido por una venta (HU-B7 §2.7). CAE y QR
+/// **enteramente simulados y generados localmente** — directiva del PO: sin
+/// integración real con AFIP (ver nota inicial de spec_modulo_B.md). Sin
+/// ningún campo que sugiera una llamada externa real (sin
+/// `cae_solicitado_at`, sin `estado_wsfev1`, etc.). `es_simulado` documenta
+/// esto en el propio dato para que una futura integración real no confunda
+/// registros históricos simulados con comprobantes reales.
+///
+/// **Sin bloque de soft delete**: es la única entidad del módulo que no
+/// admite baja lógica en absoluto (más estricto que el resto —
+/// spec_modulo_B.md §3.4); su reversión es siempre una Nota de Crédito
+/// nueva, nunca una desactivación de este registro. Mismo patrón que
+/// `CuentaPorPagarComprobante` (Módulo G, ADR-3): fila-hecho inmutable,
+/// solo `created_at`, sin `updated_at`.
+model ComprobanteFiscal {
+  id               String               @id @default(uuid())
+  pedido_venta_id  String
+  tipo_comprobante TipoComprobanteVenta
+  /// Cadena numérica determinística con formato visual de CAE real (14
+  /// dígitos) — no proviene de ninguna autorización externa, no debe
+  /// usarse como constancia fiscal válida fuera del sistema.
+  cae_simulado     String
+  /// Código QR (estructura de datos exigida por la normativa vigente para
+  /// comprobantes electrónicos), codificado localmente, sin llamada de red.
+  qr_data_url      String               @db.Text
+  es_simulado      Boolean              @default(true)
+  monto_total      Decimal              @db.Decimal(12, 2)
+  emitido_por_id   String
+
+  created_at DateTime @default(now())
+
+  // --- Relaciones ---
+  pedido_venta PedidoVenta @relation(fields: [pedido_venta_id], references: [id], onDelete: Restrict)
+  emitido_por  Usuario     @relation("ComprobanteFiscalEmitidoPor", fields: [emitido_por_id], references: [id], onDelete: Restrict)
+
+  @@index([pedido_venta_id])
+  @@map("comprobantes_fiscales")
+}
+
+/// Tipo de comprobante de venta (HU-B1/B7). Enum propio de Módulo B —
+/// distinto de `TipoComprobante` (Módulo H, comprobantes de Proveedor:
+/// FACTURA_A/B/C/M, sin TICKET y sin selección manual del Cajero).
+enum TipoComprobanteVenta {
+  FACTURA_A
+  FACTURA_B
+  TICKET
+}
+
+/// Cuenta corriente de un Cliente (HU-B5 §2.5). Relación 1:1 con `Cliente`
+/// — el límite de crédito y el saldo corriente son propiedad de Módulo B,
+/// referenciados por `cliente_id` (spec_modulo_C.md §5 lo confirma
+/// explícitamente: Módulo C no modela ningún campo de cuenta corriente).
+model CuentaCorrienteCliente {
+  id                        String  @id @default(uuid())
+  cliente_id                String  @unique
+  limite_credito_autorizado Decimal @default(0) @db.Decimal(12, 2)
+  saldo_actual              Decimal @default(0) @db.Decimal(12, 2)
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  cliente     Cliente                    @relation(fields: [cliente_id], references: [id], onDelete: Restrict)
+  operaciones CuentaCorrienteOperacion[]
+
+  @@map("cuentas_corrientes_cliente")
+}
+
+/// Operación registrada contra una `CuentaCorrienteCliente` (HU-B5 §2.5):
+/// facturas emitidas, pagos recibidos, notas de crédito. Entidad agregada
+/// tras la confirmación del Paso 0 (no listada literalmente en el
+/// relevamiento original del task file) para no mezclar el historial
+/// operativo que Módulo G necesita consumir (proyección de flujo de
+/// ingresos) con el log forense de `AuditLog` (Módulo D), que es de otro
+/// dominio. `plan_de_pagos` se modela como `Json` (cronograma de hitos)
+/// mientras ninguna HU de este sprint necesite listarlos/editarlos como
+/// filas propias — si Módulo G lo requiere de forma relacional más
+/// adelante, se migra entonces (decisión confirmada en el Paso 0). `estado`
+/// cubre la retención por exceso de límite de crédito (§2.5: "la operación
+/// ... queda retenida ... requiere autorización explícita de un Supervisor
+/// de Ventas").
+model CuentaCorrienteOperacion {
+  id                  String            @id @default(uuid())
+  cuenta_corriente_id String
+  pedido_venta_id     String
+  monto               Decimal           @db.Decimal(12, 2)
+  plan_de_pagos       Json?
+  estado              EstadoOperacionCC @default(APROBADA)
+  autorizado_por_id   String?
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  cuenta_corriente CuentaCorrienteCliente @relation(fields: [cuenta_corriente_id], references: [id], onDelete: Restrict)
+  pedido_venta     PedidoVenta            @relation(fields: [pedido_venta_id], references: [id], onDelete: Restrict)
+  autorizado_por   Usuario?               @relation("CuentaCorrienteOperacionAutorizadaPor", fields: [autorizado_por_id], references: [id], onDelete: Restrict)
+
+  @@index([cuenta_corriente_id])
+  @@index([pedido_venta_id])
+  @@map("cuenta_corriente_operaciones")
+}
+
+/// Estado de aprobación de una `CuentaCorrienteOperacion` (HU-B5 §2.5):
+/// `RETENIDA` mientras excede el límite de crédito disponible y espera
+/// intervención de un Supervisor de Ventas (aprobación o rechazo, ambas
+/// decisiones quedan registradas); `APROBADA` es el default (operación
+/// dentro del límite disponible, sin retención).
+enum EstadoOperacionCC {
+  APROBADA
+  RETENIDA
+  RECHAZADA
 }

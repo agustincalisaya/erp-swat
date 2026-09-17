@@ -1,6 +1,7 @@
 # Especificación Técnica — Módulo C (Clientes)
 ## ERP SWAT Indumentarias — Sprint 3
-## Revisión 1 — Primera especificación técnica del módulo (HU-C1 a HU-C10)
+## Revisión 3 — Sincronización con la entrada de Módulo B al Sprint 3: HU-C7 (2.7) deja de resolver el historial de compras con mock y consulta `PedidoVenta` real; ajustes correspondientes en HU-C3, HU-C5, HU-C8 y sección 5 (Fuera de Alcance) que asumían Módulo B como no construido
+## Revisión 2 — Correcciones de auditoría sobre Rev. 1 (HU-C1 a HU-C10): obligatoriedad de dirección de facturación (2.3), detección de posibles duplicados en el alta (2.1/2.5), aclaración de partición de permisos de segmentación/direcciones (2.8), nota sobre discrepancia residual en hoja Consolidado del Backlog
 
 **Metodología:** Specification-Driven Development (SDD)
 **Stack:** Next.js 16 (App Router) · Node.js · PostgreSQL 16 · Prisma ORM · TypeScript · Zod
@@ -67,10 +68,16 @@ export type CrearClienteInput = z.infer<typeof CrearClienteSchema>;
 - Un cliente dado de alta sin datos adicionales se asume bajo condiciones comerciales estándar por defecto — no existe ningún campo de condición fiscal que default-ear (ver nota de directiva del PO al inicio de este documento).
 - Alta transaccional (`prisma.$transaction`) en estado `is_active = true`.
 - El alta de un cliente **exige** el registro simultáneo de un `ConsentimientoCliente` (HU-C4, sección 2.4) en la misma transacción — no existe un `Cliente` sin al menos un consentimiento inicial registrado.
+- **Alerta de posibles duplicados (no bloqueante):** el servicio de alta ejecuta la verificación de coincidencia aproximada descripta en HU-C5 (sección 2.5) y, de encontrar coincidencias, las incluye en la respuesta bajo `posibles_duplicados` — ver shape debajo. Esto nunca impide ni retrasa la creación del registro.
 
-**Respuesta `201 Created` (alta nueva):**
+**Respuesta `201 Created` (alta nueva, sin duplicados detectados):**
 ```json
-{ "data": { "cliente_id": "uuid", "dni": "30123456", "es_nuevo": true }, "error": null }
+{ "data": { "cliente_id": "uuid", "dni": "30123456", "es_nuevo": true, "posibles_duplicados": [] }, "error": null }
+```
+
+**Respuesta `201 Created` (alta nueva, con posible duplicado detectado):**
+```json
+{ "data": { "cliente_id": "uuid", "dni": "30987654", "es_nuevo": true, "posibles_duplicados": [ { "cliente_id": "uuid", "dni": "30123456", "nombre": "Juan Perez" } ] }, "error": null }
 ```
 
 **Respuesta `200 OK` (DNI ya existente, se recupera el registro):**
@@ -133,7 +140,8 @@ export type ActualizarCanalContactoInput = z.infer<typeof ActualizarCanalContact
 
 **Comportamiento esperado:**
 - Un cliente puede registrar más de una dirección, cada una con un `rotulo` identificador libre (ej. "Casa", "Depósito", "Sucursal 2") y un `tipo` (`FACTURACION` o `ENVIO`). Las direcciones de tipo `ENVIO` son opcionales y sin límite de cantidad.
-- **Sin condición de IVA:** no existe ningún campo ni regla que condicione la obligatoriedad de una dirección de facturación a una condición fiscal del cliente (ver directiva del PO al inicio de este documento) — el alta de direcciones es libre para cualquier cliente.
+- **Obligatoriedad de la dirección de facturación (criterio de aceptación HU-C3):** si un cliente registra al menos una dirección, debe existir entre ellas una de tipo `FACTURACION` — la capa de servicios (`cliente.service.ts` / módulo de direcciones) rechaza el alta de una dirección `ENVIO` como única dirección del cliente si no existe previamente ninguna `FACTURACION` activa. Esta obligatoriedad es puramente estructural (garantizar que exista un domicilio de facturación utilizable por Módulo B/G) y no depende, bajo ninguna forma, de una condición fiscal del cliente (ver directiva del PO al inicio de este documento) — un cliente sin ninguna dirección registrada no está obligado a tener una, la regla solo aplica una vez que decide cargar la primera.
+- **Sin condición de IVA:** no existe ningún campo ni regla que condicione la obligatoriedad de una dirección de facturación a una condición fiscal del cliente (ver directiva del PO al inicio de este documento).
 - El campo `canal_preferido` es un atributo simple del `Cliente` (no requiere entidad propia), editable en cualquier momento, consumido por el Motor de Notificaciones (Módulo F, todavía no construido — el contrato de lectura queda documentado como integración pendiente, no bloquea esta HU).
 - Las direcciones se listan siempre filtradas por `is_active = true` salvo consulta de Auditor.
 
@@ -145,6 +153,11 @@ export type ActualizarCanalContactoInput = z.infer<typeof ActualizarCanalContact
 **Respuesta `200 OK` (canal de contacto actualizado):**
 ```json
 { "data": { "cliente_id": "uuid", "canal_preferido": "AMBOS" }, "error": null }
+```
+
+**Respuesta `422 Unprocessable Entity` (primera dirección cargada es de tipo `ENVIO`, sin `FACTURACION` previa):**
+```json
+{ "data": null, "error": { "code": "DIRECCION_FACTURACION_REQUERIDA", "message": "Debe existir al menos una dirección de tipo FACTURACION antes de registrar una dirección de envío" } }
 ```
 
 ### 2.4. Gestión de consentimiento de tratamiento de datos personales (HU-C4)
@@ -201,6 +214,7 @@ export type FusionarClientesInput = z.infer<typeof FusionarClientesSchema>;
 ```
 
 **Comportamiento esperado:**
+- **Detección de posibles duplicados en el alta (criterio de aceptación de HU-C5, ausente en la Rev. 0 de este documento):** el alta de Cliente (2.1) ya resuelve el caso de DNI **idéntico** a uno activo devolviendo el registro existente — eso cubre unicidad exacta, pero no la detección de un *posible* duplicado con datos similares pero no idénticos (ej. mismo nombre y teléfono con un DNI mal tipeado). Esta HU agrega una verificación adicional, de solo alerta, en `cliente.service.ts`: al recibir un alta (2.1), el servicio ejecuta una búsqueda de coincidencia aproximada por `nombre` + (`telefono` o `email`) contra clientes activos con DNI distinto; si encuentra coincidencia, el alta **no se bloquea** — se completa normalmente y la respuesta `201 Created` incluye un campo adicional `posibles_duplicados: [{ cliente_id, dni, nombre }]` para que el Vendedor decida, desde la UI, si conviene iniciar una fusión (este mismo endpoint, 2.5) en vez de operar con dos registros separados. La decisión de fusionar es siempre manual y posterior al alta — la detección es informativa, nunca bloqueante.
 - **Ningún registro se elimina ni se reescribe físicamente.** El patrón de fusión (criterio de aceptación explícito de HU-C5) desactiva el `cliente_secundario_id` mediante baja lógica con `deletion_reason: "duplicado"` fijo (no editable por quien ejecuta la fusión, para mantener el motivo estandarizado y filtrable en reportes).
 - Las referencias históricas del cliente secundario (fundamentalmente su historial de ventas, cuando exista Módulo B) se **re-vinculan lógicamente** al cliente primario mediante una relación de redirección (`Cliente.fusionado_en_id`, ver 2.5.1) — no se migran físicamente las filas originales de ningún otro módulo.
 - Ninguno de los dos registros originales se sobrescribe: el cliente primario conserva sus propios datos de contacto sin mezclarse con los del secundario; el cliente secundario conserva sus datos históricos intactos, solo desactivado y con la relación de redirección.
@@ -263,7 +277,7 @@ export type BuscarClientePorDniQuery = z.infer<typeof BuscarClientePorDniQuerySc
 
 **Comportamiento esperado:**
 - La consulta se resuelve en una **única llamada** (criterio de aceptación explícito: "evitando múltiples consultas secuenciales en el momento de la atención"): devuelve datos de contacto, direcciones (sección 2.3) y canal de contacto preferido, todos resueltos internamente por el mismo servicio — el cliente de la API (el frontend de POS) no debe encadenar múltiples requests.
-- **Bloque de historial de compras:** el criterio de aceptación exige incluir un resumen del Módulo B (fecha de última compra, monto total histórico, cantidad de operaciones) "recuperado del Módulo B mediante una consulta de solo lectura, sin que ese resumen constituya una copia propia de los datos transaccionales". Como Módulo B no existe todavía, este bloque se resuelve con un **mock de datos** (`{ ultima_compra: null, monto_total_historico: 0, cantidad_operaciones: 0 }` o equivalente) hasta que exista un consumidor real — el contrato de la función `resolverHistorialCompras(cliente_id)` queda documentado en este spec para que, cuando Módulo B se implemente, sea esa función la que se reemplace, sin tener que rediseñar el endpoint de consulta unificada. Mismo patrón que HU-A10 en Sprint 2 (servicio completo, consumidor real pendiente).
+- **Bloque de historial de compras (actualizado — Módulo B ya forma parte de este mismo sprint):** el criterio de aceptación exige incluir un resumen del Módulo B (fecha de última compra, monto total histórico, cantidad de operaciones) "recuperado del Módulo B mediante una consulta de solo lectura, sin que ese resumen constituya una copia propia de los datos transaccionales". Con Módulo B priorizado en Sprint 3 (HU-B1/B3 secuenciadas antes que esta HU, ver Sprint Backlog), este bloque **ya no se resuelve con mock**: `resolverHistorialCompras(cliente_id)` consulta directamente `PedidoVenta` de Módulo B (`spec_modulo_B.md` sección 3.1), filtrando por `cliente_id` y `estado` en `{FACTURADO, REMITO_EMITIDO, CERRADO}` (excluyendo `RESERVADO`/`ANULADO`, los únicos dos estados que puede tomar un `PedidoVenta` sin constituir una compra efectiva — `BORRADOR` es un estado de `Presupuesto`, no de `PedidoVenta`, que nace directamente en `RESERVADO`), y agregando `ultima_compra` (máximo de `fecha_facturacion`), `monto_total_historico` (suma de montos facturados) y `cantidad_operaciones` (conteo). Es una consulta de solo lectura entre módulos — Módulo C no duplica ni cachea estos datos en su propio schema, los resuelve on-demand en cada consulta unificada.
 - Si el DNI no corresponde a ningún cliente activo, `404` — el frontend de POS interpreta esto como "cliente no registrado, ofrecer alta rápida" (HU-C1), no como un error bloqueante.
 
 **Respuesta `200 OK`:**
@@ -278,10 +292,9 @@ export type BuscarClientePorDniQuery = z.infer<typeof BuscarClientePorDniQuerySc
     "direcciones": [ { "direccion_id": "uuid", "rotulo": "Casa", "tipo": "ENVIO" } ],
     "canal_preferido": "WHATSAPP",
     "historial_compras": {
-      "ultima_compra": null,
-      "monto_total_historico": 0,
-      "cantidad_operaciones": 0,
-      "fuente": "MOCK — Módulo B no implementado"
+      "ultima_compra": "2026-09-10T15:30:00.000Z",
+      "monto_total_historico": 128500.00,
+      "cantidad_operaciones": 4
     }
   },
   "error": null
@@ -299,6 +312,8 @@ export type BuscarClientePorDniQuery = z.infer<typeof BuscarClientePorDniQuerySc
 **Server Action equivalente:** `actualizarSegmentoCliente()` en `app/(dashboard)/clientes/actions.ts`
 **Permiso requerido:** `clientes:gestionar_segmento` (Vendedor, Administrador de CRM — conforme matriz RBAC sección 5, "Gestionar segmentación comercial y direcciones de un cliente").
 
+**Nota de diseño sobre la partición de este permiso (aclaración, no una desviación de acceso):** el Alcance Funcional modela "Gestionar segmentación comercial y direcciones de un cliente" como una única fila de matriz con un solo nivel de acceso (Vendedor ✓, Administrador de CRM ✓, Auditor ✗). Este documento la implementa como **dos permisos granulares distintos** — `clientes:gestionar_segmento` aquí, y `clientes:editar` para direcciones (sección 2.3) — en vez de un único permiso combinado `clientes:gestionar_segmento_y_direcciones`. Los dos roles habilitados son idénticos a los que exige el Alcance para ambas acciones, por lo que no hay ninguna divergencia de quién puede hacer qué; la partición es una decisión de granularidad de RBAC (permitir revocar acceso a uno de los dos sin afectar el otro en un futuro cambio de rol), no una ampliación ni restricción de acceso respecto de la matriz vigente. Si el equipo prefiere un único permiso combinado que refleje literalmente la fila del Alcance, es un cambio de nomenclatura sin impacto funcional — reportar antes de implementar si se opta por esa alternativa.
+
 ```typescript
 export const ActualizarSegmentoClienteSchema = z.object({
   segmento: z.enum(["MINORISTA", "MAYORISTA", "CLIENTE_FRECUENTE"]),
@@ -308,7 +323,7 @@ export type ActualizarSegmentoClienteInput = z.infer<typeof ActualizarSegmentoCl
 
 **Comportamiento esperado:**
 - `MINORISTA` es el segmento por defecto de todo cliente que no cumple los criterios de volumen de compra configurados para `MAYORISTA` (default de schema, no requiere una llamada explícita a este endpoint para clientes recién dados de alta).
-- `MAYORISTA` se asigna cuando el volumen de compra —histórico o de un pedido puntual de gran volumen— supera el umbral parametrizado por Dirección; habilita las condiciones de precio y plan de pagos de Módulo B (todavía no construido — la asignación del segmento no depende de que exista Módulo B, solo su consumo posterior).
+- `MAYORISTA` se asigna cuando el volumen de compra —histórico o de un pedido puntual de gran volumen— supera el umbral parametrizado por Dirección; habilita las condiciones de precio y plan de pagos de Módulo B (`spec_modulo_B.md` sección 2.5, HU-B5) — la asignación del segmento en sí sigue siendo manual en este sprint (ver "Fuera de Alcance", sección 5), independientemente de que Módulo B ya exista como consumidor.
 - `CLIENTE_FRECUENTE` se asigna de forma incremental cuando la frecuencia o el monto acumulado de compras supera el umbral configurado; habilita promociones específicas de Módulo B/E, sin alterar el límite de crédito de la cuenta corriente.
 - Un cliente puede migrar de segmento en cualquier momento sin perder su historial de compras ni su cuenta corriente. La segmentación **no** implica ningún tratamiento diferenciado de datos personales ni restricción de catálogo.
 - **Faltante de configuración global (no bloqueante para esta HU, sí para su consumo automático futuro):** los umbrales de volumen/frecuencia que determinarían la asignación automática de segmento no existen aún como entidad de configuración parametrizable por Dirección — mientras tanto, la asignación de segmento es manual vía este endpoint, no un cálculo automático disparado por eventos de venta (que no existen, al no existir Módulo B).
@@ -404,16 +419,18 @@ El Módulo C es **emisor** hacia el Módulo D (encadenamiento SHA-256). No consu
 
 **Sin eventos nuevos en HU-C7 y HU-C9:** la consulta unificada por DNI (2.7) es de solo lectura y no emite evento propio; la actualización del canal de contacto preferido (2.3) sí se cubre bajo `cliente:actualizado` (no es un evento separado).
 
+**Sin evento nuevo para la detección de posibles duplicados (2.1):** la verificación de coincidencia aproximada introducida en HU-C5 (ver 2.1 y 2.5) es una consulta de solo lectura ejecutada dentro del flujo de alta — no persiste ningún estado propio ni requiere trazabilidad independiente; el alta en sí ya queda registrada por `cliente:creado`. Solo la fusión efectivamente ejecutada (una decisión humana posterior) emite `cliente:fusionado`.
+
 ---
 
 ## 5. Fuera de Alcance (diferido / bloqueado)
 
 - **Condición de IVA / CUIT / CUIL como dato de Cliente:** explícitamente descartado por directiva del PO (14/09/2026) — ver nota al inicio de este documento. No reintroducir sin una nueva directiva explícita del PO documentada en `decisions-and-principles.md` o equivalente.
-- **Consumo real de HU-C3 (direcciones) por Módulo B (facturación) y Módulo E (envíos):** el dato se modela y persiste en este sprint; el consumo real queda pendiente de que esos módulos se construyan.
-- **Consumo real de HU-C7 (historial de compras) por Módulo B:** resuelto con mock hasta que Módulo B exista — ver sección 2.7 para el contrato de la función a reemplazar.
+- **Consumo real de HU-C3 (direcciones) por Módulo E (envíos):** Módulo E (E-commerce) no está en el alcance de Sprint 3 — el dato de direcciones se modela y persiste en este sprint, el consumo real por parte de un futuro checkout web queda pendiente de que ese módulo se construya. (El consumo por Módulo B ya no aplica a este ítem: Módulo B, priorizado en este mismo sprint, no consume directamente `DireccionCliente` — su único punto de integración con Módulo C es la consulta unificada de HU-C7, sección 2.7.)
+- ~~Consumo real de HU-C7 (historial de compras) por Módulo B~~ — **ya no aplica.** Módulo B fue sumado al alcance de Sprint 3 por directiva del PO con posterioridad a la Revisión 2 de este documento; HU-C7 (sección 2.7) ya consulta `PedidoVenta` real, sin mock.
 - **Consumo real de HU-C9 (canal de contacto preferido) por Módulo F (Motor de Notificaciones):** el dato se modela y persiste en este sprint; el consumo real queda pendiente de que ese módulo se construya.
-- **Consumo real de HU-C5 (fusión) sobre historial de ventas real:** se testea con clientes de prueba cargados vía seed; la re-vinculación real de ventas históricas queda pendiente de Módulo B.
-- **Cuenta corriente de Cliente (Alcance § Módulo C, sección 3.3; Backlog HU-B5):** mencionada en el Alcance como parte del perfil comercial del cliente, pero su gestión completa depende de Módulo B (Ventas) y su consolidación de Módulo G (Tesorería) — ninguno de los dos está en el alcance de Sprint 3. Este documento no modela ningún campo de cuenta corriente en `Cliente`; HU-B5 es la HU propietaria de esa funcionalidad cuando se planifique.
+- **Consumo real de HU-C5 (fusión) sobre historial de ventas real:** con Módulo B ya priorizado en este sprint, la re-vinculación de historial de ventas del cliente secundario hacia el primario (`Cliente.fusionado_en_id`, sección 2.5.1) puede validarse contra `PedidoVenta` real una vez que HU-B1/B3 generen datos — HU-C5 está secuenciada después de ambas en el Sprint Backlog para permitir justamente esto. Sigue siendo responsabilidad de `resolverHistorialCompras` (sección 2.7) resolver esa consulta contra Módulo C.
+- **Cuenta corriente de Cliente (Alcance § Módulo C, sección 3.3; Backlog HU-B5) — actualizado:** HU-B5 (cuenta corriente + plan de pagos) sí fue priorizada en Sprint 3, sumada junto con el resto de Módulo B. Este documento sigue sin modelar ningún campo de cuenta corriente en `Cliente` — la entidad `CuentaCorrienteCliente` y toda su lógica de negocio son propiedad de `spec_modulo_B.md` (sección 2.5), que la referencia por `cliente_id`; Módulo G sigue siendo el consumidor de su plan de pagos para la proyección de flujo de ingresos, sin cambios respecto de lo ya documentado en el Alcance.
 - **Entidad de configuración global para umbrales de segmentación comercial (sección 2.8):** el umbral de volumen/frecuencia que definiría `MAYORISTA`/`CLIENTE_FRECUENTE` de forma automática no existe aún como configuración parametrizable — la asignación de segmento es manual en este sprint.
 - **Reactivación de un `Cliente` dado de baja lógica:** no forma parte del alcance de las 10 HU de este sprint (ver nota en sección 3.1) — a diferencia de HU-D7 (Módulo D), no hay una HU equivalente para Cliente en el Backlog actual.
 - **Confirmación de la función `listarEventosPorDominio` del Módulo D (sección 2.9):** este documento asume su existencia (ya asumida también por `spec_modulo_H.md` sección 2.9 para HU-H6) — verificar con el owner de Módulo D antes de implementar, una sola vez para ambos módulos si es posible.

@@ -15,9 +15,9 @@ Queda terminantemente prohibido el uso de sentencias `DELETE` en la base de dato
 
 ## 2. Seguridad, Auditoría y Ley N.° 25.326
 **Regla N.° 2: Protección de Datos Personales y Trazabilidad Inalterable**
-Dado que el sistema gestiona información institucional y personal de efectivos de las Fuerzas de Seguridad, el diseño técnico debe garantizar el cumplimiento irrestricto de la Ley N.° 25.326 de Protección de Datos Personales.
+Dado que el sistema gestiona información personal de clientes y proveedores, el diseño técnico debe garantizar el cumplimiento irrestricto de la Ley N.° 25.326 de Protección de Datos Personales.
 
-*   **Cifrado AES-256 (Datos en Reposo):** Toda información sensible (legajos institucionales, historiales biométricos/talles, datos identificatorios) debe estar cifrada a nivel de base de datos utilizando el estándar AES-256.
+*   **Cifrado AES-256 (Datos en Reposo):** Toda información sensible (datos bancarios de proveedores, datos identificatorios) debe estar cifrada a nivel de base de datos utilizando el estándar AES-256.
 *   **Log de Auditoría inalterable (Traceability):** Toda acción que modifique el estado del sistema (inserción, actualización, baja lógica, ajustes de stock manuales, cambios de precios) debe registrarse en un log de eventos. 
 *   **Encadenamiento de Hash SHA-256:** Para garantizar que el log de auditoría sea de "solo lectura" y a prueba de manipulaciones internas, cada nuevo registro de auditoría debe calcular y almacenar un hash SHA-256 que incluya los datos de la transacción actual concatenados con el hash del evento inmediatamente anterior (Blockchain-like hashing).
 
