@@ -120,6 +120,82 @@ export async function obtenerStockDisponible(varianteSkuId: string, depositoId: 
   return stock?.cantidad ?? 0;
 }
 
+/** Fila de `obtenerStockPorVarianteYDepositos()` — un depósito activo y su disponible. */
+export interface StockPorDeposito {
+  deposito_id: string;
+  deposito_nombre: string;
+  cantidad_disponible: number;
+}
+
+/**
+ * Mejora UX — stock disponible por depósito en alta de Presupuesto (HU-B3,
+ * task_mejora_ux_stock_deposito_presupuesto.md, Paso 1 §1.2/§1.4). Devuelve
+ * el desglose por depósito activo de una variante puntual, para anotar el
+ * `<select>` de depósito del formulario de alta antes de emitir.
+ *
+ * Mismo `where` que `obtenerStockDisponible()` (arriba en este archivo) pero
+ * sin acotar `deposito_id` — trae TODOS los depósitos activos con stock
+ * cargado para la variante, no uno solo.
+ *
+ * `cantidad` de `StockDeposito` YA es el neto disponible para congelar: el
+ * congelamiento de Módulo A (`crearReserva()`, `reserva.service.ts`) la
+ * decrementa de forma síncrona dentro de su propia `$transaction` en el
+ * momento en que se crea la `Reserva` — no existe una segunda fuente
+ * ("reservas activas") que haya que restar acá (relevamiento §1.4). Función
+ * de solo lectura: no abre `$transaction` ni emite eventos de dominio.
+ *
+ * Un depósito activo puede no tener fila de `StockDeposito` todavía para
+ * esta variante (mismo caso documentado en `actualizarUmbrales()`, arriba:
+ * "permite elegir variantes sin stock cargado"). La función parte del
+ * listado de depósitos activos, no de `StockDeposito`, y completa
+ * `cantidad_disponible: 0` para los que no tengan fila — ningún depósito
+ * activo queda afuera del resultado (alcance §5: "no se oculta ningún
+ * depósito").
+ *
+ * @throws {ServiceError} VARIANTE_NO_ENCONTRADA — no existe o está inactiva
+ * (mismo criterio que `DEPOSITO_NO_ENCONTRADO` en `listarProductosPorDeposito()`).
+ */
+export async function obtenerStockPorVarianteYDepositos(
+  varianteSkuId: string,
+): Promise<StockPorDeposito[]> {
+  const variante = await prisma.varianteSKU.findFirst({
+    where: { id: varianteSkuId, is_active: true, deleted_at: null },
+    select: { id: true },
+  });
+  if (!variante) {
+    throw new ServiceError(
+      "VARIANTE_NO_ENCONTRADA",
+      "La variante indicada no existe o está inactiva",
+    );
+  }
+
+  const [depositos, filas] = await Promise.all([
+    prisma.deposito.findMany({
+      where: { is_active: true, deleted_at: null },
+      select: { id: true, nombre: true },
+      orderBy: { nombre: "asc" },
+    }),
+    prisma.stockDeposito.findMany({
+      where: {
+        variante_sku_id: varianteSkuId,
+        is_active: true,
+        deleted_at: null,
+        variante_sku: { is_active: true, deleted_at: null },
+        deposito: { is_active: true, deleted_at: null },
+      },
+      select: { deposito_id: true, cantidad: true },
+    }),
+  ]);
+
+  const cantidadPorDeposito = new Map(filas.map((fila) => [fila.deposito_id, fila.cantidad]));
+
+  return depositos.map((deposito) => ({
+    deposito_id: deposito.id,
+    deposito_nombre: deposito.nombre,
+    cantidad_disponible: cantidadPorDeposito.get(deposito.id) ?? 0,
+  }));
+}
+
 /**
  * Total físico = disponible en depósitos + unidades actualmente en
  * traslado. HU-A11 (multi-ítem + recepción parcial): "en tránsito" migró de

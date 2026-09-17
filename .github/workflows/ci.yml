@@ -9,6 +9,12 @@ on:
 jobs:
   validate-and-build:
     runs-on: ubuntu-latest
+    env:
+      # `npm ci` dispara `postinstall` → `prisma generate`, y `prisma.config.ts`
+      # exige DATABASE_URL seteada (aunque no exista la base) para no fallar
+      # con PrismaConfigEnvError — prisma generate no abre conexión real,
+      # solo necesita el formato de connection string.
+      DATABASE_URL: "postgresql://dummy:dummy@localhost:5432/dummy"
     steps:
       - name: Checkout del código
         uses: actions/checkout@v4
@@ -35,10 +41,6 @@ jobs:
 
       - name: Generar cliente de Prisma
         run: npx prisma generate
-        env:
-          DATABASE_URL: "postgresql://dummy:dummy@localhost:5432/dummy"
 
       - name: Compilar proyecto (Build)
         run: npm run build
-        env:
-          DATABASE_URL: "postgresql://dummy:dummy@localhost:5432/dummy"

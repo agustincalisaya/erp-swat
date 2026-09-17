@@ -438,6 +438,25 @@ export type ListarProductosPorDepositoQuery = z.infer<
 >;
 
 // ──────────────────────────────────────────────────────────────────────────────
+// Mejora UX — stock disponible por depósito en alta de Presupuesto (HU-B3)
+// (task_mejora_ux_stock_deposito_presupuesto.md)
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Path param de `GET /api/inventario/variantes/[id]/stock-por-deposito`.
+ * `variante_sku_id` llega desde el segmento `[id]` de la URL, no como
+ * search param — mismo criterio que `deposito_id` en
+ * `ListarProductosPorDepositoQuerySchema`.
+ */
+export const ObtenerStockPorVarianteParamsSchema = z.object({
+  variante_sku_id: z.string().uuid(),
+});
+
+export type ObtenerStockPorVarianteParams = z.infer<
+  typeof ObtenerStockPorVarianteParamsSchema
+>;
+
+// ──────────────────────────────────────────────────────────────────────────────
 // HU-A11 — Historial operativo de movimientos (spec_modulo_A.md §2.10)
 // ──────────────────────────────────────────────────────────────────────────────
 

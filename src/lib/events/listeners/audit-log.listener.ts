@@ -752,6 +752,69 @@ export function iniciarAuditLogListener(): void {
     });
   });
 
+  // HU-B3 (Módulo B) — alta de Presupuesto EMITIDO (spec_modulo_B.md §2.3/§4).
+  // El service (`presupuesto.service.ts`) nunca llama `registrarAuditLog()`
+  // directo: emite el evento post-COMMIT (tras congelar todas las Reservas de
+  // Módulo A y persistir el Presupuesto) y este listener reacciona — misma
+  // regla de unificación que el resto del proyecto. `tabla_afectada` usa el
+  // `@@map` en minúsculas (`presupuestos`); `ip: "internal-event"` — mismo
+  // sentinel que `orden_compra:*` / `stock:reserva_congelada`.
+  domainEventBus.on("venta:presupuesto_emitido", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.creado_por_id,
+      accion: "CREATE",
+      tabla_afectada: "presupuestos",
+      registro_id: payload.presupuesto_id,
+      ip: "internal-event",
+      valor_anterior: null,
+      valor_nuevo: {
+        cliente_id: payload.cliente_id,
+        estado: "EMITIDO",
+        vigencia_hasta: payload.vigencia_hasta,
+        reserva_ids: payload.reserva_ids,
+      },
+    });
+  });
+
+  // HU-B3 — transición perezosa EMITIDO → VENCIDO (baja lógica, spec §3.1).
+  // `usuario_id: null`: disparada por una lectura, sin un usuario ejecutando
+  // una acción de negocio (mismo criterio que `stock:reserva_liberada` vía TTL).
+  domainEventBus.on("venta:presupuesto_vencido", (payload) => {
+    void registrarAuditLog({
+      usuario_id: null,
+      accion: "DELETE_LOGICO",
+      tabla_afectada: "presupuestos",
+      registro_id: payload.presupuesto_id,
+      ip: "internal-event",
+      valor_anterior: { estado: "EMITIDO", is_active: true },
+      valor_nuevo: {
+        estado: "VENCIDO",
+        is_active: false,
+        vigencia_hasta: payload.vigencia_hasta,
+      },
+    });
+  });
+
+  // HU-B3 — conversión de Presupuesto EMITIDO a PedidoVenta RESERVADO
+  // (`aceptarPresupuesto()`). No enumerado en la tabla de eventos de spec §4
+  // — añadido por el mismo precedente que `orden_compra:creada` (RULES.md §2).
+  domainEventBus.on("venta:presupuesto_aceptado", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.aceptado_por_id,
+      accion: "PRESUPUESTO_ACEPTADO",
+      tabla_afectada: "pedidos_venta",
+      registro_id: payload.pedido_venta_id,
+      ip: "internal-event",
+      valor_anterior: null,
+      valor_nuevo: {
+        presupuesto_id: payload.presupuesto_id,
+        numero_venta: payload.numero_venta,
+        cliente_id: payload.cliente_id,
+        estado: "RESERVADO",
+      },
+    });
+  });
+
   // HU-C1 (Módulo C) — alta NUEVA de un Cliente. `cliente.service.ts` nunca
   // se emite al recuperar un DNI ya existente (spec §3.1: "no hay transición
   // nueva"), así que este listener solo ve altas reales. Sin `ip` en el

@@ -607,6 +607,56 @@ export interface VarianteActualizadaPayload {
 }
 
 /**
+ * HU-B3 (Módulo B) — Payload emitido tras el alta de un `Presupuesto` en
+ * estado `EMITIDO` (`crearPresupuesto()`, spec_modulo_B.md §2.3/§4). Se
+ * emite SOLO después de que TODAS las `Reserva` de Módulo A y el
+ * `prisma.$transaction` de alta del propio `Presupuesto` resuelven — nunca
+ * dentro de ninguna de las dos (regla de emisión, spec §3.3).
+ *
+ * `reserva_ids` referencia las reservas de Módulo A congeladas para esta
+ * cotización — el payload nunca duplica su lógica, solo la referencia.
+ */
+export interface PresupuestoEmitidoPayload {
+  presupuesto_id: string;
+  cliente_id: string;
+  vigencia_hasta: string;
+  reserva_ids: string[];
+  creado_por_id: string;
+}
+
+/**
+ * HU-B3 (Módulo B) — Payload emitido cuando la lectura perezosa de un
+ * `Presupuesto` detecta que su `vigencia_hasta` ya venció sin conversión a
+ * `PedidoVenta` (spec §2.3/§3.1: "consulta perezosa al momento de la
+ * siguiente lectura del presupuesto"). Marca `Presupuesto.estado = VENCIDO`
+ * como baja lógica — NO libera la `Reserva` asociada (eso es exclusivo del
+ * job de TTL de Módulo A, spec §3.2); este evento es solo el reflejo de
+ * ese hecho sobre la propia fila de `Presupuesto`.
+ */
+export interface PresupuestoVencidoPayload {
+  presupuesto_id: string;
+  cliente_id: string;
+  vigencia_hasta: string;
+}
+
+/**
+ * HU-B3 (Módulo B) — Payload emitido tras convertir un `Presupuesto`
+ * `EMITIDO` en un `PedidoVenta` `RESERVADO` (`aceptarPresupuesto()`, spec
+ * §2.3/§3.1). No enumerado explícitamente en la tabla de eventos de spec §4
+ * (que solo lista `venta:presupuesto_emitido`/`venta:presupuesto_vencido`
+ * para HU-B3) — se añade siguiendo el mismo precedente ya documentado en
+ * `OrdenCompraCreadaPayload`: RULES.md §2 exige que toda acción que
+ * modifica el estado del sistema quede encadenada en el `AuditLog`.
+ */
+export interface PresupuestoAceptadoPayload {
+  presupuesto_id: string;
+  pedido_venta_id: string;
+  numero_venta: string;
+  cliente_id: string | null;
+  aceptado_por_id: string;
+}
+
+/**
  * HU-C1 (Módulo C) — Payload emitido tras el alta NUEVA de un `Cliente`
  * (`crearCliente()`, spec_modulo_C.md §2.1/§4). Se emite SOLO cuando
  * `es_nuevo === true` — recuperar un `Cliente` existente por DNI (§3.1: "no
@@ -695,6 +745,12 @@ export interface DomainEventMap {
   "producto_maestro:actualizado": ProductoMaestroActualizadoPayload;
   /** HU-A8: se emite tras editar atributos operativos de una VarianteSKU. */
   "inventario:variante_actualizada": VarianteActualizadaPayload;
+  /** HU-B3: se emite tras el alta de un Presupuesto EMITIDO (congelamiento de stock incluido). */
+  "venta:presupuesto_emitido": PresupuestoEmitidoPayload;
+  /** HU-B3: se emite cuando una lectura perezosa detecta un Presupuesto EMITIDO vencido. */
+  "venta:presupuesto_vencido": PresupuestoVencidoPayload;
+  /** HU-B3: se emite tras convertir un Presupuesto EMITIDO en un PedidoVenta RESERVADO. */
+  "venta:presupuesto_aceptado": PresupuestoAceptadoPayload;
   /** HU-C1: se emite tras el alta NUEVA de un Cliente (nunca al recuperar uno existente por DNI). */
   "cliente:creado": ClienteCreadoPayload;
 }
