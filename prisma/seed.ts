@@ -238,9 +238,14 @@ const PERMISO_PROVEEDORES_PUBLICAR_LISTA_ID =
 const PERMISO_PROVEEDORES_PUBLICAR_LISTA_CRITICA_ID =
   "1a2b3c4d-1111-4a1a-8a1a-000000000030";
 
-// Clientes de prueba (HU-C1/C3/C4/C5/C8/C9). Sin roles Vendedor/Administrador
-// de CRM sembrados todavía (fuera de alcance de esta tarea) — los permisos de
-// arriba quedan sin asignar a ningún Rol por ahora.
+// HU-C1 — Roles VENDEDOR y ADMINISTRADOR_CRM (spec_modulo_C.md, Alcance §5).
+// No existían en el seed hasta esta tarea; siguiente UUID libre del
+// namespace `2222` (roles), a partir de ...004 (...001–...003 los ocupan
+// Comprador/Tesorero/Supervisor de Compras, más arriba).
+const ROL_VENDEDOR_ID = "1a2b3c4d-2222-4a1a-8a1a-000000000004";
+const ROL_ADMINISTRADOR_CRM_ID = "1a2b3c4d-2222-4a1a-8a1a-000000000005";
+
+// Clientes de prueba (HU-C1/C3/C4/C5/C8/C9).
 const CLIENTE_JUAN_PEREZ_ID = "1a2b3c4d-eeee-4a1a-8a1a-000000000001";
 // Posible duplicado de CLIENTE_JUAN_PEREZ_ID para HU-C5: mismo nombre/teléfono
 // aproximado, DNI DISTINTO (no confundir con el caso de DNI idéntico, que
@@ -1372,6 +1377,81 @@ async function main() {
       modulo: "MODULO_C",
     },
   });
+
+  // ── HU-C1 — Roles VENDEDOR y ADMINISTRADOR_CRM ─────────────────────────────
+  // Reparto de los 7 permisos `clientes:*` (task-chiki.md, prerrequisito de
+  // roles):
+  //   - VENDEDOR            → crear, editar, gestionar_consentimiento,
+  //                           gestionar_segmento, leer. NO baja ni fusionar
+  //                           (van vía solicitud/aprobación, fuera de
+  //                           alcance de HU-C1).
+  //   - ADMINISTRADOR_CRM   → los 7, directo.
+  //   - AUDITOR (ya existía) → se le agrega clientes:leer +
+  //                           auditoria:leer_historico (HU-C10 §2.9, ya
+  //                           sembrado más arriba sin asignar a ningún Rol).
+  const rolVendedor = await prisma.rol.upsert({
+    where: { id: ROL_VENDEDOR_ID },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: {
+      id: ROL_VENDEDOR_ID,
+      nombre: "VENDEDOR",
+      descripcion:
+        "Atención y alta de clientes, venta asistida (Módulo C) — sin permiso de baja ni fusión de duplicados",
+    },
+  });
+
+  const rolAdministradorCrm = await prisma.rol.upsert({
+    where: { id: ROL_ADMINISTRADOR_CRM_ID },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: {
+      id: ROL_ADMINISTRADOR_CRM_ID,
+      nombre: "ADMINISTRADOR_CRM",
+      descripcion:
+        "Gestión completa del padrón de clientes (Módulo C), incluida baja lógica y fusión de duplicados",
+    },
+  });
+
+  const permisosVendedor = [
+    PERMISO_CLIENTES_CREAR_ID,
+    PERMISO_CLIENTES_EDITAR_ID,
+    PERMISO_CLIENTES_GESTIONAR_CONSENTIMIENTO_ID,
+    PERMISO_CLIENTES_GESTIONAR_SEGMENTO_ID,
+    PERMISO_CLIENTES_LEER_ID,
+  ];
+  for (const permisoId of permisosVendedor) {
+    await prisma.rolPermiso.upsert({
+      where: { rol_id_permiso_id: { rol_id: rolVendedor.id, permiso_id: permisoId } },
+      update: REACTIVAR_REFERENCIA_RBAC,
+      create: { rol_id: rolVendedor.id, permiso_id: permisoId },
+    });
+  }
+
+  const permisosAdministradorCrm = [
+    PERMISO_CLIENTES_CREAR_ID,
+    PERMISO_CLIENTES_EDITAR_ID,
+    PERMISO_CLIENTES_GESTIONAR_CONSENTIMIENTO_ID,
+    PERMISO_CLIENTES_FUSIONAR_ID,
+    PERMISO_CLIENTES_BAJA_ID,
+    PERMISO_CLIENTES_LEER_ID,
+    PERMISO_CLIENTES_GESTIONAR_SEGMENTO_ID,
+  ];
+  for (const permisoId of permisosAdministradorCrm) {
+    await prisma.rolPermiso.upsert({
+      where: {
+        rol_id_permiso_id: { rol_id: rolAdministradorCrm.id, permiso_id: permisoId },
+      },
+      update: REACTIVAR_REFERENCIA_RBAC,
+      create: { rol_id: rolAdministradorCrm.id, permiso_id: permisoId },
+    });
+  }
+
+  for (const permisoId of [PERMISO_CLIENTES_LEER_ID, PERMISO_AUDITORIA_LEER_HISTORICO_ID]) {
+    await prisma.rolPermiso.upsert({
+      where: { rol_id_permiso_id: { rol_id: rolAuditor.id, permiso_id: permisoId } },
+      update: REACTIVAR_REFERENCIA_RBAC,
+      create: { rol_id: rolAuditor.id, permiso_id: permisoId },
+    });
+  }
 
   // ── Módulo B (Sprint 3) — permisos granulares de Ventas (spec_modulo_B.md
   // §2, un permiso por acción, mismo criterio que el resto del proyecto) ──
