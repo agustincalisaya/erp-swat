@@ -32,7 +32,7 @@
  */
 import type { LucideIcon } from "lucide-react";
 // 1. Agregamos el ícono "Layers" a la importación
-import { ScrollText, ShieldCheck, Users, Package, Warehouse, ScanBarcode, Layers, FileSearch, ShoppingCart, ClipboardList, Store, PackageCheck, Undo2, Wallet, Banknote } from "lucide-react";
+import { ScrollText, ShieldCheck, Users, Package, Warehouse, ScanBarcode, Layers, FileSearch, ShoppingCart, ClipboardList, Store, PackageCheck, Undo2, Wallet, Banknote, UserPlus } from "lucide-react";
 import { getServerSession } from "@/lib/auth/session";
 import { usuarioTienePermiso } from "@/lib/auth/with-permission";
 import { SidebarNav, type SidebarNavSection } from "@/components/layout/SidebarNav";
@@ -126,6 +126,20 @@ const SECCIONES: SeccionConfig[] = [
         href: "/compras/recepciones/nueva",
         icon: PackageCheck,
         permiso: "recepciones:registrar",
+      },
+    ],
+  },
+  {
+    label: "Clientes",
+    icon: UserPlus,
+    items: [
+      // HU-C1 — gate por `clientes:crear` (Vendedor/Administrador de CRM);
+      // el Auditor no tiene este permiso, así que no ve la entrada de alta.
+      {
+        label: "Nuevo Cliente",
+        href: "/clientes/nuevo",
+        icon: UserPlus,
+        permiso: "clientes:crear",
       },
     ],
   },
