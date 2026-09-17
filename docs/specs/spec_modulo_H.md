@@ -19,11 +19,11 @@ Este documento y `spec_modulo_H_diferido.md` fueron un único archivo hasta la R
 - **HU-H5** — Evaluación de proveedores, recálculo incremental de puntaje (sección 3.2) — Sprint 2
 - **HU-H9** — Registro del Comprobante fiscal de Proveedor asociado a una OC (sección 2.7) — Sprint 2
 - **HU-H2** — Publicación de Lista de Precios versionada (sección 2.3) — **Sprint 3**
-- **HU-H6** — Consola de Auditoría Forense de Proveedores (sección 2.7-bis, renombrada 2.10 para no chocar con HU-H9) — **Sprint 3**
-- **HU-H7** — Vista comparativa de precios entre proveedores (sección 2.11) — **Sprint 3**
-- **HU-H8** — Servicio de costo de reposición vigente (sección 2.12) — **Sprint 3**
+- **HU-H6** — Consola de Auditoría Forense de Proveedores (sección 2.7-bis, renombrada 2.9 para no chocar con HU-H9) — **Sprint 3**
+- **HU-H7** — Vista comparativa de precios entre proveedores (sección 2.10) — **Sprint 3**
+- **HU-H8** — Servicio de costo de reposición vigente (sección 2.11) — **Sprint 3**
 
-**Nota de renumeración:** el documento diferido original numeraba HU-H6/H7/H8 como 2.7/2.8/2.9, chocando con la HU-H9 de este documento (también 2.7, agregada en la Revisión 5 del documento de Sprint 2, posterior a la separación). Se renumeran a **2.10, 2.11, 2.12** para evitar colisión; todas las referencias cruzadas internas de este documento ya reflejan la numeración nueva. Si algún documento externo del proyecto (Casos de Prueba, DER) cita "sección 2.7" para HU-H6, actualizar esa referencia a 2.10.
+**Nota de renumeración:** el documento diferido original numeraba HU-H6/H7/H8 como 2.7/2.8/2.9, chocando con la HU-H9 de este documento (también 2.7, agregada en la Revisión 5 del documento de Sprint 2, posterior a la separación). Se renumeran a **2.9, 2.10, 2.11** para evitar colisión; todas las referencias cruzadas internas de este documento ya reflejan la numeración nueva. Si algún documento externo del proyecto (Casos de Prueba, DER) cita "sección 2.7" para HU-H6, actualizar esa referencia a 2.9.
 
 **Nota sobre la migración de schema ya aplicada:** los modelos `ListaPrecio`, `ListaPrecioVersion`, `ListaPrecioItem` y los campos `Proveedor.datos_bancarios_cifrado`/`datos_bancarios_iv` ya existen en `schema.prisma` (migración `20260831050501_add_lista_precio_and_proveedor_bank_data`), aditiva, sin `DROP` ni `ALTER` sobre columnas/tablas preexistentes. Los dos pendientes reales de esa migración —default de `ListaPrecioVersion.publicada` y cardinalidad `ListaPrecio`↔`Proveedor`— se detallan en la sección 2.3 y en la sección 5 de este documento unificado.
 

@@ -198,6 +198,166 @@ const ORDEN_COMPRA_RECIBIDA_ITEM_ID = "1a2b3c4d-7778-4a1a-8a1a-000000000003";
 const ORDEN_COMPRA_H4_V2_MANUAL_ID = "1b3c4d5e-7777-4a1a-8a1a-000000000003";
 const ORDEN_COMPRA_H4_V2_MANUAL_ITEM_ID = "192b3c4d-7778-4a1a-8a1a-000000000004";
 
+// --- Origen: Sprint 3 — Módulo H (cierre de Listas de Precios, HU-H2) ---
+// Segunda ListaPrecioVersion sobre `proveedorHomologado`: representa la
+// publicación de una nueva lista (HU-H2) posterior a la vigente sembrada en
+// Sprint 2 (`LISTA_PRECIO_VERSION_ID`), dentro del umbral normal
+// (`publicada = true` sin paso de aprobación). No reemplaza ni reordena el
+// fixture de Sprint 2 — es la versión más nueva de la misma `ListaPrecio`.
+const LISTA_PRECIO_VERSION_2_ID = "1a2b3c4d-5678-4a1a-8a1a-000000000001";
+const LISTA_PRECIO_ITEM_V2_CAMISA_1_ID = "1a2b3c4d-9abc-4a1a-8a1a-000000000001";
+const LISTA_PRECIO_ITEM_V2_CAMISA_2_ID = "1a2b3c4d-9abc-4a1a-8a1a-000000000002";
+const LISTA_PRECIO_ITEM_V2_BORCEGOS_1_ID = "1a2b3c4d-9abc-4a1a-8a1a-000000000003";
+
+// --- Origen: Sprint 3 — Módulo C (Clientes) ---
+// RBAC: permisos granulares de Cliente (spec_modulo_C.md §5 del Alcance) +
+// `auditoria:leer_historico` (HU-C10 §2.9) + los dos permisos de publicación
+// de listas de precios de HU-H2 (§2.3) que todavía no existían. Siguiente
+// UUID libre del namespace `1111` (permisos): a partir de ...021, ya que
+// ...001–...020 los ocupan los bloques de Sprint 2 de más arriba.
+const PERMISO_CLIENTES_CREAR_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000021";
+const PERMISO_CLIENTES_EDITAR_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000022";
+const PERMISO_CLIENTES_GESTIONAR_CONSENTIMIENTO_ID =
+  "1a2b3c4d-1111-4a1a-8a1a-000000000023";
+const PERMISO_CLIENTES_FUSIONAR_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000024";
+const PERMISO_CLIENTES_BAJA_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000025";
+const PERMISO_CLIENTES_LEER_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000026";
+const PERMISO_CLIENTES_GESTIONAR_SEGMENTO_ID =
+  "1a2b3c4d-1111-4a1a-8a1a-000000000027";
+// Sembrado literal según spec_modulo_C.md §2.9 / spec_modulo_H.md §2.9 — a
+// diferencia de lo que ambos documentos afirman, NO es el mismo código que
+// ya usa la Consola de Auditoría Forense real (`auditoria:leer_forense`,
+// sembrado más arriba como `PERMISO_LEER_FORENSE_ID`). Es una divergencia de
+// nomenclatura conocida y aceptada por el equipo (ver reporte de
+// relevamiento de esta tarea) — este permiso queda sembrado sin asignar a
+// ningún Rol todavía, mismo patrón que otros permisos "stub" del proyecto.
+const PERMISO_AUDITORIA_LEER_HISTORICO_ID =
+  "1a2b3c4d-1111-4a1a-8a1a-000000000028";
+const PERMISO_PROVEEDORES_PUBLICAR_LISTA_ID =
+  "1a2b3c4d-1111-4a1a-8a1a-000000000029";
+const PERMISO_PROVEEDORES_PUBLICAR_LISTA_CRITICA_ID =
+  "1a2b3c4d-1111-4a1a-8a1a-000000000030";
+
+// Clientes de prueba (HU-C1/C3/C4/C5/C8/C9). Sin roles Vendedor/Administrador
+// de CRM sembrados todavía (fuera de alcance de esta tarea) — los permisos de
+// arriba quedan sin asignar a ningún Rol por ahora.
+const CLIENTE_JUAN_PEREZ_ID = "1a2b3c4d-eeee-4a1a-8a1a-000000000001";
+// Posible duplicado de CLIENTE_JUAN_PEREZ_ID para HU-C5: mismo nombre/teléfono
+// aproximado, DNI DISTINTO (no confundir con el caso de DNI idéntico, que
+// HU-C1 resuelve sola). Mismos valores de ejemplo que usa spec_modulo_C.md
+// §2.1 en su respuesta de muestra de "posibles_duplicados".
+const CLIENTE_JUAN_PEREZ_DUPLICADO_ID = "1a2b3c4d-eeee-4a1a-8a1a-000000000002";
+// Par primario/secundario para ejercitar `Cliente.fusionado_en_id` (HU-C5).
+const CLIENTE_MARIA_GOMEZ_PRIMARIO_ID = "1a2b3c4d-eeee-4a1a-8a1a-000000000003";
+const CLIENTE_MARIA_GOMEZ_FUSIONADO_ID = "1a2b3c4d-eeee-4a1a-8a1a-000000000004";
+
+const DIRECCION_JUAN_PEREZ_FACTURACION_ID =
+  "1a2b3c4d-ffff-4a1a-8a1a-000000000001";
+const DIRECCION_JUAN_PEREZ_ENVIO_ID = "1a2b3c4d-ffff-4a1a-8a1a-000000000002";
+
+const CONSENTIMIENTO_JUAN_PEREZ_ID = "1a2b3c4d-1234-4a1a-8a1a-000000000001";
+const CONSENTIMIENTO_JUAN_PEREZ_DUPLICADO_ID =
+  "1a2b3c4d-1234-4a1a-8a1a-000000000002";
+const CONSENTIMIENTO_MARIA_GOMEZ_PRIMARIO_ID =
+  "1a2b3c4d-1234-4a1a-8a1a-000000000003";
+const CONSENTIMIENTO_MARIA_GOMEZ_FUSIONADO_ID =
+  "1a2b3c4d-1234-4a1a-8a1a-000000000004";
+
+// --- Origen: Sprint 3 — Módulo B (Ventas y Punto de Venta) ---
+// RBAC: permisos granulares de Ventas (spec_modulo_B.md §2, uno por acción,
+// mismo criterio que HU-H1/H3/G8/C1-C8: NO un único `ventas:administrar`).
+// Reutiliza el permiso `auditoria:leer_historico` ya sembrado para Módulo C
+// (`PERMISO_AUDITORIA_LEER_HISTORICO_ID`, HU-C10) para el scope "ventas" de
+// HU-B6 §2.6 — confirmado en el Paso 0: `Permiso.codigo` es `@unique`, así
+// que no se siembra una fila nueva con el mismo código; el filtro de
+// dominio ("ventas" vs "clientes" vs "proveedores") se resuelve en la capa
+// de servicios vía el query param `dominio`, no como una fila de Permiso
+// separada por módulo. Ningún rol Cajero POS/Supervisor de
+// Ventas/Vendedor/Administrador de CRM existe todavía — estos permisos
+// quedan sembrados sin asignar a ningún Rol, misma decisión ya tomada en la
+// ronda anterior. Siguiente UUID libre del namespace `1111` (permisos): a
+// partir de ...031.
+const PERMISO_VENTAS_REGISTRAR_MOSTRADOR_ID =
+  "1a2b3c4d-1111-4a1a-8a1a-000000000031";
+const PERMISO_VENTAS_GESTIONAR_TURNO_CAJA_ID =
+  "1a2b3c4d-1111-4a1a-8a1a-000000000032";
+const PERMISO_VENTAS_EMITIR_COTIZACION_ID =
+  "1a2b3c4d-1111-4a1a-8a1a-000000000033";
+const PERMISO_VENTAS_APLICAR_DESCUENTO_MARGEN_ID =
+  "1a2b3c4d-1111-4a1a-8a1a-000000000034";
+const PERMISO_VENTAS_AUTORIZAR_EXCEPCION_DESCUENTO_ID =
+  "1a2b3c4d-1111-4a1a-8a1a-000000000035";
+const PERMISO_VENTAS_GESTIONAR_CUENTA_CORRIENTE_ID =
+  "1a2b3c4d-1111-4a1a-8a1a-000000000036";
+const PERMISO_VENTAS_AUTORIZAR_EXCEPCION_CREDITO_ID =
+  "1a2b3c4d-1111-4a1a-8a1a-000000000037";
+const PERMISO_VENTAS_LEER_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000038";
+// Hallazgo 2 (auditoría de trazabilidad HU↔schema↔seed, corrección posterior
+// a la ronda anterior): HU-B6 §2.6 y HU-B7 §2.8 nombran explícitamente estos
+// dos permisos, ausentes de la ronda inicial. Mismo criterio: sin Rol.
+const PERMISO_VENTAS_ANULAR_PEDIDO_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000039";
+const PERMISO_VENTAS_LEER_LOG_OPERATIVO_ID =
+  "1a2b3c4d-1111-4a1a-8a1a-000000000040";
+
+// Usuarios de prueba para Módulo B — SIN asignación de Rol (Cajero POS y
+// Supervisor de Ventas no existen todavía como Rol, ver nota de permisos
+// arriba). Sirven únicamente como FK realista para `registrado_por_id` /
+// `usuario_id` / `emitido_por_id` / `creado_por_id` de las entidades de
+// Ventas (RULES.md Regla N.° 2 exige responsable trazable en toda
+// mutación), no como fixture de RBAC completo.
+const USUARIO_CAJERO_SEED_ID = "1a2b3c4d-4444-4a1a-8a1a-000000000004";
+const USUARIO_SUPERVISOR_VENTAS_SEED_ID =
+  "1a2b3c4d-4444-4a1a-8a1a-000000000005";
+
+// HU-B2 §2.2: turno de caja abierto (fecha_cierre = null) del Cajero de prueba.
+const TURNO_CAJA_ABIERTO_ID = "1a2b3c4d-be01-4a1a-8a1a-000000000001";
+
+// HU-B1 §2.1: venta de mostrador completa — asociada a
+// `CLIENTE_JUAN_PEREZ_ID` (confirmado en el Paso 0) para que HU-C7
+// (spec_modulo_C.md §2.7) tenga historial de compras real, no vacío, al
+// consultarlo por DNI.
+const PEDIDO_VENTA_MOSTRADOR_ID = "1a2b3c4d-be02-4a1a-8a1a-000000000001";
+const PEDIDO_VENTA_MOSTRADOR_ITEM_ID = "1a2b3c4d-be03-4a1a-8a1a-000000000001";
+const VENTA_MEDIO_PAGO_EFECTIVO_ID = "1a2b3c4d-be04-4a1a-8a1a-000000000001";
+const VENTA_MEDIO_PAGO_TRANSFERENCIA_ID =
+  "1a2b3c4d-be04-4a1a-8a1a-000000000002";
+const COMPROBANTE_FISCAL_MOSTRADOR_ID =
+  "1a2b3c4d-be05-4a1a-8a1a-000000000001";
+
+// HU-B3 §2.3: Presupuesto (cotización institucional de gran volumen) + su
+// Reserva de Módulo A (`origen_reserva: "LICITACION"`, spec_modulo_B.md
+// nota inicial — enum `OrigenReserva` SIN renombrar) + conversión a
+// PedidoVenta (estado RESERVADO, todavía sin facturar/cobrar) sobre
+// `CLIENTE_MARIA_GOMEZ_PRIMARIO_ID`.
+const PRESUPUESTO_LICITACION_ID = "1a2b3c4d-be06-4a1a-8a1a-000000000001";
+const PRESUPUESTO_LICITACION_ITEM_ID = "1a2b3c4d-be07-4a1a-8a1a-000000000001";
+const RESERVA_PRESUPUESTO_LICITACION_ID =
+  "1a2b3c4d-be08-4a1a-8a1a-000000000001";
+const PEDIDO_VENTA_LICITACION_ID = "1a2b3c4d-be02-4a1a-8a1a-000000000002";
+const PEDIDO_VENTA_LICITACION_ITEM_ID =
+  "1a2b3c4d-be03-4a1a-8a1a-000000000002";
+
+// Hallazgo 1 (HU-B5 §2.5): cuenta corriente de `clienteJuanPerez`, con las
+// dos operaciones de ejemplo de la spec (montos idénticos a la respuesta
+// `200 OK` de muestra: límite 500000.00 / saldo 120000.00 → disponible
+// 380000.00).
+const CUENTA_CORRIENTE_JUAN_PEREZ_ID = "1a2b3c4d-be09-4a1a-8a1a-000000000001";
+const CUENTA_CORRIENTE_OPERACION_APROBADA_ID =
+  "1a2b3c4d-be10-4a1a-8a1a-000000000001";
+const CUENTA_CORRIENTE_OPERACION_RETENIDA_ID =
+  "1a2b3c4d-be10-4a1a-8a1a-000000000002";
+
+// Hallazgos 3 y 4: segundo PedidoVenta de `clienteJuanPerez`, en
+// REMITO_EMITIDO (HU-B3 §3.1, entrega parcial) con un segundo ítem en
+// espera de autorización (HU-B4 §2.4). El monto de esta orden (413000.00)
+// excede el disponible de la cuenta corriente (380000.00) — de ahí que la
+// operación de cuenta corriente asociada quede RETENIDA.
+const PEDIDO_VENTA_REMITO_PARCIAL_ID = "1a2b3c4d-be02-4a1a-8a1a-000000000003";
+const PEDIDO_VENTA_REMITO_PARCIAL_ITEM_ENTREGA_ID =
+  "1a2b3c4d-be03-4a1a-8a1a-000000000003";
+const PEDIDO_VENTA_REMITO_PARCIAL_ITEM_AUTORIZACION_ID =
+  "1a2b3c4d-be03-4a1a-8a1a-000000000004";
+
 // ──────────────────────────────────────────────────────────────────────────────
 // Helpers — Fechas
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1139,6 +1299,117 @@ async function main() {
     permisoComprobantesAnular,
   ] = permisosComprobantes;
 
+  // ── HU-H2 — permisos de publicación de Lista de Precios (spec_modulo_H.md §2.3) ──
+  //   - proveedores:publicar_lista          → dentro del umbral normal (Comprador, Supervisor)
+  //   - proveedores:publicar_lista_critica  → por encima del umbral crítico — exclusivo Supervisor
+  // No se asignan a ningún Rol en esta tarea (solo schema/seed de datos, sin
+  // capa de servicios) — quedan sembrados como permisos "stub", mismo patrón
+  // que otros permisos del proyecto creados antes de que exista su consumidor.
+  await Promise.all(
+    (
+      [
+        [PERMISO_PROVEEDORES_PUBLICAR_LISTA_ID, "proveedores:publicar_lista", "Publicar una nueva ListaPrecioVersion dentro del umbral normal de variación (HU-H2 §2.3)"],
+        [PERMISO_PROVEEDORES_PUBLICAR_LISTA_CRITICA_ID, "proveedores:publicar_lista_critica", "Publicar/aprobar una ListaPrecioVersion que supera el umbral crítico de variación — exclusivo Supervisor de Compras (HU-H2 §2.3)"],
+      ] as const
+    ).map(([id, codigo, descripcion]) =>
+      prisma.permiso.upsert({
+        where: { id },
+        update: REACTIVAR_REFERENCIA_RBAC,
+        create: { id, codigo, descripcion, modulo: "MODULO_H" },
+      }),
+    ),
+  );
+
+  // ── Módulo C (Sprint 3) — permisos granulares de Cliente (spec_modulo_C.md,
+  // sección "Permisos RBAC" del Alcance) ──────────────────────────────────────
+  //   - clientes:crear                  → Vendedor, Administrador de CRM
+  //   - clientes:editar                 → datos de contacto + direcciones (HU-C3) +
+  //                                        canal de contacto (HU-C9) — mismo permiso
+  //   - clientes:gestionar_consentimiento → alta/revocación de ConsentimientoCliente (HU-C4)
+  //   - clientes:fusionar               → exclusivo Administrador de CRM (HU-C5)
+  //   - clientes:baja                   → exclusivo Administrador de CRM (HU-C6)
+  //   - clientes:leer                   → Vendedor, Administrador de CRM, Auditor (HU-C7)
+  //   - clientes:gestionar_segmento     → separado de `clientes:editar` por decisión de
+  //                                        granularidad de la Rev. 2 del spec (§2.8) (HU-C8)
+  // Ningún rol Vendedor/Administrador de CRM existe todavía en el seed — estos
+  // permisos quedan sembrados sin asignar a ningún Rol, a la espera de esa tarea.
+  await Promise.all(
+    (
+      [
+        [PERMISO_CLIENTES_CREAR_ID, "clientes:crear", "Dar de alta un Cliente con validación de unicidad por DNI (HU-C1 §2.1)"],
+        [PERMISO_CLIENTES_EDITAR_ID, "clientes:editar", "Editar datos de contacto, direcciones y canal de contacto preferido de un Cliente (HU-C2/C3/C9 §2.2/§2.3)"],
+        [PERMISO_CLIENTES_GESTIONAR_CONSENTIMIENTO_ID, "clientes:gestionar_consentimiento", "Registrar y revocar el ConsentimientoCliente de tratamiento de datos personales (HU-C4 §2.4)"],
+        [PERMISO_CLIENTES_FUSIONAR_ID, "clientes:fusionar", "Unificar dos registros de Cliente duplicados — exclusivo Administrador de CRM (HU-C5 §2.5)"],
+        [PERMISO_CLIENTES_BAJA_ID, "clientes:baja", "Dar de baja lógica un Cliente con motivo obligatorio — exclusivo Administrador de CRM (HU-C6 §2.6)"],
+        [PERMISO_CLIENTES_LEER_ID, "clientes:leer", "Consultar un Cliente y su ficha unificada por DNI (HU-C7 §2.7)"],
+        [PERMISO_CLIENTES_GESTIONAR_SEGMENTO_ID, "clientes:gestionar_segmento", "Actualizar el segmento comercial de un Cliente — permiso granular separado de `clientes:editar` (HU-C8 §2.8)"],
+      ] as const
+    ).map(([id, codigo, descripcion]) =>
+      prisma.permiso.upsert({
+        where: { id },
+        update: REACTIVAR_REFERENCIA_RBAC,
+        create: { id, codigo, descripcion, modulo: "MODULO_C" },
+      }),
+    ),
+  );
+
+  // HU-C10 (spec_modulo_C.md §2.9): sembrado LITERAL según lo que piden
+  // spec_modulo_C.md §2.9 y spec_modulo_H.md §2.9 — pese a que ambos afirman
+  // que "ya usa Módulo H" el mismo permiso, el código real usa
+  // `auditoria:leer_forense` (`PERMISO_LEER_FORENSE_ID`, más arriba) en todas
+  // sus rutas/servicios/UI. `auditoria:leer_historico` NO existe hoy en
+  // ningún otro lado del proyecto — es una divergencia de nomenclatura
+  // conocida y aceptada explícitamente por el equipo para esta tarea (ver
+  // reporte de relevamiento), no un error de este seed.
+  await prisma.permiso.upsert({
+    where: { id: PERMISO_AUDITORIA_LEER_HISTORICO_ID },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: {
+      id: PERMISO_AUDITORIA_LEER_HISTORICO_ID,
+      codigo: "auditoria:leer_historico",
+      descripcion:
+        "Consultar el log de auditoría histórico filtrado por dominio (HU-C10 §2.9, scope 'clientes') — el filtro de dominio se aplica en la capa de servicios, no en este permiso",
+      modulo: "MODULO_C",
+    },
+  });
+
+  // ── Módulo B (Sprint 3) — permisos granulares de Ventas (spec_modulo_B.md
+  // §2, un permiso por acción, mismo criterio que el resto del proyecto) ──
+  //   - ventas:registrar_venta_mostrador     → exclusivo Cajero POS (HU-B1 §2.1)
+  //   - ventas:gestionar_turno_caja          → exclusivo Cajero POS (HU-B2 §2.2)
+  //   - ventas:emitir_cotizacion             → exclusivo Cajero POS (HU-B3 §2.3)
+  //   - ventas:aplicar_descuento_margen      → Cajero POS, dentro de su margen habilitado (HU-B4 §2.4)
+  //   - ventas:autorizar_excepcion_descuento → exclusivo Supervisor de Ventas (HU-B4 §2.4)
+  //   - ventas:gestionar_cuenta_corriente    → Cajero POS y Supervisor de Ventas (HU-B5 §2.5)
+  //   - ventas:autorizar_excepcion_credito   → exclusivo Supervisor de Ventas (HU-B5 §2.5)
+  //   - ventas:leer                          → todos los roles del módulo (catálogo/precios/comprobantes propios)
+  //   - ventas:anular_pedido                 → exclusivo Supervisor de Ventas (HU-B7 §2.8)
+  //   - ventas:leer_log_operativo            → exclusivo Supervisor de Ventas, acceso restringido (HU-B6 §2.6)
+  // Ningún rol Cajero POS/Supervisor de Ventas existe todavía — quedan
+  // sembrados sin asignar a ningún Rol (ver nota de las constantes arriba).
+  await Promise.all(
+    (
+      [
+        [PERMISO_VENTAS_REGISTRAR_MOSTRADOR_ID, "ventas:registrar_venta_mostrador", "Registrar una venta de mostrador con cobro multimedio — exclusivo Cajero POS (HU-B1 §2.1)"],
+        [PERMISO_VENTAS_GESTIONAR_TURNO_CAJA_ID, "ventas:gestionar_turno_caja", "Abrir y cerrar el turno de caja propio, con arqueo ciego — exclusivo Cajero POS (HU-B2 §2.2)"],
+        [PERMISO_VENTAS_EMITIR_COTIZACION_ID, "ventas:emitir_cotizacion", "Emitir un Presupuesto con congelamiento de stock y aceptar su conversión a PedidoVenta — exclusivo Cajero POS (HU-B3 §2.3)"],
+        [PERMISO_VENTAS_APLICAR_DESCUENTO_MARGEN_ID, "ventas:aplicar_descuento_margen", "Aplicar un descuento dentro del margen habilitado por perfil, sin autorización de terceros (HU-B4 §2.4)"],
+        [PERMISO_VENTAS_AUTORIZAR_EXCEPCION_DESCUENTO_ID, "ventas:autorizar_excepcion_descuento", "Autorizar un descuento o cambio de precio por fuera del margen habilitado — exclusivo Supervisor de Ventas (HU-B4 §2.4)"],
+        [PERMISO_VENTAS_GESTIONAR_CUENTA_CORRIENTE_ID, "ventas:gestionar_cuenta_corriente", "Consultar y registrar operaciones sobre la CuentaCorrienteCliente de un cliente (HU-B5 §2.5)"],
+        [PERMISO_VENTAS_AUTORIZAR_EXCEPCION_CREDITO_ID, "ventas:autorizar_excepcion_credito", "Autorizar una operación de cuenta corriente que excede el límite de crédito disponible — exclusivo Supervisor de Ventas (HU-B5 §2.5)"],
+        [PERMISO_VENTAS_LEER_ID, "ventas:leer", "Consultar catálogo, precios, disponibilidad de stock y comprobantes propios del pedido (HU-B7 §2.7)"],
+        [PERMISO_VENTAS_ANULAR_PEDIDO_ID, "ventas:anular_pedido", "Anular un PedidoVenta en estado RESERVADO — exclusivo Supervisor de Ventas (HU-B7 §2.8)"],
+        [PERMISO_VENTAS_LEER_LOG_OPERATIVO_ID, "ventas:leer_log_operativo", "Consultar el log de auditoría del módulo con alcance restringido a las operaciones propias o escaladas al Supervisor, sin verificar_integridad (HU-B6 §2.6)"],
+      ] as const
+    ).map(([id, codigo, descripcion]) =>
+      prisma.permiso.upsert({
+        where: { id },
+        update: REACTIVAR_REFERENCIA_RBAC,
+        create: { id, codigo, descripcion, modulo: "MODULO_B" },
+      }),
+    ),
+  );
+
   const rolComprador = await prisma.rol.upsert({
     where: { id: ROL_COMPRADOR_ID },
     update: REACTIVAR_REFERENCIA_RBAC,
@@ -1572,6 +1843,49 @@ async function main() {
     });
   }
 
+  // ── Módulo H — Nueva versión de Lista de Precios (HU-H2, Sprint 3) ────────
+  //
+  // Publicación de una nueva ListaPrecioVersion sobre la misma ListaPrecio
+  // ancla (`listaPrecioHomologado`), con `fecha_inicio_vigencia` posterior a
+  // la de Sprint 2 — pasa a ser la versión vigente resuelta por
+  // `resolverListaPrecioVigente()` (publicada = true, sin fecha futura,
+  // orden desc). Dentro del umbral normal: `publicada = true` de inmediato,
+  // sin paso de aprobación (spec_modulo_H.md §2.3). No reemplaza ni modifica
+  // `listaPrecioVersion` (Sprint 2) — HU-H2 es inmutabilidad estricta por
+  // versionado, nunca UPDATE sobre una versión ya persistida (spec §3.4).
+
+  const listaPrecioVersion2 = await prisma.listaPrecioVersion.upsert({
+    where: { id: LISTA_PRECIO_VERSION_2_ID },
+    update: { publicada: true, is_active: true },
+    create: {
+      id: LISTA_PRECIO_VERSION_2_ID,
+      lista_precio_id: listaPrecioHomologado.id,
+      fecha_inicio_vigencia: diasAtras(2),
+      variacion_porcentual_maxima: 4.0,
+      requiere_aprobacion: false,
+      publicada: true,
+      is_active: true,
+    },
+  });
+
+  for (const [id, varianteSkuId, precio] of [
+    [LISTA_PRECIO_ITEM_V2_CAMISA_1_ID, VARIANTE_CAMISA_TACTICA_1_ID, 16400.0],
+    [LISTA_PRECIO_ITEM_V2_CAMISA_2_ID, VARIANTE_CAMISA_TACTICA_2_ID, 16900.0],
+    [LISTA_PRECIO_ITEM_V2_BORCEGOS_1_ID, VARIANTE_BORCEGOS_1_ID, 43500.0],
+  ] as const) {
+    await prisma.listaPrecioItem.upsert({
+      where: { id },
+      update: { precio_unitario: precio, is_active: true },
+      create: {
+        id,
+        lista_precio_version_id: listaPrecioVersion2.id,
+        variante_sku_id: varianteSkuId,
+        precio_unitario: precio,
+        is_active: true,
+      },
+    });
+  }
+
   // ── Módulo H — Orden de Compra controlada (HU-H4 V2) ───────────────────────
   //
   // El fixture compartido con H5/G8 representa un único control ya finalizado:
@@ -1865,6 +2179,481 @@ async function main() {
     },
   });
 
+  // ── Módulo C — Clientes de prueba (Sprint 3) ──────────────────────────────
+  //
+  // HU-C1/C3/C4: cliente estándar con dirección FACTURACION + ENVIO y su
+  // ConsentimientoCliente inicial — toda alta exige uno en la misma
+  // transacción (spec_modulo_C.md §2.1); acá se siembra por separado porque
+  // no hay transacción real en este script, pero la relación es la misma.
+  const clienteJuanPerez = await prisma.cliente.upsert({
+    where: { id: CLIENTE_JUAN_PEREZ_ID },
+    update: {},
+    create: {
+      id: CLIENTE_JUAN_PEREZ_ID,
+      dni: "30123456",
+      nombre: "Juan Pérez",
+      telefono: "3874001234",
+      email: "juan.perez@example.com",
+      canal_preferido: "WHATSAPP",
+      segmento: "MINORISTA",
+      is_active: true,
+    },
+  });
+
+  await prisma.direccionCliente.upsert({
+    where: { id: DIRECCION_JUAN_PEREZ_FACTURACION_ID },
+    update: {},
+    create: {
+      id: DIRECCION_JUAN_PEREZ_FACTURACION_ID,
+      cliente_id: clienteJuanPerez.id,
+      rotulo: "Casa",
+      tipo: "FACTURACION",
+      direccion_completa: "Belgrano 123, Salta Capital",
+      is_active: true,
+    },
+  });
+
+  await prisma.direccionCliente.upsert({
+    where: { id: DIRECCION_JUAN_PEREZ_ENVIO_ID },
+    update: {},
+    create: {
+      id: DIRECCION_JUAN_PEREZ_ENVIO_ID,
+      cliente_id: clienteJuanPerez.id,
+      rotulo: "Depósito",
+      tipo: "ENVIO",
+      direccion_completa: "Ruta 9 Km 4, Salta",
+      is_active: true,
+    },
+  });
+
+  await prisma.consentimientoCliente.upsert({
+    where: { id: CONSENTIMIENTO_JUAN_PEREZ_ID },
+    update: {},
+    create: {
+      id: CONSENTIMIENTO_JUAN_PEREZ_ID,
+      cliente_id: clienteJuanPerez.id,
+      alcance: "AMBOS",
+      finalidad: "Venta asistida y comunicaciones comerciales",
+      fecha_consentimiento: diasAtras(10),
+      is_active: true,
+    },
+  });
+
+  // HU-C5: posible duplicado de `clienteJuanPerez` — mismo nombre/teléfono
+  // aproximado, DNI DISTINTO (no confundir con el caso de DNI idéntico, que
+  // HU-C1 resuelve por sí sola sin necesitar un caso de seed especial). Mismos
+  // valores de ejemplo que usa spec_modulo_C.md §2.1 en su respuesta de
+  // muestra de "posibles_duplicados".
+  const clienteJuanPerezDuplicado = await prisma.cliente.upsert({
+    where: { id: CLIENTE_JUAN_PEREZ_DUPLICADO_ID },
+    update: {},
+    create: {
+      id: CLIENTE_JUAN_PEREZ_DUPLICADO_ID,
+      dni: "30987654",
+      nombre: "Juan Perez",
+      telefono: "3874001234",
+      segmento: "MINORISTA",
+      is_active: true,
+    },
+  });
+
+  await prisma.consentimientoCliente.upsert({
+    where: { id: CONSENTIMIENTO_JUAN_PEREZ_DUPLICADO_ID },
+    update: {},
+    create: {
+      id: CONSENTIMIENTO_JUAN_PEREZ_DUPLICADO_ID,
+      cliente_id: clienteJuanPerezDuplicado.id,
+      alcance: "VENTA_ASISTIDA",
+      finalidad: "Venta asistida",
+      fecha_consentimiento: diasAtras(1),
+      is_active: true,
+    },
+  });
+
+  // HU-C5: par primario/secundario ya fusionado — ejercita
+  // `Cliente.fusionado_en_id` (autorreferencial, onDelete: Restrict) y el
+  // patrón de baja lógica con `deletion_reason: "duplicado"` fijo, inmutable
+  // (spec §2.5/§3.2). El primario no cambia de estado por la fusión.
+  const clienteMariaGomezPrimario = await prisma.cliente.upsert({
+    where: { id: CLIENTE_MARIA_GOMEZ_PRIMARIO_ID },
+    update: {},
+    create: {
+      id: CLIENTE_MARIA_GOMEZ_PRIMARIO_ID,
+      dni: "27555111",
+      nombre: "María Gómez",
+      telefono: "3874002222",
+      email: "maria.gomez@example.com",
+      canal_preferido: "EMAIL",
+      segmento: "MINORISTA",
+      is_active: true,
+    },
+  });
+
+  await prisma.consentimientoCliente.upsert({
+    where: { id: CONSENTIMIENTO_MARIA_GOMEZ_PRIMARIO_ID },
+    update: {},
+    create: {
+      id: CONSENTIMIENTO_MARIA_GOMEZ_PRIMARIO_ID,
+      cliente_id: clienteMariaGomezPrimario.id,
+      alcance: "AMBOS",
+      finalidad: "Venta asistida y comunicaciones comerciales",
+      fecha_consentimiento: diasAtras(20),
+      is_active: true,
+    },
+  });
+
+  const clienteMariaGomezFusionado = await prisma.cliente.upsert({
+    where: { id: CLIENTE_MARIA_GOMEZ_FUSIONADO_ID },
+    update: {
+      fusionado_en_id: clienteMariaGomezPrimario.id,
+      is_active: false,
+      deleted_by: usuarioAdmin.id,
+      deletion_reason: "duplicado",
+    },
+    create: {
+      id: CLIENTE_MARIA_GOMEZ_FUSIONADO_ID,
+      dni: "27555222",
+      nombre: "Maria Gomez",
+      telefono: "3874002222",
+      segmento: "MINORISTA",
+      fusionado_en_id: clienteMariaGomezPrimario.id,
+      is_active: false,
+      deleted_at: diasAtras(5),
+      deleted_by: usuarioAdmin.id,
+      deletion_reason: "duplicado",
+    },
+  });
+
+  await prisma.consentimientoCliente.upsert({
+    where: { id: CONSENTIMIENTO_MARIA_GOMEZ_FUSIONADO_ID },
+    update: {},
+    create: {
+      id: CONSENTIMIENTO_MARIA_GOMEZ_FUSIONADO_ID,
+      cliente_id: clienteMariaGomezFusionado.id,
+      alcance: "VENTA_ASISTIDA",
+      finalidad: "Venta asistida",
+      fecha_consentimiento: diasAtras(25),
+      is_active: true,
+    },
+  });
+
+  // ── Módulo B (Sprint 3) — Usuarios de prueba ────────────────────────────────
+  // Sin Rol asignado — ver nota en la declaración de las constantes de id.
+  const usuarioCajero = await prisma.usuario.upsert({
+    where: { nombre_usuario: "cajero.seed" },
+    update: {},
+    create: {
+      id: USUARIO_CAJERO_SEED_ID,
+      nombre_usuario: "cajero.seed",
+      email: "cajero.seed@erp-swat.local",
+      password_hash: passwordSeed.hash,
+      password_salt: passwordSeed.salt,
+      nombre_completo: "Cajero POS Seed (Módulo B)",
+      estado: "ACTIVO",
+      is_active: true,
+    },
+  });
+
+  const usuarioSupervisorVentas = await prisma.usuario.upsert({
+    where: { nombre_usuario: "supervisor.ventas.seed" },
+    update: {},
+    create: {
+      id: USUARIO_SUPERVISOR_VENTAS_SEED_ID,
+      nombre_usuario: "supervisor.ventas.seed",
+      email: "supervisor.ventas.seed@erp-swat.local",
+      password_hash: passwordSeed.hash,
+      password_salt: passwordSeed.salt,
+      nombre_completo: "Supervisor de Ventas Seed (Módulo B)",
+      estado: "ACTIVO",
+      is_active: true,
+    },
+  });
+
+  // ── Módulo B — Turno de caja abierto (HU-B2 §2.2) ───────────────────────────
+  const turnoCajaAbierto = await prisma.turnoCaja.upsert({
+    where: { id: TURNO_CAJA_ABIERTO_ID },
+    update: {},
+    create: {
+      id: TURNO_CAJA_ABIERTO_ID,
+      usuario_id: usuarioCajero.id,
+      fondo_fijo_inicial: 5000.0,
+      fecha_apertura: diasAtras(1),
+      is_active: true,
+    },
+  });
+
+  // ── Módulo B — Venta de mostrador completa (HU-B1 §2.1), con cobro
+  // multimedio y comprobante fiscal simulado (HU-B7 §2.7), asociada a
+  // `clienteJuanPerez` para que HU-C7 (spec_modulo_C.md §2.7) tenga
+  // historial de compras real, no vacío, al consultarlo por DNI ─────────────
+  const pedidoVentaMostrador = await prisma.pedidoVenta.upsert({
+    where: { id: PEDIDO_VENTA_MOSTRADOR_ID },
+    update: {},
+    create: {
+      id: PEDIDO_VENTA_MOSTRADOR_ID,
+      numero_venta: "V-2026-000001",
+      cliente_id: clienteJuanPerez.id,
+      turno_caja_id: turnoCajaAbierto.id,
+      estado: "FACTURADO",
+      total: 45000.0,
+      fecha_facturacion: diasAtras(2),
+      registrado_por_id: usuarioCajero.id,
+      is_active: true,
+    },
+  });
+
+  await prisma.pedidoVentaItem.upsert({
+    where: { id: PEDIDO_VENTA_MOSTRADOR_ITEM_ID },
+    update: {},
+    create: {
+      id: PEDIDO_VENTA_MOSTRADOR_ITEM_ID,
+      pedido_venta_id: pedidoVentaMostrador.id,
+      // Camisa Táctica 2 (L, Negro, HOMBRE, Manga Corta) — stock sembrado en
+      // el depósito central (`STOCK_CT2_CENTRAL_ID`, 18 unidades).
+      variante_sku_id: VARIANTE_CAMISA_TACTICA_2_ID,
+      cantidad: 1,
+      precio_unitario: 45000.0,
+      // Venta 100% de mostrador sin cotización previa: `reserva_id` queda
+      // nulo (spec_modulo_B.md §2.1, "flujo de egreso directo" de Módulo A).
+      cantidad_facturada: 1,
+      cantidad_entregada: 1,
+      is_active: true,
+    },
+  });
+
+  // Cobro multimedio real (criterio de aceptación explícito de HU-B1 §2.1):
+  // dos medios combinados que suman exactamente el total de la venta.
+  await prisma.ventaMedioPago.upsert({
+    where: { id: VENTA_MEDIO_PAGO_EFECTIVO_ID },
+    update: {},
+    create: {
+      id: VENTA_MEDIO_PAGO_EFECTIVO_ID,
+      pedido_venta_id: pedidoVentaMostrador.id,
+      medio: "EFECTIVO",
+      importe: 20000.0,
+      is_active: true,
+    },
+  });
+
+  await prisma.ventaMedioPago.upsert({
+    where: { id: VENTA_MEDIO_PAGO_TRANSFERENCIA_ID },
+    update: {},
+    create: {
+      id: VENTA_MEDIO_PAGO_TRANSFERENCIA_ID,
+      pedido_venta_id: pedidoVentaMostrador.id,
+      medio: "TRANSFERENCIA",
+      importe: 25000.0,
+      referencia: "OP-887654",
+      is_active: true,
+    },
+  });
+
+  // HU-B7 §2.7: CAE y QR enteramente simulados, generados localmente — SIN
+  // ningún campo que sugiera una llamada externa real a AFIP (nota inicial
+  // de spec_modulo_B.md). Sin bloque de soft delete (spec §3.4).
+  await prisma.comprobanteFiscal.upsert({
+    where: { id: COMPROBANTE_FISCAL_MOSTRADOR_ID },
+    update: {},
+    create: {
+      id: COMPROBANTE_FISCAL_MOSTRADOR_ID,
+      pedido_venta_id: pedidoVentaMostrador.id,
+      tipo_comprobante: "FACTURA_B",
+      cae_simulado: "68031598274563",
+      qr_data_url: "data:image/png;base64,SIMULADO-SEED-NO-AFIP==",
+      es_simulado: true,
+      monto_total: 45000.0,
+      emitido_por_id: usuarioCajero.id,
+    },
+  });
+
+  // ── Módulo B — Presupuesto con reserva de stock (HU-B3 §2.3) + conversión
+  // a PedidoVenta, cotización institucional de gran volumen sobre
+  // `clienteMariaGomezPrimario`. `origen_reserva: "LICITACION"` usa el enum
+  // `OrigenReserva` de Módulo A TAL COMO EXISTE HOY, sin renombrar (nota
+  // inicial de spec_modulo_B.md, decisión ya tomada por el equipo) ─────────
+  const reservaPresupuestoLicitacion = await prisma.reserva.upsert({
+    where: { id: RESERVA_PRESUPUESTO_LICITACION_ID },
+    update: {},
+    create: {
+      id: RESERVA_PRESUPUESTO_LICITACION_ID,
+      // Borcegos 1 (42, Negro, HOMBRE, Combate) — stock sembrado en el
+      // depósito central (`STOCK_B1_CENTRAL_ID`, 30 unidades).
+      variante_sku_id: VARIANTE_BORCEGOS_1_ID,
+      deposito_id: deposito.id,
+      cantidad: 10,
+      fecha_inicio_reserva: diasAtras(3),
+      motivo: "Cotización institucional — Presupuesto Módulo B (HU-B3)",
+      origen_reserva: "LICITACION",
+      registrado_por_id: usuarioCajero.id,
+      is_active: true,
+    },
+  });
+
+  const presupuestoLicitacion = await prisma.presupuesto.upsert({
+    where: { id: PRESUPUESTO_LICITACION_ID },
+    update: {},
+    create: {
+      id: PRESUPUESTO_LICITACION_ID,
+      cliente_id: clienteMariaGomezPrimario.id,
+      estado: "EMITIDO",
+      vigencia_dias: 7,
+      // Emitido diasAtras(3) + 7 días de vigencia = vence dentro de 4 días.
+      vigencia_hasta: diasAtras(-4),
+      condiciones_comerciales:
+        "Cotización institucional — pago contra entrega",
+      creado_por_id: usuarioCajero.id,
+      is_active: true,
+    },
+  });
+
+  await prisma.presupuestoItem.upsert({
+    where: { id: PRESUPUESTO_LICITACION_ITEM_ID },
+    update: {},
+    create: {
+      id: PRESUPUESTO_LICITACION_ITEM_ID,
+      presupuesto_id: presupuestoLicitacion.id,
+      variante_sku_id: VARIANTE_BORCEGOS_1_ID,
+      cantidad: 10,
+      precio_cotizado: 38000.0,
+      reserva_id: reservaPresupuestoLicitacion.id,
+      is_active: true,
+    },
+  });
+
+  // Conversión a PedidoVenta (estado RESERVADO — todavía sin facturar ni
+  // cobrar, spec §3.1): reutiliza la MISMA Reserva del PresupuestoItem
+  // origen, sin congelar stock una segunda vez (spec §2.3/§3.2).
+  const pedidoVentaLicitacion = await prisma.pedidoVenta.upsert({
+    where: { id: PEDIDO_VENTA_LICITACION_ID },
+    update: {},
+    create: {
+      id: PEDIDO_VENTA_LICITACION_ID,
+      numero_venta: "V-2026-000002",
+      cliente_id: clienteMariaGomezPrimario.id,
+      presupuesto_origen_id: presupuestoLicitacion.id,
+      estado: "RESERVADO",
+      total: 380000.0,
+      registrado_por_id: usuarioCajero.id,
+      is_active: true,
+    },
+  });
+
+  await prisma.pedidoVentaItem.upsert({
+    where: { id: PEDIDO_VENTA_LICITACION_ITEM_ID },
+    update: {},
+    create: {
+      id: PEDIDO_VENTA_LICITACION_ITEM_ID,
+      pedido_venta_id: pedidoVentaLicitacion.id,
+      variante_sku_id: VARIANTE_BORCEGOS_1_ID,
+      cantidad: 10,
+      precio_unitario: 38000.0,
+      reserva_id: reservaPresupuestoLicitacion.id,
+      is_active: true,
+    },
+  });
+
+  // ── Módulo B — Segundo PedidoVenta de `clienteJuanPerez` (HU-B3 §3.1,
+  // entrega parcial) con un ítem en espera de autorización (HU-B4 §2.4).
+  // Ítem A ya facturado por completo pero con remito parcial
+  // (`cantidad_entregada` < `cantidad`); Ítem B bloqueado pendiente de que
+  // un Supervisor de Ventas autorice el descuento/precio fuera de margen —
+  // por eso avanza en 0 tanto en facturación como en entrega ────────────────
+  const pedidoVentaRemitoParcial = await prisma.pedidoVenta.upsert({
+    where: { id: PEDIDO_VENTA_REMITO_PARCIAL_ID },
+    update: {},
+    create: {
+      id: PEDIDO_VENTA_REMITO_PARCIAL_ID,
+      numero_venta: "V-2026-000003",
+      cliente_id: clienteJuanPerez.id,
+      turno_caja_id: turnoCajaAbierto.id,
+      estado: "REMITO_EMITIDO",
+      total: 413000.0,
+      fecha_facturacion: diasAtras(1),
+      registrado_por_id: usuarioCajero.id,
+      is_active: true,
+    },
+  });
+
+  await prisma.pedidoVentaItem.upsert({
+    where: { id: PEDIDO_VENTA_REMITO_PARCIAL_ITEM_ENTREGA_ID },
+    update: {},
+    create: {
+      id: PEDIDO_VENTA_REMITO_PARCIAL_ITEM_ENTREGA_ID,
+      pedido_venta_id: pedidoVentaRemitoParcial.id,
+      variante_sku_id: VARIANTE_CAMISA_TACTICA_1_ID,
+      cantidad: 10,
+      precio_unitario: 16400.0,
+      cantidad_facturada: 10,
+      cantidad_entregada: 6,
+      is_active: true,
+    },
+  });
+
+  await prisma.pedidoVentaItem.upsert({
+    where: { id: PEDIDO_VENTA_REMITO_PARCIAL_ITEM_AUTORIZACION_ID },
+    update: {},
+    create: {
+      id: PEDIDO_VENTA_REMITO_PARCIAL_ITEM_AUTORIZACION_ID,
+      pedido_venta_id: pedidoVentaRemitoParcial.id,
+      variante_sku_id: VARIANTE_BORCEGOS_2_ID,
+      cantidad: 6,
+      precio_unitario: 41500.0,
+      requiere_autorizacion: true,
+      autorizado_por_id: null,
+      cantidad_facturada: 0,
+      cantidad_entregada: 0,
+      is_active: true,
+    },
+  });
+
+  // ── Módulo B — Cuenta corriente de `clienteJuanPerez` (HU-B5 §2.5).
+  // Montos idénticos al ejemplo de respuesta `200 OK` de spec_modulo_B.md
+  // §2.5 (límite 500000.00 / saldo 120000.00 → disponible 380000.00) ───────
+  const cuentaCorrienteJuanPerez = await prisma.cuentaCorrienteCliente.upsert({
+    where: { id: CUENTA_CORRIENTE_JUAN_PEREZ_ID },
+    update: {},
+    create: {
+      id: CUENTA_CORRIENTE_JUAN_PEREZ_ID,
+      cliente_id: clienteJuanPerez.id,
+      limite_credito_autorizado: 500000.0,
+      saldo_actual: 120000.0,
+      is_active: true,
+    },
+  });
+
+  // Operación APROBADA: dentro del disponible (45000.00 < 380000.00),
+  // asociada a la venta de mostrador ya facturada.
+  await prisma.cuentaCorrienteOperacion.upsert({
+    where: { id: CUENTA_CORRIENTE_OPERACION_APROBADA_ID },
+    update: {},
+    create: {
+      id: CUENTA_CORRIENTE_OPERACION_APROBADA_ID,
+      cuenta_corriente_id: cuentaCorrienteJuanPerez.id,
+      pedido_venta_id: pedidoVentaMostrador.id,
+      monto: 45000.0,
+      estado: "APROBADA",
+      autorizado_por_id: null,
+      is_active: true,
+    },
+  });
+
+  // Operación RETENIDA: excede el disponible (413000.00 > 380000.00) — caso
+  // real de espera de autorización del Supervisor de Ventas, sin resolver
+  // (`autorizado_por_id: null`), asociada al PedidoVenta con remito parcial.
+  await prisma.cuentaCorrienteOperacion.upsert({
+    where: { id: CUENTA_CORRIENTE_OPERACION_RETENIDA_ID },
+    update: {},
+    create: {
+      id: CUENTA_CORRIENTE_OPERACION_RETENIDA_ID,
+      cuenta_corriente_id: cuentaCorrienteJuanPerez.id,
+      pedido_venta_id: pedidoVentaRemitoParcial.id,
+      monto: 413000.0,
+      estado: "RETENIDA",
+      autorizado_por_id: null,
+      is_active: true,
+    },
+  });
+
   // ── Resumen final ───────────────────────────────────────────────────────────
 
   console.log("\nSeed HU-7 completado:");
@@ -1937,6 +2726,44 @@ async function main() {
     recepcion_id: recepcionSeed.id,
     cuenta_por_pagar_id: CUENTA_POR_PAGAR_PROVISORIA_ID,
     evaluacion_proveedor_id: EVALUACION_PROVEEDOR_SEED_ID,
+  });
+
+  console.log("\nSeed Sprint 3 — Módulo C (Clientes) + cierre Módulo H completado:");
+  console.table({
+    lista_precio_version_2_id: listaPrecioVersion2.id,
+    permiso_clientes_leer_id: PERMISO_CLIENTES_LEER_ID,
+    permiso_auditoria_leer_historico_id: PERMISO_AUDITORIA_LEER_HISTORICO_ID,
+    permiso_proveedores_publicar_lista_id: PERMISO_PROVEEDORES_PUBLICAR_LISTA_ID,
+    cliente_juan_perez_id: clienteJuanPerez.id,
+    cliente_juan_perez_duplicado_id: clienteJuanPerezDuplicado.id,
+    cliente_maria_gomez_primario_id: clienteMariaGomezPrimario.id,
+    cliente_maria_gomez_fusionado_id: clienteMariaGomezFusionado.id,
+  });
+
+  console.log(
+    `\nSeed Sprint 3 — Módulo B (Ventas y Punto de Venta) completado (password: "${PASSWORD_SEED}"):`,
+  );
+  console.table({
+    cajero_seed: `${usuarioCajero.nombre_usuario}  <${usuarioCajero.email}>`,
+    supervisor_ventas_seed: `${usuarioSupervisorVentas.nombre_usuario}  <${usuarioSupervisorVentas.email}>`,
+    permiso_ventas_registrar_mostrador_id: PERMISO_VENTAS_REGISTRAR_MOSTRADOR_ID,
+    permiso_ventas_leer_id: PERMISO_VENTAS_LEER_ID,
+    permiso_ventas_anular_pedido_id: PERMISO_VENTAS_ANULAR_PEDIDO_ID,
+    permiso_ventas_leer_log_operativo_id: PERMISO_VENTAS_LEER_LOG_OPERATIVO_ID,
+    turno_caja_abierto_id: turnoCajaAbierto.id,
+    pedido_venta_mostrador_id: pedidoVentaMostrador.id,
+    pedido_venta_mostrador_numero: pedidoVentaMostrador.numero_venta,
+    pedido_venta_mostrador_cliente: clienteJuanPerez.nombre,
+    comprobante_fiscal_mostrador_id: COMPROBANTE_FISCAL_MOSTRADOR_ID,
+    presupuesto_licitacion_id: presupuestoLicitacion.id,
+    reserva_presupuesto_licitacion_id: reservaPresupuestoLicitacion.id,
+    pedido_venta_licitacion_id: pedidoVentaLicitacion.id,
+    pedido_venta_licitacion_numero: pedidoVentaLicitacion.numero_venta,
+    pedido_venta_remito_parcial_id: pedidoVentaRemitoParcial.id,
+    pedido_venta_remito_parcial_numero: pedidoVentaRemitoParcial.numero_venta,
+    cuenta_corriente_juan_perez_id: cuentaCorrienteJuanPerez.id,
+    cuenta_corriente_operacion_aprobada_id: CUENTA_CORRIENTE_OPERACION_APROBADA_ID,
+    cuenta_corriente_operacion_retenida_id: CUENTA_CORRIENTE_OPERACION_RETENIDA_ID,
   });
 }
 
