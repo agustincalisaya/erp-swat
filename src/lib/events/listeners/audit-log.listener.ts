@@ -814,4 +814,20 @@ export function iniciarAuditLogListener(): void {
       },
     });
   });
+
+  // HU-C1 (Módulo C) — alta NUEVA de un Cliente. `cliente.service.ts` nunca
+  // se emite al recuperar un DNI ya existente (spec §3.1: "no hay transición
+  // nueva"), así que este listener solo ve altas reales. Sin `ip` en el
+  // payload (mismo criterio que `producto_maestro:creado`, Módulo A).
+  domainEventBus.on("cliente:creado", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "CREATE",
+      tabla_afectada: "clientes",
+      registro_id: payload.cliente_id,
+      ip: "unknown",
+      valor_anterior: null,
+      valor_nuevo: { dni: payload.dni },
+    });
+  });
 }

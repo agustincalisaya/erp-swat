@@ -656,6 +656,22 @@ export interface PresupuestoAceptadoPayload {
   aceptado_por_id: string;
 }
 
+/**
+ * HU-C1 (Módulo C) — Payload emitido tras el alta NUEVA de un `Cliente`
+ * (`crearCliente()`, spec_modulo_C.md §2.1/§4). Se emite SOLO cuando
+ * `es_nuevo === true` — recuperar un `Cliente` existente por DNI (§3.1: "no
+ * hay transición nueva") no dispara este evento, no hay nada que auditar.
+ * Emisión post-`COMMIT`, fire-and-forget (mismo patrón que el resto del
+ * proyecto — spec §3.3). Nunca incluye `telefono`/`email` (regla de
+ * exclusión de datos personales del payload, spec §4).
+ */
+export interface ClienteCreadoPayload {
+  cliente_id: string;
+  dni: string;
+  usuario_id: string;
+  es_nuevo: true;
+}
+
 /** Mapa evento → payload, usado por `domain-event-bus.ts` para tipar `emit`/`on`. */
 export interface DomainEventMap {
   /** HU-A1: se emite tras el alta de un ProductoMaestro. */
@@ -735,6 +751,8 @@ export interface DomainEventMap {
   "venta:presupuesto_vencido": PresupuestoVencidoPayload;
   /** HU-B3: se emite tras convertir un Presupuesto EMITIDO en un PedidoVenta RESERVADO. */
   "venta:presupuesto_aceptado": PresupuestoAceptadoPayload;
+  /** HU-C1: se emite tras el alta NUEVA de un Cliente (nunca al recuperar uno existente por DNI). */
+  "cliente:creado": ClienteCreadoPayload;
 }
 
 export type DomainEventName = keyof DomainEventMap;
