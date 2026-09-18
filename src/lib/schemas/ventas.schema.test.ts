@@ -1,10 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { CrearPresupuestoSchema, PresupuestoIdSchema } from "./ventas.schema.ts";
+import {
+  CrearPresupuestoSchema,
+  PresupuestoIdSchema,
+  AutorizarOverrideDescuentoSchema,
+  PedidoVentaIdSchema,
+} from "./ventas.schema.ts";
 
 const cliente = "11111111-1111-4111-8111-111111111111";
 const variante = "22222222-2222-4222-8222-222222222222";
 const deposito = "33333333-3333-4333-8333-333333333333";
+const supervisor = "44444444-4444-4444-8444-444444444444";
 
 function itemValido(overrides: Partial<Record<string, unknown>> = {}) {
   return {
@@ -121,4 +127,95 @@ test("CrearPresupuestoSchema rechaza cliente_id que no sea UUID", () => {
 test("PresupuestoIdSchema valida el UUID del segmento [id]", () => {
   assert.equal(PresupuestoIdSchema.safeParse("no-es-uuid").success, false);
   assert.equal(PresupuestoIdSchema.safeParse(cliente).success, true);
+});
+
+// ── AutorizarOverrideDescuentoSchema (HU-B4, spec_modulo_B.md §2.4) ─────────
+
+function overrideValido(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    variante_sku_id: variante,
+    descuento_porcentual_solicitado: 12.5,
+    motivo: "Cliente institucional",
+    supervisor_credencial: { usuario_id: supervisor },
+    ...overrides,
+  };
+}
+
+test("AutorizarOverrideDescuentoSchema acepta un override válido vía descuento_porcentual_solicitado", () => {
+  const resultado = AutorizarOverrideDescuentoSchema.safeParse(overrideValido());
+  assert.equal(resultado.success, true);
+});
+
+test("AutorizarOverrideDescuentoSchema acepta un override válido vía precio_lista_modificado", () => {
+  const resultado = AutorizarOverrideDescuentoSchema.safeParse(
+    overrideValido({ descuento_porcentual_solicitado: undefined, precio_lista_modificado: 38000 }),
+  );
+  assert.equal(resultado.success, true);
+});
+
+test("AutorizarOverrideDescuentoSchema acepta ambos campos a la vez (el .refine no los excluye mutuamente)", () => {
+  const resultado = AutorizarOverrideDescuentoSchema.safeParse(
+    overrideValido({ precio_lista_modificado: 38000 }),
+  );
+  assert.equal(resultado.success, true);
+});
+
+test("AutorizarOverrideDescuentoSchema rechaza cuando NI descuento_porcentual_solicitado NI precio_lista_modificado vienen presentes", () => {
+  const resultado = AutorizarOverrideDescuentoSchema.safeParse(
+    overrideValido({ descuento_porcentual_solicitado: undefined }),
+  );
+  assert.equal(resultado.success, false);
+  if (!resultado.success) {
+    assert.equal(resultado.error.issues[0]?.path[0], "descuento_porcentual_solicitado");
+  }
+});
+
+test("AutorizarOverrideDescuentoSchema exige motivo no vacío", () => {
+  assert.equal(
+    AutorizarOverrideDescuentoSchema.safeParse(overrideValido({ motivo: "" })).success,
+    false,
+  );
+});
+
+test("AutorizarOverrideDescuentoSchema rechaza descuento_porcentual_solicitado fuera de [0, 100]", () => {
+  assert.equal(
+    AutorizarOverrideDescuentoSchema.safeParse(overrideValido({ descuento_porcentual_solicitado: -1 })).success,
+    false,
+  );
+  assert.equal(
+    AutorizarOverrideDescuentoSchema.safeParse(overrideValido({ descuento_porcentual_solicitado: 101 })).success,
+    false,
+  );
+});
+
+test("AutorizarOverrideDescuentoSchema rechaza precio_lista_modificado no positivo", () => {
+  assert.equal(
+    AutorizarOverrideDescuentoSchema.safeParse(
+      overrideValido({ descuento_porcentual_solicitado: undefined, precio_lista_modificado: 0 }),
+    ).success,
+    false,
+  );
+});
+
+test("AutorizarOverrideDescuentoSchema exige supervisor_credencial.usuario_id como UUID", () => {
+  assert.equal(
+    AutorizarOverrideDescuentoSchema.safeParse(
+      overrideValido({ supervisor_credencial: { usuario_id: "no-es-uuid" } }),
+    ).success,
+    false,
+  );
+});
+
+test("AutorizarOverrideDescuentoSchema acepta variante_sku_id ausente (opcional — el servicio resuelve el ítem único pendiente)", () => {
+  const resultado = AutorizarOverrideDescuentoSchema.safeParse(
+    overrideValido({ variante_sku_id: undefined }),
+  );
+  assert.equal(resultado.success, true);
+});
+
+// ── PedidoVentaIdSchema ───────────────────────────────────────────────────────
+
+test("PedidoVentaIdSchema valida el UUID del segmento [id]", () => {
+  assert.equal(PedidoVentaIdSchema.safeParse("no-es-uuid").success, false);
+  assert.equal(PedidoVentaIdSchema.safeParse(cliente).success, true);
 });

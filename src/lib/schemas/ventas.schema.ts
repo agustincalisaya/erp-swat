@@ -48,3 +48,31 @@ export const CrearPresupuestoSchema = z.object({
     .min(1, "El presupuesto debe incluir al menos un ítem"),
 });
 export type CrearPresupuestoInput = z.infer<typeof CrearPresupuestoSchema>;
+
+/**
+ * Schemas Zod de HU-B4 — Override de descuento y cambio manual de precio
+ * (spec_modulo_B.md §2.4).
+ */
+
+/** `id` de un PedidoVenta recibido por path param. */
+export const PedidoVentaIdSchema = z
+  .string()
+  .uuid("El identificador del pedido de venta debe ser un UUID válido");
+
+/**
+ * Copiado textual de `spec_modulo_B.md` §2.4 — no modificar ni el `.refine`,
+ * ni los tipos, ni los mensajes (task HU-B4 §1.1).
+ */
+export const AutorizarOverrideDescuentoSchema = z.object({
+  variante_sku_id: z.string().uuid().optional(),
+  descuento_porcentual_solicitado: z.number().min(0).max(100).optional(),
+  precio_lista_modificado: z.number().positive().optional(),
+  motivo: z.string().min(1, "El motivo es obligatorio"),
+  supervisor_credencial: z.object({
+    usuario_id: z.string().uuid(),
+  }),
+}).refine(
+  (d) => d.descuento_porcentual_solicitado !== undefined || d.precio_lista_modificado !== undefined,
+  { message: "Debe indicarse un descuento porcentual o un precio de lista modificado", path: ["descuento_porcentual_solicitado"] }
+);
+export type AutorizarOverrideDescuentoInput = z.infer<typeof AutorizarOverrideDescuentoSchema>;

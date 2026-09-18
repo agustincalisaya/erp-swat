@@ -229,6 +229,8 @@ export type AutorizarOverrideDescuentoInput = z.infer<typeof AutorizarOverrideDe
 { "data": { "autorizacion_id": "uuid", "descuento_aplicado": 12.5, "autorizado_por": "uuid" }, "error": null }
 ```
 
+**Corrección de redacción (HU-B4, decisión resuelta durante la implementación — ver `docs/tasks/HU-B4.md` §1.2):** `autorizacion_id` es un **id de correlación resoluble contra el `AuditLog`** generado por Módulo B (`crypto.randomUUID()`, antes del `COMMIT`), no el `id` real de la fila de `AuditLog`. Módulo D materializa el `AuditLog` de forma asíncrona (fire-and-forget, sin excepción para ningún evento del proyecto — confirmado contra `src/lib/events/domain-event-bus.ts`/`audit-log.listener.ts`), así que ningún endpoint puede devolver sincrónicamente el `id` real de esa fila. El id de correlación viaja en el payload del evento sensible (sección 4) y se persiste dentro de `valor_nuevo` del `AuditLog` ya escrito, quedando plenamente trazable/buscable — sin cambiar el contrato observable por el consumidor (sigue siendo un `uuid` en el mismo campo de la respuesta).
+
 **Respuesta `403 Forbidden` (usuario sin permiso de autorización):**
 ```json
 { "data": null, "error": { "code": "SIN_PERMISO_AUTORIZACION", "message": "Solo un Supervisor de Ventas puede autorizar excepciones de descuento" } }

@@ -130,9 +130,12 @@ export default async function DetallePresupuestoPage({
             <FileText className="size-4" aria-hidden="true" />
             <AlertDescription className="flex items-center gap-2">
               Convertido al pedido de venta{" "}
-              <span className="font-mono font-semibold">
+              <Link
+                href={`/ventas/pedidos/${presupuesto.pedido_venta.id}`}
+                className="font-mono font-semibold underline underline-offset-2 hover:text-blue-700"
+              >
                 {presupuesto.pedido_venta.numero_venta}
-              </span>
+              </Link>
               <EstadoPedidoVentaBadge estado={presupuesto.pedido_venta.estado} />
             </AlertDescription>
           </Alert>
