@@ -657,6 +657,42 @@ export interface PresupuestoAceptadoPayload {
 }
 
 /**
+ * HU-B4 (Módulo B) — Payload emitido tras autorizar un descuento por fuera
+ * del margen habilitado del Cajero (`autorizarOverrideDescuento()`, spec
+ * §2.4/§4 — evento SENSIBLE, encadenamiento SHA-256 reforzado). `autorizacion_id`
+ * es el id de correlación generado por el servicio (`crypto.randomUUID()`),
+ * NO el `id` real de la fila de `AuditLog` que este evento termina
+ * materializando — ver DECISIÓN RESUELTA en `pedido-venta.service.ts`.
+ */
+export interface DescuentoFueraMargenPayload {
+  autorizacion_id: string;
+  pedido_venta_id: string;
+  usuario_solicitante_id: string;
+  usuario_autorizante_id: string;
+  porcentaje_aplicado: number;
+  motivo: string;
+  dispositivo: string;
+  timestamp: string;
+}
+
+/**
+ * HU-B4 (Módulo B) — Payload emitido tras un cambio manual de
+ * `precio_unitario` de un `PedidoVentaItem` (mapeo de "precio de lista
+ * modificado" de spec §2.4, documentado en `docs/tasks/HU-B4.md` §1.2 punto
+ * 4 — no hay columna `precio_lista_modificado` propia). Evento SENSIBLE,
+ * mismo criterio que `DescuentoFueraMargenPayload`.
+ */
+export interface CambioPrecioManualPayload {
+  autorizacion_id: string;
+  pedido_venta_id: string;
+  variante_sku_id: string;
+  usuario_autorizante_id: string;
+  precio_anterior: number;
+  precio_nuevo: number;
+  motivo: string;
+}
+
+/**
  * HU-C1 (Módulo C) — Payload emitido tras el alta NUEVA de un `Cliente`
  * (`crearCliente()`, spec_modulo_C.md §2.1/§4). Se emite SOLO cuando
  * `es_nuevo === true` — recuperar un `Cliente` existente por DNI (§3.1: "no
@@ -751,6 +787,10 @@ export interface DomainEventMap {
   "venta:presupuesto_vencido": PresupuestoVencidoPayload;
   /** HU-B3: se emite tras convertir un Presupuesto EMITIDO en un PedidoVenta RESERVADO. */
   "venta:presupuesto_aceptado": PresupuestoAceptadoPayload;
+  /** HU-B4: se emite tras autorizar un descuento por fuera del margen habilitado (evento sensible). */
+  "venta:descuento_fuera_margen": DescuentoFueraMargenPayload;
+  /** HU-B4: se emite tras un cambio manual de precio de lista sobre un PedidoVentaItem (evento sensible). */
+  "venta:cambio_precio_manual": CambioPrecioManualPayload;
   /** HU-C1: se emite tras el alta NUEVA de un Cliente (nunca al recuperar uno existente por DNI). */
   "cliente:creado": ClienteCreadoPayload;
 }

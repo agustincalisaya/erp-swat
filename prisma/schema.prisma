@@ -1567,8 +1567,12 @@ enum EstadoPedidoVenta {
 /// hay HU en este sprint que exija listar remitos como entidad propia.
 /// `requiere_autorizacion`/`autorizado_por_id` cubren el estado de espera
 /// de aprobación de HU-B4 (§2.4) sin una tabla de autorizaciones propia:
-/// el `id` del evento sensible correspondiente en `AuditLog` (Módulo D) es
-/// la referencia de auditoría (`autorizacion_id` de la respuesta 2.4) —
+/// `autorizacion_id` de la respuesta 2.4 es un id de CORRELACIÓN generado
+/// por Módulo B (no el `id` real de la fila de `AuditLog` — Módulo D la
+/// escribe de forma asíncrona/fire-and-forget, sin excepción para ningún
+/// evento del proyecto), persistido dentro de `valor_nuevo` del `AuditLog`
+/// real para quedar trazable (decisión resuelta, `docs/tasks/HU-B4.md` §1.2;
+/// corrección de redacción aplicada también en `spec_modulo_B.md` §2.4).
 /// Módulo B no es propietario del `AuditLog` (spec §2.6).
 model PedidoVentaItem {
   id                    String   @id @default(uuid())

@@ -315,8 +315,24 @@ const PERMISO_VENTAS_LEER_LOG_OPERATIVO_ID =
 // para que el Supervisor pueda operar como Cajero de respaldo — no es un
 // olvido) más autorizar_excepcion_descuento, autorizar_excepcion_credito,
 // anular_pedido y leer_log_operativo.
-const ROL_CAJERO_POS_ID = "1a2b3c4d-2222-4a1a-8a1a-000000000004";
-const ROL_SUPERVISOR_VENTAS_ID = "1a2b3c4d-2222-4a1a-8a1a-000000000005";
+//
+// CORRECCIÓN (post-HU-B4, diagnóstico de bug de producción): estos dos IDs
+// originalmente reusaban por error "1a2b3c4d-2222-4a1a-8a1a-000000000004"/
+// "...005", asumidos como "siguiente UUID libre del namespace `2222`" sin
+// verificar que HU-C1 (Módulo C, ROL_VENDEDOR_ID/ROL_ADMINISTRADOR_CRM_ID,
+// más arriba en este archivo) ya los había tomado. Como el bloque de HU-C1
+// corre antes en este script, el upsert de Rol de acá caía siempre en la
+// rama `update` (que solo reactiva is_active/deleted_*, nunca toca
+// `nombre`/`descripcion`) — el nombre real en base quedaba "VENDEDOR"/
+// "ADMINISTRADOR_CRM" para siempre, nunca "CAJERO_POS"/"SUPERVISOR_VENTAS",
+// pese a que el UsuarioRol de cajero.seed/supervisor.ventas.seed apuntaba
+// exactamente al rol_id correcto. Reemplazados acá por dos UUID aleatorios
+// (`crypto.randomUUID()`) verificados contra un grep completo de TODO
+// seed.ts para no repetir el mismo tipo de colisión — no se reutiliza el
+// esquema de namespace numerado a mano (`2222`, `bbbb`, etc.) precisamente
+// porque fue ese esquema el que originó el bug.
+const ROL_CAJERO_POS_ID = "f6b9ebf5-196e-4ef1-945e-aa8e226edc11";
+const ROL_SUPERVISOR_VENTAS_ID = "6c74bfba-617e-4c6d-bb52-3a012eeade23";
 
 // Usuarios de prueba para Módulo B — desde HU-B8 tienen Rol asignado
 // (ver ROL_CAJERO_POS_ID / ROL_SUPERVISOR_VENTAS_ID y su asignación más

@@ -815,6 +815,56 @@ export function iniciarAuditLogListener(): void {
     });
   });
 
+  // HU-B4 (Módulo B) — autorización de descuento fuera de margen (spec_modulo_B.md
+  // §2.4/§4). Evento SENSIBLE. `pedido-venta.service.ts` nunca llama
+  // `registrarAuditLog()` directo — emite el evento post-COMMIT y este
+  // listener reacciona (misma regla de unificación que el resto del
+  // proyecto). `autorizacion_id` (id de correlación generado por el
+  // servicio, ver DECISIÓN RESUELTA de `pedido-venta.service.ts`) viaja
+  // dentro de `valor_nuevo` para quedar buscable en el `AuditLog` real ya
+  // escrito, cerrando la trazabilidad sin violar la regla de escritura
+  // asíncrona. `tabla_afectada` usa el `@@map` en minúsculas (`pedidos_venta`).
+  domainEventBus.on("venta:descuento_fuera_margen", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_autorizante_id,
+      accion: "DESCUENTO_FUERA_MARGEN",
+      tabla_afectada: "pedidos_venta",
+      registro_id: payload.pedido_venta_id,
+      ip: "internal-event",
+      valor_anterior: null,
+      valor_nuevo: {
+        autorizacion_id: payload.autorizacion_id,
+        usuario_solicitante_id: payload.usuario_solicitante_id,
+        porcentaje_aplicado: payload.porcentaje_aplicado,
+        motivo: payload.motivo,
+        dispositivo: payload.dispositivo,
+        timestamp: payload.timestamp,
+      },
+    });
+  });
+
+  // HU-B4 (Módulo B) — cambio manual de precio de lista sobre un
+  // PedidoVentaItem (spec_modulo_B.md §2.4/§4). Evento SENSIBLE, mismo
+  // patrón que `venta:descuento_fuera_margen` (arriba). `registro_id` usa
+  // `pedido_venta_id` (la fila realmente afectada a nivel de agregado);
+  // `variante_sku_id` queda como contexto en `valor_nuevo`.
+  domainEventBus.on("venta:cambio_precio_manual", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_autorizante_id,
+      accion: "CAMBIO_PRECIO_MANUAL",
+      tabla_afectada: "pedidos_venta",
+      registro_id: payload.pedido_venta_id,
+      ip: "internal-event",
+      valor_anterior: { precio_unitario: payload.precio_anterior },
+      valor_nuevo: {
+        autorizacion_id: payload.autorizacion_id,
+        variante_sku_id: payload.variante_sku_id,
+        precio_unitario: payload.precio_nuevo,
+        motivo: payload.motivo,
+      },
+    });
+  });
+
   // HU-C1 (Módulo C) — alta NUEVA de un Cliente. `cliente.service.ts` nunca
   // se emite al recuperar un DNI ya existente (spec §3.1: "no hay transición
   // nueva"), así que este listener solo ve altas reales. Sin `ip` en el
