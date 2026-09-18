@@ -26,6 +26,7 @@ import type { EstadoOrdenCompra } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { domainEventBus } from "@/lib/events/domain-event-bus";
 import { ServiceError } from "@/lib/errors/service-error";
+import { resolverListaPrecioVigente } from "@/lib/services/proveedores/lista-precios.service";
 import type {
   AccionOrdenCompra,
   CambiarEstadoOrdenCompraInput,
@@ -144,6 +145,10 @@ async function generarNumeroOrden(tx: Prisma.TransactionClient): Promise<string>
  * vigente publicada · variantes activas · todas con precio en la versión
  * vigente. Lanza `ServiceError` con el código correspondiente ante la primera
  * falla.
+ *
+ * Sprint 3: el paso 2 fue migrado a `resolverListaPrecioVigente()` (HU-H2,
+ * Pieza 1). Los pasos 1, 3 y 4 permanecen en HU-H3: son responsabilidad del
+ * contrato de OrdenCompra, no de la publicación de listas.
  */
 async function resolverContextoPrecios(
   tx: Prisma.TransactionClient,
@@ -175,23 +180,12 @@ async function resolverContextoPrecios(
     );
   }
 
-  // 2. ListaPrecioVersion vigente: `publicada = true AND fecha_inicio_vigencia
-  //    <= now()`, ordenada desc, take(1).
-  const versionVigente = await tx.listaPrecioVersion.findFirst({
-    where: {
-      publicada: true,
-      is_active: true,
-      deleted_at: null,
-      fecha_inicio_vigencia: { lte: new Date() },
-      lista_precio: {
-        proveedor_id: proveedorId,
-        is_active: true,
-        deleted_at: null,
-      },
-    },
-    orderBy: { fecha_inicio_vigencia: "desc" },
-    select: { id: true },
-  });
+  // 2. ListaPrecioVersion vigente: delegada a HU-H2 (spec §2.3 / §3.4).
+  //    `resolverListaPrecioVigente` es la función ÚNICA de resolución de
+  //    versión vigente; HU-H3 deja de tener su propia query sobre
+  //    `tx.listaPrecioVersion`. Devuelve la versión COMPLETA (no solo el id);
+  //    `versionVigente.id` sigue siendo válido para el paso 4.
+  const versionVigente = await resolverListaPrecioVigente(proveedorId, undefined, tx);
   if (!versionVigente) {
     throw new ServiceError(
       "PROVEEDOR_SIN_LISTA_VIGENTE",

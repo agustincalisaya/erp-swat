@@ -620,6 +620,56 @@ export function iniciarAuditLogListener(): void {
     });
   });
 
+  // HU-H2 — publicación de una ListaPrecioVersion cuya variación porcentual
+  // máxima supera UMBRAL_VARIACION_CRITICA_PORCENTUAL (`propose.md` —
+  // sección "Cálculo de variación porcentual y evento crítico"). El service
+  // (`lista-precios.service.ts`) nunca llama `registrarAuditLog()` directo:
+  // emite el evento post-COMMIT y este listener reacciona (misma regla de
+  // unificación que el resto del módulo). `tabla_afectada` usa el `@@map`
+  // en minúsculas (`listas_precio_version`); `registro_id` referencia la
+  // versión recién creada. `valor_anterior: null` — es un alta, no hay
+  // snapshot previo de la versión. `ip: "internal-event"` — mismo sentinel
+  // que `orden_compra:*` / `proveedor:*`, que también emiten post-COMMIT
+  // desde un service sin request HTTP directo asociado.
+  domainEventBus.on("proveedor:variacion_precio_critica", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "VARIACION_CRITICA",
+      tabla_afectada: "listas_precio_version",
+      registro_id: payload.lista_precio_version_id,
+      ip: "internal-event",
+      valor_anterior: null,
+      valor_nuevo: {
+        proveedor_id: payload.proveedor_id,
+        variacion_porcentual_maxima: payload.variacion_porcentual_maxima,
+        items_variacion_critica: payload.items_variacion_critica,
+      },
+    });
+  });
+
+  // HU-H2 — aprobación manual de una ListaPrecioVersion que había quedado
+  // pendiente por superar el umbral crítico de variación
+  // (`aprobarListaPrecioVersion()`, `propose.md` — contrato de función).
+  // `valor_anterior` asume el precondition documentado en la Spec
+  // (`publicada: false` / `requiere_aprobacion: true`) porque el payload no
+  // trae snapshot previo (mismo criterio que `stock:reclasificacion_solicitud_aprobada`).
+  domainEventBus.on("proveedor:lista_precio_aprobada", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "LISTA_PRECIO_APROBADA",
+      tabla_afectada: "listas_precio_version",
+      registro_id: payload.lista_precio_version_id,
+      ip: "internal-event",
+      valor_anterior: { publicada: false, requiere_aprobacion: true },
+      valor_nuevo: {
+        proveedor_id: payload.proveedor_id,
+        publicada: true,
+        requiere_aprobacion: false,
+        aprobada_por_id: payload.usuario_id,
+      },
+    });
+  });
+
   // HU-A10 — congelamiento de Reserva (spec_modulo_A.md §2.9). El service
   // (`reserva.service.ts`) nunca llama `registrarAuditLog()` directo: emite
   // el evento y este listener reacciona (misma regla de unificación que el

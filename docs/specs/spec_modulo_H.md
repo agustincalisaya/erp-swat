@@ -27,7 +27,7 @@ Este documento y `spec_modulo_H_diferido.md` fueron un único archivo hasta la R
 
 **Nota sobre la migración de schema ya aplicada:** los modelos `ListaPrecio`, `ListaPrecioVersion`, `ListaPrecioItem` y los campos `Proveedor.datos_bancarios_cifrado`/`datos_bancarios_iv` ya existen en `schema.prisma` (migración `20260831050501_add_lista_precio_and_proveedor_bank_data`), aditiva, sin `DROP` ni `ALTER` sobre columnas/tablas preexistentes. Los dos pendientes reales de esa migración —default de `ListaPrecioVersion.publicada` y cardinalidad `ListaPrecio`↔`Proveedor`— se detallan en la sección 2.3 y en la sección 5 de este documento unificado.
 
-**Acción de código para el equipo de Sprint 3, antes de implementar HU-H2:** con la unificación de este documento, la advertencia bloqueante de la sección 2.4 (HU-H3, "Camino A/B") queda resuelta — HU-H2 ya no es una HU diferida sin fecha, es la primera HU planificada de este sprint. Retirar el seed temporal del Camino A cuando HU-H2 tenga su endpoint de publicación operativo, y migrar HU-H3 a resolver el precio contra `ListaPrecioVersion` real (ver nota de actualización en 2.4).
+**Acción de código para el equipo de Sprint 3, antes de implementar HU-H2:** con la unificación de este documento, la advertencia bloqueante de la sección 2.4 (HU-H3, "Camino A/B") queda resuelta — HU-H2 ya no es una HU diferida sin fecha, es la primera HU planificada de este sprint. El seed temporal del Camino A se mantiene como fixture de datos (no se retira); desde la migración de HU-H2, la resolución de precio en runtime usa `resolverListaPrecioVigente()`, no el seed directamente (ver nota de actualización en 2.4).
 
 ---
 
@@ -183,7 +183,7 @@ export type PublicarListaPreciosInput = z.infer<typeof PublicarListaPreciosSchem
 - Si no supera el umbral: `publicada = true` inmediatamente, sin paso de aprobación.
 - Solo puede existir una `ListaPrecioVersion` con `publicada = true` y sin `fecha_inicio_vigencia` futura por proveedor en un momento dado — la resolución de "versión vigente" es una consulta (`fecha_inicio_vigencia <= now()` ordenada `desc`, `take(1)`), nunca un flag mutable tipo `es_vigente` que deba reescribirse en cada publicación (evitar condiciones de carrera entre publicaciones concurrentes).
 - Toda publicación cuya `variacion_porcentual_maxima` supere el umbral crítico genera, tras el `COMMIT` de la transacción, el evento `proveedor:variacion_precio_critica` hacia el Módulo D (sección 4).
-- **Migrar HU-H3 (sección 2.4) al implementar esta sección:** retirar el seed temporal del "Camino A" y reemplazar el mecanismo de resolución de precio por este endpoint como fuente real de `ListaPrecioVersion` — ver nota de actualización en 2.4.
+- **HU-H3 (sección 2.4) migrada:** el seed temporal del Camino A se mantiene como fixture de datos (no se retira); desde la migración de HU-H2, la resolución de precio en runtime usa `resolverListaPrecioVigente()`, no el seed directamente — ver nota de actualización en 2.4.
 
 **Respuesta `201 Created` (dentro del umbral, publicación inmediata):**
 ```json
@@ -206,7 +206,7 @@ export type PublicarListaPreciosInput = z.infer<typeof PublicarListaPreciosSchem
 **Server Action equivalente:** `crearOrdenCompra()` en `app/(dashboard)/compras/ordenes/actions.ts`
 **Permiso requerido:** `ordenes_compra:crear` (Comprador, Supervisor de Compras)
 
-**Nota de actualización (Sprint 3, al implementar HU-H2 — sección 2.3):** esta sección fue implementada originalmente en Sprint 2 bajo el **Camino A** (seed temporal de `ListaPrecioVersion`, ver Revisión 5 de este documento), dado que HU-H2 estaba diferida en ese momento. Con HU-H2 ya planificada en Sprint 3, el equipo debe: (1) confirmar si el seed temporal ya fue retirado, (2) verificar que la resolución de precio de esta sección invoca `resolverListaPrecioVigente(proveedor_id, variante_sku_id?)` (función única definida en 3.4, no una consulta propia), y (3) actualizar esta nota una vez migrado. El contrato Zod y el comportamiento esperado descriptos abajo no cambian — solo cambia el origen de los datos de `ListaPrecioVersion` contra los que resuelven.
+**Nota de actualización (Sprint 3, HU-H2 — migración confirmada):** esta sección fue implementada originalmente en Sprint 2 bajo el **Camino A** (seed temporal de `ListaPrecioVersion`, ver Revisión 5 de este documento), dado que HU-H2 estaba diferida en ese momento. Con HU-H2 implementada, la migración se hizo: `resolverContextoPrecios()` (`orden-compra.service.ts`) invoca `resolverListaPrecioVigente(proveedor_id, variante_sku_id?, tx)` — la función única de resolución de "versión vigente" definida en 3.4, no una consulta propia. El seed temporal del Camino A (`LISTA_PRECIO_HOMOLOGADO_ID` y su primera `ListaPrecioVersion` en `prisma/seed.ts`) **no se retiró** — sigue existiendo como fixture de datos válido — pero ya no es la única fuente de resolución de precio: es una `ListaPrecioVersion` publicada más entre las que el endpoint de HU-H2 puede agregar, resuelta por el mismo mecanismo real que cualquier otra versión. El contrato Zod y el comportamiento esperado descriptos abajo no cambiaron — solo cambió el origen de los datos de `ListaPrecioVersion` contra los que resuelven.
 
 ```typescript
 export const CrearOrdenCompraSchema = z.object({

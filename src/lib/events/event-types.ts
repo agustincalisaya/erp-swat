@@ -445,6 +445,50 @@ export interface ProveedorLegajoEditadoPayload {
 }
 
 /**
+ * HU-H2 (Módulo H) — línea de `ListaPrecioItem` cuya variación porcentual
+ * contra el precio previamente vigente superó `UMBRAL_VARIACION_CRITICA_PORCENTUAL`
+ * (`lista-precios.constants.ts`). Parte de `ProveedorVariacionPrecioCriticaPayload`.
+ */
+export interface ProveedorVariacionPrecioCriticaItemPayload {
+  lista_precio_item_id: string;
+  variante_sku_id: string;
+  valor_anterior: number;
+  valor_nuevo: number;
+  variacion_porcentual: number;
+}
+
+/**
+ * HU-H2 (Módulo H) — Payload emitido tras publicar una `ListaPrecioVersion`
+ * cuya `variacion_porcentual_maxima` supera `UMBRAL_VARIACION_CRITICA_PORCENTUAL`
+ * (`publicarNuevaVersionListaPrecio()`, `propose.md` — sección "Cálculo de
+ * variación porcentual y evento crítico"). Un único evento agregado por
+ * publicación, nunca uno por ítem — `variacion_porcentual_maxima` es un
+ * campo singular de la versión. Emisión post-`COMMIT` (mismo patrón
+ * fire-and-forget que el resto del proyecto).
+ */
+export interface ProveedorVariacionPrecioCriticaPayload {
+  usuario_id: string;
+  timestamp: string;
+  proveedor_id: string;
+  lista_precio_version_id: string;
+  variacion_porcentual_maxima: number;
+  items_variacion_critica: ProveedorVariacionPrecioCriticaItemPayload[];
+}
+
+/**
+ * HU-H2 (Módulo H) — Payload emitido tras la aprobación manual de una
+ * `ListaPrecioVersion` que había quedado pendiente por superar el umbral
+ * crítico de variación (`aprobarListaPrecioVersion()`, `propose.md` —
+ * contrato de función). Emisión post-`COMMIT`.
+ */
+export interface ProveedorListaPrecioAprobadaPayload {
+  usuario_id: string;
+  timestamp: string;
+  proveedor_id: string;
+  lista_precio_version_id: string;
+}
+
+/**
  * HU-A10 — Payload emitido tras el congelamiento de una `Reserva`
  * (`crearReserva()`, spec_modulo_A.md §2.9). Se emite SOLO después de que
  * `prisma.$transaction` resuelve, nunca dentro (regla de emisión §4).
@@ -765,6 +809,10 @@ export interface DomainEventMap {
   "proveedor:baja_logica": ProveedorBajaLogicaPayload;
   /** HU-H1: se emite tras la edición del legajo de un Proveedor. */
   "proveedor:legajo_editado": ProveedorLegajoEditadoPayload;
+  /** HU-H2: se emite tras publicar una ListaPrecioVersion cuya variación máxima supera el umbral crítico. */
+  "proveedor:variacion_precio_critica": ProveedorVariacionPrecioCriticaPayload;
+  /** HU-H2: se emite tras aprobar una ListaPrecioVersion pendiente por variación crítica. */
+  "proveedor:lista_precio_aprobada": ProveedorListaPrecioAprobadaPayload;
   /** HU-A10: se emite tras el congelamiento de una Reserva (DISPONIBLE → RESERVADO). */
   "stock:reserva_congelada": ReservaCongeladaPayload;
   /** HU-A10: se emite tras la liberación de una Reserva (venta confirmada o TTL vencido). */

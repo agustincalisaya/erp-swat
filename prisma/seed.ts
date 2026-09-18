@@ -1342,10 +1342,12 @@ async function main() {
   // ── HU-H2 — permisos de publicación de Lista de Precios (spec_modulo_H.md §2.3) ──
   //   - proveedores:publicar_lista          → dentro del umbral normal (Comprador, Supervisor)
   //   - proveedores:publicar_lista_critica  → por encima del umbral crítico — exclusivo Supervisor
-  // No se asignan a ningún Rol en esta tarea (solo schema/seed de datos, sin
-  // capa de servicios) — quedan sembrados como permisos "stub", mismo patrón
-  // que otros permisos del proyecto creados antes de que exista su consumidor.
-  await Promise.all(
+  // Creados originalmente como permisos "stub" (sin asignar a ningún Rol,
+  // antes de que existiera la capa de servicios de HU-H2). Ahora que
+  // `lista-precios.service.ts` y sus endpoints ya están implementados
+  // (Pieza 1), se asignan a los Roles reales más abajo — mismo reparto de
+  // `propose.md` decisión 5, ya cerrada.
+  const permisosPublicarLista = await Promise.all(
     (
       [
         [PERMISO_PROVEEDORES_PUBLICAR_LISTA_ID, "proveedores:publicar_lista", "Publicar una nueva ListaPrecioVersion dentro del umbral normal de variación (HU-H2 §2.3)"],
@@ -1359,6 +1361,8 @@ async function main() {
       }),
     ),
   );
+  const [permisoProveedoresPublicarLista, permisoProveedoresPublicarListaCritica] =
+    permisosPublicarLista;
 
   // ── Módulo C (Sprint 3) — permisos granulares de Cliente (spec_modulo_C.md,
   // sección "Permisos RBAC" del Alcance) ──────────────────────────────────────
@@ -1618,6 +1622,8 @@ async function main() {
     // HU-H9: el Comprador registra y consulta comprobantes, pero NO los anula.
     permisoComprobantesCrear,
     permisoComprobantesLeer,
+    // HU-H2 (propose.md decisión 5): publicación dentro del umbral normal.
+    permisoProveedoresPublicarLista,
   ];
   const permisosSupervisorCompras = [
     permisoProveedoresCrear,
@@ -1635,6 +1641,9 @@ async function main() {
     permisoComprobantesCrear,
     permisoComprobantesLeer,
     permisoComprobantesAnular,
+    // HU-H2 (propose.md decisión 5): publicación normal + exclusivo crítico.
+    permisoProveedoresPublicarLista,
+    permisoProveedoresPublicarListaCritica,
   ];
 
   for (const permiso of permisosComprador) {
