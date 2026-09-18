@@ -76,3 +76,41 @@ export const AutorizarOverrideDescuentoSchema = z.object({
   { message: "Debe indicarse un descuento porcentual o un precio de lista modificado", path: ["descuento_porcentual_solicitado"] }
 );
 export type AutorizarOverrideDescuentoInput = z.infer<typeof AutorizarOverrideDescuentoSchema>;
+
+/**
+ * Schemas Zod de HU-B5 — Cuenta corriente de cliente y autorización de
+ * excepción de crédito (spec_modulo_B.md §2.5; docs/tasks/task_HU-B5.md §2.2/§2.3).
+ */
+
+/** `cliente_id` recibido por path param (cuenta corriente 1:1 con `Cliente`). */
+export const ClienteCuentaCorrienteIdSchema = z
+  .string()
+  .uuid("El identificador del cliente debe ser un UUID válido");
+
+/** `id` de una `CuentaCorrienteOperacion` recibido por path param. */
+export const OperacionCuentaCorrienteIdSchema = z
+  .string()
+  .uuid("El identificador de la operación debe ser un UUID válido");
+
+/** Copiado textual de `spec_modulo_B.md` §2.5. */
+export const RegistrarOperacionCuentaCorrienteSchema = z.object({
+  pedido_venta_id: z.string().uuid(),
+  monto: z.number().positive(),
+  plan_de_pagos: z
+    .array(
+      z.object({
+        hito: z.string().min(1),
+        porcentaje: z.number().positive().max(100),
+        fecha_estimada: z.coerce.date().optional(),
+      })
+    )
+    .optional(),
+});
+export type RegistrarOperacionCuentaCorrienteInput = z.infer<typeof RegistrarOperacionCuentaCorrienteSchema>;
+
+/** Copiado textual de `docs/tasks/task_HU-B5.md` §2.3. */
+export const ResolverExcepcionCreditoSchema = z.object({
+  decision: z.enum(["APROBAR", "RECHAZAR"]),
+  motivo: z.string().min(1, "El motivo es obligatorio"),
+});
+export type ResolverExcepcionCreditoInput = z.infer<typeof ResolverExcepcionCreditoSchema>;

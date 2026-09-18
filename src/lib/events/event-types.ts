@@ -693,6 +693,44 @@ export interface CambioPrecioManualPayload {
 }
 
 /**
+ * HU-B5 (Módulo B) — Payload emitido tras registrar una operación a cuenta
+ * corriente (`registrarOperacionCuentaCorriente()`, spec §2.5/§4), tanto si
+ * quedó `APROBADA` como `RETENIDA`. Los campos `operacion_id` y `estado` son
+ * un agregado a la tabla de spec §4 ("payload mínimo": `{ cliente_id,
+ * pedido_venta_id, monto, plan_de_pagos? }`) — sin `estado` un consumidor no
+ * podría distinguir una operación ya imputada al saldo de una retenida.
+ */
+export interface OperacionCuentaCorrienteRegistradaPayload {
+  operacion_id: string;
+  cliente_id: string;
+  pedido_venta_id: string;
+  monto: number;
+  estado: "APROBADA" | "RETENIDA";
+  plan_de_pagos?: Array<{ hito: string; porcentaje: number; fecha_estimada?: string }>;
+}
+
+/**
+ * HU-B5 (Módulo B) — Payload emitido tras resolver (aprobar/rechazar) una
+ * operación de cuenta corriente RETENIDA (`resolverExcepcionCredito()`,
+ * docs/tasks/task_HU-B5.md §2.3/§2.5). Evento SENSIBLE (encadenamiento
+ * SHA-256 hacia Módulo D). No listado en la tabla de spec §4. `autorizacion_id`
+ * es el id de CORRELACIÓN (`crypto.randomUUID()`), no el `id` de `AuditLog`.
+ * `usuario_solicitante_id` se toma de `PedidoVenta.registrado_por_id`
+ * (`CuentaCorrienteOperacion` no tiene columna propia — limitación conocida).
+ */
+export interface ExcepcionCreditoResueltaPayload {
+  autorizacion_id: string;
+  operacion_id: string;
+  pedido_venta_id: string;
+  cliente_id: string;
+  usuario_solicitante_id: string;
+  usuario_autorizante_id: string;
+  decision: "APROBAR" | "RECHAZAR";
+  motivo: string;
+  monto: number;
+}
+
+/**
  * HU-C1 (Módulo C) — Payload emitido tras el alta NUEVA de un `Cliente`
  * (`crearCliente()`, spec_modulo_C.md §2.1/§4). Se emite SOLO cuando
  * `es_nuevo === true` — recuperar un `Cliente` existente por DNI (§3.1: "no
@@ -791,6 +829,10 @@ export interface DomainEventMap {
   "venta:descuento_fuera_margen": DescuentoFueraMargenPayload;
   /** HU-B4: se emite tras un cambio manual de precio de lista sobre un PedidoVentaItem (evento sensible). */
   "venta:cambio_precio_manual": CambioPrecioManualPayload;
+  /** HU-B5: se emite tras registrar una operación a cuenta corriente (APROBADA o RETENIDA). */
+  "venta:operacion_cuenta_corriente_registrada": OperacionCuentaCorrienteRegistradaPayload;
+  /** HU-B5: se emite tras aprobar/rechazar una operación de cuenta corriente RETENIDA (evento sensible). */
+  "venta:excepcion_credito_resuelta": ExcepcionCreditoResueltaPayload;
   /** HU-C1: se emite tras el alta NUEVA de un Cliente (nunca al recuperar uno existente por DNI). */
   "cliente:creado": ClienteCreadoPayload;
 }

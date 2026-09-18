@@ -865,6 +865,34 @@ export function iniciarAuditLogListener(): void {
     });
   });
 
+  // HU-B5 (Módulo B) — resolución (aprobación/rechazo) de una operación de
+  // cuenta corriente RETENIDA por exceso de límite de crédito (task HU-B5
+  // §2.3/§2.5). Evento SENSIBLE, mismo patrón que
+  // `venta:descuento_fuera_margen`: `usuario_id` es el autorizante (Supervisor),
+  // el solicitante y el `autorizacion_id` de correlación quedan en
+  // `valor_nuevo`. `registro_id` es la operación afectada (la fila realmente
+  // mutada); `pedido_venta_id`/`cliente_id` quedan como contexto.
+  domainEventBus.on("venta:excepcion_credito_resuelta", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_autorizante_id,
+      accion: payload.decision === "APROBAR" ? "EXCEPCION_CREDITO_APROBADA" : "EXCEPCION_CREDITO_RECHAZADA",
+      tabla_afectada: "cuenta_corriente_operaciones",
+      registro_id: payload.operacion_id,
+      ip: "internal-event",
+      valor_anterior: { estado: "RETENIDA" },
+      valor_nuevo: {
+        estado: payload.decision === "APROBAR" ? "APROBADA" : "RECHAZADA",
+        autorizacion_id: payload.autorizacion_id,
+        usuario_solicitante_id: payload.usuario_solicitante_id,
+        pedido_venta_id: payload.pedido_venta_id,
+        cliente_id: payload.cliente_id,
+        decision: payload.decision,
+        motivo: payload.motivo,
+        monto: payload.monto,
+      },
+    });
+  });
+
   // HU-C1 (Módulo C) — alta NUEVA de un Cliente. `cliente.service.ts` nunca
   // se emite al recuperar un DNI ya existente (spec §3.1: "no hay transición
   // nueva"), así que este listener solo ve altas reales. Sin `ip` en el
