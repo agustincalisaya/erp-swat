@@ -152,6 +152,14 @@ const SECCIONES: SeccionConfig[] = [
         icon: Wallet,
         permiso: "ventas:gestionar_cuenta_corriente",
       },
+      // HU-B2 (task_relos.md) — gate por `ventas:gestionar_turno_caja`,
+      // exclusivo Cajero POS. Apertura/cierre de turno con arqueo ciego.
+      {
+        label: "Turno de caja",
+        href: "/ventas/turnos",
+        icon: Banknote,
+        permiso: "ventas:gestionar_turno_caja",
+      },
     ],
   },
   {

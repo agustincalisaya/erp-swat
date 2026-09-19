@@ -958,4 +958,47 @@ export function iniciarAuditLogListener(): void {
       valor_nuevo: { dni: payload.dni },
     });
   });
+
+  // HU-B2 (Módulo B) — apertura de un TurnoCaja (task_relos.md §6.1/§7). El
+  // service (`turno-caja.service.ts`) nunca llama `registrarAuditLog()`
+  // directo: emite el evento y este listener reacciona (misma regla de
+  // unificación que el resto del proyecto). `tabla_afectada` usa el `@@map`
+  // en minúsculas (`turnos_caja`); `ip: "internal-event"` — mismo sentinel
+  // que `orden_compra:*` / `stock:reserva_congelada`.
+  domainEventBus.on("venta:turno_abierto", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "CREATE",
+      tabla_afectada: "turnos_caja",
+      registro_id: payload.turno_caja_id,
+      ip: "internal-event",
+      valor_anterior: null,
+      valor_nuevo: { fondo_fijo_inicial: payload.fondo_fijo_inicial },
+    });
+  });
+
+  // HU-B2 (Módulo B) — cierre de un TurnoCaja con arqueo ciego (task_relos.md
+  // §6.2/§7). Evento SENSIBLE cuando `requiere_justificacion: true`, mismo
+  // patrón que `venta:descuento_fuera_margen`/`venta:excepcion_credito_resuelta`
+  // (Módulo B) — la `accion` distingue el caso reforzado para que quede
+  // buscable en el ledger sin depender de inspeccionar `valor_nuevo`.
+  // `requiere_justificacion` viaja también dentro de `valor_nuevo` para que
+  // quede junto al resto del detalle forense de la fila.
+  domainEventBus.on("venta:turno_cerrado", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: payload.requiere_justificacion ? "CIERRE_TURNO_CON_JUSTIFICACION" : "CIERRE_TURNO",
+      tabla_afectada: "turnos_caja",
+      registro_id: payload.turno_caja_id,
+      ip: "internal-event",
+      valor_anterior: { fecha_cierre: null },
+      valor_nuevo: {
+        saldo_esperado: payload.saldo_esperado,
+        conteo_fisico_declarado: payload.conteo_fisico_declarado,
+        diferencia: payload.diferencia,
+        requiere_justificacion: payload.requiere_justificacion,
+        justificacion: payload.justificacion,
+      },
+    });
+  });
 }

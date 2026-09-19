@@ -790,6 +790,37 @@ export interface ClienteCreadoPayload {
   es_nuevo: true;
 }
 
+/**
+ * HU-B2 (Módulo B) — Payload emitido tras la apertura de un `TurnoCaja`
+ * (`abrirTurnoCaja()`, task_relos.md §6.1/§7). Emisión post-escritura
+ * (mismo patrón fire-and-forget que el resto del proyecto).
+ */
+export interface VentaTurnoAbiertoPayload {
+  turno_caja_id: string;
+  usuario_id: string;
+  fondo_fijo_inicial: number;
+}
+
+/**
+ * HU-B2 (Módulo B) — Payload emitido tras el cierre de un `TurnoCaja`
+ * (`cerrarTurnoCaja()`, task_relos.md §6.2/§7). Evento SENSIBLE (encadenamiento
+ * SHA-256 reforzado, mismo criterio que HU-B4) cuando `requiere_justificacion:
+ * true` — el listener de auditoría distingue la `accion` por este flag.
+ *
+ * La entrega real de una notificación al Tesorero (AC de la HU) queda fuera
+ * de alcance: no existe hoy ningún motor de notificaciones (Módulo F) que
+ * consuma este evento — decisión documentada en task_relos.md §0.2.
+ */
+export interface VentaTurnoCerradoPayload {
+  turno_caja_id: string;
+  usuario_id: string;
+  saldo_esperado: number;
+  conteo_fisico_declarado: number;
+  diferencia: number;
+  requiere_justificacion: boolean;
+  justificacion: string | null;
+}
+
 /** Mapa evento → payload, usado por `domain-event-bus.ts` para tipar `emit`/`on`. */
 export interface DomainEventMap {
   /** HU-A1: se emite tras el alta de un ProductoMaestro. */
@@ -883,6 +914,10 @@ export interface DomainEventMap {
   "venta:excepcion_credito_resuelta": ExcepcionCreditoResueltaPayload;
   /** HU-C1: se emite tras el alta NUEVA de un Cliente (nunca al recuperar uno existente por DNI). */
   "cliente:creado": ClienteCreadoPayload;
+  /** HU-B2: se emite tras la apertura de un TurnoCaja. */
+  "venta:turno_abierto": VentaTurnoAbiertoPayload;
+  /** HU-B2: se emite tras el cierre de un TurnoCaja (evento sensible si requiere_justificacion). */
+  "venta:turno_cerrado": VentaTurnoCerradoPayload;
 }
 
 export type DomainEventName = keyof DomainEventMap;
