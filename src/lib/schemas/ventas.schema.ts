@@ -145,3 +145,62 @@ export const CerrarTurnoCajaSchema = z.object({
   justificacion: z.string().optional(),
 });
 export type CerrarTurnoCajaInput = z.infer<typeof CerrarTurnoCajaSchema>;
+
+/**
+ * Schemas Zod de HU-B1 — Venta de mostrador con cobro multimedio
+ * (spec_modulo_B.md §2.1; docs/tasks/task_relos.md §2). Copiados
+ * textualmente del contrato de la tarea, con UNA extensión deliberada (ver
+ * `deposito_id` abajo) — no modificar el resto de tipos ni mensajes.
+ */
+
+export const MedioPagoSchema = z.object({
+  // Sin CUENTA_CORRIENTE (decisión 0.6 de task_relos.md): el enum de Prisma
+  // `MedioPagoVenta` la incluye, pero la HU narrativa de esta tarea no la
+  // nombra en sus criterios de aceptación — excluida a propósito.
+  medio: z.enum(["EFECTIVO", "TRANSFERENCIA", "E_CHEQ", "MERCADO_PAGO", "TARJETA"]),
+  importe: z.number().positive(),
+  referencia: z.string().optional(),
+});
+export type MedioPagoInput = z.infer<typeof MedioPagoSchema>;
+
+/**
+ * `deposito_id` por ítem: extensión NO contemplada en el contrato Zod literal
+ * de la tarea (que solo copia `variante_sku_id`/`cantidad`/`precio_unitario`/
+ * `descuento_porcentual`) — necesaria porque `crearReserva()` de Módulo A
+ * (`spec_modulo_A.md` §2.9) exige `deposito_id` para congelar stock, y el
+ * negocio tiene 3 depósitos reales sembrados, no uno único. Mismo criterio ya
+ * aplicado por HU-B3 en `CrearPresupuestoItemSchema` (arriba) por el mismo
+ * motivo — documentado también en `docs/tasks/task_relos.md`.
+ */
+const RegistrarVentaMostradorItemSchema = z.object({
+  variante_sku_id: z.string().uuid(),
+  deposito_id: z.string().uuid(),
+  cantidad: z.number().int().positive(),
+  precio_unitario: z.number().positive(),
+  descuento_porcentual: z.number().min(0).max(100).optional(),
+});
+
+export const RegistrarVentaMostradorSchema = z
+  .object({
+    cliente_id: z.string().uuid().optional(),
+    items: z
+      .array(RegistrarVentaMostradorItemSchema)
+      .min(1, "La venta debe incluir al menos un ítem"),
+    medios_pago: z.array(MedioPagoSchema).min(1, "Debe indicarse al menos un medio de pago"),
+    tipo_comprobante: z.enum(["FACTURA_A", "FACTURA_B", "TICKET"]),
+  })
+  .refine(
+    (d) => {
+      const totalItems = d.items.reduce(
+        (acc, i) => acc + i.precio_unitario * i.cantidad * (1 - (i.descuento_porcentual ?? 0) / 100),
+        0,
+      );
+      const totalPagos = d.medios_pago.reduce((acc, m) => acc + m.importe, 0);
+      return Math.abs(totalItems - totalPagos) < 0.01;
+    },
+    {
+      message: "La suma de los medios de pago debe igualar exactamente el importe total de la venta",
+      path: ["medios_pago"],
+    },
+  );
+export type RegistrarVentaMostradorInput = z.infer<typeof RegistrarVentaMostradorSchema>;
