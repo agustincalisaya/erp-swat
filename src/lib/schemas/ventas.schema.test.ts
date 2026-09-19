@@ -9,6 +9,9 @@ import {
   ResolverExcepcionCreditoSchema,
   ClienteCuentaCorrienteIdSchema,
   OperacionCuentaCorrienteIdSchema,
+  AbrirTurnoCajaSchema,
+  CerrarTurnoCajaSchema,
+  TurnoCajaIdSchema,
 } from "./ventas.schema.ts";
 
 const cliente = "11111111-1111-4111-8111-111111111111";
@@ -274,4 +277,39 @@ test("ClienteCuentaCorrienteIdSchema y OperacionCuentaCorrienteIdSchema validan 
   assert.equal(ClienteCuentaCorrienteIdSchema.safeParse(cliente).success, true);
   assert.equal(OperacionCuentaCorrienteIdSchema.safeParse("no-es-uuid").success, false);
   assert.equal(OperacionCuentaCorrienteIdSchema.safeParse(cliente).success, true);
+});
+
+// ── HU-B2 — AbrirTurnoCajaSchema / CerrarTurnoCajaSchema / TurnoCajaIdSchema ──
+
+test("AbrirTurnoCajaSchema acepta fondo_fijo_inicial 0 y positivo", () => {
+  assert.equal(AbrirTurnoCajaSchema.safeParse({ fondo_fijo_inicial: 0 }).success, true);
+  assert.equal(AbrirTurnoCajaSchema.safeParse({ fondo_fijo_inicial: 5000 }).success, true);
+});
+
+test("AbrirTurnoCajaSchema rechaza fondo_fijo_inicial negativo o ausente", () => {
+  assert.equal(AbrirTurnoCajaSchema.safeParse({ fondo_fijo_inicial: -1 }).success, false);
+  assert.equal(AbrirTurnoCajaSchema.safeParse({}).success, false);
+});
+
+test("CerrarTurnoCajaSchema acepta conteo_fisico_declarado sin justificacion (caso dentro del umbral)", () => {
+  const parsed = CerrarTurnoCajaSchema.safeParse({ conteo_fisico_declarado: 1000 });
+  assert.equal(parsed.success, true);
+});
+
+test("CerrarTurnoCajaSchema acepta justificacion opcional presente", () => {
+  const parsed = CerrarTurnoCajaSchema.safeParse({
+    conteo_fisico_declarado: 1000,
+    justificacion: "Faltante por vuelto mal entregado",
+  });
+  assert.equal(parsed.success, true);
+});
+
+test("CerrarTurnoCajaSchema rechaza conteo_fisico_declarado negativo o ausente", () => {
+  assert.equal(CerrarTurnoCajaSchema.safeParse({ conteo_fisico_declarado: -1 }).success, false);
+  assert.equal(CerrarTurnoCajaSchema.safeParse({}).success, false);
+});
+
+test("TurnoCajaIdSchema valida el UUID del segmento [id]", () => {
+  assert.equal(TurnoCajaIdSchema.safeParse("no-es-uuid").success, false);
+  assert.equal(TurnoCajaIdSchema.safeParse(cliente).success, true);
 });

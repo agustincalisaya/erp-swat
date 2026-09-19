@@ -114,3 +114,34 @@ export const ResolverExcepcionCreditoSchema = z.object({
   motivo: z.string().min(1, "El motivo es obligatorio"),
 });
 export type ResolverExcepcionCreditoInput = z.infer<typeof ResolverExcepcionCreditoSchema>;
+
+/**
+ * Schemas Zod de HU-B2 — Apertura y cierre de turno de caja con arqueo ciego
+ * (spec_modulo_B.md §2.2; docs/tasks/task_relos.md §4). Copiados textuales
+ * del contrato de la tarea — no modificar tipos ni mensajes.
+ */
+
+/** `id` de un TurnoCaja recibido por path param. */
+export const TurnoCajaIdSchema = z
+  .string()
+  .uuid("El identificador del turno de caja debe ser un UUID válido");
+
+export const AbrirTurnoCajaSchema = z.object({
+  fondo_fijo_inicial: z.number().nonnegative(),
+});
+export type AbrirTurnoCajaInput = z.infer<typeof AbrirTurnoCajaSchema>;
+
+/**
+ * `justificacion` es opcional a nivel de contrato Zod a propósito (task
+ * §4/§6.2 punto 4): su obligatoriedad es CONDICIONAL a que la diferencia
+ * supere `UMBRAL_DIFERENCIA_ARQUEO`, una regla de negocio que Zod no puede
+ * expresar sin conocer el `saldo_esperado` (que todavía no existe en este
+ * punto — recién se calcula server-side dentro de `cerrarTurnoCaja()`). La
+ * exigencia real vive en la capa de servicios (`turno-caja.service.ts`),
+ * nunca acá.
+ */
+export const CerrarTurnoCajaSchema = z.object({
+  conteo_fisico_declarado: z.number().nonnegative(),
+  justificacion: z.string().optional(),
+});
+export type CerrarTurnoCajaInput = z.infer<typeof CerrarTurnoCajaSchema>;
