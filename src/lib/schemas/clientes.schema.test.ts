@@ -1,0 +1,94 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+/**
+ * Tests puros (sin I/O) de `AgregarDireccionClienteSchema` (HU-C3,
+ * spec_modulo_C.md §2.3). Corren bajo el script `test` principal
+ * (`node --experimental-strip-types --test`), por eso el import es relativo
+ * con extensión explícita: ese runner no resuelve el alias `@/`.
+ *
+ * El módulo bajo prueba solo importa `zod` — no toca Prisma ni
+ * `server-only`, así que se puede cargar tal cual.
+ */
+import { AgregarDireccionClienteSchema } from "./clientes.schema.ts";
+
+const VALIDO = {
+  rotulo: "Casa",
+  tipo: "FACTURACION" as const,
+  direccion_completa: "Av. Siempreviva 742",
+};
+
+test("AgregarDireccionClienteSchema: un payload válido parsea sin cambios", () => {
+  const parsed = AgregarDireccionClienteSchema.safeParse(VALIDO);
+  assert.equal(parsed.success, true);
+  assert.deepEqual(parsed.success ? parsed.data : null, VALIDO);
+});
+
+test("AgregarDireccionClienteSchema: acepta los dos valores del enum TipoDireccionCliente", () => {
+  for (const tipo of ["FACTURACION", "ENVIO"] as const) {
+    assert.equal(
+      AgregarDireccionClienteSchema.safeParse({ ...VALIDO, tipo }).success,
+      true,
+      `${tipo} debería ser válido`,
+    );
+  }
+});
+
+test("AgregarDireccionClienteSchema: `rotulo` vacío es inválido", () => {
+  const parsed = AgregarDireccionClienteSchema.safeParse({ ...VALIDO, rotulo: "" });
+  assert.equal(parsed.success, false);
+  assert.match(
+    parsed.success ? "" : (parsed.error.issues[0]?.message ?? ""),
+    /rótulo/i,
+  );
+});
+
+test("AgregarDireccionClienteSchema: `tipo` fuera del enum es inválido", () => {
+  assert.equal(
+    AgregarDireccionClienteSchema.safeParse({ ...VALIDO, tipo: "SUCURSAL" }).success,
+    false,
+  );
+  assert.equal(
+    AgregarDireccionClienteSchema.safeParse({ ...VALIDO, tipo: "facturacion" }).success,
+    false,
+  );
+  assert.equal(
+    AgregarDireccionClienteSchema.safeParse({ ...VALIDO, tipo: undefined }).success,
+    false,
+  );
+});
+
+test("AgregarDireccionClienteSchema: `direccion_completa` con menos de 5 caracteres es inválida", () => {
+  assert.equal(
+    AgregarDireccionClienteSchema.safeParse({ ...VALIDO, direccion_completa: "Casa" }).success,
+    false,
+  );
+  assert.equal(
+    AgregarDireccionClienteSchema.safeParse({ ...VALIDO, direccion_completa: "Cll" }).success,
+    false,
+  );
+  // Exactamente 5 caracteres pasa (el mínimo es inclusivo).
+  assert.equal(
+    AgregarDireccionClienteSchema.safeParse({ ...VALIDO, direccion_completa: "Casa1" }).success,
+    true,
+  );
+});
+
+test("AgregarDireccionClienteSchema: `direccion_completa` ausente es inválida", () => {
+  assert.equal(
+    AgregarDireccionClienteSchema.safeParse({ rotulo: "Casa", tipo: "FACTURACION" }).success,
+    false,
+  );
+});
+
+test("AgregarDireccionClienteSchema: un `cliente_id` espurio en el body PASA y se descarta del resultado", () => {
+  // Spec §2.3 — sin `.strict()`: el cliente NUNCA se lee del body, solo del
+  // path param `[id]`. Zod descarta la clave desconocida en vez de rechazar.
+  const parsed = AgregarDireccionClienteSchema.safeParse({
+    ...VALIDO,
+    cliente_id: "99999999-9999-4999-8999-999999999999",
+  });
+  assert.equal(parsed.success, true, "un cliente_id espurio NO debe invalidar el payload");
+  assert.deepEqual(parsed.success ? parsed.data : null, VALIDO);
+  assert.equal("cliente_id" in (parsed.success ? parsed.data : {}), false);
+});
