@@ -5,7 +5,7 @@
 **Metodología:** Regenerado por relevamiento directo del código (no SDD ex-ante).
 **Stack real:** Next.js (App Router, RSC + Server Actions + Route Handlers) · Prisma ORM · Zod · PostgreSQL · bus de eventos de dominio (`domainEventBus`) → `AuditLog` de Módulo D.
 **Fuente:** código en `src/` del commit `dd4624c` ("Agregue la HU-B5", rama `feature/HU-B5`, 2026-09-18) y los resultados de las corridas de testing de esa misma jornada. `docs/tasks/task_HU-B5.md` y `spec_modulo_B.md` se citan solo para señalar diferencias contra el código (§12); **no son la fuente** de este documento. Documento nuevo — no existía una versión previa de HU-B5 en `docs/modulos/modulo B/`.
-**Estado de integración:** el código está commiteado y pusheado en `origin/feature/HU-B5`, **pero no está mergeado a `develop`** (verificado con `git merge-base --is-ancestor`). La rama además apila HU-B3/B4/B8, que tampoco están en `develop` (ver §12, punto 19).
+**Estado de integración:** el código está **mergeado a `develop`** (PR #169, merge `887b0f7`, verificado con `git merge-base --is-ancestor`), junto con HU-B3/B4/B8, que la rama apilaba (ver §12, punto 19). Al relevar el código vivía solo en `origin/feature/HU-B5`.
 
 **Organización del documento:** Parte 1 (§1–§9) es la referencia técnica del código tal como quedó; Parte 2 (§10–§14) es el historial de desarrollo: relevamiento, decisiones de diseño del PR, diferencias contra el task file y el spec, resultados de testing y pendientes.
 
@@ -429,7 +429,7 @@ Hallazgos del Paso 0 que condicionaron el diseño:
 
 Confirmadas explícitamente antes de implementar.
 
-**D1 — Endpoint de resolución nuevo (`PATCH …/operaciones/[id]/resolver`).** El spec §2.5 define el permiso `ventas:autorizar_excepcion_credito` pero **no expone ningún endpoint** para que el Supervisor apruebe o rechace una operación retenida (a diferencia de HU-B4, que tiene su `POST /[id]/override-descuento` dedicado). Se resolvió con el mismo patrón que HU-B4 y la anulación de pedido (§2.8 del spec): un `PATCH` dedicado, de un solo propósito, gateado por el permiso exclusivo del Supervisor. Consecuencia: el spec §2.5 quedó desactualizado respecto del código (§12, punto 4).
+**D1 — Endpoint de resolución nuevo (`PATCH …/operaciones/[id]/resolver`).** El spec §2.5 define el permiso `ventas:autorizar_excepcion_credito` pero **no expone ningún endpoint** para que el Supervisor apruebe o rechace una operación retenida (a diferencia de HU-B4, que tiene su `POST /[id]/override-descuento` dedicado). Se resolvió con el mismo patrón que HU-B4 y la anulación de pedido (§2.8 del spec): un `PATCH` dedicado, de un solo propósito, gateado por el permiso exclusivo del Supervisor.
 
 **D2 — Origen de `usuario_solicitante_id`: `PedidoVenta.registrado_por_id`, sin migración.** Alternativa descartada: agregar una columna `registrado_por_id` a `CuentaCorrienteOperacion` (exigía migración con aprobación explícita a mitad de sprint y backfill del seed). Razón de la elegida: coincide con el único camino productivo previsto —la integración con HU-B1, donde pedido y operación nacen en la misma sesión—. **Limitación conocida:** si otro usuario registra la operación a mano por el endpoint, el evento sensible atribuye la solicitud al usuario que creó el pedido, no al que registró la operación. Documentada en el docstring del servicio y a documentar en el PR.
 
@@ -458,10 +458,10 @@ Relevadas contrastando el código commiteado contra `docs/tasks/task_HU-B5.md` y
 | # | Punto | Task file / spec | Código real |
 |---|---|---|---|
 | 1 | Rutas | `app/api/...`, `app/(dashboard)/...` | `src/app/api/...`, `src/app/(dashboard)/...` ✔ |
-| 2 | `422` con el id | Task: "junto con el `id`"; spec §2.5: `{ data: null, error: { code, message } }` | `error.details.operacion_id` ✔ (D4) |
-| 3 | Respuesta de éxito del `POST` | Spec §2.5 no la define; task: "200/201" | `201 { operacion_id, estado: "APROBADA" }` |
-| 4 ⚠ | Spec sin actualizar | §2.5 no lista el `PATCH …/resolver`; §4 no lista `venta:excepcion_credito_resuelta` | El código los implementa; el spec **no fue modificado** por este PR |
-| 5 | Payload del evento de alta | Spec §4: `{ cliente_id, pedido_venta_id, monto, plan_de_pagos? }` | Agrega `operacion_id` y `estado`; `plan_de_pagos.fecha_estimada` como string ISO |
+| 2 | `422` con el id | Task: "junto con el `id`"; spec §2.5 original: `{ data: null, error: { code, message } }` (corregido en la Revisión 3: ahora incluye `error.details.operacion_id`) | `error.details.operacion_id` ✔ (D4); coincide con el spec vigente |
+| 3 | Respuesta de éxito del `POST` | Spec §2.5 original no la definía (la Revisión 3 la define: `201 { operacion_id, estado: "APROBADA" }`); task: "200/201" | `201 { operacion_id, estado: "APROBADA" }` ✔; coincide con el spec vigente |
+| 4 ✔ | Spec sin actualizar (resuelto) | §2.5 no listaba el `PATCH …/resolver`; §4 no listaba `venta:excepcion_credito_resuelta` | El código los implementaba y el PR no modificó el spec; **`spec_modulo_B.md` se actualizó después** (Revisión 3: §2.5 y §4) para reflejar el endpoint de resolución y el evento |
+| 5 | Payload del evento de alta | Spec §4 original: `{ cliente_id, pedido_venta_id, monto, plan_de_pagos? }` (actualizado en la Revisión 3: incluye `operacion_id` y `estado`) | Agrega `operacion_id` y `estado` ✔; coincide con el spec vigente. `plan_de_pagos.fecha_estimada` viaja como string ISO (el spec no lo detalla) |
 | 6 ⚠ | Evento de alta "ya definido" | Task §2.5: "ya definidos en spec §4" | No estaba en `event-types.ts`; se creó en este PR. Además **no tiene consumidor** (ni `AuditLog` ni Módulo G) |
 | 7 | `usuario_solicitante_id` | Task §2.3: "quien generó la operación original" | `PedidoVenta.registrado_por_id` ✔ (D2, limitación conocida) |
 | 8 | Patrón de gate | Task §1: "gate único + validación interna del autorizante dentro de la transacción" | El autorizante es la sesión; el permiso se valida solo en el gate, sin `supervisor_credencial` ni re-validación interna (D5) |
@@ -475,9 +475,9 @@ Relevadas contrastando el código commiteado contra `docs/tasks/task_HU-B5.md` y
 | 16 | Validaciones sobre el pedido | Task §2.2: no las define | Agregadas ✔ (D6) |
 | 17 | Redondeo de `monto` | No especificado | `toDecimalPlaces(2)` antes de operar (§4.8) |
 | 18 | Nombres | Task §2.3: `resolverExcepcionCredito()` como Server Action | La Server Action es `resolverExcepcionCreditoAction` (sufijo, patrón HU-B4) ✔ |
-| 19 ⚠ | "Mergeado" | El pedido de este documento asumía código mergeado | **No está en `develop`**: vive en `feature/HU-B5` (pusheada). La rama apila HU-B3/B4/B8, que tampoco están en `develop` |
+| 19 ✔ | "Mergeado" | El pedido de este documento asumía código mergeado | Al relevarlo **no estaba en `develop`** (vivía en `feature/HU-B5`, pusheada, apilada sobre HU-B3/B4/B8). **Desde entonces está mergeado a `develop`** (PR #169, merge `887b0f7`), junto con B3/B4/B8 |
 | 20 | Task file interno | Task §5: "los tres puntos de Fuera de alcance" | La §3 del task lista **cinco** puntos; sin efecto sobre el código |
-| 21 ⚠ | Descripción de PR | Task §5: documentar en el PR la dependencia con HU-B1 | No existe descripción de PR en el repositorio; pendiente al abrirlo |
+| 21 ⚠ | Descripción de PR | Task §5: documentar en el PR la dependencia con HU-B1 | El PR #169 existe (mergeado). **Sin verificar:** si su descripción documenta la dependencia con HU-B1, la limitación de `usuario_solicitante_id` (D2) y la auto-aprobación (D3); no se pudo consultar (`gh` no está instalado). Mismo punto que §14 #1 |
 
 ## 13. Testing — tres niveles
 
@@ -524,8 +524,8 @@ Sesiones reales (`curl`) contra las páginas renderizadas en el servidor: con `s
 
 ## 14. Pendientes y deuda documentada
 
-1. **Mergear** `feature/HU-B5` (junto con su base B3/B4/B8) a `develop`; abrir el PR con la descripción que documente: la dependencia pendiente con HU-B1, la limitación de `usuario_solicitante_id` (D2) y la auto-aprobación como decisión consciente (D3).
-2. **Actualizar `spec_modulo_B.md`** (§2.5: el `PATCH …/resolver` y el shape del `422` con `details`; §4: `venta:excepcion_credito_resuelta` y los campos agregados a `venta:operacion_cuenta_corriente_registrada`) y, si corresponde, `task_HU-B5.md`.
+1. **Resuelto — mergeado a `develop`** (PR #169, junto con su base B3/B4/B8). Sin verificar: si la descripción del PR documentó la dependencia pendiente con HU-B1, la limitación de `usuario_solicitante_id` (D2) y la auto-aprobación como decisión consciente (D3); este documento no pudo consultarla.
+2. **Resuelto — `spec_modulo_B.md` actualizado** (Revisión 3; §2.5: el `PATCH …/resolver` y el shape del `422` con `details`; §4: `venta:excepcion_credito_resuelta` y los campos agregados a `venta:operacion_cuenta_corriente_registrada`). Pendiente, si corresponde: `task_HU-B5.md`.
 3. **Decidir sobre la auditoría del alta:** `venta:operacion_cuenta_corriente_registrada` no genera fila en `AuditLog` (RULES.md §2 exige registrar toda acción que modifica el estado) y no tiene consumidor de Módulo G. Un handler de auditoría es un cambio de pocas líneas.
 4. **Integración HU-B1** → `registrarOperacionCuentaCorriente()` desde `pedido-venta.service.ts`, coordinada con su dueño.
 5. **Consumo del `plan_de_pagos` por Módulo G** y **registro de pagos/notas de crédito** que reduzcan el saldo (hoy `saldo_actual` solo crece).

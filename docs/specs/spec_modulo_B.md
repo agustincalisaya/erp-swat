@@ -1,5 +1,6 @@
 # Especificación Técnica — Módulo B (Ventas y Punto de Venta - POS)
 ## ERP SWAT Indumentarias — Sprint 3
+## Revisión 3 — Correcciones sobre Rev. 2 (HU-B5): endpoint faltante de resolución de excepción de crédito (2.5, `PATCH .../operaciones/[id]/resolver`, cierra el permiso `ventas:autorizar_excepcion_credito` que estaba definido sin ruta propia) y corrección del shape de la respuesta `422 LIMITE_CREDITO_EXCEDIDO` para incluir `error.details.operacion_id`
 ## Revisión 2 — Correcciones de auditoría sobre Rev. 1: endpoint faltante de anulación de Pedido de Venta (2.8, cierra la fila RBAC "Anular un pedido" del Alcance), contrato de acceso reducido de Supervisor de Ventas al log de auditoría (2.6, antes solo mencionado sin schema/endpoint propio)
 ## Revisión 1 — Primera especificación técnica del módulo (HU-B1 a HU-B7)
 
@@ -240,7 +241,9 @@ export type AutorizarOverrideDescuentoInput = z.infer<typeof AutorizarOverrideDe
 
 **Ruta (consulta de cuenta):** `GET /app/api/ventas/cuentas-corrientes/[cliente_id]/route.ts`
 **Ruta (registro de operación a cuenta):** `POST /app/api/ventas/cuentas-corrientes/[cliente_id]/operaciones/route.ts`
-**Server Action equivalente:** `registrarOperacionCuentaCorriente()` en `app/(dashboard)/ventas/cuentas-corrientes/actions.ts`
+**Server Action equivalente:** `registrarOperacionCuentaCorrienteAction()` en `app/(dashboard)/ventas/cuentas-corrientes/actions.ts`
+**Ruta (resolución de una operación retenida):** `PATCH /app/api/ventas/cuentas-corrientes/operaciones/[id]/resolver/route.ts`
+**Server Action equivalente (resolución):** `resolverExcepcionCreditoAction()` en `app/(dashboard)/ventas/cuentas-corrientes/actions.ts`
 **Permiso requerido:** `ventas:gestionar_cuenta_corriente` (Cajero POS y Supervisor de Ventas, ambos `✓` directo); `ventas:autorizar_excepcion_credito` (exclusivo Supervisor de Ventas).
 
 ```typescript
@@ -272,10 +275,47 @@ export type RegistrarOperacionCuentaCorrienteInput = z.infer<typeof RegistrarOpe
 { "data": { "cliente_id": "uuid", "limite_credito_autorizado": 500000.00, "saldo_actual": 120000.00, "disponible": 380000.00 }, "error": null }
 ```
 
+**Respuesta `201 Created` (registro de operación dentro del límite, queda `APROBADA`):**
+```json
+{ "data": { "operacion_id": "uuid", "estado": "APROBADA" }, "error": null }
+```
+
 **Respuesta `422 Unprocessable Entity` (excede límite, retenida):**
 ```json
-{ "data": null, "error": { "code": "LIMITE_CREDITO_EXCEDIDO", "message": "La operación excede el límite de crédito disponible; requiere autorización de un Supervisor de Ventas" } }
+{ "data": null, "error": { "code": "LIMITE_CREDITO_EXCEDIDO", "message": "La operación excede el límite de crédito disponible; requiere autorización de un Supervisor de Ventas", "details": { "operacion_id": "uuid" } } }
 ```
+
+**Corrección de contrato (HU-B5):** la operación excedida **no se descarta**: el servicio la persiste en estado `RETENIDA` (sin modificar `saldo_actual`) y confirma la transacción **antes** de responder este `422`; `error.details.operacion_id` es el `id` de esa operación ya creada, para que el llamador pueda navegar a su resolución. La Server Action devuelve el mismo `details`.
+
+**Resolución de una operación retenida — `PATCH .../operaciones/[id]/resolver` (endpoint agregado por HU-B5):** la versión anterior de esta sección definía el permiso `ventas:autorizar_excepcion_credito` pero no exponía ninguna ruta para que el Supervisor de Ventas aprobara o rechazara una operación retenida. Se resuelve con el mismo criterio que 2.4 y 2.8: un `PATCH` dedicado, de un solo propósito, gateado por el permiso exclusivo del Supervisor. `[id]` es el `id` de la `CuentaCorrienteOperacion`.
+
+**Permiso requerido:** `ventas:autorizar_excepcion_credito` — único gate del endpoint. El Cajero POS no tiene acceso bajo ninguna circunstancia (`403`), ni siquiera sobre su propia operación retenida. El usuario autorizante es el de la sesión; el `body` no transporta la credencial de otro usuario.
+
+```typescript
+export const ResolverExcepcionCreditoSchema = z.object({
+  decision: z.enum(["APROBAR", "RECHAZAR"]),
+  motivo: z.string().min(1, "El motivo es obligatorio"),
+});
+export type ResolverExcepcionCreditoInput = z.infer<typeof ResolverExcepcionCreditoSchema>;
+```
+
+**Comportamiento esperado:**
+- Solo una `CuentaCorrienteOperacion` en estado `RETENIDA` admite esta transición: `RETENIDA` → `APROBADA` o `RETENIDA` → `RECHAZADA` (ambos estados terminales). Cualquier otro estado origen responde `409 TRANSICION_INVALIDA`. El estado origen se valida con una guardia atómica dentro de la misma transacción que ejecuta el `UPDATE`, para evitar condiciones de carrera entre dos resoluciones simultáneas de la misma operación (mismo criterio que 3.1).
+- `decision: "APROBAR"` → `estado = APROBADA`, `autorizado_por_id` = usuario de la sesión, y `saldo_actual` de la `CuentaCorrienteCliente` suma el `monto` de la operación. **No se revalida el límite de crédito al aprobar:** el saldo puede quedar por encima del límite, que es el sentido de la excepción.
+- `decision: "RECHAZAR"` → `estado = RECHAZADA`, `autorizado_por_id` = usuario de la sesión; `saldo_actual` no se modifica.
+- **Evento sensible obligatorio:** toda resolución emite `venta:excepcion_credito_resuelta` (sección 4) con encadenamiento SHA-256 hacia el Módulo D, después del `COMMIT`. `autorizacion_id` es un id de correlación (`crypto.randomUUID()`, generado antes del `COMMIT`), con el mismo criterio que la corrección de redacción de 2.4.
+
+**Respuesta `200 OK` (`estado` es `APROBADA` o `RECHAZADA` según la `decision`):**
+```json
+{ "data": { "operacion_id": "uuid", "estado": "APROBADA", "autorizacion_id": "uuid" }, "error": null }
+```
+
+**Respuesta `409 Conflict` (la operación no está `RETENIDA`):**
+```json
+{ "data": null, "error": { "code": "TRANSICION_INVALIDA", "message": "Solo una operación en estado RETENIDA puede resolverse" } }
+```
+
+Otros estados: `400 VALIDATION_ERROR` (`id` no UUID, `decision` fuera del enum o `motivo` vacío), `401` sin sesión, `403 FORBIDDEN` sin `ventas:autorizar_excepcion_credito`, `404 OPERACION_CUENTA_CORRIENTE_NO_ENCONTRADA`.
 
 ### 2.6. Log forense de anulaciones, descuentos y cambios de precio (HU-B6)
 
@@ -450,7 +490,8 @@ El Módulo B es **emisor** hacia el Módulo D (encadenamiento SHA-256) y **consu
 | `venta:cambio_precio_manual` | 2.4, tras `COMMIT` — **evento sensible** | Módulo D (encadenamiento SHA-256 reforzado) | `{ pedido_venta_id, variante_sku_id, usuario_autorizante_id, precio_anterior, precio_nuevo, motivo }` |
 | `venta:anulacion_pedido` | 2.8 (transición a `ANULADO`), tras `COMMIT` — **evento sensible** | Módulo D (encadenamiento SHA-256 reforzado) | `{ pedido_venta_id, usuario_id, deletion_reason, stock_liberado: boolean }` |
 | `venta:comprobante_emitido` | 2.7, tras `COMMIT` | Módulo D (auditoría estándar), Módulo G (conciliación fiscal) | `{ comprobante_id, pedido_venta_id, tipo_comprobante, cae_simulado, es_simulado: true }` |
-| `venta:operacion_cuenta_corriente_registrada` | 2.5, tras `COMMIT` | Módulo G (proyección de flujo de ingresos) | `{ cliente_id, pedido_venta_id, monto, plan_de_pagos? }` |
+| `venta:operacion_cuenta_corriente_registrada` | 2.5, tras `COMMIT` | Módulo G (proyección de flujo de ingresos) | `{ operacion_id, cliente_id, pedido_venta_id, monto, estado: "APROBADA" \| "RETENIDA", plan_de_pagos? }` |
+| `venta:excepcion_credito_resuelta` | 2.5 (resolución de una operación retenida), tras `COMMIT` — **evento sensible** | Módulo D (encadenamiento SHA-256) | `{ autorizacion_id, operacion_id, pedido_venta_id, cliente_id, usuario_solicitante_id, usuario_autorizante_id, decision, motivo, monto }` |
 
 **Sin eventos nuevos en HU-B6:** la consulta de auditoría (2.6) es de solo lectura y no emite evento propio.
 
