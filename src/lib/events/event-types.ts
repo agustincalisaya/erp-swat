@@ -791,6 +791,29 @@ export interface ClienteCreadoPayload {
 }
 
 /**
+ * HU-C3 (Módulo C) — Payload emitido tras una mutación de la ficha de un
+ * `Cliente` cubierta por §2.3; hoy el alta de una `DireccionCliente`
+ * (`agregarDireccionCliente()`). Emisión post-`COMMIT`, fire-and-forget
+ * (spec §3.3/§4) — jamás dentro de la transacción.
+ *
+ * `campos_modificados` describe qué cambió sobre el cliente (para el alta de
+ * dirección: `["direcciones"]`); `valor_nuevo` lleva los datos de la fila
+ * creada. El payload NO copia `email`/`telefono` del cliente (regla de
+ * minimización, spec §4).
+ *
+ * Nota de implementación: `AuditLog` no tiene columna `campos_modificados`;
+ * el handler de auditoría pliega ese array dentro de `valor_nuevo` para que
+ * el snapshot forense conserve el detalle (design §5).
+ */
+export interface ClienteActualizadoPayload {
+  cliente_id: string;
+  usuario_id: string;
+  campos_modificados: string[];
+  valor_anterior: Record<string, unknown> | null;
+  valor_nuevo: Record<string, unknown> | null;
+}
+
+/**
  * HU-B2 (Módulo B) — Payload emitido tras la apertura de un `TurnoCaja`
  * (`abrirTurnoCaja()`, task_relos.md §6.1/§7). Emisión post-escritura
  * (mismo patrón fire-and-forget que el resto del proyecto).
@@ -914,6 +937,8 @@ export interface DomainEventMap {
   "venta:excepcion_credito_resuelta": ExcepcionCreditoResueltaPayload;
   /** HU-C1: se emite tras el alta NUEVA de un Cliente (nunca al recuperar uno existente por DNI). */
   "cliente:creado": ClienteCreadoPayload;
+  /** HU-C3: se emite post-COMMIT tras mutar la ficha del cliente (alta de una DireccionCliente, §2.3). */
+  "cliente:actualizado": ClienteActualizadoPayload;
   /** HU-B2: se emite tras la apertura de un TurnoCaja. */
   "venta:turno_abierto": VentaTurnoAbiertoPayload;
   /** HU-B2: se emite tras el cierre de un TurnoCaja (evento sensible si requiere_justificacion). */

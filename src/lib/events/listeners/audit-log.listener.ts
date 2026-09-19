@@ -959,6 +959,33 @@ export function iniciarAuditLogListener(): void {
     });
   });
 
+  // HU-C3 (Módulo C) — mutación de la ficha del cliente cubierta por §2.3:
+  // hoy, el alta de una `DireccionCliente` (`agregarDireccionCliente()`).
+  // El service emite post-COMMIT y este listener es la única vía de escritura
+  // a `AuditLog` (RULES.md: ningún service llama `registrarAuditLog()`).
+  //
+  // `registro_id` es el id de la fila realmente creada (la dirección); si por
+  // algún motivo faltara, cae al `cliente_id` para no perder el asiento.
+  // `AuditLog` NO tiene columna `campos_modificados` (verificado en
+  // `schema.prisma`), así que ese array se pliega dentro de `valor_nuevo`
+  // para que el snapshot forense conserve qué cambió. `ip: "unknown"` —
+  // mismo sentinel que `cliente:creado` (arriba).
+  domainEventBus.on("cliente:actualizado", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "CREATE",
+      tabla_afectada: "direcciones_cliente",
+      registro_id: (payload.valor_nuevo?.id as string | undefined) ?? payload.cliente_id,
+      ip: "unknown",
+      valor_anterior: payload.valor_anterior,
+      valor_nuevo: {
+        cliente_id: payload.cliente_id,
+        campos_modificados: payload.campos_modificados,
+        ...payload.valor_nuevo,
+      },
+    });
+  });
+
   // HU-B2 (Módulo B) — apertura de un TurnoCaja (task_relos.md §6.1/§7). El
   // service (`turno-caja.service.ts`) nunca llama `registrarAuditLog()`
   // directo: emite el evento y este listener reacciona (misma regla de
