@@ -1028,4 +1028,27 @@ export function iniciarAuditLogListener(): void {
       },
     });
   });
+
+  // HU-B1 (Módulo B) — registro de una venta de mostrador (spec_modulo_B.md
+  // §2.1/§4). `venta-mostrador.service.ts` nunca llama `registrarAuditLog()`
+  // directo: emite el evento post-COMMIT y este listener reacciona (misma
+  // regla de unificación que el resto del proyecto). `tabla_afectada` usa el
+  // `@@map` en minúsculas (`pedidos_venta`); `ip: "internal-event"` — mismo
+  // sentinel que `venta:presupuesto_emitido`/`stock:reserva_congelada`.
+  domainEventBus.on("venta:registrada", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "VENTA_MOSTRADOR_REGISTRADA",
+      tabla_afectada: "pedidos_venta",
+      registro_id: payload.pedido_venta_id,
+      ip: "internal-event",
+      valor_anterior: null,
+      valor_nuevo: {
+        cliente_id: payload.cliente_id,
+        total: payload.total,
+        medios_pago: payload.medios_pago,
+        turno_caja_id: payload.turno_caja_id,
+      },
+    });
+  });
 }

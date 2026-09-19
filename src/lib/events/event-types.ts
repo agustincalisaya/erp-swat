@@ -844,6 +844,30 @@ export interface VentaTurnoCerradoPayload {
   justificacion: string | null;
 }
 
+/** Línea de cobro de `VentaRegistradaPayload` — mismo shape mínimo del payload de spec §4. */
+export interface VentaRegistradaMedioPagoPayload {
+  medio: string;
+  importe: number;
+}
+
+/**
+ * HU-B1 (Módulo B) — Payload emitido tras registrar una venta de mostrador
+ * (`registrarVentaMostrador()`, spec_modulo_B.md §2.1/§4). Payload LITERAL de
+ * spec §4 (`{ pedido_venta_id, cliente_id | null, total, medios_pago[],
+ * turno_caja_id, usuario_id }`) — sin campos adicionales de comprobante ni de
+ * ítems pendientes de autorización (esos quedan resolubles consultando el
+ * `PedidoVenta` por su `id`, no duplicados en el evento). Emisión post-COMMIT
+ * (mismo patrón fire-and-forget que el resto del proyecto).
+ */
+export interface VentaRegistradaPayload {
+  pedido_venta_id: string;
+  cliente_id: string | null;
+  total: number;
+  medios_pago: VentaRegistradaMedioPagoPayload[];
+  turno_caja_id: string;
+  usuario_id: string;
+}
+
 /** Mapa evento → payload, usado por `domain-event-bus.ts` para tipar `emit`/`on`. */
 export interface DomainEventMap {
   /** HU-A1: se emite tras el alta de un ProductoMaestro. */
@@ -943,6 +967,8 @@ export interface DomainEventMap {
   "venta:turno_abierto": VentaTurnoAbiertoPayload;
   /** HU-B2: se emite tras el cierre de un TurnoCaja (evento sensible si requiere_justificacion). */
   "venta:turno_cerrado": VentaTurnoCerradoPayload;
+  /** HU-B1: se emite tras registrar una venta de mostrador con cobro multimedio. */
+  "venta:registrada": VentaRegistradaPayload;
 }
 
 export type DomainEventName = keyof DomainEventMap;

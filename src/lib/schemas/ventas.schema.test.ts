@@ -12,6 +12,8 @@ import {
   AbrirTurnoCajaSchema,
   CerrarTurnoCajaSchema,
   TurnoCajaIdSchema,
+  MedioPagoSchema,
+  RegistrarVentaMostradorSchema,
 } from "./ventas.schema.ts";
 
 const cliente = "11111111-1111-4111-8111-111111111111";
@@ -312,4 +314,148 @@ test("CerrarTurnoCajaSchema rechaza conteo_fisico_declarado negativo o ausente",
 test("TurnoCajaIdSchema valida el UUID del segmento [id]", () => {
   assert.equal(TurnoCajaIdSchema.safeParse("no-es-uuid").success, false);
   assert.equal(TurnoCajaIdSchema.safeParse(cliente).success, true);
+});
+
+// ── HU-B1 — MedioPagoSchema / RegistrarVentaMostradorSchema (spec_modulo_B.md §2.1) ──
+
+test("MedioPagoSchema acepta cada uno de los 5 medios habilitados (sin CUENTA_CORRIENTE — decisión 0.6)", () => {
+  for (const medio of ["EFECTIVO", "TRANSFERENCIA", "E_CHEQ", "MERCADO_PAGO", "TARJETA"]) {
+    assert.equal(MedioPagoSchema.safeParse({ medio, importe: 100 }).success, true);
+  }
+});
+
+test("MedioPagoSchema rechaza CUENTA_CORRIENTE (excluida a propósito, aunque el enum de Prisma la tenga)", () => {
+  assert.equal(MedioPagoSchema.safeParse({ medio: "CUENTA_CORRIENTE", importe: 100 }).success, false);
+});
+
+test("MedioPagoSchema rechaza importe 0/negativo y acepta referencia opcional", () => {
+  assert.equal(MedioPagoSchema.safeParse({ medio: "EFECTIVO", importe: 0 }).success, false);
+  assert.equal(MedioPagoSchema.safeParse({ medio: "EFECTIVO", importe: -5 }).success, false);
+  assert.equal(
+    MedioPagoSchema.safeParse({ medio: "TRANSFERENCIA", importe: 100, referencia: "OP-1" }).success,
+    true,
+  );
+});
+
+function itemVentaMostradorValido(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    variante_sku_id: variante,
+    deposito_id: deposito,
+    cantidad: 1,
+    precio_unitario: 45000,
+    ...overrides,
+  };
+}
+
+function ventaMostradorValida(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    items: [itemVentaMostradorValido()],
+    medios_pago: [{ medio: "EFECTIVO", importe: 45000 }],
+    tipo_comprobante: "FACTURA_B",
+    ...overrides,
+  };
+}
+
+test("RegistrarVentaMostradorSchema acepta una venta mínima válida (un ítem, un medio de pago, suma exacta)", () => {
+  assert.equal(RegistrarVentaMostradorSchema.safeParse(ventaMostradorValida()).success, true);
+});
+
+test("RegistrarVentaMostradorSchema acepta cobro multimedio combinado cuya suma iguala el total con descuento aplicado", () => {
+  // Total: 45000 * 2 * 0.9 (10% desc.) = 81000, repartido en dos medios.
+  const resultado = RegistrarVentaMostradorSchema.safeParse(
+    ventaMostradorValida({
+      items: [itemVentaMostradorValido({ cantidad: 2, descuento_porcentual: 10 })],
+      medios_pago: [
+        { medio: "EFECTIVO", importe: 30000 },
+        { medio: "TARJETA", importe: 51000 },
+      ],
+    }),
+  );
+  assert.equal(resultado.success, true);
+});
+
+test("RegistrarVentaMostradorSchema rechaza cuando la suma de medios de pago no iguala el total de ítems", () => {
+  const resultado = RegistrarVentaMostradorSchema.safeParse(
+    ventaMostradorValida({ medios_pago: [{ medio: "EFECTIVO", importe: 100 }] }),
+  );
+  assert.equal(resultado.success, false);
+  if (!resultado.success) {
+    assert.equal(resultado.error.issues[0]?.path[0], "medios_pago");
+  }
+});
+
+test("RegistrarVentaMostradorSchema tolera diferencias de centavos por debajo de 0.01", () => {
+  const resultado = RegistrarVentaMostradorSchema.safeParse(
+    ventaMostradorValida({
+      items: [itemVentaMostradorValido({ precio_unitario: 100.005 })],
+      medios_pago: [{ medio: "EFECTIVO", importe: 100.005 }],
+    }),
+  );
+  assert.equal(resultado.success, true);
+});
+
+test("RegistrarVentaMostradorSchema exige al menos un ítem y al menos un medio de pago", () => {
+  assert.equal(RegistrarVentaMostradorSchema.safeParse(ventaMostradorValida({ items: [] })).success, false);
+  assert.equal(
+    RegistrarVentaMostradorSchema.safeParse(ventaMostradorValida({ medios_pago: [] })).success,
+    false,
+  );
+});
+
+test("RegistrarVentaMostradorSchema exige deposito_id por ítem (extensión deliberada, mismo criterio que HU-B3)", () => {
+  const item = itemVentaMostradorValido();
+  delete (item as Record<string, unknown>).deposito_id;
+  assert.equal(
+    RegistrarVentaMostradorSchema.safeParse(ventaMostradorValida({ items: [item] })).success,
+    false,
+  );
+});
+
+test("RegistrarVentaMostradorSchema rechaza cantidad/precio_unitario no positivos y descuento_porcentual fuera de [0, 100]", () => {
+  assert.equal(
+    RegistrarVentaMostradorSchema.safeParse(
+      ventaMostradorValida({ items: [itemVentaMostradorValido({ cantidad: 0 })] }),
+    ).success,
+    false,
+  );
+  assert.equal(
+    RegistrarVentaMostradorSchema.safeParse(
+      ventaMostradorValida({ items: [itemVentaMostradorValido({ precio_unitario: -1 })] }),
+    ).success,
+    false,
+  );
+  assert.equal(
+    RegistrarVentaMostradorSchema.safeParse(
+      ventaMostradorValida({
+        items: [itemVentaMostradorValido({ descuento_porcentual: 101 })],
+        medios_pago: [{ medio: "EFECTIVO", importe: 45000 }],
+      }),
+    ).success,
+    false,
+  );
+});
+
+test("RegistrarVentaMostradorSchema acepta cliente_id opcional como UUID y rechaza uno inválido", () => {
+  assert.equal(
+    RegistrarVentaMostradorSchema.safeParse(ventaMostradorValida({ cliente_id: cliente })).success,
+    true,
+  );
+  assert.equal(
+    RegistrarVentaMostradorSchema.safeParse(ventaMostradorValida({ cliente_id: "no-es-uuid" })).success,
+    false,
+  );
+});
+
+test("RegistrarVentaMostradorSchema exige tipo_comprobante dentro de FACTURA_A/FACTURA_B/TICKET", () => {
+  for (const tipo_comprobante of ["FACTURA_A", "FACTURA_B", "TICKET"]) {
+    assert.equal(
+      RegistrarVentaMostradorSchema.safeParse(ventaMostradorValida({ tipo_comprobante })).success,
+      true,
+    );
+  }
+  assert.equal(
+    RegistrarVentaMostradorSchema.safeParse(ventaMostradorValida({ tipo_comprobante: "NOTA_CREDITO" }))
+      .success,
+    false,
+  );
 });
