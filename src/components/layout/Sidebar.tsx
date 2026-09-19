@@ -143,6 +143,15 @@ const SECCIONES: SeccionConfig[] = [
         icon: FileText,
         permiso: "ventas:leer",
       },
+      // HU-B5 (spec_modulo_B.md §2.5) — gate por `ventas:gestionar_cuenta_corriente`
+      // (Cajero POS y Supervisor de Ventas). La acción de resolver excepciones
+      // de crédito se gatea aparte dentro de la propia página.
+      {
+        label: "Cuentas corrientes",
+        href: "/ventas/cuentas-corrientes",
+        icon: Wallet,
+        permiso: "ventas:gestionar_cuenta_corriente",
+      },
     ],
   },
   {

@@ -5,6 +5,10 @@ import {
   PresupuestoIdSchema,
   AutorizarOverrideDescuentoSchema,
   PedidoVentaIdSchema,
+  RegistrarOperacionCuentaCorrienteSchema,
+  ResolverExcepcionCreditoSchema,
+  ClienteCuentaCorrienteIdSchema,
+  OperacionCuentaCorrienteIdSchema,
 } from "./ventas.schema.ts";
 
 const cliente = "11111111-1111-4111-8111-111111111111";
@@ -218,4 +222,56 @@ test("AutorizarOverrideDescuentoSchema acepta variante_sku_id ausente (opcional 
 test("PedidoVentaIdSchema valida el UUID del segmento [id]", () => {
   assert.equal(PedidoVentaIdSchema.safeParse("no-es-uuid").success, false);
   assert.equal(PedidoVentaIdSchema.safeParse(cliente).success, true);
+});
+
+// ── HU-B5 — RegistrarOperacionCuentaCorrienteSchema ─────────────────────────
+
+test("RegistrarOperacionCuentaCorrienteSchema acepta pedido + monto positivo sin plan_de_pagos", () => {
+  assert.equal(
+    RegistrarOperacionCuentaCorrienteSchema.safeParse({ pedido_venta_id: cliente, monto: 1500.5 }).success,
+    true,
+  );
+});
+
+test("RegistrarOperacionCuentaCorrienteSchema rechaza monto 0/negativo y pedido_venta_id no-uuid", () => {
+  assert.equal(RegistrarOperacionCuentaCorrienteSchema.safeParse({ pedido_venta_id: cliente, monto: 0 }).success, false);
+  assert.equal(RegistrarOperacionCuentaCorrienteSchema.safeParse({ pedido_venta_id: cliente, monto: -5 }).success, false);
+  assert.equal(RegistrarOperacionCuentaCorrienteSchema.safeParse({ pedido_venta_id: "x", monto: 5 }).success, false);
+});
+
+test("RegistrarOperacionCuentaCorrienteSchema valida cada hito del plan_de_pagos y coacciona fecha_estimada a Date", () => {
+  const ok = RegistrarOperacionCuentaCorrienteSchema.safeParse({
+    pedido_venta_id: cliente,
+    monto: 100,
+    plan_de_pagos: [{ hito: "Entrega parcial", porcentaje: 50, fecha_estimada: "2026-10-01" }],
+  });
+  assert.equal(ok.success, true);
+  if (ok.success) assert.ok(ok.data.plan_de_pagos?.[0]?.fecha_estimada instanceof Date);
+
+  const base = { pedido_venta_id: cliente, monto: 100 };
+  assert.equal(RegistrarOperacionCuentaCorrienteSchema.safeParse({ ...base, plan_de_pagos: [{ hito: "", porcentaje: 10 }] }).success, false);
+  assert.equal(RegistrarOperacionCuentaCorrienteSchema.safeParse({ ...base, plan_de_pagos: [{ hito: "h", porcentaje: 0 }] }).success, false);
+  assert.equal(RegistrarOperacionCuentaCorrienteSchema.safeParse({ ...base, plan_de_pagos: [{ hito: "h", porcentaje: 101 }] }).success, false);
+});
+
+// ── HU-B5 — ResolverExcepcionCreditoSchema ──────────────────────────────────
+
+test("ResolverExcepcionCreditoSchema acepta APROBAR/RECHAZAR con motivo", () => {
+  assert.equal(ResolverExcepcionCreditoSchema.safeParse({ decision: "APROBAR", motivo: "ok" }).success, true);
+  assert.equal(ResolverExcepcionCreditoSchema.safeParse({ decision: "RECHAZAR", motivo: "no" }).success, true);
+});
+
+test("ResolverExcepcionCreditoSchema exige motivo no vacío y decision dentro del enum", () => {
+  const sinMotivo = ResolverExcepcionCreditoSchema.safeParse({ decision: "APROBAR", motivo: "" });
+  assert.equal(sinMotivo.success, false);
+  if (!sinMotivo.success) assert.equal(sinMotivo.error.issues[0]?.message, "El motivo es obligatorio");
+  assert.equal(ResolverExcepcionCreditoSchema.safeParse({ decision: "TAL_VEZ", motivo: "x" }).success, false);
+  assert.equal(ResolverExcepcionCreditoSchema.safeParse({ decision: "APROBAR" }).success, false);
+});
+
+test("ClienteCuentaCorrienteIdSchema y OperacionCuentaCorrienteIdSchema validan UUID de path param", () => {
+  assert.equal(ClienteCuentaCorrienteIdSchema.safeParse("no-es-uuid").success, false);
+  assert.equal(ClienteCuentaCorrienteIdSchema.safeParse(cliente).success, true);
+  assert.equal(OperacionCuentaCorrienteIdSchema.safeParse("no-es-uuid").success, false);
+  assert.equal(OperacionCuentaCorrienteIdSchema.safeParse(cliente).success, true);
 });
