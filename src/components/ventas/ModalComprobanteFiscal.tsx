@@ -9,6 +9,15 @@
  * `GET /api/ventas/comprobantes/[id]` — no recibe el detalle por props,
  * a diferencia de `ModalPagoRegistrado` (que solo hace read-back de lo que
  * ya devolvió otra llamada).
+ *
+ * `DetalleComprobante` se monta con `key={comprobanteId}` (patrón "resetear
+ * estado con key" de la doc de React, no un efecto que resetea manualmente):
+ * cada comprobante nuevo es una instancia de componente nueva, con su propio
+ * estado fresco desde el `useState` inicial — sin necesidad de un `useEffect`
+ * que dispare `setState` síncrono al abrir/cambiar de comprobante
+ * (react-hooks/set-state-in-effect). El único `setState` dentro del efecto de
+ * fetch ocurre en los callbacks de la promesa, nunca en el cuerpo síncrono
+ * del efecto.
  */
 
 import { useEffect, useState } from "react";
@@ -35,21 +44,13 @@ interface ModalComprobanteFiscalProps {
 const formatearMoneda = (valor: number) =>
   valor.toLocaleString("es-AR", { style: "currency", currency: "ARS" });
 
-export function ModalComprobanteFiscal({ comprobanteId, onClose }: ModalComprobanteFiscalProps) {
-  const [cargando, setCargando] = useState(false);
+function DetalleComprobante({ comprobanteId }: { comprobanteId: string }) {
+  const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [detalle, setDetalle] = useState<ComprobanteFiscalConsultado | null>(null);
 
   useEffect(() => {
-    if (!comprobanteId) {
-      setDetalle(null);
-      setError(null);
-      return;
-    }
     let cancelado = false;
-    setCargando(true);
-    setError(null);
-    setDetalle(null);
 
     fetch(`/api/ventas/comprobantes/${comprobanteId}`)
       .then(async (res) => {
@@ -73,6 +74,47 @@ export function ModalComprobanteFiscal({ comprobanteId, onClose }: ModalComproba
     };
   }, [comprobanteId]);
 
+  if (cargando) {
+    return (
+      <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
+        <Loader2 className="size-4 animate-spin" />
+        Cargando comprobante…
+      </div>
+    );
+  }
+
+  if (error) {
+    return <p className="text-sm text-destructive">{error}</p>;
+  }
+
+  if (!detalle) return null;
+
+  return (
+    <div className="space-y-4">
+      <dl className="grid grid-cols-[8rem_1fr] gap-x-3 gap-y-2 text-sm">
+        <dt className="text-muted-foreground">Tipo</dt>
+        <dd className="font-medium">{detalle.tipo_comprobante}</dd>
+
+        <dt className="text-muted-foreground">CAE simulado</dt>
+        <dd className="font-mono">{detalle.cae_simulado}</dd>
+
+        <dt className="text-muted-foreground">Total</dt>
+        <dd className="font-medium">{formatearMoneda(detalle.monto_total)}</dd>
+      </dl>
+
+      <div className="flex justify-center rounded-lg border border-border bg-muted/20 p-3">
+        {/* eslint-disable-next-line @next/next/no-img-element -- data URL local, no aplica optimización de next/image */}
+        <img
+          src={detalle.qr_data_url}
+          alt="Código QR del comprobante fiscal simulado"
+          className="size-48"
+        />
+      </div>
+    </div>
+  );
+}
+
+export function ModalComprobanteFiscal({ comprobanteId, onClose }: ModalComprobanteFiscalProps) {
   return (
     <Dialog
       open={comprobanteId !== null}
@@ -91,38 +133,7 @@ export function ModalComprobanteFiscal({ comprobanteId, onClose }: ModalComproba
           </DialogDescription>
         </DialogHeader>
 
-        {cargando && (
-          <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" />
-            Cargando comprobante…
-          </div>
-        )}
-
-        {!cargando && error && <p className="text-sm text-destructive">{error}</p>}
-
-        {!cargando && detalle && (
-          <div className="space-y-4">
-            <dl className="grid grid-cols-[8rem_1fr] gap-x-3 gap-y-2 text-sm">
-              <dt className="text-muted-foreground">Tipo</dt>
-              <dd className="font-medium">{detalle.tipo_comprobante}</dd>
-
-              <dt className="text-muted-foreground">CAE simulado</dt>
-              <dd className="font-mono">{detalle.cae_simulado}</dd>
-
-              <dt className="text-muted-foreground">Total</dt>
-              <dd className="font-medium">{formatearMoneda(detalle.monto_total)}</dd>
-            </dl>
-
-            <div className="flex justify-center rounded-lg border border-border bg-muted/20 p-3">
-              {/* eslint-disable-next-line @next/next/no-img-element -- data URL local, no aplica optimización de next/image */}
-              <img
-                src={detalle.qr_data_url}
-                alt="Código QR del comprobante fiscal simulado"
-                className="size-48"
-              />
-            </div>
-          </div>
-        )}
+        {comprobanteId && <DetalleComprobante key={comprobanteId} comprobanteId={comprobanteId} />}
 
         <DialogFooter>
           <DialogClose render={<Button type="button" variant="outline" />}>Cerrar</DialogClose>
