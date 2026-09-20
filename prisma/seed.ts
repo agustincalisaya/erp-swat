@@ -282,6 +282,17 @@ const CONSENTIMIENTO_MARIA_GOMEZ_PRIMARIO_ID =
 const CONSENTIMIENTO_MARIA_GOMEZ_FUSIONADO_ID =
   "1a2b3c4d-1234-4a1a-8a1a-000000000004";
 
+// HU-C3 (ronda de cobertura HTTP) — usuario de prueba con rol VENDEDOR.
+// VENDEDOR se creó en HU-C1 pero quedó SIN ningún usuario asignado: como es
+// el único rol no-auditor con `clientes:editar`, sin este usuario ni el
+// camino feliz HTTP de `/api/clientes/[id]/direcciones` ni la ficha
+// `/clientes/[id]` en `npm run dev` eran ejercitables por nadie del equipo.
+// UUID ...006 de los namespaces `4444` (usuarios) / `5555` (UsuarioRol):
+// ...001-...005 ya están ocupados (Comprador/Tesorero/Supervisor de Compras
+// y Cajero/Supervisor de Ventas). Verificado sin colisiones en todo el repo.
+const USUARIO_VENDEDOR_SEED_ID = "1a2b3c4d-4444-4a1a-8a1a-000000000006";
+const USUARIO_ROL_VENDEDOR_ID = "1a2b3c4d-5555-4a1a-8a1a-000000000006";
+
 // --- Origen: Sprint 3 — Módulo B (Ventas y Punto de Venta) ---
 // RBAC: permisos granulares de Ventas (spec_modulo_B.md §2, uno por acción,
 // mismo criterio que HU-H1/H3/G8/C1-C8: NO un único `ventas:administrar`).
@@ -1552,6 +1563,41 @@ async function main() {
       create: { rol_id: rolAuditor.id, permiso_id: permisoId },
     });
   }
+
+  // HU-C3 (ronda de cobertura HTTP) — usuario de prueba con rol VENDEDOR.
+  // Se crea y se le asigna el rol acá, dentro del bloque RBAC de Módulo C,
+  // porque el rol (y sus permisos `clientes:*`) ya existen desde el upsert de
+  // arriba; asignarlo antes sería una FK inválida. Upserts idempotentes, como
+  // el resto del seed.
+  const usuarioVendedor = await prisma.usuario.upsert({
+    where: { nombre_usuario: "vendedor.seed" },
+    update: {},
+    create: {
+      id: USUARIO_VENDEDOR_SEED_ID,
+      nombre_usuario: "vendedor.seed",
+      email: "vendedor.seed@erp-swat.local",
+      password_hash: passwordSeed.hash,
+      password_salt: passwordSeed.salt,
+      nombre_completo: "Vendedor Seed (Módulo C)",
+      estado: "ACTIVO",
+      is_active: true,
+    },
+  });
+
+  await prisma.usuarioRol.upsert({
+    where: {
+      usuario_id_rol_id: {
+        usuario_id: usuarioVendedor.id,
+        rol_id: rolVendedor.id,
+      },
+    },
+    update: {},
+    create: {
+      id: USUARIO_ROL_VENDEDOR_ID,
+      usuario_id: usuarioVendedor.id,
+      rol_id: rolVendedor.id,
+    },
+  });
 
   // ── Módulo B (Sprint 3) — permisos granulares de Ventas (spec_modulo_B.md
   // §2, un permiso por acción, mismo criterio que el resto del proyecto) ──
@@ -3014,6 +3060,7 @@ async function main() {
 
   console.log("\nSeed Sprint 3 — Módulo C (Clientes) + cierre Módulo H completado:");
   console.table({
+    vendedor_seed: `${usuarioVendedor.nombre_usuario}  <${usuarioVendedor.email}>`,
     lista_precio_version_2_id: listaPrecioVersion2.id,
     permiso_clientes_leer_id: PERMISO_CLIENTES_LEER_ID,
     permiso_auditoria_leer_historico_id: PERMISO_AUDITORIA_LEER_HISTORICO_ID,
