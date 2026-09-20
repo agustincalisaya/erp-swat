@@ -1,12 +1,14 @@
 # Especificación Técnica — Módulo B (Ventas y Punto de Venta - POS)
 ## ERP SWAT Indumentarias — Sprint 3
+## Revisión 5 — HU-B6 implementada (rama `feature/HU-B6`, commit `2433f81`). Corrige el contrato de 2.6 definido en la Rev. 4 contra lo que confirmó la implementación real: (1) el query schema pasa a `page`/`page_size` (no `pagina`/`por_pagina`) y a `verificar_integridad: z.enum(["true","false"]).transform(...)` (no `z.coerce.boolean()`, que probado contra el endpoint real trataba `?verificar_integridad=false` como `true`); (2) el alcance del Supervisor de Ventas se resuelve con **una sola query con `OR`** y paginación en base — no con el filtrado en memoria que describía la Rev. 4; (3) se agrega el filtro `pedido_venta_id` como `OR` entre `registro_id` (descuento/precio) y el path JSON `valor_nuevo.pedido_venta_id` (excepción de crédito, donde `registro_id` es la operación de cuenta corriente, no el pedido) — caso no contemplado en la Rev. 4; (4) la verificación de integridad se implementa como función propia del dominio ventas (`verificarCadenaHashesVentas()`), porque ni la de Módulo A ni la de Módulo D aceptan parámetros de dominio; (5) se corrige el texto sobre `auditoria:leer_historico`: `seed.ts` **sí** lo asigna a `AUDITOR`/`MASTER` (no "sin asignar a ningún Rol", como decía la Rev. 4) — esto no cambia el permiso real que usa el endpoint (`auditoria:leer_forense`), solo corrige una afirmación inexacta sobre el seed. Detalle completo del relevamiento y las decisiones de implementación en `HU6_MODULO_B.md`.
+## Revisión 4 — Corrección de HU-B6 (2.6): el permiso `auditoria:leer_historico` y la función `listarEventosPorDominio` citados en la Rev. 0/2 nunca se implementaron en Módulo D — confirmado contra `seed.ts` (el permiso quedó sembrado como stub, sin asignar a ningún Rol, con comentario explícito del equipo documentando la divergencia) y contra el patrón real ya shippeado de HU-A6 (`spec_modulo_A.md`, `HU7_MODULO_A.md`, en `develop`). El código real usa el permiso `auditoria:leer_forense` (rol AUDITOR) y un servicio propio por módulo que consulta `AuditLog` directamente filtrado por `accion`, sin ninguna función compartida de "por dominio" en Módulo D. Se corrige el contrato de 2.6 en consecuencia, se fija el contrato de alcance del Supervisor de Ventas (sin definir en revisiones anteriores) y se agrega `venta:excepcion_credito_resuelta` al enum `tipo_evento` (evento sensible agregado por HU-B5 en la Rev. 3, ausente del enum original pese a que la sección decía estar "alineada 1:1" con la tabla de eventos de la sección 4).
 ## Revisión 3 — Correcciones sobre Rev. 2 (HU-B5): endpoint faltante de resolución de excepción de crédito (2.5, `PATCH .../operaciones/[id]/resolver`, cierra el permiso `ventas:autorizar_excepcion_credito` que estaba definido sin ruta propia) y corrección del shape de la respuesta `422 LIMITE_CREDITO_EXCEDIDO` para incluir `error.details.operacion_id`
 ## Revisión 2 — Correcciones de auditoría sobre Rev. 1: endpoint faltante de anulación de Pedido de Venta (2.8, cierra la fila RBAC "Anular un pedido" del Alcance), contrato de acceso reducido de Supervisor de Ventas al log de auditoría (2.6, antes solo mencionado sin schema/endpoint propio)
 ## Revisión 1 — Primera especificación técnica del módulo (HU-B1 a HU-B7)
 
 **Metodología:** Specification-Driven Development (SDD)
 **Stack:** Next.js 16 (App Router) · Node.js · PostgreSQL 16 · Prisma ORM · TypeScript · Zod
-**Referencias normativas:** `RULES.md` (Regla N.° 1 — Restricción Estricta de Borrado Físico; Regla N.° 2 — Protección de Datos Personales y Trazabilidad Inalterable) · `Documento de Alcance Funcional y Técnico` (sección Módulo B, vigente) · `Product Backlog — SWAT Indumentarias.xlsx` (hoja **Sprint 3**, HU-B1 a HU-B7 ya actualizadas sin integración real a AFIP) · `schema.prisma` · `spec_modulo_A.md` (sección 2.9, servicio de reserva consumido por este módulo) · `spec_modulo_C.md` (integración de datos de cliente) · `spec_modulo_D.md` (RBAC y auditoría) · `spec_modulo_H.md` (patrón de referencia de formato)
+**Referencias normativas:** `RULES.md` (Regla N.° 1 — Restricción Estricta de Borrado Físico; Regla N.° 2 — Protección de Datos Personales y Trazabilidad Inalterable) · `Documento de Alcance Funcional y Técnico` (sección Módulo B, vigente) · `Product Backlog — SWAT Indumentarias.xlsx` (hoja **Sprint 3**, HU-B1 a HU-B7 ya actualizadas sin integración real a AFIP) · `schema.prisma` · `spec_modulo_A.md` (sección 2.9, servicio de reserva consumido por este módulo; sección 2.10/HU-A6, patrón real de consola de auditoría forense por dominio) · `spec_modulo_C.md` (integración de datos de cliente) · `spec_modulo_D.md` (RBAC y auditoría) · `spec_modulo_H.md` (patrón de referencia de formato) · `seed.ts` (RBAC real sembrado, incluida la nota de divergencia de `auditoria:leer_historico`)
 
 ---
 
@@ -317,14 +319,20 @@ export type ResolverExcepcionCreditoInput = z.infer<typeof ResolverExcepcionCred
 
 Otros estados: `400 VALIDATION_ERROR` (`id` no UUID, `decision` fuera del enum o `motivo` vacío), `401` sin sesión, `403 FORBIDDEN` sin `ventas:autorizar_excepcion_credito`, `404 OPERACION_CUENTA_CORRIENTE_NO_ENCONTRADA`.
 
-### 2.6. Log forense de anulaciones, descuentos y cambios de precio (HU-B6)
+### 2.6. Log forense de anulaciones, descuentos, cambios de precio y excepciones de crédito (HU-B6)
+
+**Estado: implementado** (rama `feature/HU-B6`, commit `2433f81` — ver `HU6_MODULO_B.md` para el relevamiento completo). Esta sección refleja el contrato tal como quedó implementado (Rev. 5); las correcciones puntuales sobre la Rev. 4 están marcadas explícitamente donde corresponde.
 
 **Ruta:** `GET /app/api/ventas/auditoria/route.ts`
-**Permisos requeridos (dos niveles de acceso distintos sobre el mismo endpoint — hallazgo de auditoría, sin contrato propio en la Rev. 0 de este documento):**
-- `auditoria:leer_historico` sobre el dominio `ventas` (exclusivo Auditor, mismo permiso base ya usado por Módulo C y Módulo H con distinto scope) — acceso de lectura **ampliado**: ve los eventos de **todos** los usuarios del módulo y puede invocar `verificar_integridad`.
-- `ventas:leer_log_operativo` (exclusivo Supervisor de Ventas, nuevo permiso — cubre la fila "Consultar el log de auditoría del módulo" de la matriz RBAC del Alcance, que el Auditor no agota por sí solo) — acceso de lectura **restringido**: solo eventos donde `usuario_autorizante_id` o `usuario_solicitante_id` (según el evento) corresponda a una operación que ese Supervisor haya autorizado o que haya sido escalada a su rol, **nunca** el log íntegro de todos los Cajeros; y **sin** capacidad de invocar `verificar_integridad` bajo ninguna circunstancia, reservada exclusivamente al Auditor.
+**Permisos requeridos (dos niveles de acceso distintos sobre el mismo endpoint):**
+- `auditoria:leer_forense` (exclusivo Auditor). **Corrección de Rev. 5 sobre el texto de la Rev. 4:** la Rev. 4 afirmaba que `auditoria:leer_historico` quedó "sin asignar a ningún Rol" en `seed.ts`. Confirmado durante la implementación de HU-B6 que esa afirmación es **inexacta**: `seed.ts` sí asigna `auditoria:leer_historico` a `AUDITOR` (y a `MASTER`), pese a que el propio comentario del seed sigue describiéndolo como una "divergencia de nomenclatura conocida y aceptada". Esto **no cambia el permiso real usado por este endpoint**: el código real (rutas, servicios y UI de Módulo A y Módulo D) sigue consumiendo `auditoria:leer_forense` de forma exclusiva, y este endpoint gatea contra ese mismo permiso — `auditoria:leer_historico` no se usa en ningún gate de la aplicación. `auditoria:leer_forense` es el permiso real del rol `AUDITOR` (`spec_modulo_D.md` §4.3, ya usado por la Consola de Auditoría Forense de Módulo A — HU-A6, `spec_modulo_A.md`/`HU7_MODULO_A.md`, implementada y en `develop`). Acceso de lectura **ampliado**: ve los eventos de **todos** los usuarios del módulo y puede invocar `verificar_integridad`. Un usuario con rol `MASTER` que tenga `auditoria:leer_forense` accede con este mismo nivel ampliado (`leer_forense` tiene precedencia sobre `ventas:leer_log_operativo` al resolver el nivel de acceso, para el caso de un usuario con ambos permisos).
+- `ventas:leer_log_operativo` (exclusivo Supervisor de Ventas — ya sembrado y asignado a `SUPERVISOR_VENTAS` por HU-B8, `HU8_MODULO_B.md` §3.1/§3.3) — acceso de lectura **restringido**: ver el contrato de alcance más abajo; **sin** capacidad de invocar `verificar_integridad` bajo ninguna circunstancia, reservada exclusivamente al Auditor.
 
-**Principio de diseño no negociable (mismo criterio que HU-C10/HU-H6):** este endpoint **no** recalcula ni reimplementa el encadenamiento SHA-256. El Módulo B no es propietario del `AuditLog` ni de la lógica de verificación de cadena — ambos son responsabilidad exclusiva del Módulo D. Este Route Handler delega en `listarEventosPorDominio(dominio: "ventas", filtros)`, la misma función de servicio del Módulo D ya reutilizada por Módulo C y Módulo H — el filtrado por alcance de Supervisor de Ventas se aplica **después** de esa consulta, en la capa de servicios de Módulo B, no reimplementando la función de Módulo D.
+El gate del Route Handler resuelve el nivel de acceso a mano (`withAuth` + `usuarioTienePermiso()`), porque `withPermission()` solo acepta un único código de permiso y este endpoint acepta cualquiera de los dos.
+
+**Principio de diseño (corregido en Rev. 4, confirmado por la implementación):** este endpoint no recalcula ni reimplementa el encadenamiento SHA-256 con una función compartida — no existe ninguna función `listarEventosPorDominio` en Módulo D (nunca se construyó) ni una función de verificación de integridad reutilizable tal cual entre módulos: ni `verificarCadenaHashesInventario()` (A) ni `verificarCadenaHashesIntegridad()` (D) aceptan parámetros de dominio, ambas recorren la cadena global completa. El patrón real y ya probado en este proyecto es el de HU-A6 (`spec_modulo_A.md`, `lib/services/inventario/auditoria.service.ts`, función `obtenerLogsInventario()`): cada módulo escribe su **propio** servicio de solo lectura contra `AuditLog`, con un filtro de dominio fijo por `accion` (equivalente al `where.tabla_afectada = { in: TABLAS_MODULO_A }` de HU-A6), revalidando el permiso como defensa en profundidad aunque la página/route ya lo haya chequeado, y reutilizando de Módulo D solo utilidades chicas (`listarUsuariosParaFiltro()` de `lib/services/auditoria/audit-log.service.ts` para el selector de filtro por usuario). Módulo B sigue el mismo patrón: `lib/services/ventas/auditoria-ventas.service.ts`, con `obtenerLogsVentas(filtros, sesion)` (consulta directa a `prisma.auditLog`, nunca una llamada a una función de Módulo D inexistente) y `verificarCadenaHashesVentas()` (función propia de verificación de integridad — recorre la cadena completa de `AuditLog`, pero cuenta/reporta solo las acciones de Módulo B).
+
+`ACCIONES_MODULO_B` (valores reales de la columna `AuditLog.accion`, confirmados contra `audit-log.listener.ts` vía `HU4_MODULO_B.md` §4.3 y `HU5_MODULO_B.md` §5.3): `DESCUENTO_FUERA_MARGEN`, `CAMBIO_PRECIO_MANUAL`, `EXCEPCION_CREDITO_APROBADA`, `EXCEPCION_CREDITO_RECHAZADA`, y el placeholder `ANULACION_PEDIDO` para la anulación de pedido (sección 2.8), sin código real todavía (`HU3_MODULO_B.md` §7, `HU4_MODULO_B.md` §8) — cuando esa sección tenga implementación, el valor real de `accion` puede terminar siendo otro (por ejemplo `DELETE_LOGICO`, genérico del proyecto), y el mapeo deberá corregirse entonces. El `tipo_evento` del query se mapea a estos valores reales de `accion` dentro del servicio, no al revés.
 
 ```typescript
 export const ConsultarAuditoriaVentasQuerySchema = z.object({
@@ -333,25 +341,53 @@ export const ConsultarAuditoriaVentasQuerySchema = z.object({
     "venta:anulacion_pedido",
     "venta:descuento_fuera_margen",
     "venta:cambio_precio_manual",
+    "venta:excepcion_credito_resuelta",
   ]).optional(),
   usuario_id: z.string().uuid().optional(),
   fecha_desde: z.coerce.date().optional(),
-  fecha_hasta: z.coerce.date().optional(),
-  verificar_integridad: z.coerce.boolean().default(false),
-  pagina: z.coerce.number().int().positive().default(1),
-  por_pagina: z.coerce.number().int().positive().max(50).default(20),
+  fecha_hasta: z.coerce.date().optional(), // tratado como fin de día (23:59:59.999), mismo criterio que HU-A6
+  verificar_integridad: z.enum(["true", "false"]).default("false").transform((v) => v === "true"),
+  page: z.coerce.number().int().positive().default(1),
+  page_size: z.coerce.number().int().positive().max(50).default(20),
 });
 export type ConsultarAuditoriaVentasQuery = z.infer<typeof ConsultarAuditoriaVentasQuerySchema>;
 ```
 
+**Corrección de Rev. 5 sobre el query schema (reemplaza lo que decía la Rev. 4):**
+- **Naming de paginación:** `page`/`page_size`, no `pagina`/`por_pagina` — es el naming real que usan las otras dos consolas de auditoría del proyecto (Módulo A y Módulo D); `pagina`/`por_pagina` no existe en ningún endpoint de auditoría real, solo aparecía en `spec_modulo_C.md`/`spec_modulo_H.md` (nunca implementadas).
+- **`verificar_integridad` vía `z.enum(["true","false"]).transform(...)`, no `z.coerce.boolean()`:** probado directamente contra el endpoint, `z.coerce.boolean()` trata cualquier string no vacío como `true` — `?verificar_integridad=false`, `=0` y `=1` daban los tres `true`. Con `z.coerce.boolean()` un Supervisor de Ventas que mandara `verificar_integridad=false` explícito habría recibido el `403` de todos modos, y un Auditor habría disparado la verificación completa sin pedirlo.
+
+**Corrección de Rev. 4 sobre el enum (sigue vigente):** se agrega `venta:excepcion_credito_resuelta` — evento sensible agregado por HU-B5 en la Rev. 3 de este documento (§2.5/§4), ausente del enum original pese a que este párrafo afirmaba (y sigue afirmando, ahora correctamente) que queda "alineado 1:1 con la tabla de eventos de la sección 4".
+
+**Filtro `pedido_venta_id` (agregado en Rev. 5, caso no contemplado en la Rev. 4):** `pedido_venta_id` no siempre corresponde a `AuditLog.registro_id`. Para `venta:descuento_fuera_margen` y `venta:cambio_precio_manual`, `registro_id` es directamente el pedido (`tabla_afectada: "pedidos_venta"`). Para `venta:excepcion_credito_resuelta`, `registro_id` es la operación de cuenta corriente (`tabla_afectada: "cuenta_corriente_operaciones"`), y el pedido de venta solo aparece dentro de `valor_nuevo.pedido_venta_id` (JSON). El filtro se implementa como un `OR` entre `registro_id = pedido_venta_id` y el path JSON `valor_nuevo.pedido_venta_id = pedido_venta_id` — no como un mapeo directo a `registro_id`.
+
+**Contrato de alcance del Supervisor de Ventas (fijado en Rev. 4, corregido en Rev. 5 sobre el mecanismo de query):** confirmado contra `HU4_MODULO_B.md` §4.3 y `HU5_MODULO_B.md` §5.3 que la columna `AuditLog.usuario_id` es, en los cuatro tipos de evento sensible de este módulo, siempre el **autorizante** (el Supervisor que actuó), nunca el solicitante. En consecuencia:
+- **"Eventos que el Supervisor haya autorizado":** `AuditLog.usuario_id = <supervisor de la sesión>` — columna real, sin inspeccionar JSON.
+- **"Eventos escalados a su rol"** (match contra `usuario_solicitante_id`): ese campo no es una columna de `AuditLog` — vive dentro de `valor_nuevo` (JSON), y solo existe en dos de los cuatro tipos de evento (`venta:descuento_fuera_margen` y `venta:excepcion_credito_resuelta`; `venta:cambio_precio_manual` no tiene solicitante en su payload y `venta:anulacion_pedido` tampoco, al ejecutarla directo el Supervisor).
+- **Mecanismo de query (corregido en Rev. 5):** la Rev. 4 preveía traer un rango candidato y filtrar/paginar en memoria. La implementación real resuelve ambos casos con **una sola query con `OR`** (autorizante por columna, solicitante por path JSON) y paginación (`skip`/`take`) aplicada directamente sobre esa query en la base — sin un segundo paso en memoria.
+- `verificar_integridad: true` recibido de un Supervisor de Ventas se sigue rechazando con `403`, sin cambios respecto a la Rev. 3.
+
 **Comportamiento esperado:**
 - Consulta de solo lectura sobre `AuditLog`, filtrada por los `tipo_evento` propios de este módulo (ver enum, alineado 1:1 con la tabla de eventos de la sección 4).
-- Cada evento incluye usuario responsable, dispositivo de origen, timestamp, valor anterior y valor nuevo cuando corresponde.
+- Cada evento incluye usuario responsable, dispositivo de origen (cuando el payload lo incluya — no todos los eventos de este módulo lo tienen, ver `HU5_MODULO_B.md` §5.2), timestamp, `valor_anterior` y `valor_nuevo` cuando corresponde — visibles tanto para el Auditor como para el Supervisor de Ventas (son sus propios eventos).
 - **`verificar_integridad: true` recibido de un Supervisor de Ventas se rechaza con `403`**, independientemente del resto del query — no se ignora silenciosamente el flag, se informa explícitamente que esa capacidad no está disponible para su rol (mismo criterio de error explícito que el resto del módulo).
-- Mismo contrato de `verificar_integridad` que HU-C10/HU-H6/HU-A6/HU-D4 para el Auditor: opt-in explícito, nunca ejecutado por defecto en cada listado.
+- Mismo contrato de `verificar_integridad` que HU-A6 para el Auditor en cuanto a ser opt-in explícito (nunca ejecutado por defecto en cada listado): a diferencia de HU-A6, la verificación de Módulo B (`verificarCadenaHashesVentas()`) recorre la cadena completa de `AuditLog` (no solo el subconjunto ya paginado), porque el encadenamiento SHA-256 es único para toda la tabla — pero **cuenta y reporta únicamente** sobre las acciones de Módulo B.
 - **Segregación de funciones (criterio de aceptación explícito):** tanto el Auditor como el Supervisor de Ventas tienen acceso de lectura sobre este log, pero ninguno de los dos puede ejecutar ni aprobar ninguna operación comercial del módulo a través de este endpoint — es de solo lectura para ambos roles, sin combinación de permisos que otorgue capacidad de escritura.
 
-**Respuesta `200 OK`:** mismo shape que `spec_modulo_C.md` sección 2.9 / `spec_modulo_H.md` sección 2.9 (paginación + `verificacion_integridad`), sustituyendo el dominio de los eventos.
+**Respuesta `200 OK` (shape confirmado por la implementación, corrige lo que decía la Rev. 4):**
+```json
+{
+  "data": {
+    "registros": [ "...AuditLog[]..." ],
+    "total": 42,
+    "page": 1,
+    "page_size": 20,
+    "verificacion_integridad": { "integra": true }
+  },
+  "error": null
+}
+```
+`verificacion_integridad` solo está presente cuando `verificar_integridad: true` y la sesión es Auditor.
 
 **Respuesta `403 Forbidden` (Supervisor de Ventas solicitando verificación de integridad):**
 ```json
@@ -401,6 +437,8 @@ export type EmitirComprobanteFiscalType = z.infer<typeof EmitirComprobanteFiscal
 ### 2.8. Anulación de Pedido de Venta (hallazgo de auditoría — completa la matriz RBAC del Alcance)
 
 **Nota de origen:** esta sección no corresponde a ninguna HU numerada de forma independiente en el Backlog — cubre la transición `RESERVADO → ANULADO` ya definida en la máquina de estados (sección 3.1) y el evento `venta:anulacion_pedido` (sección 4), que la Rev. 0 de este documento dejaba sin endpoint ni permiso explícito pese a que la matriz RBAC del Alcance Funcional § Módulo B ya exige una fila dedicada ("Anular un pedido mediante baja lógica": Supervisor de Ventas `✓`, Cajero POS `△` solicita).
+
+**Sin código todavía (confirmado nuevamente durante la implementación de HU-B6, sección 2.6):** el valor real de `AuditLog.accion` para esta transición no está confirmado contra ningún listener — HU-B6 usa `ANULACION_PEDIDO` como placeholder en su filtro (sección 2.6), a corregir cuando esta sección tenga código real.
 
 **Ruta:** `PATCH /app/api/ventas/[id]/anular/route.ts`
 **Server Action equivalente:** `anularPedidoVenta()` en `app/(dashboard)/ventas/pos/actions.ts`
@@ -460,7 +498,7 @@ Transiciones válidas — cualquier transición no listada debe rechazarse con `
 ### 3.3. Cifrado y trazabilidad — sin cifrado adicional, con eventos sensibles reforzados
 
 - A diferencia de Módulo H (datos bancarios cifrados), Módulo B **no cifra** ningún campo — mismo criterio que Módulo C: el Alcance es explícito en que "el módulo no administra categorías de datos sensibles según la definición de la ley" (Ley N.° 25.326).
-- En cambio, tres tipos de evento —anulación de pedido, descuento fuera de margen, cambio manual de precio de lista— son eventos **sensibles** con encadenamiento SHA-256 reforzado (no un simple registro de auditoría estándar): cada uno incorpora usuario responsable, dispositivo de origen, momento exacto, valor anterior, valor nuevo (cuando corresponde) y motivo declarado.
+- En cambio, cuatro tipos de evento —anulación de pedido, descuento fuera de margen, cambio manual de precio de lista y resolución de excepción de crédito— son eventos **sensibles** con encadenamiento SHA-256 reforzado (no un simple registro de auditoría estándar): cada uno incorpora usuario responsable, momento exacto, valor anterior, valor nuevo (cuando corresponde) y motivo declarado (dispositivo de origen solo en los eventos cuyo payload lo incluye, ver sección 4).
 - Toda mutación relevante (alta, transición de estado, autorización de excepción) emite su evento correspondiente **después** del `COMMIT` de la transacción que la persiste — nunca dentro de ella, mismo patrón fire-and-forget que el resto del sistema (`spec_modulo_H.md` sección 3.4).
 
 ### 3.4. Restricción de borrado físico y patrón de baja lógica
@@ -503,8 +541,11 @@ El Módulo B es **emisor** hacia el Módulo D (encadenamiento SHA-256) y **consu
 
 - **Integración real con AFIP (WSFEV1, CAE real, contingencia real de servicio externo):** explícitamente descartada por directiva del PO en esta misma sesión de planificación — ver nota al inicio de este documento. HU-B7 queda redefinida como emisión simulada de punta a punta. Si se retoma en un sprint futuro, debe implementarse detrás de un patrón Adapter/Gateway dedicado, sin rediseñar el resto del flujo de venta.
 - **Renombre del enum `OrigenReserva`** (`LICITACION`, `PEDIDO_INSTITUCIONAL` → posible consolidación futura en un nombre sin residuo institucional): identificado como hallazgo durante la redacción de este spec, pero el equipo decidió explícitamente no abordarlo en este sprint por el riesgo de una migración de eliminación de valores de enum a mitad de sprint. Este documento usa los valores tal como existen hoy en `schema.prisma`. Documentado como deuda técnica conocida, no bloqueante.
-- **Tablero de Comando de Módulo D (HU-D3):** el Alcance Funcional (Módulo D.1) describe este panel como consumidor de eventos de todos los módulos operativos, incluido Módulo B. Con Módulo B entrando en este sprint, el Tablero queda desbloqueado como consumidor real de los eventos de la sección 4 — pero esa integración no está priorizada en Sprint 3, así que queda para cuando se planifique. (Nota: verificar si existe una HU específica para esta integración en spec_modulo_D.md; no encontré ese identificador en la revisión de ese documento disponible al momento de esta auditoría.)
+- **Tablero de Comando de Módulo D (HU-D3):** el Alcance Funcional (Módulo D.1) describe este panel como consumidor de eventos de todos los módulos operativos, incluido Módulo B. Con Módulo B entrando en este sprint, el Tablero queda desbloqueado como consumidor real de los eventos de la sección 4 — pero esa integración no está priorizada en Sprint 3, así que queda para cuando se planifique.
 - **Integración con Módulo E (unificación de catálogo y precios para checkout web):** mencionada en la matriz de integración del Alcance, pero Módulo E no está en Sprint 3 — el modelo de dominio de `PedidoVenta` de este documento ya está diseñado para que una orden web futura se registre como un `PedidoVenta` más con un atributo de canal, sin requerir un circuito de venta paralelo (mismo criterio que el propio Alcance Funcional documenta para Módulo E → Módulo B).
 - **Alerta a la cadena de abastecimiento por demanda no prevista (integración Módulo B → Módulo H):** mencionada en la matriz de integración del Alcance, no detallada en este documento — se especifica cuando se prioricen las HU correspondientes de Módulo H que la consuman.
 - **Entidad de configuración global para el umbral de arqueo ciego (HU-B2) y para los porcentajes máximos de descuento por perfil (HU-B4):** ambos valores deben ser parametrizables por Dirección, no hardcodeados en el servicio — si el Módulo D no expone aún una entidad de configuración global equivalente a la ya señalada como faltante en `spec_modulo_H.md` sección 5, es una dependencia a resolver con su owner antes de cerrar la implementación de estas dos HU.
-- **Exportación de reportes de ventas y comisiones:** la matriz RBAC del Alcance Funcional habilita esta acción para Supervisor de Ventas y Auditor, pero este documento no define ningún endpoint ni contrato para ella — se asume resuelta por el Tablero de Comando de Módulo D u otro mecanismo de reporting centralizado, a confirmar con su owner antes de implementar.
+- **Exportación de reportes de ventas y comisiones:** la matriz RBAC del Alcance Funcional habilita esta acción para Supervisor de Ventas y Auditor, pero este documento no define ningún endpoint ni contrato para ella — se asume resuelta por el Tablero de Comando de Módulo D u otro mecanismo de reporting centralizado, a confirmar con su owner antes de implementar. Fuera de alcance también de HU-B6.
+- **Anulación de Pedido de Venta (§2.8):** sin código todavía — el valor real de `AuditLog.accion` para esa transición sigue sin confirmarse (`ANULACION_PEDIDO` es un placeholder usado por el filtro de HU-B6, sección 2.6).
+- **Pantalla propia para HU-B6:** no implementada en esta iteración (API primero, pantalla después — mismo criterio incremental que HU-B4/HU-B5). No se pudo confirmar contra el Backlog si se exige, porque `Product Backlog - SWAT Indumentarias.xlsx` no está en el repositorio.
+- **Corrección equivalente pendiente en `spec_modulo_C.md` §2.9 y `spec_modulo_H.md` §2.9:** ambos documentos tienen la misma cita a `listarEventosPorDominio`/`auditoria:leer_historico` corregida acá para Módulo B. Si HU-C10/HU-H6 todavía no tienen código real (no encontrado ningún `HU..._MODULO_C.md`/`HU6_MODULO_H.md` regenerado desde código al momento de esta corrección), deberían recibir la misma corrección antes de implementarse, para no repetir el mismo supuesto no verificado una cuarta vez.

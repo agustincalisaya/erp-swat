@@ -116,6 +116,38 @@ export const ResolverExcepcionCreditoSchema = z.object({
 export type ResolverExcepcionCreditoInput = z.infer<typeof ResolverExcepcionCreditoSchema>;
 
 /**
+ * Schema Zod de HU-B6 — Log forense de Módulo B
+ * (spec_modulo_B.md §2.6; docs/tasks/task_HU-B6.md §0 decisiones 2, 3 y 9).
+ *
+ * - `verificar_integridad` llega como string de query: `z.coerce.boolean()`
+ *   convierte `"false"`/`"0"` en `true` (cualquier string no vacío), así que
+ *   se parsea con `z.enum` + `transform` (decisión 3).
+ * - Paginación `page`/`page_size` (mismo shape real que HU-A6/Módulo D).
+ * - `fecha_hasta` se trata como fin de día en el servicio (decisión 9).
+ */
+export const ConsultarAuditoriaVentasQuerySchema = z.object({
+  pedido_venta_id: z.string().uuid().optional(),
+  tipo_evento: z
+    .enum([
+      "venta:anulacion_pedido",
+      "venta:descuento_fuera_margen",
+      "venta:cambio_precio_manual",
+      "venta:excepcion_credito_resuelta",
+    ])
+    .optional(),
+  usuario_id: z.string().uuid().optional(),
+  fecha_desde: z.coerce.date().optional(),
+  fecha_hasta: z.coerce.date().optional(),
+  verificar_integridad: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
+  page: z.coerce.number().int().positive().default(1),
+  page_size: z.coerce.number().int().positive().max(50).default(20),
+});
+export type ConsultarAuditoriaVentasQuery = z.infer<typeof ConsultarAuditoriaVentasQuerySchema>;
+
+/**
  * Schemas Zod de HU-B2 — Apertura y cierre de turno de caja con arqueo ciego
  * (spec_modulo_B.md §2.2; docs/tasks/task_relos.md §4). Copiados textuales
  * del contrato de la tarea — no modificar tipos ni mensajes.
@@ -203,4 +235,14 @@ export const RegistrarVentaMostradorSchema = z
       path: ["medios_pago"],
     },
   );
+
+/**
+ * Schema Zod de HU-B7 — Consulta de Comprobante Fiscal (spec_modulo_B.md
+ * §2.7; docs/tasks/task_relos.md §1/§2). Sin `body` de entrada — el único
+ * dato recibido es el `id` de path, validado como uuid (mismo criterio que
+ * el resto del módulo, spec §2 "Convenciones generales").
+ */
+export const ComprobanteFiscalIdSchema = z
+  .string()
+  .uuid("El identificador del comprobante debe ser un UUID válido");
 export type RegistrarVentaMostradorInput = z.infer<typeof RegistrarVentaMostradorSchema>;

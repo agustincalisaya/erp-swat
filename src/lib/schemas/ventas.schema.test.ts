@@ -14,6 +14,7 @@ import {
   TurnoCajaIdSchema,
   MedioPagoSchema,
   RegistrarVentaMostradorSchema,
+  ComprobanteFiscalIdSchema,
 } from "./ventas.schema.ts";
 
 const cliente = "11111111-1111-4111-8111-111111111111";
@@ -458,4 +459,11 @@ test("RegistrarVentaMostradorSchema exige tipo_comprobante dentro de FACTURA_A/F
       .success,
     false,
   );
+});
+
+// ── HU-B7 — ComprobanteFiscalIdSchema ────────────────────────────────────────
+
+test("ComprobanteFiscalIdSchema valida el UUID del segmento [id]", () => {
+  assert.equal(ComprobanteFiscalIdSchema.safeParse("no-es-uuid").success, false);
+  assert.equal(ComprobanteFiscalIdSchema.safeParse(cliente).success, true);
 });
