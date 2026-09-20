@@ -114,3 +114,35 @@ export const ResolverExcepcionCreditoSchema = z.object({
   motivo: z.string().min(1, "El motivo es obligatorio"),
 });
 export type ResolverExcepcionCreditoInput = z.infer<typeof ResolverExcepcionCreditoSchema>;
+
+/**
+ * Schema Zod de HU-B6 — Log forense de Módulo B
+ * (spec_modulo_B.md §2.6; docs/tasks/task_HU-B6.md §0 decisiones 2, 3 y 9).
+ *
+ * - `verificar_integridad` llega como string de query: `z.coerce.boolean()`
+ *   convierte `"false"`/`"0"` en `true` (cualquier string no vacío), así que
+ *   se parsea con `z.enum` + `transform` (decisión 3).
+ * - Paginación `page`/`page_size` (mismo shape real que HU-A6/Módulo D).
+ * - `fecha_hasta` se trata como fin de día en el servicio (decisión 9).
+ */
+export const ConsultarAuditoriaVentasQuerySchema = z.object({
+  pedido_venta_id: z.string().uuid().optional(),
+  tipo_evento: z
+    .enum([
+      "venta:anulacion_pedido",
+      "venta:descuento_fuera_margen",
+      "venta:cambio_precio_manual",
+      "venta:excepcion_credito_resuelta",
+    ])
+    .optional(),
+  usuario_id: z.string().uuid().optional(),
+  fecha_desde: z.coerce.date().optional(),
+  fecha_hasta: z.coerce.date().optional(),
+  verificar_integridad: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
+  page: z.coerce.number().int().positive().default(1),
+  page_size: z.coerce.number().int().positive().max(50).default(20),
+});
+export type ConsultarAuditoriaVentasQuery = z.infer<typeof ConsultarAuditoriaVentasQuerySchema>;
