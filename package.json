@@ -19,7 +19,8 @@
     "test:integration:b5-http": "node --conditions=react-server --import tsx --test --test-concurrency=1 src/lib/services/ventas/cuenta-corriente.http.integration.test.ts",
     "test:integration:b8": "node --conditions=react-server --import tsx --test --test-concurrency=1 src/lib/services/ventas/rbac-hu-b8.integration.test.ts",
     "test:integration:c1": "node --conditions=react-server --import tsx --test --test-concurrency=1 src/lib/services/clientes/cliente.integration.test.ts",
-    "test:integration:c3": "node --conditions=react-server --import tsx --test --test-concurrency=1 src/lib/services/clientes/direccion-cliente.integration.test.ts"
+    "test:integration:c3": "node --conditions=react-server --import tsx --test --test-concurrency=1 src/lib/services/clientes/direccion-cliente.integration.test.ts",
+    "test:integration:h8-http": "node --conditions=react-server --import tsx --test --test-concurrency=1 src/lib/services/proveedores/costo-reposicion.http.integration.test.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

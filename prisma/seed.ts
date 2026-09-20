@@ -245,6 +245,13 @@ const PERMISO_PROVEEDORES_PUBLICAR_LISTA_CRITICA_ID =
 const PERMISO_PROVEEDORES_COMPARAR_PRECIOS_ID =
   "1a2b3c4d-1111-4a1a-8a1a-000000000041";
 
+// HU-H8 (spec_modulo_H.md §2.11 / propose_HU-H8_FINAL.md §2.2 y T1): costo de
+// reposición vigente. Permiso servicio-a-servicio, sin variante crítica ni
+// umbral — siguiente UUID libre del namespace `1111` (permisos): el más
+// alto ocupado hasta ahora es ...041 (HU-H7), así que este toma ...042.
+const PERMISO_PROVEEDORES_LEER_COSTO_REPOSICION_ID =
+  "1a2b3c4d-1111-4a1a-8a1a-000000000042";
+
 // HU-C1 — Roles VENDEDOR y ADMINISTRADOR_CRM (spec_modulo_C.md, Alcance §5).
 // No existían en el seed hasta esta tarea; siguiente UUID libre del
 // namespace `2222` (roles), a partir de ...004 (...001–...003 los ocupan
@@ -1382,6 +1389,38 @@ async function main() {
       codigo: "proveedores:comparar_precios",
       descripcion:
         "Consultar la vista comparativa de precios vigentes entre proveedores, por SKU o por categoría (HU-H7 §2.10)",
+      modulo: "MODULO_H",
+    },
+  });
+
+  // ── HU-H8 — costo de reposición vigente (spec_modulo_H.md §2.11). Permiso
+  // servicio-a-servicio: el actor es "Sistema", no un usuario humano
+  // (propose_HU-H8_FINAL.md §2.2, decisión ya cerrada). NO se asigna a
+  // ningún rol humano de producción (Comprador, Supervisor de Compras, etc.)
+  // ni se expone en ningún menú. `withPermission` sigue siendo el único
+  // guardián del endpoint HTTP; Módulo D consume el servicio directo,
+  // intra-proceso, sin pasar por este permiso.
+  //
+  // N6 (Apply, confirmado): no existe en este seed ningún usuario ni rol
+  // técnico al que asignar el permiso. El único precedente real de "servicio
+  // sin consumidor humano directo" es HU-A10 (`inventario:reservar_stock` /
+  // `inventario:confirmar_reserva`, más arriba) — pero ese precedente NO
+  // coincide con lo que el Propose asumía como hipótesis: en el seed real,
+  // esos dos permisos terminaron asignados directamente a roles humanos
+  // (`ENCARGADO_DEPOSITO` + `ADMINISTRADOR`), no dejados sin asignar a la
+  // espera de un fixture. No se replica ese patrón acá porque la decisión de
+  // §2.2 para HU-H8 es explícita y no depende de ese precedente: el permiso
+  // queda sembrado en el catálogo (necesario para que `withPermission` lo
+  // pueda validar) sin asignar a ningún Rol del seed. La asignación para
+  // tests se resuelve con un fixture puntual en T16, no acá.
+  await prisma.permiso.upsert({
+    where: { id: PERMISO_PROVEEDORES_LEER_COSTO_REPOSICION_ID },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: {
+      id: PERMISO_PROVEEDORES_LEER_COSTO_REPOSICION_ID,
+      codigo: "proveedores:leer_costo_reposicion",
+      descripcion:
+        "Consultar el costo de reposición vigente de una VarianteSKU — servicio-a-servicio, sin consumidor humano directo (HU-H8 §2.11)",
       modulo: "MODULO_H",
     },
   });
