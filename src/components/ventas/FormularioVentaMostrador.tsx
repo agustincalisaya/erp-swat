@@ -23,10 +23,11 @@
  */
 
 import { useId, useMemo, useState, useTransition } from "react";
-import { Plus, Trash2, Loader2, Receipt, Info, CheckCircle2, Clock, ShoppingCart } from "lucide-react";
+import { Plus, Trash2, Loader2, Receipt, Info, CheckCircle2, Clock, ShoppingCart, Eye } from "lucide-react";
 
 import { registrarVentaMostradorAction } from "@/app/(dashboard)/ventas/pos/actions";
 import { ComboboxFiltrable } from "@/components/inventario/ComboboxFiltrable";
+import { ModalComprobanteFiscal } from "@/components/ventas/ModalComprobanteFiscal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -106,6 +107,7 @@ export function FormularioVentaMostrador({ clientes, variantes, depositos }: For
   const [errorItems, setErrorItems] = useState<string | null>(null);
   const [errorMediosPago, setErrorMediosPago] = useState<string | null>(null);
   const [resultado, setResultado] = useState<VentaMostradorRegistrada | null>(null);
+  const [comprobanteAVer, setComprobanteAVer] = useState<string | null>(null);
 
   const skuPorId = useMemo(() => new Map(variantes.map((v) => [v.id, v.sku])), [variantes]);
 
@@ -293,10 +295,25 @@ export function FormularioVentaMostrador({ clientes, variantes, depositos }: For
           </div>
         </dl>
 
-        <Button onClick={nuevaVenta} className="gap-2 bg-blue-600 hover:bg-blue-700 text-white">
-          <ShoppingCart className="size-4" />
-          Registrar otra venta
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button onClick={nuevaVenta} className="gap-2 bg-blue-600 hover:bg-blue-700 text-white">
+            <ShoppingCart className="size-4" />
+            Registrar otra venta
+          </Button>
+          {resultado.comprobante_id !== null && (
+            <Button
+              type="button"
+              variant="outline"
+              className="gap-2"
+              onClick={() => setComprobanteAVer(resultado.comprobante_id)}
+            >
+              <Eye className="size-4" />
+              Ver comprobante
+            </Button>
+          )}
+        </div>
+
+        <ModalComprobanteFiscal comprobanteId={comprobanteAVer} onClose={() => setComprobanteAVer(null)} />
       </div>
     );
   }
