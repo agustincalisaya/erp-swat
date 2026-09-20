@@ -27,6 +27,8 @@ import "server-only";
 import { createHash, randomUUID } from "node:crypto";
 import QRCode from "qrcode";
 import type { Prisma, TipoComprobanteVenta } from "@prisma/client";
+import { prisma } from "@/lib/db/prisma";
+import { ServiceError } from "@/lib/errors/service-error";
 
 /**
  * CUIT del emisor simulado — no existe hoy en el schema ninguna entidad de
@@ -141,5 +143,40 @@ export async function emitirComprobanteFiscal(
     cae_simulado: caeSimulado,
     qr_data_url: qrDataUrl,
     es_simulado: true,
+  };
+}
+
+export interface ComprobanteFiscalConsultado {
+  comprobante_id: string;
+  pedido_venta_id: string;
+  tipo_comprobante: TipoComprobanteVenta;
+  cae_simulado: string;
+  qr_data_url: string;
+  es_simulado: boolean;
+  monto_total: number;
+}
+
+/**
+ * Consulta de un comprobante ya emitido (spec §2.7; task_relos.md §0.3 —
+ * único endpoint pendiente de esta HU, la emisión ya quedó resuelta en
+ * HU-B1). Sin lógica de negocio más allá de la búsqueda: el comprobante es
+ * inmutable desde su emisión (spec §3.4, sin bloque de soft-delete), no hay
+ * nada que recalcular ni derivar acá — el Route Handler solo mapea el
+ * resultado/excepción (task §3.4).
+ */
+export async function obtenerComprobantePorId(id: string): Promise<ComprobanteFiscalConsultado> {
+  const comprobante = await prisma.comprobanteFiscal.findUnique({ where: { id } });
+  if (!comprobante) {
+    throw new ServiceError("COMPROBANTE_NO_ENCONTRADO", "No se encontró el comprobante solicitado");
+  }
+
+  return {
+    comprobante_id: comprobante.id,
+    pedido_venta_id: comprobante.pedido_venta_id,
+    tipo_comprobante: comprobante.tipo_comprobante,
+    cae_simulado: comprobante.cae_simulado,
+    qr_data_url: comprobante.qr_data_url,
+    es_simulado: comprobante.es_simulado,
+    monto_total: comprobante.monto_total.toNumber(),
   };
 }

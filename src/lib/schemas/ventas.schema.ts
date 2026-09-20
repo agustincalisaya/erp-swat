@@ -203,4 +203,14 @@ export const RegistrarVentaMostradorSchema = z
       path: ["medios_pago"],
     },
   );
+
+/**
+ * Schema Zod de HU-B7 — Consulta de Comprobante Fiscal (spec_modulo_B.md
+ * §2.7; docs/tasks/task_relos.md §1/§2). Sin `body` de entrada — el único
+ * dato recibido es el `id` de path, validado como uuid (mismo criterio que
+ * el resto del módulo, spec §2 "Convenciones generales").
+ */
+export const ComprobanteFiscalIdSchema = z
+  .string()
+  .uuid("El identificador del comprobante debe ser un UUID válido");
 export type RegistrarVentaMostradorInput = z.infer<typeof RegistrarVentaMostradorSchema>;
