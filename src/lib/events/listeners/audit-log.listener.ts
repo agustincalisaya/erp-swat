@@ -959,23 +959,35 @@ export function iniciarAuditLogListener(): void {
     });
   });
 
-  // HU-C3 (Módulo C) — mutación de la ficha del cliente cubierta por §2.3:
-  // hoy, el alta de una `DireccionCliente` (`agregarDireccionCliente()`).
+  // Módulo C — mutación de la ficha del cliente cubierta por §2.3, con DOS
+  // consumidores del mismo evento `cliente:actualizado`:
+  //  - HU-C3: el alta de una `DireccionCliente` (`agregarDireccionCliente()`),
+  //    que NO envía los campos opcionales → el asiento cae a los defaults
+  //    históricos (`CREATE` / `direcciones_cliente` / id de la dirección).
+  //  - HU-C9: el cambio de `canal_preferido` (`actualizarCanalContacto()`),
+  //    que envía `accion:"UPDATE"` / `tabla_afectada:"clientes"` /
+  //    `registro_id: cliente_id`.
+  // `accion`/`tabla_afectada`/`registro_id` son opcionales y aditivos: la
+  // fila de HU-C3 queda byte-idéntica a la actual (`??` reproduce los valores
+  // que antes estaban fijos), mientras que HU-C9 aporta su propio asiento.
   // El service emite post-COMMIT y este listener es la única vía de escritura
   // a `AuditLog` (RULES.md: ningún service llama `registrarAuditLog()`).
   //
-  // `registro_id` es el id de la fila realmente creada (la dirección); si por
-  // algún motivo faltara, cae al `cliente_id` para no perder el asiento.
-  // `AuditLog` NO tiene columna `campos_modificados` (verificado en
-  // `schema.prisma`), así que ese array se pliega dentro de `valor_nuevo`
+  // `registro_id` es el id de la fila realmente afectada (la dirección creada
+  // en C3, el cliente en C9); si faltara, cae al `cliente_id` para no perder
+  // el asiento. `AuditLog` NO tiene columna `campos_modificados` (verificado
+  // en `schema.prisma`), así que ese array se pliega dentro de `valor_nuevo`
   // para que el snapshot forense conserve qué cambió. `ip: "unknown"` —
   // mismo sentinel que `cliente:creado` (arriba).
   domainEventBus.on("cliente:actualizado", (payload) => {
     void registrarAuditLog({
       usuario_id: payload.usuario_id,
-      accion: "CREATE",
-      tabla_afectada: "direcciones_cliente",
-      registro_id: (payload.valor_nuevo?.id as string | undefined) ?? payload.cliente_id,
+      accion: payload.accion ?? "CREATE",
+      tabla_afectada: payload.tabla_afectada ?? "direcciones_cliente",
+      registro_id:
+        payload.registro_id ??
+        (payload.valor_nuevo?.id as string | undefined) ??
+        payload.cliente_id,
       ip: "unknown",
       valor_anterior: payload.valor_anterior,
       valor_nuevo: {
