@@ -958,4 +958,97 @@ export function iniciarAuditLogListener(): void {
       valor_nuevo: { dni: payload.dni },
     });
   });
+
+  // HU-C3 (Módulo C) — mutación de la ficha del cliente cubierta por §2.3:
+  // hoy, el alta de una `DireccionCliente` (`agregarDireccionCliente()`).
+  // El service emite post-COMMIT y este listener es la única vía de escritura
+  // a `AuditLog` (RULES.md: ningún service llama `registrarAuditLog()`).
+  //
+  // `registro_id` es el id de la fila realmente creada (la dirección); si por
+  // algún motivo faltara, cae al `cliente_id` para no perder el asiento.
+  // `AuditLog` NO tiene columna `campos_modificados` (verificado en
+  // `schema.prisma`), así que ese array se pliega dentro de `valor_nuevo`
+  // para que el snapshot forense conserve qué cambió. `ip: "unknown"` —
+  // mismo sentinel que `cliente:creado` (arriba).
+  domainEventBus.on("cliente:actualizado", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "CREATE",
+      tabla_afectada: "direcciones_cliente",
+      registro_id: (payload.valor_nuevo?.id as string | undefined) ?? payload.cliente_id,
+      ip: "unknown",
+      valor_anterior: payload.valor_anterior,
+      valor_nuevo: {
+        cliente_id: payload.cliente_id,
+        campos_modificados: payload.campos_modificados,
+        ...payload.valor_nuevo,
+      },
+    });
+  });
+
+  // HU-B2 (Módulo B) — apertura de un TurnoCaja (task_relos.md §6.1/§7). El
+  // service (`turno-caja.service.ts`) nunca llama `registrarAuditLog()`
+  // directo: emite el evento y este listener reacciona (misma regla de
+  // unificación que el resto del proyecto). `tabla_afectada` usa el `@@map`
+  // en minúsculas (`turnos_caja`); `ip: "internal-event"` — mismo sentinel
+  // que `orden_compra:*` / `stock:reserva_congelada`.
+  domainEventBus.on("venta:turno_abierto", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "CREATE",
+      tabla_afectada: "turnos_caja",
+      registro_id: payload.turno_caja_id,
+      ip: "internal-event",
+      valor_anterior: null,
+      valor_nuevo: { fondo_fijo_inicial: payload.fondo_fijo_inicial },
+    });
+  });
+
+  // HU-B2 (Módulo B) — cierre de un TurnoCaja con arqueo ciego (task_relos.md
+  // §6.2/§7). Evento SENSIBLE cuando `requiere_justificacion: true`, mismo
+  // patrón que `venta:descuento_fuera_margen`/`venta:excepcion_credito_resuelta`
+  // (Módulo B) — la `accion` distingue el caso reforzado para que quede
+  // buscable en el ledger sin depender de inspeccionar `valor_nuevo`.
+  // `requiere_justificacion` viaja también dentro de `valor_nuevo` para que
+  // quede junto al resto del detalle forense de la fila.
+  domainEventBus.on("venta:turno_cerrado", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: payload.requiere_justificacion ? "CIERRE_TURNO_CON_JUSTIFICACION" : "CIERRE_TURNO",
+      tabla_afectada: "turnos_caja",
+      registro_id: payload.turno_caja_id,
+      ip: "internal-event",
+      valor_anterior: { fecha_cierre: null },
+      valor_nuevo: {
+        saldo_esperado: payload.saldo_esperado,
+        conteo_fisico_declarado: payload.conteo_fisico_declarado,
+        diferencia: payload.diferencia,
+        requiere_justificacion: payload.requiere_justificacion,
+        justificacion: payload.justificacion,
+      },
+    });
+  });
+
+  // HU-B1 (Módulo B) — registro de una venta de mostrador (spec_modulo_B.md
+  // §2.1/§4). `venta-mostrador.service.ts` nunca llama `registrarAuditLog()`
+  // directo: emite el evento post-COMMIT y este listener reacciona (misma
+  // regla de unificación que el resto del proyecto). `tabla_afectada` usa el
+  // `@@map` en minúsculas (`pedidos_venta`); `ip: "internal-event"` — mismo
+  // sentinel que `venta:presupuesto_emitido`/`stock:reserva_congelada`.
+  domainEventBus.on("venta:registrada", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "VENTA_MOSTRADOR_REGISTRADA",
+      tabla_afectada: "pedidos_venta",
+      registro_id: payload.pedido_venta_id,
+      ip: "internal-event",
+      valor_anterior: null,
+      valor_nuevo: {
+        cliente_id: payload.cliente_id,
+        total: payload.total,
+        medios_pago: payload.medios_pago,
+        turno_caja_id: payload.turno_caja_id,
+      },
+    });
+  });
 }

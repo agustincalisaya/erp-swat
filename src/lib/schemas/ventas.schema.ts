@@ -146,3 +146,103 @@ export const ConsultarAuditoriaVentasQuerySchema = z.object({
   page_size: z.coerce.number().int().positive().max(50).default(20),
 });
 export type ConsultarAuditoriaVentasQuery = z.infer<typeof ConsultarAuditoriaVentasQuerySchema>;
+
+/**
+ * Schemas Zod de HU-B2 — Apertura y cierre de turno de caja con arqueo ciego
+ * (spec_modulo_B.md §2.2; docs/tasks/task_relos.md §4). Copiados textuales
+ * del contrato de la tarea — no modificar tipos ni mensajes.
+ */
+
+/** `id` de un TurnoCaja recibido por path param. */
+export const TurnoCajaIdSchema = z
+  .string()
+  .uuid("El identificador del turno de caja debe ser un UUID válido");
+
+export const AbrirTurnoCajaSchema = z.object({
+  fondo_fijo_inicial: z.number().nonnegative(),
+});
+export type AbrirTurnoCajaInput = z.infer<typeof AbrirTurnoCajaSchema>;
+
+/**
+ * `justificacion` es opcional a nivel de contrato Zod a propósito (task
+ * §4/§6.2 punto 4): su obligatoriedad es CONDICIONAL a que la diferencia
+ * supere `UMBRAL_DIFERENCIA_ARQUEO`, una regla de negocio que Zod no puede
+ * expresar sin conocer el `saldo_esperado` (que todavía no existe en este
+ * punto — recién se calcula server-side dentro de `cerrarTurnoCaja()`). La
+ * exigencia real vive en la capa de servicios (`turno-caja.service.ts`),
+ * nunca acá.
+ */
+export const CerrarTurnoCajaSchema = z.object({
+  conteo_fisico_declarado: z.number().nonnegative(),
+  justificacion: z.string().optional(),
+});
+export type CerrarTurnoCajaInput = z.infer<typeof CerrarTurnoCajaSchema>;
+
+/**
+ * Schemas Zod de HU-B1 — Venta de mostrador con cobro multimedio
+ * (spec_modulo_B.md §2.1; docs/tasks/task_relos.md §2). Copiados
+ * textualmente del contrato de la tarea, con UNA extensión deliberada (ver
+ * `deposito_id` abajo) — no modificar el resto de tipos ni mensajes.
+ */
+
+export const MedioPagoSchema = z.object({
+  // Sin CUENTA_CORRIENTE (decisión 0.6 de task_relos.md): el enum de Prisma
+  // `MedioPagoVenta` la incluye, pero la HU narrativa de esta tarea no la
+  // nombra en sus criterios de aceptación — excluida a propósito.
+  medio: z.enum(["EFECTIVO", "TRANSFERENCIA", "E_CHEQ", "MERCADO_PAGO", "TARJETA"]),
+  importe: z.number().positive(),
+  referencia: z.string().optional(),
+});
+export type MedioPagoInput = z.infer<typeof MedioPagoSchema>;
+
+/**
+ * `deposito_id` por ítem: extensión NO contemplada en el contrato Zod literal
+ * de la tarea (que solo copia `variante_sku_id`/`cantidad`/`precio_unitario`/
+ * `descuento_porcentual`) — necesaria porque `crearReserva()` de Módulo A
+ * (`spec_modulo_A.md` §2.9) exige `deposito_id` para congelar stock, y el
+ * negocio tiene 3 depósitos reales sembrados, no uno único. Mismo criterio ya
+ * aplicado por HU-B3 en `CrearPresupuestoItemSchema` (arriba) por el mismo
+ * motivo — documentado también en `docs/tasks/task_relos.md`.
+ */
+const RegistrarVentaMostradorItemSchema = z.object({
+  variante_sku_id: z.string().uuid(),
+  deposito_id: z.string().uuid(),
+  cantidad: z.number().int().positive(),
+  precio_unitario: z.number().positive(),
+  descuento_porcentual: z.number().min(0).max(100).optional(),
+});
+
+export const RegistrarVentaMostradorSchema = z
+  .object({
+    cliente_id: z.string().uuid().optional(),
+    items: z
+      .array(RegistrarVentaMostradorItemSchema)
+      .min(1, "La venta debe incluir al menos un ítem"),
+    medios_pago: z.array(MedioPagoSchema).min(1, "Debe indicarse al menos un medio de pago"),
+    tipo_comprobante: z.enum(["FACTURA_A", "FACTURA_B", "TICKET"]),
+  })
+  .refine(
+    (d) => {
+      const totalItems = d.items.reduce(
+        (acc, i) => acc + i.precio_unitario * i.cantidad * (1 - (i.descuento_porcentual ?? 0) / 100),
+        0,
+      );
+      const totalPagos = d.medios_pago.reduce((acc, m) => acc + m.importe, 0);
+      return Math.abs(totalItems - totalPagos) < 0.01;
+    },
+    {
+      message: "La suma de los medios de pago debe igualar exactamente el importe total de la venta",
+      path: ["medios_pago"],
+    },
+  );
+
+/**
+ * Schema Zod de HU-B7 — Consulta de Comprobante Fiscal (spec_modulo_B.md
+ * §2.7; docs/tasks/task_relos.md §1/§2). Sin `body` de entrada — el único
+ * dato recibido es el `id` de path, validado como uuid (mismo criterio que
+ * el resto del módulo, spec §2 "Convenciones generales").
+ */
+export const ComprobanteFiscalIdSchema = z
+  .string()
+  .uuid("El identificador del comprobante debe ser un UUID válido");
+export type RegistrarVentaMostradorInput = z.infer<typeof RegistrarVentaMostradorSchema>;

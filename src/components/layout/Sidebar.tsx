@@ -133,6 +133,14 @@ const SECCIONES: SeccionConfig[] = [
     label: "Ventas",
     icon: Receipt,
     items: [
+      // HU-B1 (spec_modulo_B.md §2.1) — gate por `ventas:registrar_venta_mostrador`,
+      // exclusivo Cajero POS. Venta de mostrador con cobro multimedio.
+      {
+        label: "Venta de mostrador",
+        href: "/ventas/pos",
+        icon: ShoppingCart,
+        permiso: "ventas:registrar_venta_mostrador",
+      },
       // Gate por `ventas:leer` (HU-B3, spec_modulo_B.md §2.3) — permiso de
       // lectura del módulo, separado de `ventas:emitir_cotizacion`. El botón
       // "Nuevo presupuesto" y la acción de aceptar se gatean aparte por ese
@@ -151,6 +159,14 @@ const SECCIONES: SeccionConfig[] = [
         href: "/ventas/cuentas-corrientes",
         icon: Wallet,
         permiso: "ventas:gestionar_cuenta_corriente",
+      },
+      // HU-B2 (task_relos.md) — gate por `ventas:gestionar_turno_caja`,
+      // exclusivo Cajero POS. Apertura/cierre de turno con arqueo ciego.
+      {
+        label: "Turno de caja",
+        href: "/ventas/turnos",
+        icon: Banknote,
+        permiso: "ventas:gestionar_turno_caja",
       },
     ],
   },

@@ -238,6 +238,13 @@ const PERMISO_PROVEEDORES_PUBLICAR_LISTA_ID =
 const PERMISO_PROVEEDORES_PUBLICAR_LISTA_CRITICA_ID =
   "1a2b3c4d-1111-4a1a-8a1a-000000000030";
 
+// HU-H7 (spec_modulo_H.md §2.10): comparativa de precios entre proveedores.
+// Un solo permiso, sin variante crítica ni umbral — siguiente UUID libre del
+// namespace `1111` (permisos): el más alto ocupado hasta ahora es ...040
+// (HU-B7, Módulo B), así que este toma ...041.
+const PERMISO_PROVEEDORES_COMPARAR_PRECIOS_ID =
+  "1a2b3c4d-1111-4a1a-8a1a-000000000041";
+
 // HU-C1 — Roles VENDEDOR y ADMINISTRADOR_CRM (spec_modulo_C.md, Alcance §5).
 // No existían en el seed hasta esta tarea; siguiente UUID libre del
 // namespace `2222` (roles), a partir de ...004 (...001–...003 los ocupan
@@ -1364,6 +1371,21 @@ async function main() {
   const [permisoProveedoresPublicarLista, permisoProveedoresPublicarListaCritica] =
     permisosPublicarLista;
 
+  // ── HU-H7 — comparativa de precios entre proveedores (spec_modulo_H.md
+  // §2.10). Permiso único, sin variante crítica ni umbral — asignado directo
+  // a Comprador y Supervisor de Compras más abajo (T2), ningún otro rol.
+  const permisoProveedoresCompararPrecios = await prisma.permiso.upsert({
+    where: { id: PERMISO_PROVEEDORES_COMPARAR_PRECIOS_ID },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: {
+      id: PERMISO_PROVEEDORES_COMPARAR_PRECIOS_ID,
+      codigo: "proveedores:comparar_precios",
+      descripcion:
+        "Consultar la vista comparativa de precios vigentes entre proveedores, por SKU o por categoría (HU-H7 §2.10)",
+      modulo: "MODULO_H",
+    },
+  });
+
   // ── Módulo C (Sprint 3) — permisos granulares de Cliente (spec_modulo_C.md,
   // sección "Permisos RBAC" del Alcance) ──────────────────────────────────────
   //   - clientes:crear                  → Vendedor, Administrador de CRM
@@ -1624,6 +1646,8 @@ async function main() {
     permisoComprobantesLeer,
     // HU-H2 (propose.md decisión 5): publicación dentro del umbral normal.
     permisoProveedoresPublicarLista,
+    // HU-H7 §2.10: comparativa de precios, directo (sin variante crítica).
+    permisoProveedoresCompararPrecios,
   ];
   const permisosSupervisorCompras = [
     permisoProveedoresCrear,
@@ -1644,6 +1668,8 @@ async function main() {
     // HU-H2 (propose.md decisión 5): publicación normal + exclusivo crítico.
     permisoProveedoresPublicarLista,
     permisoProveedoresPublicarListaCritica,
+    // HU-H7 §2.10: comparativa de precios, directo (sin variante crítica).
+    permisoProveedoresCompararPrecios,
   ];
 
   for (const permiso of permisosComprador) {

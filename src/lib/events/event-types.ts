@@ -790,6 +790,84 @@ export interface ClienteCreadoPayload {
   es_nuevo: true;
 }
 
+/**
+ * HU-C3 (Módulo C) — Payload emitido tras una mutación de la ficha de un
+ * `Cliente` cubierta por §2.3; hoy el alta de una `DireccionCliente`
+ * (`agregarDireccionCliente()`). Emisión post-`COMMIT`, fire-and-forget
+ * (spec §3.3/§4) — jamás dentro de la transacción.
+ *
+ * `campos_modificados` describe qué cambió sobre el cliente (para el alta de
+ * dirección: `["direcciones"]`); `valor_nuevo` lleva los datos de la fila
+ * creada. El payload NO copia `email`/`telefono` del cliente (regla de
+ * minimización, spec §4).
+ *
+ * Nota de implementación: `AuditLog` no tiene columna `campos_modificados`;
+ * el handler de auditoría pliega ese array dentro de `valor_nuevo` para que
+ * el snapshot forense conserve el detalle (design §5).
+ */
+export interface ClienteActualizadoPayload {
+  cliente_id: string;
+  usuario_id: string;
+  campos_modificados: string[];
+  valor_anterior: Record<string, unknown> | null;
+  valor_nuevo: Record<string, unknown> | null;
+}
+
+/**
+ * HU-B2 (Módulo B) — Payload emitido tras la apertura de un `TurnoCaja`
+ * (`abrirTurnoCaja()`, task_relos.md §6.1/§7). Emisión post-escritura
+ * (mismo patrón fire-and-forget que el resto del proyecto).
+ */
+export interface VentaTurnoAbiertoPayload {
+  turno_caja_id: string;
+  usuario_id: string;
+  fondo_fijo_inicial: number;
+}
+
+/**
+ * HU-B2 (Módulo B) — Payload emitido tras el cierre de un `TurnoCaja`
+ * (`cerrarTurnoCaja()`, task_relos.md §6.2/§7). Evento SENSIBLE (encadenamiento
+ * SHA-256 reforzado, mismo criterio que HU-B4) cuando `requiere_justificacion:
+ * true` — el listener de auditoría distingue la `accion` por este flag.
+ *
+ * La entrega real de una notificación al Tesorero (AC de la HU) queda fuera
+ * de alcance: no existe hoy ningún motor de notificaciones (Módulo F) que
+ * consuma este evento — decisión documentada en task_relos.md §0.2.
+ */
+export interface VentaTurnoCerradoPayload {
+  turno_caja_id: string;
+  usuario_id: string;
+  saldo_esperado: number;
+  conteo_fisico_declarado: number;
+  diferencia: number;
+  requiere_justificacion: boolean;
+  justificacion: string | null;
+}
+
+/** Línea de cobro de `VentaRegistradaPayload` — mismo shape mínimo del payload de spec §4. */
+export interface VentaRegistradaMedioPagoPayload {
+  medio: string;
+  importe: number;
+}
+
+/**
+ * HU-B1 (Módulo B) — Payload emitido tras registrar una venta de mostrador
+ * (`registrarVentaMostrador()`, spec_modulo_B.md §2.1/§4). Payload LITERAL de
+ * spec §4 (`{ pedido_venta_id, cliente_id | null, total, medios_pago[],
+ * turno_caja_id, usuario_id }`) — sin campos adicionales de comprobante ni de
+ * ítems pendientes de autorización (esos quedan resolubles consultando el
+ * `PedidoVenta` por su `id`, no duplicados en el evento). Emisión post-COMMIT
+ * (mismo patrón fire-and-forget que el resto del proyecto).
+ */
+export interface VentaRegistradaPayload {
+  pedido_venta_id: string;
+  cliente_id: string | null;
+  total: number;
+  medios_pago: VentaRegistradaMedioPagoPayload[];
+  turno_caja_id: string;
+  usuario_id: string;
+}
+
 /** Mapa evento → payload, usado por `domain-event-bus.ts` para tipar `emit`/`on`. */
 export interface DomainEventMap {
   /** HU-A1: se emite tras el alta de un ProductoMaestro. */
@@ -883,6 +961,14 @@ export interface DomainEventMap {
   "venta:excepcion_credito_resuelta": ExcepcionCreditoResueltaPayload;
   /** HU-C1: se emite tras el alta NUEVA de un Cliente (nunca al recuperar uno existente por DNI). */
   "cliente:creado": ClienteCreadoPayload;
+  /** HU-C3: se emite post-COMMIT tras mutar la ficha del cliente (alta de una DireccionCliente, §2.3). */
+  "cliente:actualizado": ClienteActualizadoPayload;
+  /** HU-B2: se emite tras la apertura de un TurnoCaja. */
+  "venta:turno_abierto": VentaTurnoAbiertoPayload;
+  /** HU-B2: se emite tras el cierre de un TurnoCaja (evento sensible si requiere_justificacion). */
+  "venta:turno_cerrado": VentaTurnoCerradoPayload;
+  /** HU-B1: se emite tras registrar una venta de mostrador con cobro multimedio. */
+  "venta:registrada": VentaRegistradaPayload;
 }
 
 export type DomainEventName = keyof DomainEventMap;
