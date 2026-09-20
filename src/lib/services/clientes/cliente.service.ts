@@ -40,6 +40,7 @@ import { prisma } from "@/lib/db/prisma";
 import { domainEventBus } from "@/lib/events/domain-event-bus";
 import { ServiceError } from "@/lib/errors/service-error";
 import type {
+  ActualizarCanalContactoInput,
   AgregarDireccionClienteInput,
   CrearClienteInput,
 } from "@/lib/schemas/clientes.schema";
@@ -439,4 +440,112 @@ export async function listarClientes(): Promise<ClienteListado[]> {
     },
     orderBy: { created_at: "desc" },
   });
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// §2.3 — HU-C9: canal de contacto preferido (WhatsApp / Email / Ambos)
+//
+// `canal_preferido` es un atributo simple de `Cliente` (NO una entidad
+// propia): vive en la columna `canal_preferido` con el enum `CanalContacto`
+// `{ WHATSAPP, EMAIL, AMBOS }` ya fijado en `schema.prisma`, y es editable en
+// cualquier momento — no hay máquina de estados (spec §2.3). Este service
+// nunca llama `prisma.*.delete()`/`deleteMany()`.
+//
+// CONTRATO DE CONSUMO FUTURO — Módulo F (Motor de Notificaciones),
+// documentado, NO construido en este sprint: la fuente ÚNICA es
+// `Cliente.canal_preferido`, leída por `cliente_id` (sin copia ni tabla
+// espejo, para que el cambio de canal no tenga que replicarse en dos
+// lugares). Los tres valores posibles son WHATSAPP / EMAIL / AMBOS. El campo
+// PUEDE ser `null` (el cliente nunca eligió canal): el consumidor decide su
+// propio fallback y NO debe asumir un default — qué hacer ante `null` es una
+// decisión de producto de Módulo F, no de este módulo. Módulo F no se
+// construye este sprint; el dato se modela y persiste ahora para que ese
+// sprint no necesite refactorizar nada.
+// ──────────────────────────────────────────────────────────────────────────────
+
+/** Resultado público de `actualizarCanalContacto` (shape del endpoint). */
+export interface CanalContactoActualizado {
+  cliente_id: string;
+  canal_preferido: CanalContacto;
+}
+
+/**
+ * Núcleo transaccional reutilizable de la actualización del canal de
+ * contacto. No abre transacción ni emite eventos: el caller es dueño de
+ * ambos límites (mismo patrón que `crearClienteTx` / `agregarDireccionClienteTx`).
+ *
+ * La lectura del valor anterior y la escritura del nuevo ocurren en la MISMA
+ * transacción, con el mismo `tx`: así el `valor_anterior` que se audita es
+ * exactamente el que existía justo antes del `update` y no puede ser
+ * pisado por una escritura concurrente entre ambas operaciones.
+ *
+ * Cliente inexistente **o** `is_active = false` ⇒ `CLIENTE_NO_ENCONTRADO`
+ * (→ 404). El caso inactivo es indistinguible del inexistente a propósito:
+ * NO se agrega un código `CLIENTE_INACTIVO` ni un 409 (decisión humana
+ * ratificada, coherente con el contrato global de baja lógica).
+ */
+export async function actualizarCanalContactoTx(
+  tx: Prisma.TransactionClient,
+  clienteId: string,
+  input: ActualizarCanalContactoInput,
+): Promise<{ anterior: CanalContacto | null; nuevo: CanalContacto }> {
+  const cliente = await tx.cliente.findUnique({
+    where: { id: clienteId },
+    select: { id: true, is_active: true, canal_preferido: true },
+  });
+  if (!cliente || !cliente.is_active) {
+    throw new ServiceError("CLIENTE_NO_ENCONTRADO", "Cliente no encontrado o inactivo");
+  }
+
+  const anterior = cliente.canal_preferido;
+  const actualizado = await tx.cliente.update({
+    where: { id: clienteId },
+    data: { canal_preferido: input.canal_preferido },
+    select: { canal_preferido: true },
+  });
+
+  return { anterior, nuevo: actualizado.canal_preferido! };
+}
+
+/**
+ * Wrapper público invocado por el Route Handler
+ * (`PATCH /api/clientes/[id]/canal-contacto`) y la Server Action. Abre
+ * `prisma.$transaction`, delega en `actualizarCanalContactoTx` y emite
+ * `cliente:actualizado` DESPUÉS del COMMIT (spec §3.3/§4) — nunca dentro de
+ * la transacción, y nunca llamando a `registrarAuditLog()` (el listener de
+ * auditoría es la única vía de escritura a `AuditLog`).
+ *
+ * `clienteId` es la única fuente de verdad del cliente: se resuelve en el
+ * path `[id]` de la ruta y viaja como argumento explícito. Jamás se lee un
+ * `cliente_id` del body (spec §2.3).
+ *
+ * HU-C9 aporta los campos opcionales `accion:"UPDATE"`,
+ * `tabla_afectada:"clientes"` y `registro_id: clienteId` para que el
+ * listener derive un asiento UPDATE sobre `clientes` en vez de los defaults
+ * históricos de HU-C3 (`CREATE` / `direcciones_cliente`); ver
+ * `audit-log.listener.ts` (design §2).
+ */
+export async function actualizarCanalContacto(
+  clienteId: string,
+  input: ActualizarCanalContactoInput,
+  usuarioId: string,
+): Promise<CanalContactoActualizado> {
+  const { anterior, nuevo } = await prisma.$transaction((tx: Prisma.TransactionClient) =>
+    actualizarCanalContactoTx(tx, clienteId, input),
+  );
+
+  // Post-COMMIT, fire-and-forget (spec §3.3/§4): la única vía de escritura a
+  // `AuditLog` es `audit-log.listener.ts`, que reacciona a este evento.
+  domainEventBus.emit("cliente:actualizado", {
+    cliente_id: clienteId,
+    usuario_id: usuarioId,
+    campos_modificados: ["canal_preferido"],
+    valor_anterior: { canal_preferido: anterior },
+    valor_nuevo: { canal_preferido: nuevo },
+    accion: "UPDATE",
+    tabla_afectada: "clientes",
+    registro_id: clienteId,
+  });
+
+  return { cliente_id: clienteId, canal_preferido: nuevo };
 }
