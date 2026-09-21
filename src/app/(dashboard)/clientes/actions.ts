@@ -14,17 +14,19 @@ import { revalidatePath } from "next/cache";
 import { getServerSession } from "@/lib/auth/session";
 import { usuarioTienePermiso } from "@/lib/auth/with-permission";
 import { ServiceError } from "@/lib/errors/service-error";
-import { CrearClienteSchema, AgregarDireccionClienteSchema } from "@/lib/schemas/clientes.schema";
+import { CrearClienteSchema, AgregarDireccionClienteSchema, ActualizarCanalContactoSchema } from "@/lib/schemas/clientes.schema";
 import {
+  actualizarCanalContacto as actualizarCanalContactoService,
   agregarDireccionCliente as agregarDireccionClienteService,
   crearCliente as crearClienteService,
   PERMISO_CREAR,
   PERMISO_EDITAR,
+  type CanalContactoActualizado,
   type ClienteCreado,
   type DireccionAgregada,
 } from "@/lib/services/clientes/cliente.service";
 
-export type { ClienteCreado, DireccionAgregada };
+export type { ClienteCreado, DireccionAgregada, CanalContactoActualizado };
 
 const CLIENTES_PATH = "/clientes";
 
@@ -96,6 +98,44 @@ export async function agregarDireccionCliente(
   } catch (err) {
     if (err instanceof ServiceError) return fallo(err.code, err.message);
     console.error("[agregarDireccionClienteAction] Error inesperado:", err);
+    return fallo("INTERNAL_ERROR", "Error interno. Intentá nuevamente.");
+  }
+}
+
+/**
+ * Server Action equivalente a
+ * `PATCH /api/clientes/[id]/canal-contacto` (HU-C9, spec_modulo_C.md §2.3).
+ * Wrapper fino: sesión + permiso granular `clientes:editar`, parseo Zod,
+ * invocación de la MISMA función de servicio que el Route Handler y mapeo a
+ * `{ data, error }`. Ninguna regla de negocio vive acá.
+ *
+ * `clienteId` llega como ARGUMENTO explícito (el `[id]` del path en la ruta
+ * equivalente) y NUNCA se lee del input parseado: el body no es fuente de
+ * verdad del cliente. Un `cliente_id` espurio en `input` se descarta en el
+ * parseo.
+ */
+export async function actualizarCanalContacto(
+  clienteId: string,
+  input: unknown,
+): Promise<ActionResult<CanalContactoActualizado>> {
+  const session = await getServerSession();
+  if (!session) return fallo("UNAUTHORIZED", "Sesión requerida");
+  if (!(await usuarioTienePermiso(session.userId, PERMISO_EDITAR))) {
+    return fallo("FORBIDDEN", `No tenés el permiso "${PERMISO_EDITAR}"`);
+  }
+
+  const parsed = ActualizarCanalContactoSchema.safeParse(input);
+  if (!parsed.success) {
+    return fallo("VALIDATION_ERROR", parsed.error.issues[0]?.message ?? "Datos inválidos");
+  }
+
+  try {
+    const data = await actualizarCanalContactoService(clienteId, parsed.data, session.userId);
+    revalidatePath(`/clientes/${clienteId}`);
+    return { data, error: null };
+  } catch (err) {
+    if (err instanceof ServiceError) return fallo(err.code, err.message);
+    console.error("[actualizarCanalContactoAction] Error inesperado:", err);
     return fallo("INTERNAL_ERROR", "Error interno. Intentá nuevamente.");
   }
 }

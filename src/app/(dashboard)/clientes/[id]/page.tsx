@@ -2,10 +2,11 @@
  * @page ClienteFichaPage
  * @route /clientes/[id]
  *
- * Ficha mínima de un Cliente (HU-C3, spec_modulo_C.md §2.3). Server
- * Component: resuelve sesión + permisos, trae el encabezado y las
- * direcciones (solo lectura) y delega el flujo interactivo de alta a
- * `DireccionesCliente`. No es un CRUD completo de `Cliente` — edición,
+ * Ficha mínima de un Cliente (HU-C3 y HU-C9, spec_modulo_C.md §2.3). Server
+ * Component: resuelve sesión + permisos, trae el encabezado, el canal de
+ * contacto preferido y las direcciones (solo lectura) y delega el flujo
+ * interactivo de alta a `DireccionesCliente` y el de canal a
+ * `CanalContactoCliente`. No es un CRUD completo de `Cliente` — edición,
  * consentimiento, segmento y baja son HU-C2/C4/C5/C8/C10, fuera de alcance.
  *
  * Cliente inexistente **o** con `is_active === false` ⇒ `notFound()`: ambos
@@ -26,6 +27,7 @@ import {
   PERMISO_LEER,
 } from "@/lib/services/clientes/cliente.service";
 import { DireccionesCliente } from "@/components/clientes/DireccionesCliente";
+import { CanalContactoCliente } from "@/components/clientes/CanalContactoCliente";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
@@ -58,7 +60,7 @@ export default async function ClienteFichaPage({
   const [cliente, incluirInactivas] = await Promise.all([
     prisma.cliente.findUnique({
       where: { id },
-      select: { id: true, nombre: true, dni: true, is_active: true },
+      select: { id: true, nombre: true, dni: true, is_active: true, canal_preferido: true },
     }),
     usuarioTienePermiso(session.userId, PERMISO_AUDITORIA),
   ]);
@@ -98,6 +100,11 @@ export default async function ClienteFichaPage({
         )}
 
         <DireccionesCliente clienteId={cliente.id} direcciones={direcciones} />
+
+        <CanalContactoCliente
+          clienteId={cliente.id}
+          canalPreferido={cliente.canal_preferido}
+        />
       </div>
     </main>
   );

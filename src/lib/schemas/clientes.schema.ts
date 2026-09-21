@@ -47,3 +47,26 @@ export const AgregarDireccionClienteSchema = z.object({
   direccion_completa: z.string().min(5, "La dirección es obligatoria"),
 });
 export type AgregarDireccionClienteInput = z.infer<typeof AgregarDireccionClienteSchema>;
+
+/**
+ * HU-C9 (Módulo C) — Actualización del canal de contacto preferido
+ * (spec_modulo_C.md §2.3). Contrato de
+ * `PATCH /api/clientes/[id]/canal-contacto` (permiso `clientes:editar`).
+ *
+ * SIN `.strict()` a propósito (mismo criterio que
+ * `AgregarDireccionClienteSchema`, HU-C3): `cliente_id` NO es parte del body
+ * — el único origen de verdad del cliente es el path param `[id]` de la ruta,
+ * y el servicio jamás lee un `cliente_id` del input parseado. Como el schema
+ * no es `.strict()` (comportamiento por defecto de Zod), una clave
+ * `cliente_id` espuria en el body se descarta en silencio en lugar de
+ * rechazar el request, que es exactamente lo que exige la spec.
+ *
+ * Los tres valores del enum son exactamente los del `CanalContacto` de
+ * `schema.prisma` (WHATSAPP/EMAIL/AMBOS) — nunca se reemplazan por un enum
+ * propio. `null` NO es un valor válido: no existe operación de limpieza
+ * (spec §2.3, "Fuera de alcance").
+ */
+export const ActualizarCanalContactoSchema = z.object({
+  canal_preferido: z.enum(["WHATSAPP", "EMAIL", "AMBOS"]),
+});
+export type ActualizarCanalContactoInput = z.infer<typeof ActualizarCanalContactoSchema>;

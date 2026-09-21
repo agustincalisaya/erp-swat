@@ -791,19 +791,26 @@ export interface ClienteCreadoPayload {
 }
 
 /**
- * HU-C3 (Módulo C) — Payload emitido tras una mutación de la ficha de un
- * `Cliente` cubierta por §2.3; hoy el alta de una `DireccionCliente`
- * (`agregarDireccionCliente()`). Emisión post-`COMMIT`, fire-and-forget
- * (spec §3.3/§4) — jamás dentro de la transacción.
+ * Módulo C — Payload emitido tras una mutación de la ficha de un `Cliente`
+ * cubierta por §2.3. Hoy tiene DOS consumidores, ambos vía
+ * `agregarDireccionCliente()` (HU-C3, alta de una `DireccionCliente`) y
+ * `actualizarCanalContacto()` (HU-C9, cambio de `canal_preferido`). Emisión
+ * post-`COMMIT`, fire-and-forget (spec §3.3/§4) — jamás dentro de la
+ * transacción.
  *
- * `campos_modificados` describe qué cambió sobre el cliente (para el alta de
- * dirección: `["direcciones"]`); `valor_nuevo` lleva los datos de la fila
- * creada. El payload NO copia `email`/`telefono` del cliente (regla de
- * minimización, spec §4).
+ * `campos_modificados` describe qué cambió sobre el cliente (alta de
+ * dirección: `["direcciones"]`; canal de contacto: `["canal_preferido"]`);
+ * `valor_nuevo` lleva los datos de la fila creada/actualizada. El payload NO
+ * copia `email`/`telefono` del cliente (regla de minimización, spec §4).
  *
  * Nota de implementación: `AuditLog` no tiene columna `campos_modificados`;
  * el handler de auditoría pliega ese array dentro de `valor_nuevo` para que
  * el snapshot forense conserve el detalle (design §5).
+ *
+ * `accion`/`tabla_afectada`/`registro_id` (HU-C9) son OPCIONALES y
+ * ADITIVOS: cuando están ausentes el handler de auditoría deriva el asiento
+ * con los valores históricos de HU-C3, de modo que la fila de C3 queda
+ * byte-idéntica (design §2, spec auditoría "No-regresión HU-C3").
  */
 export interface ClienteActualizadoPayload {
   cliente_id: string;
@@ -811,6 +818,12 @@ export interface ClienteActualizadoPayload {
   campos_modificados: string[];
   valor_anterior: Record<string, unknown> | null;
   valor_nuevo: Record<string, unknown> | null;
+  /** Ausente = comportamiento de HU-C3 (`"CREATE"`). */
+  accion?: "CREATE" | "UPDATE";
+  /** Ausente = `"direcciones_cliente"` (tabla de HU-C3). */
+  tabla_afectada?: string;
+  /** Ausente = id de la fila creada (dirección) o `cliente_id`. */
+  registro_id?: string;
 }
 
 /**
