@@ -53,3 +53,44 @@ export function validarReglaDireccionEnvio(
     );
   }
 }
+
+/**
+ * HU-C2 — Extensión de la regla estructural de FACTURACION a la EDICIÓN de
+ * una dirección existente.
+ *
+ * El invariante es el mismo que en el alta: una dirección `ENVIO` no puede
+ * existir sin al menos una `FACTURACION` activa. En edición la única
+ * transición que puede romperlo es `FACTURACION → ENVIO`: la dirección deja de
+ * ser FACTURACION y pasa a ser ENVIO, por lo que el cliente necesita OTRA
+ * `FACTURACION` activa (distinta de la propia) que la respalde. Si la
+ * dirección editada era la única FACTURACION, el resultado sería un cliente
+ * con envíos y sin facturación (o con un ENVIO como única dirección) ⇒ 422.
+ *
+ * Toda otra edición es inocua para el invariante y NO se valida:
+ *  - `ENVIO → FACTURACION`: agrega una FACTURACION, nunca la quita.
+ *  - tipo sin cambio (`FACTURACION → FACTURACION`, `ENVIO → ENVIO`, o `tipo`
+ *    ausente del PATCH): editar rótulo/dirección no altera el conteo. Tampoco
+ *    se revalida un ENVIO→ENVIO para no bloquear la corrección de un rótulo
+ *    sobre datos heredados.
+ *
+ * `hayOtraFacturacionActiva` debe contar FACTURACION activas EXCLUYENDO la
+ * dirección que se está editando — si se la incluyera, la propia dirección
+ * (todavía FACTURACION en la DB) se contaría a sí misma y la regla nunca
+ * dispararía. Puro: el llamador hace el conteo y aplica esto ANTES del
+ * `update`, de modo que el rechazo implique CERO escrituras y CERO eventos.
+ *
+ * @param tipoActual - Tipo persistido de la dirección.
+ * @param tipoNuevo - Tipo resultante tras la edición (el actual si el PATCH no lo trae).
+ * @param hayOtraFacturacionActiva - `true` si existe ≥1 FACTURACION activa del
+ *   mismo cliente distinta de la dirección editada.
+ * @throws ServiceError code `DIRECCION_FACTURACION_REQUERIDA` (→ HTTP 422).
+ */
+export function validarReglaEdicionDireccion(
+  tipoActual: "FACTURACION" | "ENVIO",
+  tipoNuevo: "FACTURACION" | "ENVIO",
+  hayOtraFacturacionActiva: boolean,
+): void {
+  if (tipoActual === "FACTURACION" && tipoNuevo === "ENVIO") {
+    validarReglaDireccionEnvio("ENVIO", hayOtraFacturacionActiva);
+  }
+}

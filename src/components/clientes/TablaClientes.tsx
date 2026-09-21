@@ -12,9 +12,9 @@
  * `<Link>` (navegación semántica, accesible por teclado, operable con
  * "abrir en pestaña nueva", sin JavaScript de cliente).
  *
- * Sin columna de acciones condicionadas por estado: todas las filas ofrecen
- * la misma acción (ver ficha), así que no hay menú "⋮" ni permisos por fila
- * que evaluar acá.
+ * HU-C2: con `puedeEditar` (`clientes:editar`, resuelto por el padre) cada fila
+ * suma un botón "Editar" que abre `EditarClienteDialog` (edición de contacto
+ * sin salir de la tabla). No hay estado por fila que condicione las acciones.
  */
 
 import Link from "next/link";
@@ -22,6 +22,7 @@ import { Users } from "lucide-react";
 import type { CanalContacto, SegmentoComercial } from "@prisma/client";
 
 import type { ClienteListado } from "@/lib/services/clientes/cliente.service";
+import { EditarClienteDialog } from "@/components/clientes/EditarClienteDialog";
 
 /** Etiquetas de presentación del enum `CanalContacto` (nunca implican default). */
 const CANAL_PREFERIDO_LABEL: Record<CanalContacto, string> = {
@@ -42,9 +43,11 @@ const TH_CLASS =
 
 interface TablaClientesProps {
   clientes: ClienteListado[];
+  /** `clientes:editar` (resuelto por el padre, igual que en la ficha). */
+  puedeEditar?: boolean;
 }
 
-export function TablaClientes({ clientes }: TablaClientesProps) {
+export function TablaClientes({ clientes, puedeEditar = false }: TablaClientesProps) {
   return (
     <div className="space-y-3">
       <p className="text-xs text-muted-foreground">{clientes.length} cliente(s)</p>
@@ -60,7 +63,7 @@ export function TablaClientes({ clientes }: TablaClientesProps) {
                 <th className={TH_CLASS}>Email</th>
                 <th className={TH_CLASS}>Canal preferido</th>
                 <th className={TH_CLASS}>Segmento</th>
-                <th className={`${TH_CLASS} text-right`}>Ficha</th>
+                <th className={`${TH_CLASS} text-right`}>Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -96,12 +99,23 @@ export function TablaClientes({ clientes }: TablaClientesProps) {
                     </td>
                     <td className="px-4 py-3">{SEGMENTO_LABEL[cliente.segmento]}</td>
                     <td className="px-4 py-3 text-right">
-                      <Link
-                        href={`/clientes/${cliente.id}`}
-                        className="font-medium text-blue-600 hover:underline whitespace-nowrap"
-                      >
-                        Ver ficha
-                      </Link>
+                      <div className="flex items-center justify-end gap-3">
+                        {puedeEditar && (
+                          <EditarClienteDialog
+                            clienteId={cliente.id}
+                            dni={cliente.dni}
+                            nombre={cliente.nombre}
+                            telefono={cliente.telefono}
+                            email={cliente.email}
+                          />
+                        )}
+                        <Link
+                          href={`/clientes/${cliente.id}`}
+                          className="font-medium text-blue-600 hover:underline whitespace-nowrap"
+                        >
+                          Ver ficha
+                        </Link>
+                      </div>
                     </td>
                   </tr>
                 ))

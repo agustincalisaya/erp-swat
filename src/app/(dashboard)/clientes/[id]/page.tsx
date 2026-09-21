@@ -2,13 +2,14 @@
  * @page ClienteFichaPage
  * @route /clientes/[id]
  *
- * Ficha mínima de un Cliente (HU-C3, HU-C8 y HU-C9, spec_modulo_C.md §2.3 y
+ * Ficha mínima de un Cliente (HU-C2, HU-C3, HU-C8 y HU-C9, spec_modulo_C.md §2.3 y
  * §2.8). Server Component: resuelve sesión + permisos, trae el encabezado, el
  * canal de contacto preferido, el segmento comercial y las direcciones (solo
  * lectura) y delega el flujo interactivo de alta a `DireccionesCliente`, el de
- * canal a `CanalContactoCliente` y el de segmento a `SegmentoCliente`. No es un
- * CRUD completo de `Cliente` — edición, consentimiento y baja son
- * HU-C2/C4/C5/C10, fuera de alcance.
+ * canal a `CanalContactoCliente` y el de segmento a `SegmentoCliente`. HU-C2 agrega
+ * la edición de contacto (`DatosContactoCliente`) y de direcciones. No es un
+ * CRUD completo de `Cliente` — consentimiento y baja son HU-C4/C5/C10, fuera
+ * de alcance.
  *
  * Cliente inexistente **o** con `is_active === false` ⇒ `notFound()`: ambos
  * casos son indistinguibles a propósito (decisión humana ratificada, sin
@@ -25,8 +26,10 @@ import { usuarioTienePermiso } from "@/lib/auth/with-permission";
 import { prisma } from "@/lib/db/prisma";
 import {
   listarDireccionesCliente,
+  PERMISO_EDITAR,
   PERMISO_LEER,
 } from "@/lib/services/clientes/cliente.service";
+import { DatosContactoCliente } from "@/components/clientes/DatosContactoCliente";
 import { DireccionesCliente } from "@/components/clientes/DireccionesCliente";
 import { CanalContactoCliente } from "@/components/clientes/CanalContactoCliente";
 import { SegmentoCliente } from "@/components/clientes/SegmentoCliente";
@@ -61,12 +64,22 @@ export default async function ClienteFichaPage({
   const altaRecuperada = alta === "recuperado";
 
   // Encabezado y permiso de auditoría son independientes: en paralelo.
-  const [cliente, incluirInactivas] = await Promise.all([
+  const [cliente, incluirInactivas, puedeEditar] = await Promise.all([
     prisma.cliente.findUnique({
       where: { id },
-      select: { id: true, nombre: true, dni: true, is_active: true, canal_preferido: true, segmento: true },
+      select: {
+        id: true,
+        nombre: true,
+        dni: true,
+        telefono: true,
+        email: true,
+        is_active: true,
+        canal_preferido: true,
+        segmento: true,
+      },
     }),
     usuarioTienePermiso(session.userId, PERMISO_AUDITORIA),
+    usuarioTienePermiso(session.userId, PERMISO_EDITAR),
   ]);
   if (!cliente || !cliente.is_active) notFound();
 
@@ -108,7 +121,20 @@ export default async function ClienteFichaPage({
           </Alert>
         )}
 
-        <DireccionesCliente clienteId={cliente.id} direcciones={direcciones} />
+        <DatosContactoCliente
+          clienteId={cliente.id}
+          dni={cliente.dni}
+          nombre={cliente.nombre}
+          telefono={cliente.telefono}
+          email={cliente.email}
+          puedeEditar={puedeEditar}
+        />
+
+        <DireccionesCliente
+          clienteId={cliente.id}
+          direcciones={direcciones}
+          puedeEditar={puedeEditar}
+        />
 
         <CanalContactoCliente
           clienteId={cliente.id}

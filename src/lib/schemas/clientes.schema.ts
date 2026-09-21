@@ -121,3 +121,92 @@ export const BuscarClientePorDniQuerySchema = z.object({
   dni: z.string().regex(/^\d{7,8}$/, "El DNI debe tener 7 u 8 dígitos"),
 });
 export type BuscarClientePorDniQueryInput = z.infer<typeof BuscarClientePorDniQuerySchema>;
+
+/**
+ * HU-C2 (Módulo C) — Edición de los datos de contacto de un cliente
+ * (spec_modulo_C.md, backlog HU-C2). Contrato de `PATCH /api/clientes/[id]`
+ * (permiso `clientes:editar`). Campos editables: `nombre`, `telefono`,
+ * `email`. La dirección NO se edita acá: vive en `DireccionCliente` y tiene
+ * su propio contrato (`EditarDireccionClienteSchema`).
+ *
+ * Semántica de cada campo: ausente (`undefined`) = "no tocar"; `""` en
+ * `telefono`/`email` = "vaciar" (el service lo persiste como `null`). A
+ * diferencia de `CrearClienteSchema`, el `""` de `email` NO se transforma a
+ * `undefined`: en edición esa diferencia es la que permite borrar el dato.
+ *
+ * `dni` es inmutable una vez creado el registro (AC de HU-C2): `.passthrough()`
+ * preserva las claves desconocidas para que el `superRefine` detecte `dni` y
+ * falle con `CAMPOS_NO_EDITABLES` (mismo patrón que `EditarProveedorSchema`;
+ * el service replica el chequeo como defensa en profundidad). Cualquier otra
+ * clave espuria (ej. `cliente_id`) se ignora, como en el resto del módulo.
+ */
+export const EditarClienteSchema = z
+  .object({
+    nombre: z.string().min(2, "El nombre es obligatorio").optional(),
+    telefono: z.string().optional(),
+    email: z.string().email("Email inválido").or(z.literal("")).optional(),
+  })
+  .passthrough()
+  .superRefine((data, ctx) => {
+    if ("dni" in data) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "CAMPOS_NO_EDITABLES: el DNI de un cliente no se puede editar",
+        path: ["dni"],
+      });
+      return;
+    }
+    if (
+      data.nombre === undefined &&
+      data.telefono === undefined &&
+      data.email === undefined
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Debe indicar al menos un campo a editar (nombre, teléfono o email)",
+      });
+    }
+  });
+export type EditarClienteInput = z.infer<typeof EditarClienteSchema>;
+
+/**
+ * True si un `ZodError` de `EditarClienteSchema` corresponde al rechazo de un
+ * campo no editable (`dni`) — el wrapper (Route Handler o Server Action) lo
+ * usa para responder `422 CAMPOS_NO_EDITABLES` en vez de un `400
+ * VALIDATION_ERROR` genérico. Espejo de `esErrorCamposNoEditables` de
+ * proveedores.
+ */
+export function esErrorClienteCamposNoEditables(error: z.ZodError): boolean {
+  return error.issues.some((issue) => issue.message.startsWith("CAMPOS_NO_EDITABLES"));
+}
+
+/**
+ * HU-C2 (Módulo C) — Edición de una dirección existente de un cliente.
+ * Contrato de `PATCH /api/clientes/[id]/direcciones/[direccionId]` (permiso
+ * `clientes:editar`). Campos editables: `rotulo`, `tipo`,
+ * `direccion_completa` — todos opcionales (edición parcial), con al menos uno
+ * presente. Mismas validaciones de formato que `AgregarDireccionClienteSchema`.
+ *
+ * SIN `.strict()` (mismo criterio que el resto del módulo): `cliente_id` y
+ * `direccion_id` NO son parte del body — el origen de verdad son los path
+ * params `[id]` / `[direccionId]`, y una clave espuria se descarta en silencio.
+ * La regla de FACTURACION al cambiar `tipo` NO vive acá: es una regla de
+ * negocio con lectura de DB, vive en el service (`direccion-cliente.reglas.ts`).
+ */
+export const EditarDireccionClienteSchema = z
+  .object({
+    rotulo: z
+      .string()
+      .min(1, "El rótulo es obligatorio (ej. 'Casa', 'Depósito')")
+      .optional(),
+    tipo: z.enum(["FACTURACION", "ENVIO"]).optional(),
+    direccion_completa: z.string().min(5, "La dirección es obligatoria").optional(),
+  })
+  .refine(
+    (data) =>
+      data.rotulo !== undefined ||
+      data.tipo !== undefined ||
+      data.direccion_completa !== undefined,
+    { message: "Debe indicar al menos un campo a editar (rótulo, tipo o dirección)" },
+  );
+export type EditarDireccionClienteInput = z.infer<typeof EditarDireccionClienteSchema>;

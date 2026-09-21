@@ -12,7 +12,9 @@ import test from "node:test";
  * El módulo bajo prueba solo importa `zod` — no toca Prisma ni
  * `server-only`, así que se puede cargar tal cual.
  */
-import { AgregarDireccionClienteSchema, CrearClienteSchema } from "./clientes.schema.ts";
+import { AgregarDireccionClienteSchema, CrearClienteSchema,EditarClienteSchema,
+  EditarDireccionClienteSchema, esErrorClienteCamposNoEditables, } from "./clientes.schema.ts";
+
 
 const VALIDO = {
   rotulo: "Casa",
@@ -108,6 +110,7 @@ test("CrearClienteSchema: email vacío es válido y se trata como ausente", () =
   assert.equal(CrearClienteSchema.safeParse({ ...CLIENTE_OK, email: "no-es-email" }).success, false);
 });
 
+
 test("CrearClienteSchema: distingue decisiones expresas de campos ausentes", () => {
   const anterior = CrearClienteSchema.safeParse(CLIENTE_OK);
   assert.equal(anterior.success, true, "el parseo estructural permite recuperar un DNI existente");
@@ -128,4 +131,48 @@ test("CrearClienteSchema: distingue decisiones expresas de campos ausentes", () 
   assert.equal(CrearClienteSchema.safeParse({ ...CLIENTE_OK, decision_comercial: null }).success, false);
   assert.equal(CrearClienteSchema.safeParse({ ...CLIENTE_OK, decision_comercial: "NO_INDICADO" }).success, false);
   assert.equal(CrearClienteSchema.safeParse({ ...CLIENTE_OK, acepta_tratamiento_datos: "true" }).success, false);
+});
+// ── HU-C2: EditarClienteSchema / EditarDireccionClienteSchema ────────────────
+
+
+
+test("EditarClienteSchema: edición parcial válida", () => {
+  assert.equal(EditarClienteSchema.safeParse({ nombre: "Juan P." }).success, true);
+  assert.equal(EditarClienteSchema.safeParse({ telefono: "" }).success, true);
+  assert.equal(EditarClienteSchema.safeParse({ email: "" }).success, true);
+});
+
+test("EditarClienteSchema: email '' se conserva (vaciar), no se transforma a undefined", () => {
+  const parsed = EditarClienteSchema.safeParse({ email: "" });
+  assert.equal(parsed.success && parsed.data.email, "");
+});
+
+test("EditarClienteSchema: email inválido y nombre corto se rechazan", () => {
+  assert.equal(EditarClienteSchema.safeParse({ email: "no-es-email" }).success, false);
+  assert.equal(EditarClienteSchema.safeParse({ nombre: "J" }).success, false);
+});
+
+test("EditarClienteSchema: dni en el payload → CAMPOS_NO_EDITABLES", () => {
+  const parsed = EditarClienteSchema.safeParse({ nombre: "Juan", dni: "30123456" });
+  assert.equal(parsed.success, false);
+  assert.equal(!parsed.success && esErrorClienteCamposNoEditables(parsed.error), true);
+});
+
+test("EditarClienteSchema: payload vacío se rechaza (400, no CAMPOS_NO_EDITABLES)", () => {
+  const parsed = EditarClienteSchema.safeParse({});
+  assert.equal(parsed.success, false);
+  assert.equal(!parsed.success && esErrorClienteCamposNoEditables(parsed.error), false);
+});
+
+test("EditarDireccionClienteSchema: edición parcial válida y al menos un campo", () => {
+  assert.equal(EditarDireccionClienteSchema.safeParse({ tipo: "ENVIO" }).success, true);
+  assert.equal(EditarDireccionClienteSchema.safeParse({}).success, false);
+  assert.equal(EditarDireccionClienteSchema.safeParse({ cliente_id: "x" }).success, false);
+});
+
+test("EditarDireccionClienteSchema: mismas validaciones de formato que el alta", () => {
+  assert.equal(EditarDireccionClienteSchema.safeParse({ rotulo: "" }).success, false);
+  assert.equal(EditarDireccionClienteSchema.safeParse({ direccion_completa: "abc" }).success, false);
+  assert.equal(EditarDireccionClienteSchema.safeParse({ tipo: "OTRO" }).success, false);
+
 });
