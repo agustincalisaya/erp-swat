@@ -57,6 +57,8 @@ model Usuario {
   transferencias_recibidas   TransferenciaStock[] @relation("TransferenciaRecibidaPor")
   reservas_registradas       Reserva[]            @relation("ReservaRegistradaPor")
   sesiones                   Sesion[]
+  consentimientos_registrados ConsentimientoCliente[] @relation("ConsentimientoRegistradoPor")
+  eventos_consentimiento      EventoConsentimientoCliente[] @relation("EventoConsentimientoRegistradoPor")
 
   // --- Relaciones Sprint 2 (Módulo H / G) ---
   ordenes_compra_creadas   OrdenCompra[]          @relation("OrdenCompraCreadaPor")
@@ -1304,6 +1306,7 @@ model Cliente {
   // --- Relaciones ---
   direcciones     DireccionCliente[]
   consentimientos ConsentimientoCliente[]
+  eventos_consentimiento EventoConsentimientoCliente[]
 
   // --- Relaciones Sprint 3 (Módulo B) ---
   presupuestos     Presupuesto[]
@@ -1344,17 +1347,19 @@ model DireccionCliente {
 /// Consentimiento de tratamiento de datos personales (Ley N.° 25.326,
 /// HU-C4 §2.4). Entidad propia (no un boolean en Cliente) para conservar
 /// trazabilidad completa de alcance/finalidad/fecha a lo largo del tiempo.
-/// Todo alta de Cliente exige uno en la misma transacción. La revocación es
-/// baja lógica (`is_active = false`, `deletion_reason` reutiliza el
-/// `motivo` recibido) — nunca se borra el registro histórico.
+/// Los registros legados no acreditan aceptación expresa. Las decisiones
+/// nuevas y sus resoluciones se conservan en EventoConsentimientoCliente.
 model ConsentimientoCliente {
   id                   String                @id @default(uuid())
   cliente_id           String
   alcance              AlcanceConsentimiento
   finalidad            String
   fecha_consentimiento DateTime              @default(now())
+  /// Las filas previas y las creadas por el alta actual no acreditan aceptación expresa.
+  origen               OrigenConsentimiento  @default(LEGADO_SIN_ACREDITACION_EXPRESA)
+  registrado_por_id    String?
 
-  // --- Soft delete estricto (revocación = baja lógica) ---
+  // --- Soft delete estricto; una revocación no implica baja lógica ---
   is_active       Boolean   @default(true)
   deleted_at      DateTime?
   deleted_by      String?
@@ -1365,9 +1370,57 @@ model ConsentimientoCliente {
 
   // --- Relaciones ---
   cliente Cliente @relation(fields: [cliente_id], references: [id], onDelete: Restrict)
+  registrado_por Usuario? @relation("ConsentimientoRegistradoPor", fields: [registrado_por_id], references: [id], onDelete: Restrict)
+  eventos EventoConsentimientoCliente[]
 
   @@index([cliente_id])
   @@map("consentimientos_cliente")
+}
+
+/// Hechos históricos de C4. Las resoluciones agregan una fila y referencian
+/// la solicitud; nunca modifican el evento de solicitud original.
+model EventoConsentimientoCliente {
+  id                   String @id @default(uuid())
+  cliente_id           String
+  consentimiento_id    String?
+  tipo                 TipoEventoConsentimientoCliente
+  alcance              AlcanceConsentimiento
+  finalidad            String
+  fecha_evento         DateTime @default(now())
+  usuario_id           String
+  motivo               String?
+  solicitud_evento_id  String? @unique
+
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  cliente Cliente @relation(fields: [cliente_id], references: [id], onDelete: Restrict)
+  consentimiento ConsentimientoCliente? @relation(fields: [consentimiento_id], references: [id], onDelete: Restrict)
+  usuario Usuario @relation("EventoConsentimientoRegistradoPor", fields: [usuario_id], references: [id], onDelete: Restrict)
+  solicitud_evento EventoConsentimientoCliente? @relation("ResolucionSolicitudConsentimiento", fields: [solicitud_evento_id], references: [id], onDelete: Restrict)
+  resolucion EventoConsentimientoCliente? @relation("ResolucionSolicitudConsentimiento")
+
+  @@index([cliente_id, alcance, fecha_evento, id], map: "eventos_consentimiento_cliente_estado_idx")
+  @@index([consentimiento_id, fecha_evento, id], map: "eventos_consentimiento_cliente_historial_idx")
+  @@map("eventos_consentimiento_cliente")
+}
+
+enum OrigenConsentimiento {
+  LEGADO_SIN_ACREDITACION_EXPRESA
+  EXPRESO
+}
+
+enum TipoEventoConsentimientoCliente {
+  ACEPTACION_INICIAL
+  RECHAZO_COMERCIAL
+  SOLICITUD_REVOCACION
+  REVOCACION_EJECUTADA
+  SOLICITUD_RECHAZADA
+  NUEVA_ACEPTACION
 }
 
 /// Segmentación comercial de un Cliente (HU-C8 §2.8). `MINORISTA` es el

@@ -71,7 +71,7 @@ test("HU-C3 integra alta de direcciones (FACTURACION/ENVIO), regla estructural s
 
   async function crearClienteDePrueba(sufijo: string): Promise<string> {
     const alta = await cliente.crearCliente(
-      { dni: dniNuevo(), nombre: `Cliente HU-C3 ${sufijo}` },
+      { dni: dniNuevo(), nombre: `Cliente HU-C3 ${sufijo}`, acepta_tratamiento_datos: true, decision_comercial: "RECHAZA" },
       USUARIO_ID,
     );
     return alta.cliente_id;
