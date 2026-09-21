@@ -24,13 +24,83 @@ import "server-only";
 
 import { prisma } from "@/lib/db/prisma";
 import { domainEventBus } from "@/lib/events/domain-event-bus";
+import type { ConsentimientoDecisionRegistradaPayload } from "@/lib/events/event-types";
 import { registrarAuditLog } from "@/lib/services/auditoria/audit-log.service";
 
 let registrado = false;
 
+async function registrarDecisionC4(payload: ConsentimientoDecisionRegistradaPayload): Promise<void> {
+  try {
+    await registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: `CONSENTIMIENTO_${payload.tipo}`,
+      tabla_afectada: "eventos_consentimiento_cliente",
+      registro_id: payload.evento_id,
+      ip: "internal-event",
+      valor_anterior: null,
+      valor_nuevo: {
+        cliente_id: payload.cliente_id, alcance: payload.alcance, tipo: payload.tipo,
+        fecha_evento: payload.fecha_evento, contexto: payload.contexto,
+        ...(payload.consentimiento_id ? { consentimiento_id: payload.consentimiento_id } : {}),
+        ...(payload.solicitud_evento_id ? { solicitud_evento_id: payload.solicitud_evento_id } : {}),
+      },
+    });
+  } catch {
+    console.error("[HU-C4] Falló la escritura del asiento central de consentimiento");
+  }
+}
+
+/** `cliente:creado` se emite después de confirmar el alta. C1 no transporta
+ * IDs C4: se leen los dos hechos iniciales reales y se validan antes de auditar. */
+async function auditarAltaC4(clienteId: string, usuarioId: string): Promise<void> {
+  try {
+    const hechos = await prisma.eventoConsentimientoCliente.findMany({
+      where: { cliente_id: clienteId, tipo: { in: ["ACEPTACION_INICIAL", "RECHAZO_COMERCIAL"] } },
+      include: { consentimiento: true },
+    });
+    const porAlcance = new Map(hechos.map((hecho) => [hecho.alcance, hecho]));
+    const coherentes = hechos.length === 2 && porAlcance.size === 2 &&
+      hechos[0].fecha_evento.getTime() === hechos[1].fecha_evento.getTime() &&
+      hechos.some((hecho) => hecho.alcance === "VENTA_ASISTIDA" && hecho.tipo === "ACEPTACION_INICIAL") &&
+      hechos.some((hecho) => hecho.alcance === "COMUNICACIONES_COMERCIALES" &&
+        (hecho.tipo === "ACEPTACION_INICIAL" || hecho.tipo === "RECHAZO_COMERCIAL")) &&
+      hechos.every((hecho) => hecho.is_active && hecho.cliente_id === clienteId &&
+        hecho.usuario_id === usuarioId && hecho.solicitud_evento_id === null &&
+        hecho.finalidad === (hecho.alcance === "VENTA_ASISTIDA" ?
+          "Tratamiento de datos personales para operar con el cliente" : "Comunicaciones comerciales") &&
+        (hecho.tipo === "RECHAZO_COMERCIAL" ? hecho.consentimiento_id === null :
+          !!hecho.consentimiento && hecho.consentimiento.origen === "EXPRESO" &&
+          hecho.consentimiento.is_active && hecho.consentimiento.cliente_id === clienteId &&
+          hecho.consentimiento.alcance === hecho.alcance &&
+          hecho.consentimiento.finalidad === hecho.finalidad &&
+          hecho.consentimiento.registrado_por_id === usuarioId &&
+          hecho.consentimiento.fecha_consentimiento.getTime() === hecho.fecha_evento.getTime()));
+    if (!coherentes) {
+      console.error("[HU-C4] Alta sin dos hechos iniciales coherentes; no se generaron asientos C4");
+      return;
+    }
+    for (const hecho of hechos) {
+      await registrarDecisionC4({
+        evento_id: hecho.id, cliente_id: hecho.cliente_id,
+        alcance: hecho.alcance as "VENTA_ASISTIDA" | "COMUNICACIONES_COMERCIALES",
+        tipo: hecho.tipo as "ACEPTACION_INICIAL" | "RECHAZO_COMERCIAL",
+        fecha_evento: hecho.fecha_evento.toISOString(), usuario_id: hecho.usuario_id,
+        consentimiento_id: hecho.consentimiento_id,
+        solicitud_evento_id: hecho.solicitud_evento_id, contexto: "ALTA",
+      });
+    }
+  } catch {
+    console.error("[HU-C4] Falló la lectura de hechos iniciales para auditoría central");
+  }
+}
+
 export function iniciarAuditLogListener(): void {
   if (registrado) return;
   registrado = true;
+
+  domainEventBus.on("consentimiento:decision_registrada", (payload) => {
+    void registrarDecisionC4(payload);
+  });
 
   domainEventBus.on("stock:transferencia_iniciada", (payload) => {
     void registrarAuditLog({
@@ -957,6 +1027,10 @@ export function iniciarAuditLogListener(): void {
       valor_anterior: null,
       valor_nuevo: { dni: payload.dni },
     });
+  });
+
+  domainEventBus.on("cliente:creado", (payload) => {
+    void auditarAltaC4(payload.cliente_id, payload.usuario_id);
   });
 
   // Módulo C — mutación de la ficha del cliente cubierta por §2.3, con DOS

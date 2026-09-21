@@ -790,6 +790,20 @@ export interface ClienteCreadoPayload {
   es_nuevo: true;
 }
 
+/** Un hecho histórico C4 ya confirmado; nunca transporta datos personales ni motivo libre. */
+export interface ConsentimientoDecisionRegistradaPayload {
+  evento_id: string;
+  cliente_id: string;
+  alcance: "VENTA_ASISTIDA" | "COMUNICACIONES_COMERCIALES";
+  tipo: "ACEPTACION_INICIAL" | "RECHAZO_COMERCIAL" | "SOLICITUD_REVOCACION" |
+    "REVOCACION_EJECUTADA" | "SOLICITUD_RECHAZADA" | "NUEVA_ACEPTACION";
+  fecha_evento: string;
+  usuario_id: string;
+  consentimiento_id: string | null;
+  solicitud_evento_id: string | null;
+  contexto: "ALTA" | "REGULARIZACION" | "FICHA";
+}
+
 /**
  * Módulo C — Payload emitido tras una mutación de la ficha de un `Cliente`
  * cubierta por §2.3. Hoy tiene DOS consumidores, ambos vía
@@ -974,6 +988,8 @@ export interface DomainEventMap {
   "venta:excepcion_credito_resuelta": ExcepcionCreditoResueltaPayload;
   /** HU-C1: se emite tras el alta NUEVA de un Cliente (nunca al recuperar uno existente por DNI). */
   "cliente:creado": ClienteCreadoPayload;
+  /** HU-C4: un evento histórico confirmado durante regularización o desde la ficha. */
+  "consentimiento:decision_registrada": ConsentimientoDecisionRegistradaPayload;
   /** HU-C3: se emite post-COMMIT tras mutar la ficha del cliente (alta de una DireccionCliente, §2.3). */
   "cliente:actualizado": ClienteActualizadoPayload;
   /** HU-B2: se emite tras la apertura de un TurnoCaja. */
