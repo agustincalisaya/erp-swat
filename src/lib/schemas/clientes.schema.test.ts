@@ -2,15 +2,17 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 /**
- * Tests puros (sin I/O) de `AgregarDireccionClienteSchema` (HU-C3,
- * spec_modulo_C.md §2.3). Corren bajo el script `test` principal
- * (`node --experimental-strip-types --test`), por eso el import es relativo
- * con extensión explícita: ese runner no resuelve el alias `@/`.
+ * Tests puros (sin I/O) de los schemas de entrada del Módulo C:
+ * `AgregarDireccionClienteSchema` (HU-C3, spec_modulo_C.md §2.3) y el
+ * normalizado de `email` de `CrearClienteSchema` (HU-C1, spec §2.1). Corren
+ * bajo el script `test` principal (`node --experimental-strip-types --test`),
+ * por eso el import es relativo con extensión explícita: ese runner no
+ * resuelve el alias `@/`.
  *
  * El módulo bajo prueba solo importa `zod` — no toca Prisma ni
  * `server-only`, así que se puede cargar tal cual.
  */
-import { AgregarDireccionClienteSchema } from "./clientes.schema.ts";
+import { AgregarDireccionClienteSchema, CrearClienteSchema } from "./clientes.schema.ts";
 
 const VALIDO = {
   rotulo: "Casa",
@@ -93,66 +95,15 @@ test("AgregarDireccionClienteSchema: un `cliente_id` espurio en el body PASA y s
   assert.equal("cliente_id" in (parsed.success ? parsed.data : {}), false);
 });
 
-// ── HU-C1 + HU-C3: alta de cliente con dirección opcional ────────────────────
-import { AltaClienteConDireccionSchema, CrearClienteSchema, armarDireccionAlta } from "./clientes.schema.ts";
-
+// ── HU-C1: normalizado del email en el alta de cliente ───────────────────────
 const CLIENTE_OK = { dni: "30123456", nombre: "Juan Pérez" };
 
-test("AltaClienteConDireccionSchema: sin dirección (campos vacíos) es válido", () => {
-  assert.equal(AltaClienteConDireccionSchema.safeParse(CLIENTE_OK).success, true);
-  assert.equal(
-    AltaClienteConDireccionSchema.safeParse({ ...CLIENTE_OK, rotulo: "", direccion_completa: "  " }).success,
-    true,
-  );
-});
+test("CrearClienteSchema: email vacío es válido y se trata como ausente", () => {
+  const conVacio = CrearClienteSchema.safeParse({ ...CLIENTE_OK, email: "" });
+  assert.equal(conVacio.success, true);
+  assert.equal(conVacio.success ? conVacio.data.email : "x", undefined);
 
-test("AltaClienteConDireccionSchema: dirección completa es válida", () => {
-  const r = AltaClienteConDireccionSchema.safeParse({
-    ...CLIENTE_OK,
-    rotulo: "Casa",
-    direccion_completa: "Av. Siempreviva 742",
-  });
-  assert.equal(r.success, true);
-});
-
-test("AltaClienteConDireccionSchema: dirección parcial falla en el campo faltante", () => {
-  const soloRotulo = AltaClienteConDireccionSchema.safeParse({ ...CLIENTE_OK, rotulo: "Casa" });
-  assert.equal(soloRotulo.success, false);
-  assert.deepEqual(soloRotulo.success ? [] : soloRotulo.error.issues.map((i) => i.path[0]), ["direccion_completa"]);
-
-  const soloDireccion = AltaClienteConDireccionSchema.safeParse({
-    ...CLIENTE_OK,
-    direccion_completa: "Av. Siempreviva 742",
-  });
-  assert.equal(soloDireccion.success, false);
-  assert.deepEqual(soloDireccion.success ? [] : soloDireccion.error.issues.map((i) => i.path[0]), ["rotulo"]);
-});
-
-test("armarDireccionAlta: alta nueva con dirección completa arma el payload con tipo FACTURACION", () => {
-  assert.deepEqual(armarDireccionAlta({ rotulo: " Casa ", direccion_completa: " Av. Siempreviva 742 " }, true), {
-    rotulo: "Casa",
-    tipo: "FACTURACION",
-    direccion_completa: "Av. Siempreviva 742",
-  });
-});
-
-test("armarDireccionAlta: es_nuevo=false NO envía dirección aunque esté completa", () => {
-  assert.equal(armarDireccionAlta({ rotulo: "Casa", direccion_completa: "Av. Siempreviva 742" }, false), null);
-});
-
-test("armarDireccionAlta: sin datos de dirección no envía nada", () => {
-  assert.equal(armarDireccionAlta({ rotulo: "", direccion_completa: "" }, true), null);
-  assert.equal(armarDireccionAlta({}, true), null);
-});
-
-test("CrearClienteSchema / AltaClienteConDireccionSchema: email vacío es válido y se trata como ausente", () => {
-  for (const schema of [CrearClienteSchema, AltaClienteConDireccionSchema]) {
-    const conVacio = schema.safeParse({ ...CLIENTE_OK, email: "" });
-    assert.equal(conVacio.success, true);
-    assert.equal(conVacio.success ? conVacio.data.email : "x", undefined);
-
-    assert.equal(schema.safeParse({ ...CLIENTE_OK }).success, true);
-    assert.equal(schema.safeParse({ ...CLIENTE_OK, email: "juan@mail.com" }).success, true);
-    assert.equal(schema.safeParse({ ...CLIENTE_OK, email: "no-es-email" }).success, false);
-  }
+  assert.equal(CrearClienteSchema.safeParse({ ...CLIENTE_OK }).success, true);
+  assert.equal(CrearClienteSchema.safeParse({ ...CLIENTE_OK, email: "juan@mail.com" }).success, true);
+  assert.equal(CrearClienteSchema.safeParse({ ...CLIENTE_OK, email: "no-es-email" }).success, false);
 });

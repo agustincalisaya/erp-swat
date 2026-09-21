@@ -174,6 +174,15 @@ const SECCIONES: SeccionConfig[] = [
     label: "Clientes",
     icon: UserPlus,
     items: [
+      // Listado de clientes (`/clientes`) — gate por `clientes:leer`. Es la
+      // entrada que conecta con la ficha de cada cliente, donde viven las
+      // direcciones (HU-C3) y el canal de contacto (HU-C9).
+      {
+        label: "Listado de clientes",
+        href: "/clientes",
+        icon: Users,
+        permiso: "clientes:leer",
+      },
       // HU-C1 — gate por `clientes:crear` (Vendedor/Administrador de CRM);
       // el Auditor no tiene este permiso, así que no ve la entrada de alta.
       {

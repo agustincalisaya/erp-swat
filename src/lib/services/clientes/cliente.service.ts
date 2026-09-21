@@ -30,7 +30,12 @@ import "server-only";
  *    fuera de este service; no se agrega el campo a la respuesta.
  */
 
-import { Prisma, type TipoDireccionCliente } from "@prisma/client";
+import {
+  Prisma,
+  type CanalContacto,
+  type SegmentoComercial,
+  type TipoDireccionCliente,
+} from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { domainEventBus } from "@/lib/events/domain-event-bus";
 import { ServiceError } from "@/lib/errors/service-error";
@@ -385,5 +390,53 @@ export async function listarDireccionesCliente(
       created_at: true,
     },
     orderBy: { created_at: "asc" },
+  });
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Listado de clientes (solo lectura) — pantalla `/clientes`
+//
+// Alimenta el listado del Módulo C (la entrada que faltaba para llegar a la
+// ficha `/clientes/[id]`, donde viven las direcciones de HU-C3 y el canal
+// preferido de HU-C9). No es una HU en sí: es la pantalla que conecta el alta
+// con la ficha.
+// ──────────────────────────────────────────────────────────────────────────────
+
+/** Fila de cliente tal como la expone `listarClientes`. */
+export interface ClienteListado {
+  id: string;
+  dni: string;
+  nombre: string;
+  telefono: string | null;
+  email: string | null;
+  canal_preferido: CanalContacto | null;
+  segmento: SegmentoComercial;
+}
+
+/**
+ * Listado de clientes activos para la pantalla `/clientes`. SOLO LECTURA — no
+ * escribe, no emite eventos de dominio y jamás usa `delete()`.
+ *
+ * Filtra `is_active = true` (RULES.md Regla N.° 1 — baja lógica: un cliente
+ * dado de baja permanece en la base para trazabilidad, pero queda fuera de
+ * este listado). Ver los inactivos es privilegio de Auditoría
+ * (`auditoria:leer_forense`) y está fuera del alcance de esta pantalla.
+ *
+ * Orden `created_at desc`: los últimos clientes cargados primero, que es el
+ * caso de uso del Vendedor apenas da de alta uno nuevo.
+ */
+export async function listarClientes(): Promise<ClienteListado[]> {
+  return prisma.cliente.findMany({
+    where: { is_active: true },
+    select: {
+      id: true,
+      dni: true,
+      nombre: true,
+      telefono: true,
+      email: true,
+      canal_preferido: true,
+      segmento: true,
+    },
+    orderBy: { created_at: "desc" },
   });
 }
