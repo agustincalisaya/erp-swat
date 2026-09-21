@@ -678,3 +678,176 @@ export async function actualizarSegmentoCliente(
 
   return { cliente_id: clienteId, segmento_anterior: anterior, segmento_nuevo: nuevo };
 }
+
+// ──────────────────────────────────────────────────────────────────────────────
+// §2.7 — HU-C7: consulta unificada de un cliente por DNI
+//
+// Única operación de Módulo C estrictamente de SOLO LECTURA: no abre
+// `$transaction`, no escribe ninguna fila y no emite ningún evento de
+// dominio. Su fuente de historial es `PedidoVenta` — modelo de Módulo B —,
+// que se LEE on-demand (nunca se cachea ni se persiste en Módulo C).
+// ──────────────────────────────────────────────────────────────────────────────
+
+/** Dirección tal como la expone la ficha unificada §2.7. */
+export interface DireccionUnificada {
+  direccion_id: string;
+  rotulo: string;
+  tipo: TipoDireccionCliente;
+}
+
+/**
+ * Resumen de historial de compras (§2.7). `monto_total_historico` es un
+ * `number` (no `Decimal`): Prisma serializa `Decimal` a string en JSON, y el
+ * contrato del spec exige el número (`458000.00` → `458000`).
+ */
+export interface ResumenHistorialCompras {
+  ultima_compra: Date | null;
+  monto_total_historico: number;
+  cantidad_operaciones: number;
+}
+
+/** Ficha unificada completa devuelta por `consultarClientePorDni` (§2.7). */
+export interface ConsultaUnificadaCliente {
+  cliente_id: string;
+  dni: string;
+  nombre: string;
+  telefono: string | null;
+  email: string | null;
+  direcciones: DireccionUnificada[];
+  canal_preferido: CanalContacto | null;
+  historial_compras: ResumenHistorialCompras;
+}
+
+/**
+ * HU-C7 (spec_modulo_C.md §2.7) — Ficha unificada en UNA sola llamada:
+ * contacto + direcciones + canal preferido + resumen de historial de compras.
+ *
+ * SOLO LECTURA: no emite eventos de dominio, no escribe en la base y no abre
+ * `$transaction`. Es la consulta que el POS usa antes de iniciar una venta
+ * asistida, para no encadenar peticiones ("Historial de compras" del flujo).
+ *
+ * Reglas del contrato §2.7:
+ *  - Resuelve el cliente por `dni` y `is_active = true` (baja lógica estricta,
+ *    RULES.md Regla N.° 1: un cliente dado de baja es invisible a esta
+ *    consulta, igual que para el resto de las operaciones).
+ *  - Si no existe un cliente activo con ese DNI, lanza
+ *    `CLIENTE_NO_ENCONTRADO` **con el DNI en el mensaje** — el POS lo
+ *    interpreta como "cliente no registrado" y ofrece el alta, no como un
+ *    error bloqueante.
+ *  - `telefono`, `email` y `canal_preferido` pueden ser `null` y se propagan
+ *    tal cual (nunca se default-ean).
+ *  - Las direcciones se resuelven REUSANDO `listarDireccionesCliente`
+ *    (default `is_active = true`) — no se escribe una query de direcciones
+ *    nueva. El mapeo `id` → `direccion_id` y el recorte de la respuesta a
+ *    `{ direccion_id, rotulo, tipo }` son parte del contrato: la ficha NO
+ *    expone `is_active` ni `created_at`.
+ *  - El payload NO incluye `segmento`, campos `deleted_*` ni
+ *    `fusionado_en_id` (minimización del payload; HU-C8 y HU-C5 tienen sus
+ *    propios contratos).
+ *
+ * @throws {ServiceError} `CLIENTE_NO_ENCONTRADO` si no hay cliente activo con ese DNI.
+ */
+export async function consultarClientePorDni(dni: string): Promise<ConsultaUnificadaCliente> {
+  const cliente = await prisma.cliente.findFirst({
+    where: { dni, is_active: true },
+    select: {
+      id: true,
+      dni: true,
+      nombre: true,
+      telefono: true,
+      email: true,
+      canal_preferido: true,
+    },
+  });
+
+  if (!cliente) {
+    throw new ServiceError(
+      "CLIENTE_NO_ENCONTRADO",
+      `No existe un cliente activo con el DNI ${dni}`,
+    );
+  }
+
+  const direcciones: DireccionUnificada[] = (await listarDireccionesCliente(cliente.id)).map(
+    (direccion) => ({
+      direccion_id: direccion.id,
+      rotulo: direccion.rotulo,
+      tipo: direccion.tipo,
+    }),
+  );
+
+  const historial = await resolverHistorialCompras(cliente.id);
+
+  return {
+    cliente_id: cliente.id,
+    dni: cliente.dni,
+    nombre: cliente.nombre,
+    telefono: cliente.telefono,
+    email: cliente.email,
+    direcciones,
+    canal_preferido: cliente.canal_preferido,
+    historial_compras: historial,
+  };
+}
+
+/**
+ * HU-C7 (spec_modulo_C.md §2.7) — Resumen del historial de compras de un
+ * cliente. SOLO LECTURA.
+ *
+ * FUENTE ÚNICA: `PedidoVenta` (Módulo B), leída **on-demand** en cada
+ * consulta — nunca cacheada ni persistida en Módulo C. Módulo C no es dueño
+ * de los pedidos: este helper solo agrega, jamás escribe ni emite eventos.
+ * Por eso no hay ningún campo `monto_total_historico` persistido en
+ * `Cliente`: la verdad vive en los pedidos y se recalcula al consultar.
+ *
+ * FILTRO DE ESTADOS: solo cuentan las operaciones EFECTIVAS —
+ * `FACTURADO`, `REMITO_EMITIDO` y `CERRADO`. `RESERVADO` (todavía no
+ * facturado: un presupuesto convertido o una venta pendiente) y `ANULADO`
+ * (pedido dado de baja lógica) NO son compras efectivas y quedan fuera de los
+ * tres agregados. Los pedidos con `cliente_id = null` (mostrador sin cliente
+ * identificado) tampoco entran: el filtro es por `cliente_id IN <clúster>`.
+ *
+ * CLÚSTER DE FUSIÓN (HU-C5): el historial del cliente primario incluye sus
+ * propios pedidos MÁS los de los clientes secundarios cuyo `fusionado_en_id`
+ * apunta a él. HU-C5 re-vincula el historial del duplicado al primario de
+ * forma LÓGICA (el secundario conserva sus filas, con `fusionado_en_id`
+ * seteado), y `spec_modulo_C.md` §5 delega expresamente esa resolución a esta
+ * función. El clúster se arma como `[primario, ...secundarios]` porque el
+ * primario NO tiene `fusionado_en_id` (es `null`): un `findMany` filtrando
+ * `fusionado_en_id = primario` solo devolvería secundarios, nunca al propio
+ * primario.
+ *
+ * La agregación usa `prisma.pedidoVenta.aggregate` (NO `findMany` + reduce):
+ * aprovecha el índice `@@index([cliente_id, estado])` y evita traer filas o
+ * ítems para sumar. `total` es `Decimal`, por eso `monto_total_historico` se
+ * coerciona con `Number()`.
+ *
+ * NO emite eventos y NO escribe NADA — válido para ejecutarse tantas veces
+ * como haga falta sin alterar la base ni la cadena de auditoría.
+ */
+export async function resolverHistorialCompras(
+  clienteId: string,
+): Promise<ResumenHistorialCompras> {
+  const secundarios = await prisma.cliente.findMany({
+    where: { fusionado_en_id: clienteId },
+    select: { id: true },
+  });
+
+  // El primario va SIEMPRE explícito: su `fusionado_en_id` es `null`.
+  const clusterIds = [clienteId, ...secundarios.map((secundario) => secundario.id)];
+
+  const agregado = await prisma.pedidoVenta.aggregate({
+    where: {
+      cliente_id: { in: clusterIds },
+      estado: { in: ["FACTURADO", "REMITO_EMITIDO", "CERRADO"] },
+    },
+    _sum: { total: true },
+    _max: { fecha_facturacion: true },
+    _count: { _all: true },
+  });
+
+  return {
+    ultima_compra: agregado._max.fecha_facturacion ?? null,
+    monto_total_historico: Number(agregado._sum.total ?? 0),
+    cantidad_operaciones: agregado._count._all,
+  };
+}
