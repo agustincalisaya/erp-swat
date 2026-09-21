@@ -70,3 +70,27 @@ export const ActualizarCanalContactoSchema = z.object({
   canal_preferido: z.enum(["WHATSAPP", "EMAIL", "AMBOS"]),
 });
 export type ActualizarCanalContactoInput = z.infer<typeof ActualizarCanalContactoSchema>;
+
+/**
+ * HU-C8 (Módulo C) — Actualización del segmento comercial
+ * (spec_modulo_C.md §2.8). Contrato de
+ * `PATCH /api/clientes/[id]/segmento` (permiso `clientes:gestionar_segmento`,
+ * DISTINTO de `clientes:editar` — partición deliberada de RBAC).
+ *
+ * SIN `.strict()` a propósito (mismo criterio que
+ * `AgregarDireccionClienteSchema` y `ActualizarCanalContactoSchema`):
+ * `cliente_id` NO es parte del body — el único origen de verdad del cliente es
+ * el path param `[id]` de la ruta, y el servicio jamás lee un `cliente_id` del
+ * input parseado. Como el schema no es `.strict()` (comportamiento por defecto
+ * de Zod), una clave `cliente_id` espuria en el body se descarta en silencio en
+ * lugar de rechazar el request, que es exactamente lo que exige la spec.
+ *
+ * Los tres valores del enum son exactamente los del `SegmentoComercial` de
+ * `schema.prisma` (MINORISTA/MAYORISTA/CLIENTE_FRECUENTE) — nunca se
+ * reemplazan por un enum propio. `segmento` es `NOT NULL` con default
+ * `MINORISTA`: no existe valor vacío ni operación de limpieza (spec §2.8).
+ */
+export const ActualizarSegmentoClienteSchema = z.object({
+  segmento: z.enum(["MINORISTA", "MAYORISTA", "CLIENTE_FRECUENTE"]),
+});
+export type ActualizarSegmentoClienteInput = z.infer<typeof ActualizarSegmentoClienteSchema>;

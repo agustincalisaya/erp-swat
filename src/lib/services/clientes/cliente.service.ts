@@ -41,6 +41,7 @@ import { domainEventBus } from "@/lib/events/domain-event-bus";
 import { ServiceError } from "@/lib/errors/service-error";
 import type {
   ActualizarCanalContactoInput,
+  ActualizarSegmentoClienteInput,
   AgregarDireccionClienteInput,
   CrearClienteInput,
 } from "@/lib/schemas/clientes.schema";
@@ -548,4 +549,132 @@ export async function actualizarCanalContacto(
   });
 
   return { cliente_id: clienteId, canal_preferido: nuevo };
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// §2.8 — HU-C8: segmentación comercial (Minorista / Mayorista / Cliente frecuente)
+//
+// `segmento` es un atributo simple de `Cliente` (NO una entidad propia): vive
+// en la columna `segmento` con el enum `SegmentoComercial`
+// `{ MINORISTA, MAYORISTA, CLIENTE_FRECUENTE }` ya fijado en `schema.prisma`,
+// es `NOT NULL DEFAULT 'MINORISTA'` y es reasignable en cualquier momento — no
+// hay máquina de estados ni transiciones prohibidas (spec §2.8). Este service
+// nunca llama `prisma.*.delete()`/`deleteMany()`.
+//
+// La asignación es MANUAL: el sistema NO calcula el segmento por
+// volumen/frecuencia de compra ni lo dispara por eventos de venta. Los umbrales
+// de volumen/frecuencia NO existen como configuración parametrizable (spec §5,
+// Fuera de Alcance) — por eso acá no hay ninguna tabla/entidad de configuración
+// de umbrales y la asignación queda 100% en manos del usuario. El default
+// reside en la columna DB: un alta (HU-C1) nunca escribe `segmento`
+// explícitamente (spec §2.8). Cuando en el futuro se construya esa entidad de
+// configuración, la automatización se puede agregar SIN refactor de este
+// endpoint: la escritura sigue siendo un update de `Cliente.segmento`.
+//
+// CONTRATO DE CONSUMO — Módulo B (condiciones de precio y plan de pagos),
+// documentado, NO construido en este sprint: la fuente ÚNICA es
+// `Cliente.segmento`, leída por `cliente_id` (sin copia ni campo duplicado,
+// para que el cambio de segmento no tenga que replicarse en dos lugares).
+//  - `MINORISTA` es el default y NO habilita condiciones especiales.
+//  - `MAYORISTA` habilitará condiciones de precio / plan de pagos en Módulo B.
+//  - `CLIENTE_FRECUENTE` habilitará promociones, SIN alterar el límite de
+//    crédito del cliente (spec §2.8, invariante sin efectos colaterales).
+// HOY ninguna parte de Módulo B lee el segmento — verificado: cero referencias
+// en `src/lib/services/ventas/**`, `src/app/api/ventas/**` y
+// `src/components/ventas/**`. La spec NO afirma que ya lo consume; este módulo
+// solo modela y persiste el dato ahora para que ese sprint no necesite
+// refactorizar nada. Cuando Módulo B lo consuma, MUST leerlo por `cliente_id`.
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Permiso granular de HU-C8 — separado de `clientes:editar` por decisión de
+ * RBAC: gestionar el segmento comercial es una acción distinta de editar los
+ * datos de contacto (spec §2.8, partición deliberada).
+ */
+export const PERMISO_GESTIONAR_SEGMENTO = "clientes:gestionar_segmento";
+
+/** Resultado público de `actualizarSegmentoCliente` (shape del endpoint §2.8). */
+export interface SegmentoActualizado {
+  cliente_id: string;
+  segmento_anterior: SegmentoComercial;
+  segmento_nuevo: SegmentoComercial;
+}
+
+/**
+ * Núcleo transaccional reutilizable de la actualización del segmento. No abre
+ * transacción ni emite eventos: el caller es dueño de ambos límites (mismo
+ * patrón que `crearClienteTx` / `actualizarCanalContactoTx`).
+ *
+ * La lectura del valor anterior y la escritura del nuevo ocurren en la MISMA
+ * transacción, con el mismo `tx`: así el `segmento_anterior` que se audita es
+ * exactamente el que existía justo antes del `update` y no puede ser pisado por
+ * una escritura concurrente entre ambas operaciones.
+ *
+ * Cliente inexistente **o** `is_active = false` ⇒ `CLIENTE_NO_ENCONTRADO`
+ * (→ 404). El caso inactivo es indistinguible del inexistente a propósito: NO
+ * se agrega un código `CLIENTE_INACTIVO` ni un 409 (mismo contrato que HU-C9).
+ */
+export async function actualizarSegmentoClienteTx(
+  tx: Prisma.TransactionClient,
+  clienteId: string,
+  input: ActualizarSegmentoClienteInput,
+): Promise<{ anterior: SegmentoComercial; nuevo: SegmentoComercial }> {
+  const cliente = await tx.cliente.findUnique({
+    where: { id: clienteId },
+    select: { id: true, is_active: true, segmento: true },
+  });
+  if (!cliente || !cliente.is_active) {
+    throw new ServiceError("CLIENTE_NO_ENCONTRADO", "Cliente no encontrado o inactivo");
+  }
+
+  const anterior = cliente.segmento;
+  const actualizado = await tx.cliente.update({
+    where: { id: clienteId },
+    data: { segmento: input.segmento },
+    select: { segmento: true },
+  });
+
+  return { anterior, nuevo: actualizado.segmento };
+}
+
+/**
+ * Wrapper público invocado por el Route Handler
+ * (`PATCH /api/clientes/[id]/segmento`) y la Server Action. Abre
+ * `prisma.$transaction`, delega en `actualizarSegmentoClienteTx` y emite
+ * `cliente:actualizado` DESPUÉS del COMMIT (spec §3.3/§4) — nunca dentro de la
+ * transacción, y nunca llamando a `registrarAuditLog()` (el listener de
+ * auditoría es la única vía de escritura a `AuditLog`).
+ *
+ * `clienteId` es la única fuente de verdad del cliente: se resuelve en el path
+ * `[id]` de la ruta y viaja como argumento explícito. Jamás se lee un
+ * `cliente_id` del body (spec §2.8).
+ *
+ * Aporta `accion:"UPDATE"`, `tabla_afectada:"clientes"` y `registro_id:
+ * clienteId` para que el listener derive un asiento UPDATE sobre `clientes` en
+ * vez de los defaults históricos de HU-C3 (`CREATE` / `direcciones_cliente`)
+ * igual que HU-C9; ver `audit-log.listener.ts`.
+ */
+export async function actualizarSegmentoCliente(
+  clienteId: string,
+  input: ActualizarSegmentoClienteInput,
+  usuarioId: string,
+): Promise<SegmentoActualizado> {
+  const { anterior, nuevo } = await prisma.$transaction((tx: Prisma.TransactionClient) =>
+    actualizarSegmentoClienteTx(tx, clienteId, input),
+  );
+
+  // Post-COMMIT, fire-and-forget (spec §3.3/§4): la única vía de escritura a
+  // `AuditLog` es `audit-log.listener.ts`, que reacciona a este evento.
+  domainEventBus.emit("cliente:actualizado", {
+    cliente_id: clienteId,
+    usuario_id: usuarioId,
+    campos_modificados: ["segmento"],
+    valor_anterior: { segmento: anterior },
+    valor_nuevo: { segmento: nuevo },
+    accion: "UPDATE",
+    tabla_afectada: "clientes",
+    registro_id: clienteId,
+  });
+
+  return { cliente_id: clienteId, segmento_anterior: anterior, segmento_nuevo: nuevo };
 }
