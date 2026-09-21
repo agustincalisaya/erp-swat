@@ -16,7 +16,7 @@
  * un `not-found.tsx` limpio en vez de una excepción sin manejar.
  */
 import { notFound, redirect } from "next/navigation";
-import { UserRound } from "lucide-react";
+import { Info, UserRound } from "lucide-react";
 
 import { getServerSession } from "@/lib/auth/session";
 import { usuarioTienePermiso } from "@/lib/auth/with-permission";
@@ -27,6 +27,7 @@ import {
 } from "@/lib/services/clientes/cliente.service";
 import { DireccionesCliente } from "@/components/clientes/DireccionesCliente";
 import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 export const dynamic = "force-dynamic";
 
@@ -35,8 +36,10 @@ const PERMISO_AUDITORIA = "auditoria:leer_forense";
 
 export default async function ClienteFichaPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ alta?: string | string[] }>;
 }) {
   const session = await getServerSession();
   if (!session) redirect("/login");
@@ -44,8 +47,12 @@ export default async function ClienteFichaPage({
   const puedeLeer = await usuarioTienePermiso(session.userId, PERMISO_LEER);
   if (!puedeLeer) redirect("/no-autorizado");
 
-  // Next.js 16: `params` es una Promise.
+  // Next.js 16: `params` y `searchParams` son Promises. `?alta=recuperado` lo
+  // agrega el formulario de alta cuando el DNI ya existía (HU-C1) para avisar
+  // acá que se recuperó el registro en lugar de crear un duplicado.
   const { id } = await params;
+  const { alta } = await searchParams;
+  const altaRecuperada = alta === "recuperado";
 
   // Encabezado y permiso de auditoría son independientes: en paralelo.
   const [cliente, incluirInactivas] = await Promise.all([
@@ -79,6 +86,16 @@ export default async function ClienteFichaPage({
             </div>
           </div>
         </div>
+
+        {altaRecuperada && (
+          <Alert className="border-amber-200 bg-amber-50">
+            <Info className="size-4 text-amber-700" aria-hidden="true" />
+            <AlertDescription className="text-amber-900">
+              Este DNI ya existía: se recuperó el registro existente, no se creó
+              un duplicado.
+            </AlertDescription>
+          </Alert>
+        )}
 
         <DireccionesCliente clienteId={cliente.id} direcciones={direcciones} />
       </div>
