@@ -44,10 +44,15 @@ import type {
   ActualizarSegmentoClienteInput,
   AgregarDireccionClienteInput,
   CrearClienteInput,
+  EditarClienteInput,
+  EditarDireccionClienteInput,
 } from "@/lib/schemas/clientes.schema";
 // Módulo puro alias-free (Deviation D1): la regla estructural se testea
 // unitariamente bajo el runner nativo de Node, que no resuelve alias.
-import { validarReglaDireccionEnvio } from "./direccion-cliente.reglas";
+import {
+  validarReglaDireccionEnvio,
+  validarReglaEdicionDireccion,
+} from "./direccion-cliente.reglas";
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Permisos granulares (spec §2.1 + Alcance §5) — un permiso independiente
@@ -850,4 +855,329 @@ export async function resolverHistorialCompras(
     monto_total_historico: Number(agregado._sum.total ?? 0),
     cantidad_operaciones: agregado._count._all,
   };
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// §2.2 — HU-C2: edición de datos de contacto y de direcciones
+//
+// Mismo patrón que HU-C1/C3/C9: núcleo transaccional reutilizable (`...Tx`,
+// recibe el `tx` del caller, no abre transacción ni emite eventos) + wrapper
+// público que abre `prisma.$transaction` y emite `cliente:actualizado`
+// post-COMMIT. La lectura del valor anterior y el `update` ocurren en la MISMA
+// transacción, así el `valor_anterior` auditado es exactamente el previo al
+// cambio. Este service nunca llama `prisma.*.delete()`/`deleteMany()`.
+//
+// Alcance: nombre/telefono/email del Cliente + rotulo/tipo/direccion_completa
+// de una DireccionCliente existente. Fuera de alcance: `dni` (inmutable) y la
+// baja lógica de una dirección.
+//
+// Edición sin cambios reales (todos los valores enviados ya coinciden con los
+// persistidos): no escribe ni emite evento — no hay nada que auditar.
+// ──────────────────────────────────────────────────────────────────────────────
+
+/** Resultado público de `editarCliente` (shape del endpoint). */
+export interface ClienteEditado {
+  cliente_id: string;
+  nombre: string;
+  telefono: string | null;
+  email: string | null;
+  /** Campos cuyo valor cambió realmente. Vacío ⇒ edición sin cambios. */
+  campos_modificados: string[];
+}
+
+interface ClienteEditadoTx extends ClienteEditado {
+  anterior: Record<string, unknown>;
+  nuevo: Record<string, unknown>;
+}
+
+/** `""` (input vacío del formulario) se persiste como `null`. */
+function normalizarOpcional(valor: string): string | null {
+  return valor === "" ? null : valor;
+}
+
+/**
+ * Núcleo transaccional de la edición de contacto. No abre transacción ni
+ * emite eventos.
+ *
+ * `dni` → `CAMPOS_NO_EDITABLES` (→ 422) como defensa en profundidad: el schema
+ * Zod ya lo rechaza, pero el service no debe confiar en que el caller lo
+ * parseó. Cliente inexistente o inactivo ⇒ `CLIENTE_NO_ENCONTRADO` (→ 404),
+ * mismo contrato que HU-C3/C8/C9.
+ */
+export async function editarClienteTx(
+  tx: Prisma.TransactionClient,
+  clienteId: string,
+  input: EditarClienteInput,
+): Promise<ClienteEditadoTx> {
+  if ("dni" in input) {
+    throw new ServiceError(
+      "CAMPOS_NO_EDITABLES",
+      "El DNI de un cliente no se puede editar",
+    );
+  }
+
+  const actual = await tx.cliente.findUnique({
+    where: { id: clienteId },
+    select: { id: true, is_active: true, nombre: true, telefono: true, email: true },
+  });
+  if (!actual || !actual.is_active) {
+    throw new ServiceError("CLIENTE_NO_ENCONTRADO", "Cliente no encontrado o inactivo");
+  }
+
+  const data: Prisma.ClienteUpdateInput = {};
+  const anterior: Record<string, unknown> = {};
+  const nuevo: Record<string, unknown> = {};
+  const camposModificados: string[] = [];
+
+  if (input.nombre !== undefined && input.nombre !== actual.nombre) {
+    data.nombre = input.nombre;
+    anterior.nombre = actual.nombre;
+    nuevo.nombre = input.nombre;
+    camposModificados.push("nombre");
+  }
+  if (input.telefono !== undefined) {
+    const telefono = normalizarOpcional(input.telefono);
+    if (telefono !== actual.telefono) {
+      data.telefono = telefono;
+      anterior.telefono = actual.telefono;
+      nuevo.telefono = telefono;
+      camposModificados.push("telefono");
+    }
+  }
+  if (input.email !== undefined) {
+    const email = normalizarOpcional(input.email);
+    if (email !== actual.email) {
+      data.email = email;
+      anterior.email = actual.email;
+      nuevo.email = email;
+      camposModificados.push("email");
+    }
+  }
+
+  if (camposModificados.length === 0) {
+    return {
+      cliente_id: actual.id,
+      nombre: actual.nombre,
+      telefono: actual.telefono,
+      email: actual.email,
+      campos_modificados: [],
+      anterior,
+      nuevo,
+    };
+  }
+
+  const actualizado = await tx.cliente.update({
+    where: { id: clienteId },
+    data,
+    select: { id: true, nombre: true, telefono: true, email: true },
+  });
+
+  return {
+    cliente_id: actualizado.id,
+    nombre: actualizado.nombre,
+    telefono: actualizado.telefono,
+    email: actualizado.email,
+    campos_modificados: camposModificados,
+    anterior,
+    nuevo,
+  };
+}
+
+/**
+ * Wrapper público invocado por el Route Handler (`PATCH /api/clientes/[id]`) y
+ * la Server Action. Emite `cliente:actualizado` DESPUÉS del COMMIT y solo si
+ * hubo cambios reales, con `accion:"UPDATE"` / `tabla_afectada:"clientes"` /
+ * `registro_id: clienteId` (el listener ya los soporta desde HU-C9). El diff
+ * lleva únicamente los campos que cambiaron (valor anterior/nuevo del AC).
+ */
+export async function editarCliente(
+  clienteId: string,
+  input: EditarClienteInput,
+  usuarioId: string,
+): Promise<ClienteEditado> {
+  const { anterior, nuevo, ...resultado } = await prisma.$transaction(
+    (tx: Prisma.TransactionClient) => editarClienteTx(tx, clienteId, input),
+  );
+
+  if (resultado.campos_modificados.length > 0) {
+    domainEventBus.emit("cliente:actualizado", {
+      cliente_id: clienteId,
+      usuario_id: usuarioId,
+      campos_modificados: resultado.campos_modificados,
+      valor_anterior: anterior,
+      valor_nuevo: nuevo,
+      accion: "UPDATE",
+      tabla_afectada: "clientes",
+      registro_id: clienteId,
+    });
+  }
+
+  return resultado;
+}
+
+/** Resultado público de `editarDireccionCliente` (shape del endpoint). */
+export interface DireccionEditada {
+  direccion_id: string;
+  rotulo: string;
+  tipo: TipoDireccionCliente;
+  direccion_completa: string;
+  /** Campos cuyo valor cambió realmente. Vacío ⇒ edición sin cambios. */
+  campos_modificados: string[];
+}
+
+interface DireccionEditadaTx extends DireccionEditada {
+  anterior: Record<string, unknown>;
+  nuevo: Record<string, unknown>;
+}
+
+/**
+ * Núcleo transaccional de la edición de una dirección. No abre transacción ni
+ * emite eventos.
+ *
+ * Orden (lecturas antes de cualquier escritura, para que un 422 implique cero
+ * escrituras y cero eventos):
+ *  1. Lock `FOR UPDATE` de la fila del cliente: serializa ediciones
+ *     concurrentes de direcciones del MISMO cliente. Sin él, dos ediciones
+ *     simultáneas FACTURACION→ENVIO sobre las dos únicas FACTURACION verían
+ *     cada una a la otra como respaldo y ambas pasarían la regla.
+ *  2. Cliente inexistente/inactivo ⇒ `CLIENTE_NO_ENCONTRADO` (404).
+ *  3. La dirección debe pertenecer al cliente del path y estar activa; si no,
+ *     `DIRECCION_NO_ENCONTRADA` (404) — nunca se filtra la existencia de una
+ *     dirección de otro cliente.
+ *  4. Diff contra lo persistido. Si `tipo` cambia FACTURACION→ENVIO, cuenta las
+ *     FACTURACION activas del cliente EXCLUYENDO la propia (`id: { not }`) y
+ *     aplica `validarReglaEdicionDireccion` → 422
+ *     `DIRECCION_FACTURACION_REQUERIDA`.
+ *  5. `update` solo de los campos que cambiaron.
+ */
+export async function editarDireccionClienteTx(
+  tx: Prisma.TransactionClient,
+  clienteId: string,
+  direccionId: string,
+  input: EditarDireccionClienteInput,
+): Promise<DireccionEditadaTx> {
+  await tx.$queryRaw`SELECT id FROM clientes WHERE id = ${clienteId} FOR UPDATE`;
+
+  const cliente = await tx.cliente.findUnique({
+    where: { id: clienteId },
+    select: { id: true, is_active: true },
+  });
+  if (!cliente || !cliente.is_active) {
+    throw new ServiceError("CLIENTE_NO_ENCONTRADO", "Cliente no encontrado o inactivo");
+  }
+
+  const actual = await tx.direccionCliente.findFirst({
+    where: { id: direccionId, cliente_id: clienteId, is_active: true },
+    select: { id: true, rotulo: true, tipo: true, direccion_completa: true },
+  });
+  if (!actual) {
+    throw new ServiceError(
+      "DIRECCION_NO_ENCONTRADA",
+      "Dirección no encontrada para este cliente",
+    );
+  }
+
+  const data: Prisma.DireccionClienteUpdateInput = {};
+  const anterior: Record<string, unknown> = {};
+  const nuevo: Record<string, unknown> = {};
+  const camposModificados: string[] = [];
+
+  if (input.rotulo !== undefined && input.rotulo !== actual.rotulo) {
+    data.rotulo = input.rotulo;
+    anterior.rotulo = actual.rotulo;
+    nuevo.rotulo = input.rotulo;
+    camposModificados.push("rotulo");
+  }
+  if (input.tipo !== undefined && input.tipo !== actual.tipo) {
+    if (actual.tipo === "FACTURACION" && input.tipo === "ENVIO") {
+      const hayOtraFacturacionActiva =
+        (await tx.direccionCliente.count({
+          where: {
+            cliente_id: clienteId,
+            tipo: "FACTURACION",
+            is_active: true,
+            id: { not: direccionId },
+          },
+        })) > 0;
+      // Lanza antes del `update` → la transacción revierte sin escrituras.
+      validarReglaEdicionDireccion(actual.tipo, input.tipo, hayOtraFacturacionActiva);
+    }
+    data.tipo = input.tipo;
+    anterior.tipo = actual.tipo;
+    nuevo.tipo = input.tipo;
+    camposModificados.push("tipo");
+  }
+  if (
+    input.direccion_completa !== undefined &&
+    input.direccion_completa !== actual.direccion_completa
+  ) {
+    data.direccion_completa = input.direccion_completa;
+    anterior.direccion_completa = actual.direccion_completa;
+    nuevo.direccion_completa = input.direccion_completa;
+    camposModificados.push("direccion_completa");
+  }
+
+  if (camposModificados.length === 0) {
+    return {
+      direccion_id: actual.id,
+      rotulo: actual.rotulo,
+      tipo: actual.tipo,
+      direccion_completa: actual.direccion_completa,
+      campos_modificados: [],
+      anterior,
+      nuevo,
+    };
+  }
+
+  const actualizada = await tx.direccionCliente.update({
+    where: { id: direccionId },
+    data,
+    select: { id: true, rotulo: true, tipo: true, direccion_completa: true },
+  });
+
+  return {
+    direccion_id: actualizada.id,
+    rotulo: actualizada.rotulo,
+    tipo: actualizada.tipo,
+    direccion_completa: actualizada.direccion_completa,
+    campos_modificados: camposModificados,
+    anterior,
+    nuevo,
+  };
+}
+
+/**
+ * Wrapper público invocado por el Route Handler
+ * (`PATCH /api/clientes/[id]/direcciones/[direccionId]`) y la Server Action.
+ * Emite `cliente:actualizado` post-COMMIT solo si hubo cambios reales, con
+ * `accion:"UPDATE"` / `tabla_afectada:"direcciones_cliente"` /
+ * `registro_id: direccionId` (la fila realmente afectada). Los defaults
+ * históricos del listener (`CREATE` / `direcciones_cliente`) siguen intactos
+ * para el alta de HU-C3.
+ */
+export async function editarDireccionCliente(
+  clienteId: string,
+  direccionId: string,
+  input: EditarDireccionClienteInput,
+  usuarioId: string,
+): Promise<DireccionEditada> {
+  const { anterior, nuevo, ...resultado } = await prisma.$transaction(
+    (tx: Prisma.TransactionClient) =>
+      editarDireccionClienteTx(tx, clienteId, direccionId, input),
+  );
+
+  if (resultado.campos_modificados.length > 0) {
+    domainEventBus.emit("cliente:actualizado", {
+      cliente_id: clienteId,
+      usuario_id: usuarioId,
+      campos_modificados: resultado.campos_modificados,
+      valor_anterior: anterior,
+      valor_nuevo: nuevo,
+      accion: "UPDATE",
+      tabla_afectada: "direcciones_cliente",
+      registro_id: direccionId,
+    });
+  }
+
+  return resultado;
 }
