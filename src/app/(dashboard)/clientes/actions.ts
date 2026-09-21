@@ -14,22 +14,41 @@ import { revalidatePath } from "next/cache";
 import { getServerSession } from "@/lib/auth/session";
 import { usuarioTienePermiso } from "@/lib/auth/with-permission";
 import { ServiceError } from "@/lib/errors/service-error";
-import { CrearClienteSchema, AgregarDireccionClienteSchema, ActualizarCanalContactoSchema, ActualizarSegmentoClienteSchema } from "@/lib/schemas/clientes.schema";
+import {
+  CrearClienteSchema,
+  AgregarDireccionClienteSchema,
+  ActualizarCanalContactoSchema,
+  ActualizarSegmentoClienteSchema,
+  EditarClienteSchema,
+  EditarDireccionClienteSchema,
+  esErrorClienteCamposNoEditables,
+} from "@/lib/schemas/clientes.schema";
 import {
   actualizarCanalContacto as actualizarCanalContactoService,
   actualizarSegmentoCliente as actualizarSegmentoClienteService,
   agregarDireccionCliente as agregarDireccionClienteService,
   crearCliente as crearClienteService,
+  editarCliente as editarClienteService,
+  editarDireccionCliente as editarDireccionClienteService,
   PERMISO_CREAR,
   PERMISO_EDITAR,
   PERMISO_GESTIONAR_SEGMENTO,
   type CanalContactoActualizado,
   type ClienteCreado,
+  type ClienteEditado,
   type DireccionAgregada,
+  type DireccionEditada,
   type SegmentoActualizado,
 } from "@/lib/services/clientes/cliente.service";
 
-export type { ClienteCreado, DireccionAgregada, CanalContactoActualizado, SegmentoActualizado };
+export type {
+  ClienteCreado,
+  ClienteEditado,
+  DireccionAgregada,
+  DireccionEditada,
+  CanalContactoActualizado,
+  SegmentoActualizado,
+};
 
 const CLIENTES_PATH = "/clientes";
 
@@ -177,6 +196,86 @@ export async function actualizarSegmentoCliente(
   } catch (err) {
     if (err instanceof ServiceError) return fallo(err.code, err.message);
     console.error("[actualizarSegmentoClienteAction] Error inesperado:", err);
+    return fallo("INTERNAL_ERROR", "Error interno. Intentá nuevamente.");
+  }
+}
+
+/**
+ * Server Action equivalente a `PATCH /api/clientes/[id]` (HU-C2). Wrapper
+ * fino: sesión + permiso granular `clientes:editar`, parseo Zod, invocación de
+ * la MISMA función de servicio que el Route Handler y mapeo a `{ data, error }`.
+ * Ninguna regla de negocio vive acá.
+ *
+ * `clienteId` llega como ARGUMENTO explícito y NUNCA se lee del input. Un
+ * `dni` en `input` se rechaza con `CAMPOS_NO_EDITABLES` (mismo código que el 422
+ * del Route Handler).
+ */
+export async function editarCliente(
+  clienteId: string,
+  input: unknown,
+): Promise<ActionResult<ClienteEditado>> {
+  const session = await getServerSession();
+  if (!session) return fallo("UNAUTHORIZED", "Sesión requerida");
+  if (!(await usuarioTienePermiso(session.userId, PERMISO_EDITAR))) {
+    return fallo("FORBIDDEN", `No tenés el permiso "${PERMISO_EDITAR}"`);
+  }
+
+  const parsed = EditarClienteSchema.safeParse(input);
+  if (!parsed.success) {
+    if (esErrorClienteCamposNoEditables(parsed.error)) {
+      return fallo("CAMPOS_NO_EDITABLES", "El DNI de un cliente no se puede editar");
+    }
+    return fallo("VALIDATION_ERROR", parsed.error.issues[0]?.message ?? "Datos inválidos");
+  }
+
+  try {
+    const data = await editarClienteService(clienteId, parsed.data, session.userId);
+    revalidatePath(`/clientes/${clienteId}`);
+    revalidatePath(CLIENTES_PATH);
+    return { data, error: null };
+  } catch (err) {
+    if (err instanceof ServiceError) return fallo(err.code, err.message);
+    console.error("[editarClienteAction] Error inesperado:", err);
+    return fallo("INTERNAL_ERROR", "Error interno. Intentá nuevamente.");
+  }
+}
+
+/**
+ * Server Action equivalente a
+ * `PATCH /api/clientes/[id]/direcciones/[direccionId]` (HU-C2). Wrapper fino:
+ * sesión + permiso granular `clientes:editar`, parseo Zod, invocación de la
+ * MISMA función de servicio que el Route Handler y mapeo a `{ data, error }`.
+ * `clienteId` y `direccionId` llegan como ARGUMENTOS explícitos (los path
+ * params de la ruta equivalente), nunca del input.
+ */
+export async function editarDireccionCliente(
+  clienteId: string,
+  direccionId: string,
+  input: unknown,
+): Promise<ActionResult<DireccionEditada>> {
+  const session = await getServerSession();
+  if (!session) return fallo("UNAUTHORIZED", "Sesión requerida");
+  if (!(await usuarioTienePermiso(session.userId, PERMISO_EDITAR))) {
+    return fallo("FORBIDDEN", `No tenés el permiso "${PERMISO_EDITAR}"`);
+  }
+
+  const parsed = EditarDireccionClienteSchema.safeParse(input);
+  if (!parsed.success) {
+    return fallo("VALIDATION_ERROR", parsed.error.issues[0]?.message ?? "Datos inválidos");
+  }
+
+  try {
+    const data = await editarDireccionClienteService(
+      clienteId,
+      direccionId,
+      parsed.data,
+      session.userId,
+    );
+    revalidatePath(`/clientes/${clienteId}`);
+    return { data, error: null };
+  } catch (err) {
+    if (err instanceof ServiceError) return fallo(err.code, err.message);
+    console.error("[editarDireccionClienteAction] Error inesperado:", err);
     return fallo("INTERNAL_ERROR", "Error interno. Intentá nuevamente.");
   }
 }

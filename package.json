@@ -22,6 +22,7 @@
     "test:integration:b6-http": "node --conditions=react-server --import tsx --test --test-concurrency=1 src/lib/services/ventas/auditoria-ventas.http.integration.test.ts",
     "test:integration:b8": "node --conditions=react-server --import tsx --test --test-concurrency=1 src/lib/services/ventas/rbac-hu-b8.integration.test.ts",
     "test:integration:c1": "node --conditions=react-server --import tsx --test --test-concurrency=1 src/lib/services/clientes/cliente.integration.test.ts",
+    "test:integration:c2": "node --conditions=react-server --import tsx --test --test-concurrency=1 src/lib/services/clientes/edicion-cliente.integration.test.ts",
     "test:integration:c3": "node --conditions=react-server --import tsx --test --test-concurrency=1 src/lib/services/clientes/direccion-cliente.integration.test.ts",
     "test:integration:c3-http": "node --conditions=react-server --import tsx --test --test-concurrency=1 src/lib/services/clientes/direccion-cliente.http.integration.test.ts",
     "test:integration:c9": "node --conditions=react-server --import tsx --test --test-concurrency=1 src/lib/services/clientes/canal-contacto.integration.test.ts",

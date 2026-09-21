@@ -13,7 +13,8 @@
  * redirect de la propia ficha.
  *
  * Gate de acceso: `clientes:leer` (Vendedor y Administrador de CRM). El
- * botón "Nuevo cliente" se muestra solo con `clientes:crear`.
+ * botón "Nuevo cliente" se muestra solo con `clientes:crear`, y el botón
+ * "Editar" por fila solo con `clientes:editar` (HU-C2).
  */
 
 import Link from "next/link";
@@ -25,6 +26,7 @@ import { usuarioTienePermiso } from "@/lib/auth/with-permission";
 import {
   listarClientes,
   PERMISO_CREAR,
+  PERMISO_EDITAR,
   PERMISO_LEER,
 } from "@/lib/services/clientes/cliente.service";
 import { TablaClientes } from "@/components/clientes/TablaClientes";
@@ -51,9 +53,10 @@ export default async function ClientesPage() {
   const autorizado = await usuarioTienePermiso(session.userId, PERMISO_LEER);
   if (!autorizado) redirect("/no-autorizado");
 
-  const [clientes, puedeCrear] = await Promise.all([
+  const [clientes, puedeCrear, puedeEditar] = await Promise.all([
     listarClientes(),
     usuarioTienePermiso(session.userId, PERMISO_CREAR),
+    usuarioTienePermiso(session.userId, PERMISO_EDITAR),
   ]);
 
   return (
@@ -101,7 +104,7 @@ export default async function ClientesPage() {
           </CardHeader>
 
           <CardContent className="pt-5">
-            <TablaClientes clientes={clientes} />
+            <TablaClientes clientes={clientes} puedeEditar={puedeEditar} />
           </CardContent>
         </Card>
       </div>

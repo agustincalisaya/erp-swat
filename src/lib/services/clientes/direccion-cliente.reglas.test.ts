@@ -44,3 +44,27 @@ test("validarReglaDireccionEnvio: FACTURACION nunca depende del conteo previo (p
   assert.doesNotThrow(() => validarReglaDireccionEnvio("FACTURACION", false));
   assert.doesNotThrow(() => validarReglaDireccionEnvio("FACTURACION", true));
 });
+
+// ── HU-C2: regla de FACTURACION en EDICIÓN ────────────────────────────────────
+
+import { validarReglaEdicionDireccion } from "./direccion-cliente.reglas.ts";
+
+test("validarReglaEdicionDireccion: FACTURACION→ENVIO sin OTRA FACTURACION activa lanza DIRECCION_FACTURACION_REQUERIDA", () => {
+  const err = capturarError(() => validarReglaEdicionDireccion("FACTURACION", "ENVIO", false));
+  assert.notEqual(err, null, "debería haber lanzado");
+  assert.equal((err as ConCodigo).code, "DIRECCION_FACTURACION_REQUERIDA");
+});
+
+test("validarReglaEdicionDireccion: FACTURACION→ENVIO con otra FACTURACION activa no lanza", () => {
+  assert.doesNotThrow(() => validarReglaEdicionDireccion("FACTURACION", "ENVIO", true));
+});
+
+test("validarReglaEdicionDireccion: ENVIO→FACTURACION nunca lanza (agrega una FACTURACION)", () => {
+  assert.doesNotThrow(() => validarReglaEdicionDireccion("ENVIO", "FACTURACION", false));
+  assert.doesNotThrow(() => validarReglaEdicionDireccion("ENVIO", "FACTURACION", true));
+});
+
+test("validarReglaEdicionDireccion: tipo sin cambio no lanza aunque no haya otra FACTURACION", () => {
+  assert.doesNotThrow(() => validarReglaEdicionDireccion("FACTURACION", "FACTURACION", false));
+  assert.doesNotThrow(() => validarReglaEdicionDireccion("ENVIO", "ENVIO", false));
+});
