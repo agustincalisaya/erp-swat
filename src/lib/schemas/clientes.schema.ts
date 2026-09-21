@@ -94,3 +94,26 @@ export const ActualizarSegmentoClienteSchema = z.object({
   segmento: z.enum(["MINORISTA", "MAYORISTA", "CLIENTE_FRECUENTE"]),
 });
 export type ActualizarSegmentoClienteInput = z.infer<typeof ActualizarSegmentoClienteSchema>;
+
+/**
+ * HU-C7 (Módulo C) — Consulta unificada por DNI
+ * (spec_modulo_C.md §2.7). Contrato de entrada de
+ * `GET /api/clientes/buscar?dni=<dni>`.
+ *
+ * A diferencia de los schemas de body de las demás HUs de Módulo C, este
+ * valida el **QUERY STRING** de la URL — no un body JSON. Por eso el Route
+ * Handler parsea `{ dni: req.nextUrl.searchParams.get("dni") }` en lugar de
+ * `await req.json()`: un DNI ausente llega como `null` (no `undefined`), y el
+ * regex lo rechaza igual que a cualquier formato inválido.
+ *
+ * SIN `.strict()` (mismo criterio que los demás schemas de Módulo C): solo
+ * interesa `dni`; cualquier otro parámetro de query se ignora en silencio.
+ *
+ * El patrón es exactamente el del `CrearClienteSchema` (mismo mensaje de
+ * error) para que el POS reciba el mismo texto de validación en el alta y en
+ * la consulta: 7 u 8 dígitos, sin puntos ni espacios.
+ */
+export const BuscarClientePorDniQuerySchema = z.object({
+  dni: z.string().regex(/^\d{7,8}$/, "El DNI debe tener 7 u 8 dígitos"),
+});
+export type BuscarClientePorDniQueryInput = z.infer<typeof BuscarClientePorDniQuerySchema>;
