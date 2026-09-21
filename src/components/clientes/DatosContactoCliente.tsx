@@ -15,6 +15,7 @@
 import { useState } from "react";
 import { Pencil, UserRound } from "lucide-react";
 
+import { DialogBajaCliente } from "@/components/clientes/DialogBajaCliente";
 import { FormularioEditarContactoCliente } from "@/components/clientes/FormularioEditarContactoCliente";
 
 import {
@@ -32,8 +33,15 @@ export interface DatosContactoClienteProps {
   nombre: string;
   telefono: string | null;
   email: string | null;
-  /** Solo quien tiene `clientes:editar` ve el botón de edición. */
+  /**
+   * Solo quien tiene `clientes:editar` ve el botón de edición. El padre ya lo
+   * apaga para un cliente inactivo (HU-C6): no se edita contacto de una baja.
+   */
   puedeEditar: boolean;
+  /** Solo quien tiene `clientes:baja` (Administrador de CRM) ve "Dar de baja". */
+  puedeBaja?: boolean;
+  /** `false` ⇒ cliente dado de baja: se oculta "Dar de baja" (HU-C6). */
+  isActive?: boolean;
 }
 
 export function DatosContactoCliente({
@@ -43,6 +51,8 @@ export function DatosContactoCliente({
   telefono,
   email,
   puedeEditar,
+  puedeBaja = false,
+  isActive = true,
 }: DatosContactoClienteProps) {
   const [editando, setEditando] = useState(false);
 
@@ -59,17 +69,24 @@ export function DatosContactoCliente({
               Nombre, teléfono y email del cliente. El DNI no se puede modificar.
             </CardDescription>
           </div>
-          {puedeEditar && !editando && (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setEditando(true)}
-              className="gap-2"
-            >
-              <Pencil className="size-4" aria-hidden="true" />
-              Editar
-            </Button>
+          {!editando && (
+            <div className="flex shrink-0 items-center gap-1">
+              {puedeEditar && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setEditando(true)}
+                  className="gap-2"
+                >
+                  <Pencil className="size-4" aria-hidden="true" />
+                  Editar
+                </Button>
+              )}
+              {puedeBaja && isActive && (
+                <DialogBajaCliente clienteId={clienteId} nombre={nombre} />
+              )}
+            </div>
           )}
         </div>
       </CardHeader>

@@ -99,14 +99,16 @@ test(
           "dni",
           "email",
           "historial_compras",
+          "is_active",
           "nombre",
           "telefono",
         ],
-        "el payload NO debe incluir segmento, deleted_* ni fusionado_en_id",
+        "el payload expone is_active (HU-C6) pero NO segmento, deleted_* ni fusionado_en_id",
       );
       assert.equal(data.dni, "30123456");
       assert.equal(data.nombre, "Juan Pérez");
       assert.equal(data.canal_preferido, "WHATSAPP");
+      assert.equal(data.is_active, true);
 
       assert.equal(data.direcciones.length, 2);
       for (const direccion of data.direcciones) {

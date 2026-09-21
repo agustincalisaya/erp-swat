@@ -827,6 +827,19 @@ export interface ClienteActualizadoPayload {
 }
 
 /**
+ * HU-C6 (Módulo C) — Payload emitido tras la baja lógica de un `Cliente`
+ * (`bajaCliente()`, spec_modulo_C.md §2.6 · RULES.md Regla N.° 1).
+ * `deletion_reason` es el motivo obligatorio. Emisión post-`COMMIT`, y solo
+ * cuando la baja efectivamente ocurrió (nunca en una doble baja). No incluye
+ * datos personales (`dni`/`email`/`telefono`).
+ */
+export interface ClienteBajaLogicaPayload {
+  cliente_id: string;
+  usuario_id: string;
+  deletion_reason: string;
+}
+
+/**
  * HU-B2 (Módulo B) — Payload emitido tras la apertura de un `TurnoCaja`
  * (`abrirTurnoCaja()`, task_relos.md §6.1/§7). Emisión post-escritura
  * (mismo patrón fire-and-forget que el resto del proyecto).
@@ -976,6 +989,8 @@ export interface DomainEventMap {
   "cliente:creado": ClienteCreadoPayload;
   /** HU-C3: se emite post-COMMIT tras mutar la ficha del cliente (alta de una DireccionCliente, §2.3). */
   "cliente:actualizado": ClienteActualizadoPayload;
+  /** HU-C6: se emite post-COMMIT tras la baja lógica de un Cliente (nunca DELETE físico). */
+  "cliente:baja_logica": ClienteBajaLogicaPayload;
   /** HU-B2: se emite tras la apertura de un TurnoCaja. */
   "venta:turno_abierto": VentaTurnoAbiertoPayload;
   /** HU-B2: se emite tras el cierre de un TurnoCaja (evento sensible si requiere_justificacion). */

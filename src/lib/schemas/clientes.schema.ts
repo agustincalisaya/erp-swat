@@ -119,6 +119,18 @@ export const BuscarClientePorDniQuerySchema = z.object({
 export type BuscarClientePorDniQueryInput = z.infer<typeof BuscarClientePorDniQuerySchema>;
 
 /**
+ * HU-C6 (Módulo C) — Baja lógica de un cliente (spec_modulo_C.md §2.6,
+ * RULES.md Regla N.° 1 — nunca un DELETE). Contrato de
+ * `PATCH /api/clientes/[id]/baja`. El único requisito es el motivo: la baja NO
+ * se bloquea por pedidos/presupuestos abiertos ni por saldo de cuenta corriente
+ * (decisión de diseño). Mismo shape que `DarDeBajaProveedorSchema`.
+ */
+export const BajaClienteSchema = z.object({
+  deletion_reason: z.string().trim().min(1, "El motivo de la baja es obligatorio"),
+});
+export type BajaClienteInput = z.infer<typeof BajaClienteSchema>;
+
+/**
  * HU-C2 (Módulo C) — Edición de los datos de contacto de un cliente
  * (spec_modulo_C.md, backlog HU-C2). Contrato de `PATCH /api/clientes/[id]`
  * (permiso `clientes:editar`). Campos editables: `nombre`, `telefono`,

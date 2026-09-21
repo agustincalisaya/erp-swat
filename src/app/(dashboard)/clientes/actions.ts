@@ -19,6 +19,7 @@ import {
   AgregarDireccionClienteSchema,
   ActualizarCanalContactoSchema,
   ActualizarSegmentoClienteSchema,
+  BajaClienteSchema,
   EditarClienteSchema,
   EditarDireccionClienteSchema,
   esErrorClienteCamposNoEditables,
@@ -27,14 +28,17 @@ import {
   actualizarCanalContacto as actualizarCanalContactoService,
   actualizarSegmentoCliente as actualizarSegmentoClienteService,
   agregarDireccionCliente as agregarDireccionClienteService,
+  bajaCliente as bajaClienteService,
   crearCliente as crearClienteService,
   editarCliente as editarClienteService,
   editarDireccionCliente as editarDireccionClienteService,
+  PERMISO_BAJA,
   PERMISO_CREAR,
   PERMISO_EDITAR,
   PERMISO_GESTIONAR_SEGMENTO,
   type CanalContactoActualizado,
   type ClienteCreado,
+  type ClienteDadoDeBaja,
   type ClienteEditado,
   type DireccionAgregada,
   type DireccionEditada,
@@ -43,6 +47,7 @@ import {
 
 export type {
   ClienteCreado,
+  ClienteDadoDeBaja,
   ClienteEditado,
   DireccionAgregada,
   DireccionEditada,
@@ -276,6 +281,43 @@ export async function editarDireccionCliente(
   } catch (err) {
     if (err instanceof ServiceError) return fallo(err.code, err.message);
     console.error("[editarDireccionClienteAction] Error inesperado:", err);
+    return fallo("INTERNAL_ERROR", "Error interno. Intentá nuevamente.");
+  }
+}
+
+/**
+ * Server Action equivalente a `PATCH /api/clientes/[id]/baja` (HU-C6,
+ * spec_modulo_C.md §2.6). Wrapper fino: sesión + permiso granular
+ * `clientes:baja` (solo Administrador de CRM), parseo Zod (motivo obligatorio),
+ * invocación de la MISMA función de servicio que el Route Handler y mapeo a
+ * `{ data, error }`. Ninguna regla de negocio vive acá.
+ *
+ * `clienteId` llega como ARGUMENTO explícito y NUNCA se lee del input. Un
+ * cliente inexistente o ya dado de baja devuelve `CLIENTE_NO_ENCONTRADO`.
+ */
+export async function bajaCliente(
+  clienteId: string,
+  input: unknown,
+): Promise<ActionResult<ClienteDadoDeBaja>> {
+  const session = await getServerSession();
+  if (!session) return fallo("UNAUTHORIZED", "Sesión requerida");
+  if (!(await usuarioTienePermiso(session.userId, PERMISO_BAJA))) {
+    return fallo("FORBIDDEN", `No tenés el permiso "${PERMISO_BAJA}"`);
+  }
+
+  const parsed = BajaClienteSchema.safeParse(input);
+  if (!parsed.success) {
+    return fallo("VALIDATION_ERROR", parsed.error.issues[0]?.message ?? "Datos inválidos");
+  }
+
+  try {
+    const data = await bajaClienteService(clienteId, session.userId, parsed.data.deletion_reason);
+    revalidatePath(`/clientes/${clienteId}`);
+    revalidatePath(CLIENTES_PATH);
+    return { data, error: null };
+  } catch (err) {
+    if (err instanceof ServiceError) return fallo(err.code, err.message);
+    console.error("[bajaClienteAction] Error inesperado:", err);
     return fallo("INTERNAL_ERROR", "Error interno. Intentá nuevamente.");
   }
 }

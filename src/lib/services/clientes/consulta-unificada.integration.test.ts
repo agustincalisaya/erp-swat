@@ -28,8 +28,10 @@ import test from "node:test";
  *  (c) cliente activo SIN pedidos: 0/0/null (nunca `undefined` ni error).
  *  (d) CLÚSTER DE FUSIÓN: un pedido FACTURADO creado ad-hoc para el
  *      secundario fusionado (27555222) aparece en el historial del primario.
- *  (e) DNI válido sin cliente activo: `CLIENTE_NO_ENCONTRADO` con el DNI en
+ *  (e) DNI válido sin ningún cliente: `CLIENTE_NO_ENCONTRADO` con el DNI en
  *      el mensaje.
+ *  (e2) HU-C6: un cliente dado de baja lógica sigue devolviendo ficha e
+ *      historial, con `is_active: false`.
  *  (f) dos consultas consecutivas devuelven lo mismo y `audit_logs` no gana
  *      filas.
  *
@@ -65,14 +67,17 @@ test("HU-C7 integra la consulta unificada por DNI (ficha + historial + clúster 
   const clientesFixture: string[] = [];
   /** Id del pedido ad-hoc del escenario (d) — se anula en el teardown. */
   let pedidoAdHocId: string | null = null;
+  /** Id del pedido ad-hoc del escenario (e2, cliente dado de baja) — idem. */
+  let pedidoInactivoId: string | null = null;
 
   // Teardown garantizado aun si un assert falla a mitad de camino: un
   // `PedidoVenta` se da de baja lógica con `estado: "ANULADO"` (+ bloque de
   // soft delete), la convención de Módulo B (schema.prisma §PedidoVenta).
   t.after(async () => {
-    if (pedidoAdHocId) {
+    for (const id of [pedidoAdHocId, pedidoInactivoId]) {
+      if (!id) continue;
       await prisma.pedidoVenta.update({
-        where: { id: pedidoAdHocId },
+        where: { id },
         data: {
           estado: "ANULADO",
           is_active: false,
@@ -141,10 +146,12 @@ test("HU-C7 integra la consulta unificada por DNI (ficha + historial + clúster 
     "ultima_compra debe ser el máximo de fecha_facturacion de los pedidos efectivos",
   );
 
-  // Minimización del payload: nada de segmento / soft delete / fusión.
+  // Minimización del payload: nada de segmento / detalle de soft delete /
+  // fusión. `is_active` SÍ se expone (HU-C6) para que el frontend pueda mostrar
+  // "cliente inactivo".
   assert.equal("segmento" in juan, false);
   assert.equal("fusionado_en_id" in juan, false);
-  assert.equal("is_active" in juan, false);
+  assert.equal(juan.is_active, true);
   assert.equal("deleted_at" in juan, false);
 
   // ── (b) María Gómez: su único pedido está RESERVADO → excluido ──────────
@@ -225,6 +232,43 @@ test("HU-C7 integra la consulta unificada por DNI (ficha + historial + clúster 
     /99999999/,
     "el mensaje de CLIENTE_NO_ENCONTRADO debe incluir el DNI consultado (spec §2.7)",
   );
+
+  // ── (e2) HU-C6: un cliente dado de baja SIGUE siendo consultable ────────
+  // Regresión del bug de alcance: la consulta filtraba `is_active: true`, así
+  // que tras la baja devolvía 404 y el historial dejaba de verse (viola spec
+  // Módulo C §2.3). Ahora devuelve ficha + historial con `is_active: false`.
+  const clienteInactivo = await prisma.cliente.create({
+    data: { dni: dniNuevo(), nombre: "Cliente HU-C7 dado de baja" },
+    select: { id: true, dni: true },
+  });
+  clientesFixture.push(clienteInactivo.id);
+  const totalInactivo = 5000;
+  const pedidoInactivo = await prisma.pedidoVenta.create({
+    data: {
+      numero_venta: `HU-C7-${randomUUID()}`,
+      cliente_id: clienteInactivo.id,
+      estado: "FACTURADO",
+      total: totalInactivo,
+      fecha_facturacion: new Date(),
+      registrado_por_id: USUARIO_CAJERO_SEED_ID,
+      is_active: true,
+    },
+    select: { id: true },
+  });
+  pedidoInactivoId = pedidoInactivo.id;
+
+  await clienteService.bajaCliente(
+    clienteInactivo.id,
+    USUARIO_CAJERO_SEED_ID,
+    "Baja de prueba HU-C7 (cliente inactivo sigue consultable)",
+  );
+
+  const inactivo = await clienteService.consultarClientePorDni(clienteInactivo.dni);
+  assert.equal(inactivo.cliente_id, clienteInactivo.id, "el cliente inactivo se sigue resolviendo por DNI");
+  assert.equal(inactivo.is_active, false, "la ficha marca al cliente como inactivo");
+  assert.equal(inactivo.nombre, "Cliente HU-C7 dado de baja");
+  assert.equal(inactivo.historial_compras.cantidad_operaciones, 1, "el historial permanece accesible");
+  assert.equal(inactivo.historial_compras.monto_total_historico, totalInactivo);
 
   // ── (f) Doble consulta idempotente + cero filas de auditoría ────────────
   const asientosAntes = await prisma.auditLog.count({ where: { tabla_afectada: "clientes" } });
