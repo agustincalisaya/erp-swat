@@ -1564,6 +1564,21 @@ async function main() {
     });
   }
 
+  // HU-C6 — el usuario admin de prueba (`administrador.seed`) solo tenía el rol
+  // ADMINISTRADOR (`roles:administrar`), sin ningún `clientes:*`. Se le suma
+  // ADMINISTRADOR_CRM (que ya incluye `clientes:baja`) para poder ejercitar la
+  // baja lógica end-to-end sin crear un usuario nuevo.
+  await prisma.usuarioRol.upsert({
+    where: {
+      usuario_id_rol_id: {
+        usuario_id: USUARIO_ADMIN_SEED_ID,
+        rol_id: rolAdministradorCrm.id,
+      },
+    },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: { usuario_id: USUARIO_ADMIN_SEED_ID, rol_id: rolAdministradorCrm.id },
+  });
+
   // HU-C3 (ronda de cobertura HTTP) — usuario de prueba con rol VENDEDOR.
   // Se crea y se le asigna el rol acá, dentro del bloque RBAC de Módulo C,
   // porque el rol (y sus permisos `clientes:*`) ya existen desde el upsert de

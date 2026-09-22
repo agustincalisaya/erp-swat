@@ -1072,6 +1072,29 @@ export function iniciarAuditLogListener(): void {
     });
   });
 
+  // HU-C6 (Módulo C) — baja lógica de un Cliente (spec_modulo_C.md §2.6 ·
+  // RULES.md §1). `bajaCliente()` nunca llama `registrarAuditLog()` directo:
+  // emite `cliente:baja_logica` post-COMMIT y este listener reacciona (mismo
+  // criterio que `proveedor:baja_logica`). `valor_anterior` asume
+  // `is_active: true` porque el payload no trae snapshot previo — es correcto
+  // igual: la guarda `updateMany { is_active: true }` del service garantiza que
+  // solo se emite cuando el cliente estaba activo. `ip: "unknown"` — mismo
+  // sentinel que `cliente:creado`.
+  domainEventBus.on("cliente:baja_logica", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "DELETE_LOGICO",
+      tabla_afectada: "clientes",
+      registro_id: payload.cliente_id,
+      ip: "unknown",
+      valor_anterior: { is_active: true },
+      valor_nuevo: {
+        is_active: false,
+        deletion_reason: payload.deletion_reason,
+      },
+    });
+  });
+
   // HU-B2 (Módulo B) — apertura de un TurnoCaja (task_relos.md §6.1/§7). El
   // service (`turno-caja.service.ts`) nunca llama `registrarAuditLog()`
   // directo: emite el evento y este listener reacciona (misma regla de

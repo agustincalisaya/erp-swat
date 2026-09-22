@@ -82,22 +82,27 @@ export function DireccionesCliente({
   clienteId,
   direcciones,
   puedeEditar = false,
+  soloLectura = false,
 }: {
   clienteId: string;
   direcciones: DireccionClienteListada[];
   /** Solo quien tiene `clientes:editar` ve el botón de edición por fila. */
   puedeEditar?: boolean;
+  /** Cliente dado de baja (HU-C6): sin formulario de alta ni edición por fila. */
+  soloLectura?: boolean;
 }) {
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
-      <div className="lg:col-span-2">
-        <DireccionesForm clienteId={clienteId} />
-      </div>
-      <div className="lg:col-span-3">
+      {!soloLectura && (
+        <div className="lg:col-span-2">
+          <DireccionesForm clienteId={clienteId} />
+        </div>
+      )}
+      <div className={soloLectura ? "lg:col-span-5" : "lg:col-span-3"}>
         <ListaDirecciones
           clienteId={clienteId}
           direcciones={direcciones}
-          puedeEditar={puedeEditar}
+          puedeEditar={puedeEditar && !soloLectura}
         />
       </div>
     </div>

@@ -65,6 +65,9 @@ export const PERMISO_CREAR = "clientes:crear";
 // un `administrar` genérico (RULES.md).
 export const PERMISO_EDITAR = "clientes:editar";
 export const PERMISO_LEER = "clientes:leer";
+// HU-C6 (spec_modulo_C.md §2.6): baja lógica — exclusivo Administrador de CRM.
+// El Vendedor no lo tiene sembrado: queda sin acceso solo por RBAC.
+export const PERMISO_BAJA = "clientes:baja";
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Las finalidades se registran por separado. Las decisiones llegan desde el
@@ -779,6 +782,12 @@ export interface ConsultaUnificadaCliente {
   direcciones: DireccionUnificada[];
   canal_preferido: CanalContacto | null;
   historial_compras: ResumenHistorialCompras;
+  /**
+   * `false` si el cliente fue dado de baja lógica (HU-C6). La ficha y el
+   * historial siguen siendo consultables (spec §2.3); el frontend usa este
+   * flag para mostrar "cliente inactivo".
+   */
+  is_active: boolean;
 }
 
 /**
@@ -790,13 +799,15 @@ export interface ConsultaUnificadaCliente {
  * asistida, para no encadenar peticiones ("Historial de compras" del flujo).
  *
  * Reglas del contrato §2.7:
- *  - Resuelve el cliente por `dni` y `is_active = true` (baja lógica estricta,
- *    RULES.md Regla N.° 1: un cliente dado de baja es invisible a esta
- *    consulta, igual que para el resto de las operaciones).
- *  - Si no existe un cliente activo con ese DNI, lanza
- *    `CLIENTE_NO_ENCONTRADO` **con el DNI en el mensaje** — el POS lo
- *    interpreta como "cliente no registrado" y ofrece el alta, no como un
- *    error bloqueante.
+ *  - Resuelve el cliente por `dni` SIN filtrar `is_active` (HU-C6): un cliente
+ *    dado de baja lógica sigue siendo consultable — su ficha y su historial de
+ *    compras deben permanecer accesibles (spec Módulo C §2.3). La respuesta
+ *    incluye `is_active` para que el frontend muestre "cliente inactivo". El
+ *    bloqueo de operaciones NUEVAS sobre un cliente inactivo vive en
+ *    presupuesto / venta-mostrador / cuenta-corriente, no en esta lectura.
+ *  - Si no existe ningún cliente con ese DNI, lanza `CLIENTE_NO_ENCONTRADO`
+ *    **con el DNI en el mensaje** — el POS lo interpreta como "cliente no
+ *    registrado" y ofrece el alta, no como un error bloqueante.
  *  - `telefono`, `email` y `canal_preferido` pueden ser `null` y se propagan
  *    tal cual (nunca se default-ean).
  *  - Las direcciones se resuelven REUSANDO `listarDireccionesCliente`
@@ -808,11 +819,11 @@ export interface ConsultaUnificadaCliente {
  *    `fusionado_en_id` (minimización del payload; HU-C8 y HU-C5 tienen sus
  *    propios contratos).
  *
- * @throws {ServiceError} `CLIENTE_NO_ENCONTRADO` si no hay cliente activo con ese DNI.
+ * @throws {ServiceError} `CLIENTE_NO_ENCONTRADO` si no hay cliente con ese DNI.
  */
 export async function consultarClientePorDni(dni: string): Promise<ConsultaUnificadaCliente> {
   const cliente = await prisma.cliente.findFirst({
-    where: { dni, is_active: true },
+    where: { dni },
     select: {
       id: true,
       dni: true,
@@ -820,13 +831,14 @@ export async function consultarClientePorDni(dni: string): Promise<ConsultaUnifi
       telefono: true,
       email: true,
       canal_preferido: true,
+      is_active: true,
     },
   });
 
   if (!cliente) {
     throw new ServiceError(
       "CLIENTE_NO_ENCONTRADO",
-      `No existe un cliente activo con el DNI ${dni}`,
+      `No existe un cliente con el DNI ${dni}`,
     );
   }
 
@@ -849,6 +861,7 @@ export async function consultarClientePorDni(dni: string): Promise<ConsultaUnifi
     direcciones,
     canal_preferido: cliente.canal_preferido,
     historial_compras: historial,
+    is_active: cliente.is_active,
   };
 }
 
@@ -1238,4 +1251,86 @@ export async function editarDireccionCliente(
   }
 
   return resultado;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// §2.6 — HU-C6: baja lógica de un cliente (RULES.md Regla N.° 1 — NUNCA DELETE)
+//
+// Mismo patrón que el resto del módulo: núcleo transaccional reutilizable
+// (`bajaClienteTx`, recibe el `tx` del caller, no abre transacción ni emite
+// eventos) + wrapper público (`bajaCliente`) que abre `prisma.$transaction` y
+// emite `cliente:baja_logica` post-COMMIT. Replica `darDeBajaProveedor`.
+//
+// Decisiones de diseño (ratificadas, no reabrir):
+//  - La baja NO se bloquea por pedidos/presupuestos abiertos ni por saldo de
+//    cuenta corriente. Solo exige motivo obligatorio (validado con Zod en
+//    `BajaClienteSchema`, en la capa HTTP/Server Action).
+//  - El Vendedor queda sin acceso solo por RBAC (no tiene `clientes:baja`); no
+//    existe ningún mecanismo de solicitud/aprobación persistido.
+//  - La fila permanece consultable: ver `consultarClientePorDni` (HU-C7).
+// ──────────────────────────────────────────────────────────────────────────────
+
+/** Resultado público de `bajaCliente` (shape del endpoint). */
+export interface ClienteDadoDeBaja {
+  cliente_id: string;
+  is_active: false;
+}
+
+/**
+ * Núcleo transaccional de la baja lógica. No abre transacción ni emite eventos.
+ *
+ * El `updateMany` condicionado a `{ id, is_active: true }` es la guarda de
+ * concurrencia: `count === 0` ⇒ el cliente no existe o ya estaba dado de baja
+ * ⇒ `CLIENTE_NO_ENCONTRADO` (→ 404), mismo código que el resto del módulo
+ * (sin un `CLIENTE_INACTIVO` aparte). Dos bajas simultáneas sobre el mismo
+ * cliente: solo una obtiene `count === 1`, la otra recibe el 404.
+ */
+export async function bajaClienteTx(
+  tx: Prisma.TransactionClient,
+  clienteId: string,
+  usuarioId: string,
+  motivo: string,
+): Promise<void> {
+  const cambio = await tx.cliente.updateMany({
+    where: { id: clienteId, is_active: true },
+    data: {
+      is_active: false,
+      deleted_at: new Date(),
+      deleted_by: usuarioId,
+      deletion_reason: motivo,
+    },
+  });
+  if (cambio.count === 0) {
+    throw new ServiceError("CLIENTE_NO_ENCONTRADO", "Cliente no encontrado o ya dado de baja");
+  }
+}
+
+/**
+ * Wrapper público invocado por el Route Handler
+ * (`PATCH /api/clientes/[id]/baja`). Abre `prisma.$transaction`, delega en
+ * `bajaClienteTx` y emite `cliente:baja_logica` DESPUÉS del COMMIT — nunca
+ * dentro de la transacción, y nunca si la guarda de concurrencia rechazó la
+ * baja (la excepción corta antes del `emit`).
+ *
+ * `clienteId` es la única fuente de verdad del cliente: se resuelve en el path
+ * `[id]` de la ruta. Jamás se lee un `cliente_id` del body.
+ */
+export async function bajaCliente(
+  clienteId: string,
+  usuarioId: string,
+  motivo: string,
+): Promise<ClienteDadoDeBaja> {
+  await prisma.$transaction((tx: Prisma.TransactionClient) =>
+    bajaClienteTx(tx, clienteId, usuarioId, motivo),
+  );
+
+  // Post-COMMIT, fire-and-forget: la única vía de escritura a `AuditLog` es
+  // `audit-log.listener.ts`, que reacciona a este evento.
+  domainEventBus.emit("cliente:baja_logica", {
+    cliente_id: clienteId,
+    usuario_id: usuarioId,
+    deletion_reason: motivo,
+  });
+
+  return { cliente_id: clienteId, is_active: false };
 }

@@ -103,8 +103,10 @@ export async function obtenerConsentimientosCliente(clienteId: string) {
   if (!ClienteIdConsentimientoSchema.safeParse(clienteId).success) {
     throw new ServiceError("CLIENTE_NO_ENCONTRADO", "Cliente no encontrado");
   }
-  const cliente = await prisma.cliente.findUnique({ where: { id: clienteId }, select: { is_active: true } });
-  if (!cliente?.is_active) throw new ServiceError("CLIENTE_NO_ENCONTRADO", "Cliente no encontrado");
+  // HU-C6: lectura pura, SIN filtrar `is_active` del cliente — el historial de
+  // consentimientos de un cliente dado de baja debe seguir consultable (spec
+  // Módulo C §2.3). Las escrituras (regularizar / transicionar) sí siguen
+  // bloqueando inactivos.
   return leerHechos(clienteId, prisma);
 }
 
