@@ -23,6 +23,10 @@ export const CrearClienteSchema = z.object({
     .or(z.literal(""))
     .optional()
     .transform((v) => (v === "" ? undefined : v)),
+  // Opcionales en el parseo para conservar la recuperación de un DNI existente.
+  // El servicio los exige antes de insertar un cliente nuevo.
+  acepta_tratamiento_datos: z.boolean().optional(),
+  decision_comercial: z.enum(["ACEPTA", "RECHAZA"]).optional(),
 });
 export type CrearClienteInput = z.infer<typeof CrearClienteSchema>;
 

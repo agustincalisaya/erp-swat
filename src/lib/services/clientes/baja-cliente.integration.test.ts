@@ -71,7 +71,10 @@ test("HU-C6 integra la baja lógica de cliente (4 campos, auditoría DELETE_LOGI
   }
 
   // ── (a) baja exitosa ────────────────────────────────────────────────────
-  const alta = await svc.crearCliente({ dni: dniNuevo(), nombre: "Cliente HU-C6" }, USUARIO_ID);
+  const alta = await svc.crearCliente(
+    { dni: dniNuevo(), nombre: "Cliente HU-C6", acepta_tratamiento_datos: true, decision_comercial: "ACEPTA" },
+    USUARIO_ID,
+  );
   const clienteId = alta.cliente_id;
 
   const motivo = "Cliente duplicado por error de carga";
@@ -104,7 +107,10 @@ test("HU-C6 integra la baja lógica de cliente (4 campos, auditoría DELETE_LOGI
   assert.equal((await asientosBaja(clienteId, 1)).length, 1, "la doble baja no emite asiento nuevo");
 
   // ── (d) concurrencia: exactamente una baja gana ─────────────────────────
-  const concurrente = await svc.crearCliente({ dni: dniNuevo(), nombre: "Cliente HU-C6 race" }, USUARIO_ID);
+  const concurrente = await svc.crearCliente(
+    { dni: dniNuevo(), nombre: "Cliente HU-C6 race", acepta_tratamiento_datos: true, decision_comercial: "ACEPTA" },
+    USUARIO_ID,
+  );
   const resultados = await Promise.allSettled([
     svc.bajaCliente(concurrente.cliente_id, USUARIO_ID, "Baja A"),
     svc.bajaCliente(concurrente.cliente_id, USUARIO_ID, "Baja B"),

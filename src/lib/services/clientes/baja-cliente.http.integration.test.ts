@@ -52,7 +52,12 @@ test(
     const alta = await fetch(`${BASE_URL}/api/clientes`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Cookie: cookieAdmin },
-      body: JSON.stringify({ dni, nombre: "Cliente HU-C6 HTTP" }),
+      body: JSON.stringify({
+        dni,
+        nombre: "Cliente HU-C6 HTTP",
+        acepta_tratamiento_datos: true,
+        decision_comercial: "ACEPTA",
+      }),
     });
     const altaBody = await alta.json();
     assert.ok([200, 201].includes(alta.status), `alta fixture falló: ${JSON.stringify(altaBody)}`);

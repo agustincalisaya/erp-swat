@@ -31,6 +31,7 @@
     "test:integration:c8-http": "node --conditions=react-server --import tsx --test --test-concurrency=1 src/lib/services/clientes/segmento-cliente.http.integration.test.ts",
     "test:integration:c6": "node --conditions=react-server --import tsx --test --test-concurrency=1 src/lib/services/clientes/baja-cliente.integration.test.ts",
     "test:integration:c6-http": "node --conditions=react-server --import tsx --test --test-concurrency=1 src/lib/services/clientes/baja-cliente.http.integration.test.ts",
+    "test:integration:c6-consentimientos": "node --conditions=react-server --import tsx --test --test-concurrency=1 src/lib/services/clientes/baja-cliente.consentimientos.integration.test.ts",
     "test:integration:c7": "node --conditions=react-server --import tsx --test --test-concurrency=1 src/lib/services/clientes/consulta-unificada.integration.test.ts",
     "test:integration:c7-http": "node --conditions=react-server --import tsx --test --test-concurrency=1 src/lib/services/clientes/consulta-unificada.http.integration.test.ts",
     "test:integration:h8-http": "node --conditions=react-server --import tsx --test --test-concurrency=1 src/lib/services/proveedores/costo-reposicion.http.integration.test.ts"

@@ -39,6 +39,8 @@ import { DatosContactoCliente } from "@/components/clientes/DatosContactoCliente
 import { DireccionesCliente } from "@/components/clientes/DireccionesCliente";
 import { CanalContactoCliente } from "@/components/clientes/CanalContactoCliente";
 import { SegmentoCliente } from "@/components/clientes/SegmentoCliente";
+import { ConsentimientosCliente } from "@/components/clientes/ConsentimientosCliente";
+import { esAdministradorCrmActivo, obtenerConsentimientosCliente, PERMISO_GESTIONAR_CONSENTIMIENTO } from "@/lib/services/clientes/consentimiento.service";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
@@ -99,6 +101,11 @@ export default async function ClienteFichaPage({
   const inactivo = !cliente.is_active;
 
   const direcciones = await listarDireccionesCliente(id, { incluirInactivas });
+  const [consentimientos, puedeGestionarConsentimiento, esAdministradorCrm] = await Promise.all([
+    obtenerConsentimientosCliente(id),
+    usuarioTienePermiso(session.userId, PERMISO_GESTIONAR_CONSENTIMIENTO),
+    esAdministradorCrmActivo(session.userId),
+  ]);
 
   return (
     <main className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
@@ -198,6 +205,13 @@ export default async function ClienteFichaPage({
             <SegmentoCliente clienteId={cliente.id} segmento={cliente.segmento} />
           </>
         )}
+
+        <ConsentimientosCliente
+          clienteId={cliente.id}
+          lectura={consentimientos}
+          puedeGestionar={puedeGestionarConsentimiento && !inactivo}
+          puedeAdministrar={esAdministradorCrm && !inactivo}
+        />
       </div>
     </main>
   );

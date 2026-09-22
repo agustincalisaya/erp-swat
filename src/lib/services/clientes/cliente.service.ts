@@ -14,8 +14,8 @@ import "server-only";
  *
  * Reglas transversales aplicadas (RULES.md §1/§2, spec §3.1/§3.3/§3.4):
  *  - Ninguna función de este archivo hace un borrado físico de fila alguna.
- *  - El alta corre dentro de un único `prisma.$transaction`, incluyendo el
- *    `ConsentimientoCliente` inicial obligatorio (spec §2.1). `crearClienteTx`
+ *  - El alta corre dentro de un único `prisma.$transaction`, incluyendo las
+ *    decisiones expresas y sus eventos históricos de C4. `crearClienteTx`
  *    es el núcleo reutilizable (recibe el `tx` del caller, no abre
  *    transacción ni emite eventos — mismo patrón que
  *    `registrarIngresoStockTx` en `movimiento.service.ts`); `crearCliente`
@@ -70,19 +70,12 @@ export const PERMISO_LEER = "clientes:leer";
 export const PERMISO_BAJA = "clientes:baja";
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Consentimiento mínimo del alta (decisión de producto — no es un campo del
-// formulario ni de CrearClienteSchema): HU-C1 exige un ConsentimientoCliente
-// en la misma transacción (spec §2.1) pero CrearClienteSchema no trae
-// alcance/finalidad (esos campos son de RegistrarConsentimientoSchema,
-// endpoint separado de HU-C4). Estos valores fijos son el mínimo obligatorio
-// para que el Cliente pueda existir; HU-C4 (`POST
-// /clientes/[id]/consentimientos`) es la vía para ampliarlo o revocarlo
-// después — este service nunca la reemplaza.
+// Las finalidades se registran por separado. Las decisiones llegan desde el
+// formulario/API; ningún valor fijo equivale por sí solo a una aceptación.
 // ──────────────────────────────────────────────────────────────────────────────
 
-const ALCANCE_CONSENTIMIENTO_ALTA = "VENTA_ASISTIDA" as const;
-const FINALIDAD_CONSENTIMIENTO_ALTA =
-  "Venta asistida — consentimiento mínimo registrado en el alta del cliente (HU-C1)";
+const FINALIDAD_TRATAMIENTO = "Tratamiento de datos personales para operar con el cliente";
+const FINALIDAD_COMERCIAL = "Comunicaciones comerciales";
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Tipos públicos
@@ -114,13 +107,13 @@ interface ClienteCreadoTx {
  * registro existente sin crear nada nuevo (`esNuevo: false`) — no es una
  * condición de error (spec: "esto es distinto de un 409 Conflict").
  *
- * DNI nuevo → crea el `Cliente` + su `ConsentimientoCliente` inicial (spec
- * §2.1: "no existe un Cliente sin al menos un consentimiento inicial
- * registrado").
+ * DNI nuevo → exige decisiones expresas y registra cliente, aceptaciones y
+ * eventos de C4 dentro de la misma transacción.
  */
 export async function crearClienteTx(
   tx: Prisma.TransactionClient,
   input: CrearClienteInput,
+  usuarioId: string,
 ): Promise<ClienteCreadoTx> {
   // Pre-check DNI DENTRO de la transacción (mismo patrón race-safe que
   // `crearProveedor`, spec §2.1). Activo o no: HU-C1 recupera cualquier
@@ -133,6 +126,21 @@ export async function crearClienteTx(
     return { cliente: existente, esNuevo: false };
   }
 
+  if (input.acepta_tratamiento_datos !== true) {
+    throw new ServiceError(
+      "CONSENTIMIENTO_TRATAMIENTO_REQUERIDO",
+      "El cliente debe aceptar expresamente el tratamiento de datos para completar el alta",
+    );
+  }
+  if (input.decision_comercial !== "ACEPTA" && input.decision_comercial !== "RECHAZA") {
+    throw new ServiceError(
+      "DECISION_COMERCIAL_REQUERIDA",
+      "Indicá si el cliente acepta o rechaza las comunicaciones comerciales",
+    );
+  }
+
+  const fechaDecision = new Date();
+
   const creado = await tx.cliente.create({
     data: {
       dni: input.dni,
@@ -143,13 +151,63 @@ export async function crearClienteTx(
     select: { id: true, dni: true },
   });
 
-  await tx.consentimientoCliente.create({
+  const tratamiento = await tx.consentimientoCliente.create({
     data: {
       cliente_id: creado.id,
-      alcance: ALCANCE_CONSENTIMIENTO_ALTA,
-      finalidad: FINALIDAD_CONSENTIMIENTO_ALTA,
+      alcance: "VENTA_ASISTIDA",
+      finalidad: FINALIDAD_TRATAMIENTO,
+      fecha_consentimiento: fechaDecision,
+      origen: "EXPRESO",
+      registrado_por_id: usuarioId,
     },
   });
+
+  await tx.eventoConsentimientoCliente.create({
+    data: {
+      cliente_id: creado.id,
+      consentimiento_id: tratamiento.id,
+      tipo: "ACEPTACION_INICIAL",
+      alcance: "VENTA_ASISTIDA",
+      finalidad: FINALIDAD_TRATAMIENTO,
+      fecha_evento: fechaDecision,
+      usuario_id: usuarioId,
+    },
+  });
+
+  if (input.decision_comercial === "ACEPTA") {
+    const comercial = await tx.consentimientoCliente.create({
+      data: {
+        cliente_id: creado.id,
+        alcance: "COMUNICACIONES_COMERCIALES",
+        finalidad: FINALIDAD_COMERCIAL,
+        fecha_consentimiento: fechaDecision,
+        origen: "EXPRESO",
+        registrado_por_id: usuarioId,
+      },
+    });
+    await tx.eventoConsentimientoCliente.create({
+      data: {
+        cliente_id: creado.id,
+        consentimiento_id: comercial.id,
+        tipo: "ACEPTACION_INICIAL",
+        alcance: "COMUNICACIONES_COMERCIALES",
+        finalidad: FINALIDAD_COMERCIAL,
+        fecha_evento: fechaDecision,
+        usuario_id: usuarioId,
+      },
+    });
+  } else {
+    await tx.eventoConsentimientoCliente.create({
+      data: {
+        cliente_id: creado.id,
+        tipo: "RECHAZO_COMERCIAL",
+        alcance: "COMUNICACIONES_COMERCIALES",
+        finalidad: FINALIDAD_COMERCIAL,
+        fecha_evento: fechaDecision,
+        usuario_id: usuarioId,
+      },
+    });
+  }
 
   return { cliente: creado, esNuevo: true };
 }
@@ -178,7 +236,7 @@ export async function crearCliente(
   let resultado: ClienteCreadoTx;
   try {
     resultado = await prisma.$transaction((tx: Prisma.TransactionClient) =>
-      crearClienteTx(tx, input),
+      crearClienteTx(tx, input, usuarioId),
     );
   } catch (error) {
     if (
