@@ -65,7 +65,7 @@ async function loginReal(baseUrl: string, email: string): Promise<string> {
 }
 
 test(
-  "HU-H8 — GET /api/proveedores/costo-reposicion/[variante_sku_id] contra un servidor real (200/400/403/401/404)",
+  "HU-H8 — GET /api/proveedores/costo-reposicion/[variante_sku_id] contra un servidor real (200/400/403/401/404/500)",
   { skip: !BASE_URL, timeout: 60_000 },
   async (t) => {
     const baseUrl = BASE_URL!;
@@ -141,7 +141,7 @@ test(
 
     // ── Proveedores dedicados: uno (o dos/tres) por caso, nunca compartidos
     // entre casos (ver nota de cabecera) ──────────────────────────────────
-    const [proveedorC1, proveedorC2A, proveedorC2B, proveedorC3A, proveedorC3B, proveedorC3bA, proveedorC3bB, proveedorC6, proveedorC8] =
+    const [proveedorC1, proveedorC2A, proveedorC2B, proveedorC3A, proveedorC3B, proveedorC3bA, proveedorC3bB, proveedorC6, proveedorC8, proveedorC9] =
       await Promise.all([
         crearProveedorHomologado("C1"),
         crearProveedorHomologado("C2A"),
@@ -152,6 +152,7 @@ test(
         crearProveedorHomologado("C3bB"),
         crearProveedorHomologado("C6"),
         crearProveedorHomologado("C8"),
+        crearProveedorHomologado("C9"),
       ]);
 
     const todosLosProveedoresFixture = [
@@ -164,9 +165,10 @@ test(
       proveedorC3bB,
       proveedorC6,
       proveedorC8,
+      proveedorC9,
     ].map((p) => p.id);
 
-    const [varianteCaso1, varianteCaso2, varianteCaso3, varianteCaso3b, varianteCaso8, varianteCaso6] =
+    const [varianteCaso1, varianteCaso2, varianteCaso3, varianteCaso3b, varianteCaso8, varianteCaso6, varianteCaso9] =
       await Promise.all([
         crearVariante("C1", proveedorC1.id),
         crearVariante("C2", proveedorC2A.id),
@@ -174,6 +176,7 @@ test(
         crearVariante("C3B", proveedorC3bA.id),
         crearVariante("C8", proveedorC8.id),
         crearVariante("C6", proveedorC6.id),
+        crearVariante("C9", proveedorC9.id),
       ]);
 
     // Variante SIN ningún ListaPrecioItem en toda la base (relevamiento
@@ -222,6 +225,13 @@ test(
     // Caso 8 — único candidato pero con el ítem borrado lógicamente.
     await crearVersionPublicada(proveedorC8.id, dias(5), [
       { variante_sku_id: varianteCaso8.id, precio_unitario: 1500, is_active: false },
+    ]);
+
+    // Caso 9 — corrupción de datos: 2 ítems activos para la misma
+    // variante-versión (`ListaPrecioItem` no tiene `@@unique` que lo impida).
+    await crearVersionPublicada(proveedorC9.id, dias(5), [
+      { variante_sku_id: varianteCaso9.id, precio_unitario: 1000 },
+      { variante_sku_id: varianteCaso9.id, precio_unitario: 1200 },
     ]);
 
     // Caso 6 — no-cache: versión inicial a 1500 (creada directo, fecha
@@ -296,6 +306,7 @@ test(
               varianteCaso3b.id,
               varianteCaso8.id,
               varianteCaso6.id,
+              varianteCaso9.id,
             ],
           },
         },
@@ -541,6 +552,19 @@ test(
       `;
       assert.equal(filaSql.length, 1);
       assert.equal(filaSql[0]!.is_active, false);
+    });
+
+    // ── Caso 9 — ítems duplicados → 500 genérico, sin elegir uno ────────
+    await t.test("Caso 9 — 2 ítems activos para la misma variante-versión: 500 INTERNAL_ERROR sin detalle", async () => {
+      const res = await fetch(`${baseUrl}/api/proveedores/costo-reposicion/${varianteCaso9.id}`, {
+        headers: { Cookie: cookieConPermiso },
+      });
+      const body = await res.json();
+      assert.equal(res.status, 500, JSON.stringify(body));
+      assert.deepEqual(body, {
+        data: null,
+        error: { code: "INTERNAL_ERROR", message: "Error interno del servidor" },
+      });
     });
   },
 );
