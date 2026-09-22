@@ -5,20 +5,19 @@
  * (`docs/tasks/sdd/HU-H2/spec.md`, "Endpoint de aprobación"). Wrapper fino
  * (mismo patrón que `PATCH /api/ordenes-compra/[id]/estado/route.ts`):
  * resuelve sesión + permiso granular EXCLUSIVO
- * `proveedores:publicar_lista_critica`, valida el path param `version_id`
- * con Zod, delega en `aprobarListaPrecioVersion()` y mapea el
+ * `proveedores:publicar_lista_critica`, valida los path params `id` y
+ * `version_id` con Zod, delega en `aprobarListaPrecioVersion()` y mapea el
  * resultado/excepción. NINGUNA regla de negocio vive acá.
  *
  * Sin body — `aprobada_por_id` sale SIEMPRE de `session.userId` (spec.md:
  * "El usuario que aprueba se obtiene de la sesión autenticada, no del
  * payload"), nunca del path ni de un body.
  *
- * El `id` del path (proveedor) es solo forma de la URL (spec.md lo incluye
- * en el path, pero `aprobarListaPrecioVersion` no recibe `proveedor_id` como
- * parámetro — lo resuelve internamente desde la relación de la versión). Se
- * desestructura y se ignora deliberadamente: spec.md no exige validar que
- * corresponda al `proveedor_id` real de la versión, así que no se inventa
- * esa validación cruzada.
+ * El `id` del path identifica al proveedor dueño de la versión: se pasa a
+ * `aprobarListaPrecioVersion`, que solo aprueba si la versión pertenece a
+ * ese proveedor; si no, `404 VERSION_INEXISTENTE` (mismo criterio que
+ * `DIRECCION_NO_ENCONTRADA` en `PATCH /api/clientes/[id]/direcciones/[direccionId]`).
+ * `id` se valida con `ProveedorIdSchema`, igual que en el `POST` hermano.
  *
  * Respuestas: 200 OK · 400 VALIDATION_ERROR / VERSION_YA_APROBADA ·
  * 401 UNAUTHORIZED · 403 FORBIDDEN · 404 VERSION_INEXISTENTE ·
@@ -28,6 +27,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { withPermission } from "@/lib/auth/with-permission";
 import { ListaPrecioVersionIdSchema } from "@/lib/schemas/lista-precios.schema";
+import { ProveedorIdSchema } from "@/lib/schemas/proveedores.schema";
 import {
   aprobarListaPrecioVersion,
   PERMISO_APROBAR_LISTA_PRECIO_CRITICA,
@@ -44,8 +44,21 @@ const STATUS_POR_CODIGO: Record<string, number> = {
 export const PATCH = withPermission(
   PERMISO_APROBAR_LISTA_PRECIO_CRITICA,
   async (_req: NextRequest, session, context) => {
-    // `id` (proveedor) solo decora la URL — no se usa (ver nota del módulo).
-    const { version_id } = await (context as Context).params;
+    const { id, version_id } = await (context as Context).params;
+    const parsedId = ProveedorIdSchema.safeParse(id);
+    if (!parsedId.success) {
+      return NextResponse.json(
+        {
+          data: null,
+          error: {
+            code: "VALIDATION_ERROR",
+            message: parsedId.error.issues[0]?.message ?? "ID de proveedor inválido",
+          },
+        },
+        { status: 400 },
+      );
+    }
+
     const parsedVersionId = ListaPrecioVersionIdSchema.safeParse(version_id);
     if (!parsedVersionId.success) {
       return NextResponse.json(
@@ -63,6 +76,7 @@ export const PATCH = withPermission(
 
     try {
       const resultado = await aprobarListaPrecioVersion(
+        parsedId.data,
         parsedVersionId.data,
         session.userId,
       );

@@ -11,12 +11,16 @@
  *
  * Respuestas: 201 Created · 400 VALIDATION_ERROR · 401 UNAUTHORIZED ·
  * 403 FORBIDDEN · 404 PROVEEDOR_INEXISTENTE · 422 PROVEEDOR_NO_HOMOLOGADO /
- * VARIANTE_SKU_INEXISTENTE / FECHA_DUPLICADA · 500 INTERNAL_ERROR.
+ * VARIANTE_SKU_INEXISTENTE / FECHA_DUPLICADA / ITEMS_DUPLICADOS ·
+ * 500 INTERNAL_ERROR.
  */
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { withPermission } from "@/lib/auth/with-permission";
-import { PublicarListaPreciosSchema } from "@/lib/schemas/lista-precios.schema";
+import {
+  esErrorItemsDuplicados,
+  PublicarListaPreciosSchema,
+} from "@/lib/schemas/lista-precios.schema";
 import { ProveedorIdSchema } from "@/lib/schemas/proveedores.schema";
 import {
   publicarNuevaVersionListaPrecio,
@@ -31,6 +35,7 @@ const STATUS_POR_CODIGO: Record<string, number> = {
   PROVEEDOR_NO_HOMOLOGADO: 422,
   VARIANTE_SKU_INEXISTENTE: 422,
   FECHA_DUPLICADA: 422,
+  ITEMS_DUPLICADOS: 422,
 };
 
 export const POST = withPermission(
@@ -54,6 +59,18 @@ export const POST = withPermission(
     const body = await req.json().catch(() => null);
     const parsed = PublicarListaPreciosSchema.safeParse(body);
     if (!parsed.success) {
+      if (esErrorItemsDuplicados(parsed.error)) {
+        return NextResponse.json(
+          {
+            data: null,
+            error: {
+              code: "ITEMS_DUPLICADOS",
+              message: "La lista no puede incluir la misma variante en más de un ítem",
+            },
+          },
+          { status: STATUS_POR_CODIGO.ITEMS_DUPLICADOS },
+        );
+      }
       return NextResponse.json(
         {
           data: null,

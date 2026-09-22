@@ -800,7 +800,7 @@ model ListaPrecioVersion {
   id                          String    @id @default(uuid())
   lista_precio_id             String
   fecha_inicio_vigencia       DateTime
-  variacion_porcentual_maxima Decimal   @db.Decimal(5, 2)
+  variacion_porcentual_maxima Decimal   @db.Decimal(14, 2)
   requiere_aprobacion         Boolean   @default(false)
   /// `false` por defecto (spec_modulo_H.md §2.3): un default `true` sería
   /// fail-unsafe — la capa de servicios es quien resuelve explícitamente

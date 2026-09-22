@@ -7,6 +7,7 @@ import "server-only";
 
 import type { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
+import { ServiceError } from "@/lib/errors/service-error";
 import { resolverListaPrecioVigente } from "@/lib/services/proveedores/lista-precios.service";
 
 export type CriterioSeleccionCostoReposicion =
@@ -97,6 +98,13 @@ async function descubrirCandidatosAcotados(
  * `deleted_at: null` (mismo patrón usado por `obtenerVersionVigente` para
  * este mismo modelo). Sin ítem → `null`. `precio_unitario` se convierte de
  * `Prisma.Decimal` a `number` (misma convención de HU-H7).
+ *
+ * Guarda de duplicados: `ListaPrecioItem` no tiene `@@unique` sobre
+ * (`lista_precio_version_id`, `variante_sku_id`), así que N≥2 ítems activos
+ * para la misma variante-versión es corrupción de datos, no un caso de
+ * negocio — se lanza `ServiceError` fail-fast con el mismo código y mensaje
+ * que `resolverCandidatosPorVariante` (HU-H7, comparativa-precios.service.ts),
+ * en vez de tomar cualquiera de los dos en silencio.
  */
 async function resolverItemVigente(
   prisma: PrismaClient,
@@ -107,7 +115,7 @@ async function resolverItemVigente(
   const versionVigente = await resolverListaPrecioVigente(proveedorId, varianteSkuId, prisma);
   if (!versionVigente) return null;
 
-  const item = await prisma.listaPrecioItem.findFirst({
+  const itemsVigentes = await prisma.listaPrecioItem.findMany({
     where: {
       lista_precio_version_id: versionVigente.id,
       variante_sku_id: varianteSkuId,
@@ -115,6 +123,15 @@ async function resolverItemVigente(
       deleted_at: null,
     },
   });
+
+  if (itemsVigentes.length > 1) {
+    throw new ServiceError(
+      "DUPLICADO_LISTA_PRECIO_ITEM",
+      `Corrupción de datos: la ListaPrecioVersion ${versionVigente.id} tiene ${itemsVigentes.length} ListaPrecioItem activos para la variante ${varianteSkuId} — se esperaba a lo sumo uno.`,
+    );
+  }
+
+  const item = itemsVigentes[0];
   if (!item) return null;
 
   return {
@@ -176,9 +193,10 @@ function seleccionarGanador(
  * (`prisma` singleton real del proyecto, `ahora = new Date()`), ejecuta
  * Paso C → Pasos D+E **en paralelo** vía `Promise.all` (Design §2.4, no
  * secuencial) → Paso F. Nunca lanza por causa de negocio: `null` es la
- * única señal de "sin costo vigente". Una excepción real (fallo de DB) se
- * propaga tal cual — el try/catch que la traduce a 500 vive en el Route
- * Handler (T9), no acá.
+ * única señal de "sin costo vigente". Una excepción real (fallo de DB, o
+ * `DUPLICADO_LISTA_PRECIO_ITEM` por corrupción de datos) se propaga tal
+ * cual — el try/catch que la traduce a 500 vive en el Route Handler (T9),
+ * no acá.
  */
 export async function obtenerCostoReposicionVigente(
   varianteSkuId: string,

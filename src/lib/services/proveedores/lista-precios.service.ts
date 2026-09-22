@@ -102,15 +102,20 @@ function calcularVariacionPorcentual(
 }
 
 /**
- * Máximo absoluto entre los ítems con variación no-`null`; `0` si todos son
- * `null` (primera publicación completa) — sin rama de código especial,
- * resuelto naturalmente por el valor inicial `0` del `reduce` (propose.md,
- * "Caso borde: primera publicación de una ListaPrecio").
+ * Máximo de la magnitud (`Math.abs`) de las variaciones no-`null`: una baja
+ * de precio cuenta igual que una suba del mismo tamaño (Alcance Funcional
+ * §2.2 habla de "variación significativa de precio", sin dirección). El
+ * resultado es siempre `>= 0` — el signo de cada ítem se conserva en
+ * `items_variacion_critica[].variacion_porcentual` del evento crítico.
+ * `0` si todos son `null` (primera publicación completa) — sin rama de
+ * código especial, resuelto naturalmente por el valor inicial `0` del
+ * `reduce` (propose.md, "Caso borde: primera publicación de una
+ * ListaPrecio").
  */
 function calcularVariacionMaximaDelLote(items: ItemConVariacion[]): number {
   return items.reduce((maximo, item) => {
     if (item.variacion_porcentual === null) return maximo;
-    return Math.max(maximo, item.variacion_porcentual);
+    return Math.max(maximo, Math.abs(item.variacion_porcentual));
   }, 0);
 }
 
@@ -159,8 +164,10 @@ async function validarProveedorHomologado(
 /**
  * Paso 3 del checklist: existencia de cada `variante_sku_id` recibido. Si la
  * cantidad de resultados no coincide con la cantidad de ítems, al menos uno
- * no existe (spec.md, paso 3 literal — no se agrega deduplicación de SKUs
- * repetidos porque ni propose.md ni spec.md la piden para este endpoint).
+ * no existe (spec.md, paso 3 literal). La comparación por cantidad es válida
+ * porque `publicarNuevaVersionListaPrecio` ya rechazó SKUs repetidos
+ * (`ITEMS_DUPLICADOS`) antes de llegar acá — un `IN (...)` deduplica, y sin
+ * esa guarda un SKU repetido se reportaría como inexistente.
  *
  * `proveedor_id` es parte de la firma exacta de la tabla de auxiliares
  * privadas del Design pero no se usa en el cuerpo: la existencia de una
@@ -422,6 +429,19 @@ export async function publicarNuevaVersionListaPrecio(
   requiere_aprobacion: boolean;
   variacion_porcentual_maxima: number;
 }> {
+  // Rechazo temprano de SKUs repetidos (mismo patrón que `crearOrdenCompra`
+  // en `orden-compra.service.ts`): dos precios para la misma variante son
+  // ambiguos y persistirían dos `ListaPrecioItem` activos para la misma
+  // variante-versión. `PublicarListaPreciosSchema` ya lo rechaza en Zod;
+  // esta guarda cubre a cualquier llamador que no pase por el schema.
+  const skuIds = items.map((item) => item.variante_sku_id);
+  if (new Set(skuIds).size !== skuIds.length) {
+    throw new ServiceError(
+      "ITEMS_DUPLICADOS",
+      "La lista no puede incluir la misma variante en más de un ítem",
+    );
+  }
+
   const resultado = await prisma.$transaction(async (tx) => {
     await validarProveedorHomologado(proveedor_id, tx);
     await validarExistenciaVariantes(proveedor_id, items, tx);
@@ -557,19 +577,25 @@ export async function publicarNuevaVersionListaPrecio(
  * función" · `spec.md` checklist de `aprobarListaPrecioVersion`, pasos 1-4).
  *
  * Precondiciones (spec.md, tabla de errores consolidada):
- *  - `404 VERSION_INEXISTENTE` — no existe o está soft-deleted.
+ *  - `404 VERSION_INEXISTENTE` — no existe, está soft-deleted, o no
+ *    pertenece a `proveedor_id` (el `[id]` del path). La pertenencia se
+ *    filtra en la misma consulta (vía `lista_precio.proveedor_id`), así que
+ *    una versión de otro proveedor es indistinguible de una inexistente:
+ *    nunca se filtra su existencia — mismo criterio que
+ *    `DIRECCION_NO_ENCONTRADA` en `editarDireccionCliente()` (HU-C2).
  *  - `400 VERSION_YA_APROBADA` — `publicada = true` (ya aprobada, o nunca
  *    requirió aprobación).
  *
- * `proveedor_id` (necesario para el payload de `emitirListaAprobada`, T4) se
- * resuelve de la relación `lista_precio.proveedor_id` de la versión — NO es
- * un parámetro de esta función pública.
+ * El payload de `emitirListaAprobada` (T4) sigue tomando el proveedor de la
+ * relación `lista_precio.proveedor_id` de la versión; tras el filtro de
+ * pertenencia coincide por construcción con el `proveedor_id` recibido.
  *
  * NO se llama `registrarAuditLog()` acá (ver nota de cabecera del módulo):
  * `emitirListaAprobada` emite el evento post-COMMIT y
  * `audit-log.listener.ts` (T3) es quien registra el log.
  */
 export async function aprobarListaPrecioVersion(
+  proveedor_id: string,
   version_id: string,
   aprobada_por_id: string,
 ): Promise<{
@@ -580,7 +606,12 @@ export async function aprobarListaPrecioVersion(
 }> {
   const resultado = await prisma.$transaction(async (tx) => {
     const version = await tx.listaPrecioVersion.findFirst({
-      where: { id: version_id, is_active: true, deleted_at: null },
+      where: {
+        id: version_id,
+        is_active: true,
+        deleted_at: null,
+        lista_precio: { proveedor_id },
+      },
       select: {
         id: true,
         publicada: true,
