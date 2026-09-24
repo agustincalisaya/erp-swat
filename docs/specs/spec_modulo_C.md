@@ -299,37 +299,31 @@ export type ActualizarSegmentoClienteInput = z.infer<typeof ActualizarSegmentoCl
 
 ### 2.9. Log de auditoría de Clientes (HU-C10)
 
-**Ruta:** `GET /app/api/clientes/auditoria/route.ts`
-**Permiso requerido:** `auditoria:leer_historico` sobre el dominio `clientes` (exclusivo Auditor y Administrador de CRM, conforme matriz RBAC sección 5 — "Consultar el log de auditoría de clientes": `✓` para ambos roles, `✗` para Vendedor).
+**Vista:** `/auditoria/logs?modulo=clientes`, dentro de la consola general.
+**API:** `GET /api/auditoria/logs?modulo=clientes`.
+**Permiso requerido:** `clientes:leer_auditoria`, asignado a Auditor y Administrador CRM; el Vendedor no puede consultar este modo. Es distinto de `auditoria:leer_forense` (lectura global), `auditoria:verificar_cadena` y `auditoria:leer_historico` (compartido con Proveedores).
 
-**Principio de diseño no negociable (mismo criterio que HU-H6, `spec_modulo_H.md` sección 2.9):** este endpoint **no** recalcula ni reimplementa el encadenamiento SHA-256. El Módulo C no es propietario del `AuditLog` ni de la lógica de verificación de cadena — ambos son responsabilidad exclusiva del Módulo D. Este Route Handler delega en `listarEventosPorDominio(dominio: "clientes", filtros)`, la misma función de servicio del Módulo D reutilizada por Módulo H.
+El servicio de Clientes consulta `AuditLog` en solo lectura. Impone `tabla_afectada = "clientes"` y `accion IN ("CREATE", "UPDATE", "DELETE_LOGICO")` en la consulta a la base, antes del conteo y la paginación. No incluye asientos de direcciones, consentimientos, ventas ni fusiones. `listarEventosPorDominio` no existe en el Módulo D; HU-C10 usa un servicio acotado propio y no modifica `listarAuditLog()` de la consola general. La cadena SHA-256 y su verificador siguen siendo globales y pertenecen al Módulo D.
 
 ```typescript
-export const ConsultarAuditoriaClientesQuerySchema = z.object({
-  cliente_id: z.string().uuid().optional(),
-  tipo_evento: z.enum([
-    "cliente:creado",
-    "cliente:actualizado",
-    "cliente:baja_logica",
-        "cliente:consentimiento_registrado",
-    "cliente:consentimiento_revocado",
-  ]).optional(),
+export const FiltrosAuditoriaClientesSchema = z.object({
+  modulo: z.literal("clientes"),
+  cliente_nombre: z.string().trim().min(1).max(120).optional(),
+  accion: z.enum(["CREATE", "UPDATE", "DELETE_LOGICO"]).optional(),
   usuario_id: z.string().uuid().optional(),
   fecha_desde: z.coerce.date().optional(),
   fecha_hasta: z.coerce.date().optional(),
-  verificar_integridad: z.coerce.boolean().default(false),
-  pagina: z.coerce.number().int().positive().default(1),
-  por_pagina: z.coerce.number().int().positive().max(50).default(20),
-});
-export type ConsultarAuditoriaClientesQuery = z.infer<typeof ConsultarAuditoriaClientesQuerySchema>;
+  page: z.coerce.number().int().min(1).default(1),
+  page_size: z.coerce.number().int().min(1).max(100).default(25),
+}).strict().refine(
+  (data) => !data.fecha_desde || !data.fecha_hasta || data.fecha_desde <= data.fecha_hasta,
+  { message: "fecha_desde no puede ser posterior a fecha_hasta", path: ["fecha_desde"] },
+);
 ```
 
-**Comportamiento esperado:**
-- Consulta de solo lectura sobre `AuditLog`, filtrada por los `tipo_evento` propios de este módulo (ver enum, alineado 1:1 con la tabla de eventos de la sección 4).
-- Mismo contrato de `verificar_integridad` que HU-H6/HU-A6/HU-D4: opt-in explícito, nunca ejecutado por defecto en cada listado.
-- Los registros son append-only por herencia del `AuditLog` — este endpoint no expone ninguna operación de edición o borrado.
+**Filtro Cliente:** acepta un nombre completo o parcial sin distinguir mayúsculas y minúsculas. El servidor resuelve los clientes coincidentes, incluidos los inactivos, y filtra los asientos por sus identificadores antes del conteo y la paginación. Incluye los registros de todos los clientes coincidentes; si no encuentra ninguno, devuelve cero resultados. **Usuario responsable** conserva el selector por `usuario_id`, combinable con cliente, operación y fechas.
 
-**Respuesta `200 OK`:** mismo shape que `spec_modulo_H.md` sección 2.9 (paginación + `verificacion_integridad`), sustituyendo el dominio de los eventos.
+**Respuesta `200 OK`:** `{ data: { registros, total, page, page_size, puede_ver_cambios }, error: null }`. Cada asiento muestra fecha/hora, responsable, ID de cliente y operación. La columna **Motivo registrado** se omite para todos los roles. Solo una cuenta con asignación activa al rol Auditor y `clientes:leer_auditoria` recibe `valor_anterior` y `valor_nuevo` y ve la columna **Cambios registrados**; si además tiene Administrador CRM, conserva ese detalle. Para Administrador CRM sin rol Auditor activo, el servicio y la API omiten ambas propiedades, no solo la columna. El motivo y los valores históricos permanecen en `AuditLog`; `deletion_reason` puede formar parte de `valor_nuevo` visible para Auditor. Nombre y DNI consultados en la ficha actual se rotulan como actuales: el asiento de alta solo conserva el DNI y no contiene el nombre histórico. La consulta incluye clientes inactivos. La verificación global continúa por `POST /api/auditoria/verificar-cadena`, accesible únicamente con `auditoria:verificar_cadena`; HU-C10 no ofrece verificación independiente ni amplía ese permiso al Administrador CRM.
 
 ---
 
