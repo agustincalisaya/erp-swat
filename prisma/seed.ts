@@ -233,6 +233,10 @@ const PERMISO_CLIENTES_GESTIONAR_SEGMENTO_ID =
 // ningún Rol todavía, mismo patrón que otros permisos "stub" del proyecto.
 const PERMISO_AUDITORIA_LEER_HISTORICO_ID =
   "1a2b3c4d-1111-4a1a-8a1a-000000000028";
+// HU-C10: alcance exclusivo de asientos CREATE/UPDATE/DELETE_LOGICO sobre clientes.
+// No reutiliza auditoria:leer_historico porque ese permiso también abre Proveedores.
+const PERMISO_CLIENTES_LEER_AUDITORIA_ID =
+  "1a2b3c4d-1111-4a1a-8a1a-000000000043";
 const PERMISO_PROVEEDORES_PUBLICAR_LISTA_ID =
   "1a2b3c4d-1111-4a1a-8a1a-000000000029";
 const PERMISO_PROVEEDORES_PUBLICAR_LISTA_CRITICA_ID =
@@ -1489,6 +1493,17 @@ async function main() {
     },
   });
 
+  const permisoLeerAuditoriaClientes = await prisma.permiso.upsert({
+    where: { id: PERMISO_CLIENTES_LEER_AUDITORIA_ID },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: {
+      id: PERMISO_CLIENTES_LEER_AUDITORIA_ID,
+      codigo: "clientes:leer_auditoria",
+      descripcion: "Consultar los asientos de altas, cambios y bajas lógicas de clientes",
+      modulo: "MODULO_C",
+    },
+  });
+
   // ── HU-C1 — Roles VENDEDOR y ADMINISTRADOR_CRM ─────────────────────────────
   // Reparto de los 7 permisos `clientes:*` (task-chiki.md, prerrequisito de
   // roles):
@@ -1561,6 +1576,15 @@ async function main() {
       where: { rol_id_permiso_id: { rol_id: rolAuditor.id, permiso_id: permisoId } },
       update: REACTIVAR_REFERENCIA_RBAC,
       create: { rol_id: rolAuditor.id, permiso_id: permisoId },
+    });
+  }
+
+  // HU-C10: permiso acotado para Auditor y Administrador CRM; Vendedor no lo recibe.
+  for (const rolId of [rolAuditor.id, rolAdministradorCrm.id]) {
+    await prisma.rolPermiso.upsert({
+      where: { rol_id_permiso_id: { rol_id: rolId, permiso_id: permisoLeerAuditoriaClientes.id } },
+      update: REACTIVAR_REFERENCIA_RBAC,
+      create: { rol_id: rolId, permiso_id: permisoLeerAuditoriaClientes.id },
     });
   }
 

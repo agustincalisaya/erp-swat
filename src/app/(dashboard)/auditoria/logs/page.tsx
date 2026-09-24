@@ -4,11 +4,11 @@
  *
  * D.3 — Consola de Auditoría Forense (spec_modulo_D.md §4.3/§4.4,
  * task_cali_auditoria_forense.md). Server Component: resuelve la sesión y
- * los permisos ampliados una sola vez, y llama `listarAuditLog()`
- * directamente (mismo service que consume el Route Handler
- * `GET /api/auditoria/logs` — sin duplicar la regla de segregación).
+ * los permisos ampliados y llama `listarAuditLog()` para el modo general.
+ * HU-C10 incorpora un modo Clientes separado dentro de la misma ruta.
  */
 import { Suspense } from "react";
+import Link from "next/link";
 import { ScrollText, AlertTriangle } from "lucide-react";
 import { getServerSession } from "@/lib/auth/session";
 import { usuarioTienePermiso } from "@/lib/auth/with-permission";
@@ -22,6 +22,8 @@ import { FiltrosAuditoriaSchema } from "@/lib/schemas/auditoria.schema";
 import { FiltrosAuditoria } from "@/components/auditoria/FiltrosAuditoria";
 import { TablaAuditLog } from "@/components/auditoria/TablaAuditLog";
 import { BotonVerificarCadena } from "@/components/auditoria/BotonVerificarCadena";
+import { VistaAuditoriaClientes } from "@/components/auditoria/VistaAuditoriaClientes";
+import { PERMISO_LEER_AUDITORIA_CLIENTES } from "@/lib/services/clientes/auditoria-clientes.service";
 
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -67,12 +69,18 @@ export default async function LogsPage({ searchParams }: LogsPageProps) {
     );
   }
 
-  const [tieneLeerForense, tieneVerificarCadena] = await Promise.all([
+  const rawParams = await searchParams;
+  if (rawParams.modulo === "clientes" ||
+      (Array.isArray(rawParams.modulo) && rawParams.modulo.includes("clientes"))) {
+    return <VistaAuditoriaClientes userId={session.userId} rawParams={rawParams} />;
+  }
+
+  const [tieneLeerForense, tieneVerificarCadena, tieneLeerAuditoriaClientes] = await Promise.all([
     usuarioTienePermiso(session.userId, PERMISO_LEER_FORENSE),
     usuarioTienePermiso(session.userId, PERMISO_VERIFICAR_CADENA),
+    usuarioTienePermiso(session.userId, PERMISO_LEER_AUDITORIA_CLIENTES),
   ]);
 
-  const rawParams = await searchParams;
   const parsedFiltros = FiltrosAuditoriaSchema.safeParse(rawParams);
   const filtros = parsedFiltros.success ? parsedFiltros.data : FiltrosAuditoriaSchema.parse({});
 
@@ -128,6 +136,13 @@ export default async function LogsPage({ searchParams }: LogsPageProps) {
           </div>
           {tieneVerificarCadena && <BotonVerificarCadena />}
         </div>
+
+        {tieneLeerAuditoriaClientes && (
+          <nav aria-label="Módulo de auditoría" className="flex gap-4 text-sm">
+            <span aria-current="page" className="font-semibold">Historial general</span>
+            <Link href="/auditoria/logs?modulo=clientes" className="text-blue-600 hover:underline">Clientes</Link>
+          </nav>
+        )}
 
         {/* ── Filtros ──────────────────────────────────────────────────── */}
         <Suspense fallback={null}>
