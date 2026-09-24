@@ -308,7 +308,7 @@ El servicio de Clientes consulta `AuditLog` en solo lectura. Impone `tabla_afect
 ```typescript
 export const FiltrosAuditoriaClientesSchema = z.object({
   modulo: z.literal("clientes"),
-  cliente_id: z.string().uuid().optional(),
+  cliente_nombre: z.string().trim().min(1).max(120).optional(),
   accion: z.enum(["CREATE", "UPDATE", "DELETE_LOGICO"]).optional(),
   usuario_id: z.string().uuid().optional(),
   fecha_desde: z.coerce.date().optional(),
@@ -321,7 +321,9 @@ export const FiltrosAuditoriaClientesSchema = z.object({
 );
 ```
 
-**Respuesta `200 OK`:** `{ data: { registros, total, page, page_size }, error: null }`. Cada asiento muestra fecha/hora, responsable, ID de cliente, operación, valores anteriores/nuevos y `deletion_reason` solo cuando está registrado. Nombre y DNI consultados en la ficha actual se rotulan como actuales: el asiento de alta solo conserva el DNI y no contiene el nombre histórico. La consulta incluye clientes inactivos. La verificación global continúa por `POST /api/auditoria/verificar-cadena`, accesible únicamente con `auditoria:verificar_cadena`; HU-C10 no ofrece verificación independiente ni amplía ese permiso al Administrador CRM.
+**Filtro Cliente:** acepta un nombre completo o parcial sin distinguir mayúsculas y minúsculas. El servidor resuelve los clientes coincidentes, incluidos los inactivos, y filtra los asientos por sus identificadores antes del conteo y la paginación. Incluye los registros de todos los clientes coincidentes; si no encuentra ninguno, devuelve cero resultados. **Usuario responsable** conserva el selector por `usuario_id`, combinable con cliente, operación y fechas.
+
+**Respuesta `200 OK`:** `{ data: { registros, total, page, page_size, puede_ver_cambios }, error: null }`. Cada asiento muestra fecha/hora, responsable, ID de cliente y operación. La columna **Motivo registrado** se omite para todos los roles. Solo una cuenta con asignación activa al rol Auditor y `clientes:leer_auditoria` recibe `valor_anterior` y `valor_nuevo` y ve la columna **Cambios registrados**; si además tiene Administrador CRM, conserva ese detalle. Para Administrador CRM sin rol Auditor activo, el servicio y la API omiten ambas propiedades, no solo la columna. El motivo y los valores históricos permanecen en `AuditLog`; `deletion_reason` puede formar parte de `valor_nuevo` visible para Auditor. Nombre y DNI consultados en la ficha actual se rotulan como actuales: el asiento de alta solo conserva el DNI y no contiene el nombre histórico. La consulta incluye clientes inactivos. La verificación global continúa por `POST /api/auditoria/verificar-cadena`, accesible únicamente con `auditoria:verificar_cadena`; HU-C10 no ofrece verificación independiente ni amplía ese permiso al Administrador CRM.
 
 ---
 

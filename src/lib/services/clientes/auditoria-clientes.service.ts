@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db/prisma";
 import { usuarioTienePermiso } from "@/lib/auth/with-permission";
 import { ServiceError } from "@/lib/errors/service-error";
 import type { FiltrosAuditoriaClientesInput } from "@/lib/schemas/auditoria-clientes.schema";
-import { ACCIONES_AUDITORIA_CLIENTES, construirFiltroAuditoriaClientes } from "./auditoria-clientes.reglas";
+import { ACCIONES_AUDITORIA_CLIENTES, construirFiltroAuditoriaClientes, construirFiltroNombreCliente, valoresVisiblesAuditoriaCliente } from "./auditoria-clientes.reglas";
 
 export const PERMISO_LEER_AUDITORIA_CLIENTES = "clientes:leer_auditoria";
 
@@ -18,9 +18,8 @@ export type RegistroAuditoriaCliente = {
   usuario_nombre: string | null;
   accion: (typeof ACCIONES_AUDITORIA_CLIENTES)[number];
   created_at: Date;
-  valor_anterior: unknown;
-  valor_nuevo: unknown;
-  motivo: string | null;
+  valor_anterior?: unknown;
+  valor_nuevo?: unknown;
 };
 
 export type ListadoAuditoriaClientes = {
@@ -28,6 +27,7 @@ export type ListadoAuditoriaClientes = {
   total: number;
   page: number;
   page_size: number;
+  puede_ver_cambios: boolean;
 };
 
 export type ResponsableAuditoriaCliente = { id: string; nombre_completo: string };
@@ -38,20 +38,28 @@ async function exigirPermiso(usuarioId: string): Promise<void> {
   }
 }
 
-function motivoRegistrado(accion: string, valorNuevo: unknown): string | null {
-  if (accion !== "DELETE_LOGICO" || !valorNuevo || typeof valorNuevo !== "object" || Array.isArray(valorNuevo)) {
-    return null;
-  }
-  const motivo = (valorNuevo as Record<string, unknown>).deletion_reason;
-  return typeof motivo === "string" ? motivo : null;
-}
-
 export async function listarAuditoriaClientes(
   filtros: FiltrosAuditoriaClientesInput,
   usuarioId: string,
 ): Promise<ListadoAuditoriaClientes> {
   await exigirPermiso(usuarioId);
-  const where = construirFiltroAuditoriaClientes(filtros);
+  const asignacionAuditor = await prisma.usuarioRol.findFirst({
+    where: {
+      usuario_id: usuarioId,
+      is_active: true,
+      deleted_at: null,
+      rol: { nombre: "AUDITOR", is_active: true, deleted_at: null },
+    },
+    select: { id: true },
+  });
+  const puedeVerCambios = asignacionAuditor !== null;
+  const clientesCoincidentes = filtros.cliente_nombre
+    ? await prisma.cliente.findMany({
+      where: construirFiltroNombreCliente(filtros.cliente_nombre),
+      select: { id: true },
+    })
+    : [];
+  const where = construirFiltroAuditoriaClientes(filtros, clientesCoincidentes.map((cliente) => cliente.id));
   const [filas, total] = await Promise.all([
     prisma.auditLog.findMany({
       where,
@@ -83,14 +91,13 @@ export async function listarAuditoriaClientes(
         usuario_nombre: fila.usuario?.nombre_completo ?? null,
         accion: fila.accion as RegistroAuditoriaCliente["accion"],
         created_at: fila.created_at,
-        valor_anterior: fila.valor_anterior,
-        valor_nuevo: fila.valor_nuevo,
-        motivo: motivoRegistrado(fila.accion, fila.valor_nuevo),
+        ...valoresVisiblesAuditoriaCliente(puedeVerCambios, fila.valor_anterior, fila.valor_nuevo),
       };
     }),
     total,
     page: filtros.page,
     page_size: filtros.page_size,
+    puede_ver_cambios: puedeVerCambios,
   };
 }
 

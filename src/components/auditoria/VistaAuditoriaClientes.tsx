@@ -32,7 +32,7 @@ export async function VistaAuditoriaClientes({ userId, rawParams }: { userId: st
   const queryBase = new URLSearchParams({ modulo: "clientes" });
   if (parsed.success) {
     const filtros = parsed.data;
-    if (filtros.cliente_id) queryBase.set("cliente_id", filtros.cliente_id);
+    if (filtros.cliente_nombre) queryBase.set("cliente_nombre", filtros.cliente_nombre);
     if (filtros.usuario_id) queryBase.set("usuario_id", filtros.usuario_id);
     if (filtros.accion) queryBase.set("accion", filtros.accion);
     if (filtros.fecha_desde) queryBase.set("fecha_desde", filtros.fecha_desde.toISOString().slice(0, 10));

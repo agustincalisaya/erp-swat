@@ -11,7 +11,7 @@ import type { ResponsableAuditoriaCliente } from "@/lib/services/clientes/audito
 export function FiltrosAuditoriaClientes({ responsables }: { responsables: ResponsableAuditoriaCliente[] }) {
   const router = useRouter();
   const paramsActuales = useSearchParams();
-  const [clienteId, setClienteId] = useState(paramsActuales.get("cliente_id") ?? "");
+  const [clienteNombre, setClienteNombre] = useState(paramsActuales.get("cliente_nombre") ?? "");
   const [usuarioId, setUsuarioId] = useState(paramsActuales.get("usuario_id") ?? "");
   const [accion, setAccion] = useState(paramsActuales.get("accion") ?? "");
   const [fechaDesde, setFechaDesde] = useState(paramsActuales.get("fecha_desde") ?? "");
@@ -20,7 +20,7 @@ export function FiltrosAuditoriaClientes({ responsables }: { responsables: Respo
   function aplicar(evento: React.FormEvent) {
     evento.preventDefault();
     const params = new URLSearchParams({ modulo: "clientes", page: "1" });
-    if (clienteId.trim()) params.set("cliente_id", clienteId.trim());
+    if (clienteNombre.trim()) params.set("cliente_nombre", clienteNombre.trim());
     if (usuarioId) params.set("usuario_id", usuarioId);
     if (accion) params.set("accion", accion);
     if (fechaDesde) params.set("fecha_desde", fechaDesde);
@@ -30,18 +30,19 @@ export function FiltrosAuditoriaClientes({ responsables }: { responsables: Respo
   }
 
   function limpiar() {
-    setClienteId(""); setUsuarioId(""); setAccion(""); setFechaDesde(""); setFechaHasta("");
+    setClienteNombre(""); setUsuarioId(""); setAccion(""); setFechaDesde(""); setFechaHasta("");
     router.push("/auditoria/logs?modulo=clientes");
   }
 
   return (
     <form onSubmit={aplicar} className="rounded-xl border border-border bg-white p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 items-end">
       <div className="space-y-1.5">
-        <Label htmlFor="auditoria-cliente-id" className="text-xs">ID de cliente</Label>
-        <Input id="auditoria-cliente-id" value={clienteId} onChange={(e) => setClienteId(e.target.value)} placeholder="UUID del cliente" />
+        <Label htmlFor="auditoria-cliente-nombre" className="text-xs">Cliente</Label>
+        <Input id="auditoria-cliente-nombre" type="search" value={clienteNombre}
+          onChange={(e) => setClienteNombre(e.target.value)} placeholder="Nombre completo o parcial" />
       </div>
       <div className="space-y-1.5">
-        <Label htmlFor="auditoria-cliente-responsable" className="text-xs">Responsable</Label>
+        <Label htmlFor="auditoria-cliente-responsable" className="text-xs">Usuario responsable</Label>
         <select id="auditoria-cliente-responsable" value={usuarioId} onChange={(e) => setUsuarioId(e.target.value)}
           className="w-full h-9 rounded-lg border border-input bg-background px-3 text-sm">
           <option value="">Todos</option>

@@ -9,7 +9,7 @@ function fechaHora(fecha: Date): string {
 }
 
 export function TablaAuditoriaClientes({ resultado, queryBase }: { resultado: ListadoAuditoriaClientes; queryBase: string }) {
-  const { registros, total, page, page_size } = resultado;
+  const { registros, total, page, page_size, puede_ver_cambios } = resultado;
   const totalPaginas = Math.max(1, Math.ceil(total / page_size));
   if (!registros.length) return <p className="py-12 text-center text-sm text-muted-foreground">No hay asientos de clientes para los filtros aplicados.</p>;
 
@@ -20,7 +20,7 @@ export function TablaAuditoriaClientes({ resultado, queryBase }: { resultado: Li
         <Table>
           <TableHeader><TableRow>
             <TableHead>Fecha y hora</TableHead><TableHead>Responsable</TableHead><TableHead>Cliente</TableHead>
-            <TableHead>Operación</TableHead><TableHead>Motivo registrado</TableHead><TableHead>Cambios registrados</TableHead>
+            <TableHead>Operación</TableHead>{puede_ver_cambios && <TableHead>Cambios registrados</TableHead>}
           </TableRow></TableHeader>
           <TableBody>{registros.map((registro) => (
             <TableRow key={registro.id}>
@@ -37,15 +37,14 @@ export function TablaAuditoriaClientes({ resultado, queryBase }: { resultado: Li
                 {registro.cliente_nombre_actual && <div className="font-mono text-muted-foreground">{registro.cliente_id}</div>}
               </TableCell>
               <TableCell className="text-xs whitespace-nowrap">{ETIQUETA_OPERACION[registro.accion]}</TableCell>
-              <TableCell className="text-xs">{registro.motivo ?? "—"}</TableCell>
-              <TableCell className="text-xs">
-                {registro.valor_anterior !== null || registro.valor_nuevo !== null ? <details>
+              {puede_ver_cambios && <TableCell className="text-xs">
+                {registro.valor_anterior != null || registro.valor_nuevo != null ? <details>
                   <summary className="cursor-pointer text-blue-600">Ver valores</summary>
                   <pre className="mt-1 max-w-sm overflow-x-auto rounded bg-muted/50 p-2 text-[10px]">
                     {JSON.stringify({ anterior: registro.valor_anterior, nuevo: registro.valor_nuevo }, null, 2)}
                   </pre>
                 </details> : "—"}
-              </TableCell>
+              </TableCell>}
             </TableRow>
           ))}</TableBody>
         </Table>

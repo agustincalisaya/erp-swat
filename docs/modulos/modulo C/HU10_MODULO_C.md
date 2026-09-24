@@ -8,13 +8,15 @@ La opción **Clientes** de `/auditoria/logs` consulta asientos ya existentes del
 
 El permiso `clientes:leer_auditoria` se asigna a los roles Auditor y Administrador CRM. Vendedor no lo recibe. La vista y `GET /api/auditoria/logs?modulo=clientes` verifican el permiso; el servicio también lo revalida. El filtro de tabla y operaciones se aplica en el servidor antes de contar y paginar, sin aceptar una tabla solicitada por el navegador. El permiso no habilita lectura global ni `POST /api/auditoria/verificar-cadena` al Administrador CRM. El modo general de `/auditoria/logs` conserva sus reglas anteriores.
 
+Solo una asignación activa al rol Auditor, junto con el permiso, habilita **Cambios registrados**. Una cuenta que tenga también el rol Administrador CRM conserva ese detalle por su rol Auditor. Para una cuenta sin rol Auditor activo, el servicio y la API omiten `valor_anterior` y `valor_nuevo` de cada asiento; la interfaz tampoco muestra la columna. **Motivo registrado** no es una columna para ningún rol. Los valores y motivos históricos siguen almacenados sin cambios en `AuditLog`.
+
 ## Consulta y resultados
 
 1. Abrir **Auditoría Forense** y elegir **Clientes**.
-2. Filtrar, si corresponde, por ID de cliente, responsable, operación y fechas. La fecha final incluye todo el día indicado en UTC. Los cambios de filtros vuelven a la página 1; la paginación mantiene el filtro.
-3. Revisar fecha y hora, responsable, cliente, operación, motivo de baja cuando conste y el detalle de valores anteriores y nuevos del asiento.
+2. Filtrar, si corresponde, por **Cliente**, **Usuario responsable**, operación y fechas. Cliente admite el nombre completo o una parte, sin distinguir mayúsculas y minúsculas. El servidor resuelve los clientes coincidentes, incluidos los inactivos, y filtra los asientos por sus identificadores; si no encuentra ninguno, devuelve cero resultados. Usuario responsable conserva el selector de usuarios por `usuario_id`. La fecha final incluye todo el día indicado en UTC. Los cambios de filtros vuelven a la página 1; la paginación mantiene el filtro.
+3. Revisar fecha y hora, responsable, cliente y operación. Si la cuenta tiene el rol Auditor activo, **Cambios registrados** permite ver los valores anteriores y nuevos del asiento cuando constan.
 
-`AuditLog.registro_id` identifica al cliente. El nombre y DNI mostrados junto al ID se consultan de la ficha **actual**, incluso si el cliente está inactivo; no representan el nombre histórico. El asiento `CREATE` contiene el DNI pero no el nombre. Los asientos `UPDATE` contienen solo los campos modificados. `DELETE_LOGICO` conserva `is_active` anterior/nuevo y `deletion_reason`. Un dato ausente se muestra como tal, sin reconstruir valores históricos.
+`AuditLog.registro_id` identifica al cliente. El nombre y DNI mostrados junto al ID se consultan de la ficha **actual**, incluso si el cliente está inactivo; no representan el nombre histórico. El asiento `CREATE` contiene el DNI pero no el nombre. Los asientos `UPDATE` contienen solo los campos modificados. `DELETE_LOGICO` conserva `is_active` anterior/nuevo y `deletion_reason` en el asiento; este último puede aparecer dentro de los valores nuevos para Auditor. Un dato ausente se muestra como tal, sin reconstruir valores históricos.
 
 ## Integridad y límites
 

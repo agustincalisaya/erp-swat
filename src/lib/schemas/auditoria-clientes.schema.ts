@@ -3,7 +3,7 @@ import { z } from "zod";
 /** Filtros exclusivos del modo Clientes de la consola de auditoría. */
 export const FiltrosAuditoriaClientesSchema = z.object({
   modulo: z.literal("clientes"),
-  cliente_id: z.string().uuid().optional(),
+  cliente_nombre: z.string().trim().min(1).max(120).optional(),
   usuario_id: z.string().uuid().optional(),
   accion: z.enum(["CREATE", "UPDATE", "DELETE_LOGICO"]).optional(),
   fecha_desde: z.coerce.date().optional(),
