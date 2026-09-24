@@ -442,7 +442,7 @@ export type EmitirComprobanteFiscalType = z.infer<typeof EmitirComprobanteFiscal
 
 **Ruta:** `PATCH /app/api/ventas/[id]/anular/route.ts`
 **Server Action equivalente:** `anularPedidoVenta()` en `app/(dashboard)/ventas/pos/actions.ts`
-**Permiso requerido:** `ventas:anular_pedido` (exclusivo Supervisor de Ventas, conforme matriz RBAC del Alcance — el Cajero POS solo puede *solicitar* la anulación vía un flujo fuera de alcance de este documento, mismo patrón ya usado en `spec_modulo_C.md` HU-C6/HU-C5 para "solicita").
+**Permiso requerido:** `ventas:anular_pedido` (exclusivo Supervisor de Ventas, conforme matriz RBAC del Alcance — el Cajero POS solo puede *solicitar* la anulación vía un flujo fuera de alcance de este documento, conforme el patrón de solicitud de HU-C6).
 
 ```typescript
 export const AnularPedidoVentaSchema = z.object({

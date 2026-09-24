@@ -1287,8 +1287,8 @@ model Cliente {
   segmento        SegmentoComercial @default(MINORISTA)
 
   /// Redirección lógica hacia el cliente primario cuando este registro fue
-  /// desactivado por fusión (HU-C5 §2.5.1). Inmutable una vez seteado — no
-  /// existe "deshacer fusión" (spec §3.2). `onDelete: Restrict` porque
+  /// desactivado por una relación histórica anterior a la redefinición de HU-C5.
+  /// HU-C7 la consulta; `onDelete: Restrict` porque
   /// ninguna entidad del módulo admite `DELETE` físico (RULES.md Regla N.° 1).
   fusionado_en_id     String?
   fusionado_en        Cliente?  @relation("FusionCliente", fields: [fusionado_en_id], references: [id], onDelete: Restrict)
@@ -1313,6 +1313,8 @@ model Cliente {
   pedidos_venta    PedidoVenta[]
   cuenta_corriente CuentaCorrienteCliente?
 
+  // Índice creado por la migración histórica C5; sigue sirviendo a HU-C7.
+  @@index([fusionado_en_id])
   @@map("clientes")
 }
 

@@ -38,7 +38,7 @@ El criterio de aceptación dice "dirección" como campo editable, pero el modelo
 **Explícitamente fuera de alcance:**
 
 - **Baja lógica de una dirección.** El AC no la pide y no existe hoy ni service, ni schema, ni ruta, ni acción de UI. Agregarla implica además definir qué pasa con la regla de FACTURACION al desactivar la única FACTURACION (ver 10). Queda para una HU futura.
-- **El campo `dni`.** Inmutable por AC; la vía correcta ante un DNI mal cargado es la fusión de duplicados (HU-C5), nunca una edición.
+- **El campo `dni`.** Inmutable por AC; HU-C5 previene un nuevo duplicado; una corrección de DNI requiere una decisión funcional separada.
 - **Canal preferido y segmento**, que tienen su propia HU (HU-C9, HU-C8) y su propio endpoint.
 
 ## 3. Modelo de datos involucrado

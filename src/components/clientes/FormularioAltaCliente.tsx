@@ -13,20 +13,20 @@
  * confirmar el alta. La decisión de arquitectura es que toda dirección vive
  * en `DireccionCliente` y se gestiona desde la ficha, nunca desde el alta.
  *
- * La respuesta distingue `es_nuevo`: si el DNI ya existía, se redirige a la
- * ficha con `?alta=recuperado` para que muestre que se recuperó el registro
- * existente en vez de crear un duplicado (criterio de aceptación explícito
- * de HU-C1) — nunca se muestra como un error.
+ * La respuesta distingue `es_nuevo`: si el DNI ya existía, el formulario
+ * muestra el aviso preventivo y el acceso a la ficha sin crear un duplicado.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useForm, type Resolver } from "react-hook-form";
+import { useForm, useWatch, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Loader2, UserPlus } from "lucide-react";
+import { UserPlus } from "lucide-react";
 
 import { CrearClienteSchema, type CrearClienteInput } from "@/lib/schemas/clientes.schema";
 import { crearCliente } from "@/app/(dashboard)/clientes/actions";
+import { consultarPrevencionAltaAction } from "@/app/(dashboard)/clientes/prevencion.actions";
+import { AvisoDniCliente, BotonAltaCliente, dniExistenteActual, type DniExistenteAlta } from "./ControlesAltaCliente";
 
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import {
@@ -53,15 +53,44 @@ const DEFAULT_VALUES: CrearClienteInput = {
 export function FormularioAltaCliente() {
   const router = useRouter();
   const [serverError, setServerError] = useState<string | null>(null);
-  const [recoveredId, setRecoveredId] = useState<string | null>(null);
+  const [dniExistente, setDniExistente] = useState<DniExistenteAlta | null>(null);
+  const [revision, setRevision] = useState<{ clave: string; posibles: { cliente_id: string; dni: string; nombre: string; is_active: boolean }[] } | null>(null);
 
   const form = useForm<CrearClienteInput>({
     resolver: zodResolver(CrearClienteSchema) as unknown as Resolver<CrearClienteInput>,
     defaultValues: DEFAULT_VALUES,
   });
 
+  const [dni, nombre, telefono, email] = useWatch({ control: form.control, name: ["dni", "nombre", "telefono", "email"] });
+  const claveActual = JSON.stringify([dni, nombre, telefono, email]);
+  const existenteActual = dniExistenteActual(dniExistente, dni);
+  useEffect(() => {
+    let vigente = true;
+    if (!/^\d{7,8}$/.test(dni)) return;
+    const timer = setTimeout(() => {
+      void consultarPrevencionAltaAction({ dni }).then((resultado) => {
+        if (vigente) setDniExistente(resultado.data?.existente
+          ? { dni, ...resultado.data.existente } : null);
+      }).catch(() => { /* El envío vuelve a comprobar el DNI. */ });
+    }, 300);
+    return () => { vigente = false; clearTimeout(timer); };
+  }, [dni]);
+
   async function onSubmit(values: CrearClienteInput) {
     setServerError(null);
+    const clave = JSON.stringify([values.dni, values.nombre, values.telefono, values.email]);
+    if (revision?.clave !== clave) {
+      const previo = await consultarPrevencionAltaAction(values);
+      if (previo.error) { setServerError(previo.error.message); return; }
+      if (previo.data.existente) {
+        setDniExistente({ dni: values.dni, ...previo.data.existente });
+        return;
+      }
+      if (previo.data.posibles.length) {
+        setRevision({ clave, posibles: previo.data.posibles });
+        return;
+      }
+    }
     const resultado = await crearCliente(values);
 
     if (resultado.error) {
@@ -74,36 +103,29 @@ export function FormularioAltaCliente() {
       return;
     }
 
-    // Alta confirmada: el cliente ya existe (nuevo o recuperado). Direcciones
-    // y canal de contacto se gestionan en la ficha, así que se navega ahí.
+    // HU-C1 también cubre la carrera en que el DNI aparece después de la
+    // consulta preventiva. El formulario muestra el mismo aviso en ese caso.
     const { cliente_id, es_nuevo } = resultado.data;
     if (!es_nuevo) {
-      setRecoveredId(cliente_id);
+      const posterior = await consultarPrevencionAltaAction({ dni: values.dni });
+      setDniExistente({ dni: values.dni, id: posterior.data?.existente?.id ?? null,
+        is_active: posterior.data?.existente?.is_active ?? null });
       return;
     }
     router.push(`/clientes/${cliente_id}`);
   }
 
-  if (recoveredId) {
-    return (
-      <Card>
-        <CardContent className="space-y-4 pt-6">
-          <Alert role="status" className="border-amber-200 bg-amber-50">
-            <AlertDescription>
-              Este DNI ya existía: se recuperó el cliente. Las decisiones indicadas en este
-              intento no se registraron. La regularización estará disponible desde su ficha.
-            </AlertDescription>
-          </Alert>
-          <Button type="button" onClick={() => router.push(`/clientes/${recoveredId}?alta=recuperado`)}>
-            Ir a la ficha del cliente
-          </Button>
-        </CardContent>
-      </Card>
-    );
-  }
-
   return (
     <Card>
+      {existenteActual && <AvisoDniCliente cliente={existenteActual}
+        onIrFicha={(id) => router.push(`/clientes/${id}`)} />}
+      {!existenteActual && revision?.clave === claveActual && <Alert role="status" className="border-amber-200 bg-amber-50">
+        <AlertDescription>
+          Posibles coincidencias por nombre, teléfono o email. El DNI es diferente; podés continuar con el alta.
+          {revision.posibles.map((c) => <Button key={c.cliente_id} type="button" variant="link"
+            onClick={() => router.push(`/clientes/${c.cliente_id}`)}>{c.nombre} — DNI {c.dni}{c.is_active ? "" : " (inactivo)"}</Button>)}
+        </AlertDescription>
+      </Alert>}
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-sm font-semibold">
           <UserPlus className="size-4 text-blue-500" aria-hidden="true" />
@@ -247,28 +269,13 @@ export function FormularioAltaCliente() {
                 )}
               />
               <p className="text-xs text-muted-foreground">
-                Si el DNI ya existe, se recuperará ese registro y estas decisiones no se guardarán.
+                Si el DNI ya existe, no se creará otro cliente ni se guardarán estas decisiones.
               </p>
             </div>
 
             <div className="flex justify-end pt-2 border-t border-slate-100">
-              <Button
-                type="submit"
-                disabled={form.formState.isSubmitting}
-                className="bg-blue-600 hover:bg-blue-700 text-white gap-2"
-              >
-                {form.formState.isSubmitting ? (
-                  <>
-                    <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-                    Guardando…
-                  </>
-                ) : (
-                  <>
-                    <UserPlus className="size-4" aria-hidden="true" />
-                    Dar de alta
-                  </>
-                )}
-              </Button>
+              <BotonAltaCliente enviando={form.formState.isSubmitting}
+                bloqueado={!!existenteActual} continuar={revision?.clave === claveActual} />
             </div>
           </form>
         </Form>

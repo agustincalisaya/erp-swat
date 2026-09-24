@@ -246,5 +246,5 @@ Módulo E (checkout web) leerá las direcciones con `listarDireccionesCliente(cl
 **Pendientes / territorio de otras HUs:**
 - Editar o dar de baja lógica una dirección → fuera del alcance de HU-C3 (no hay endpoint).
 - Consumo real de las direcciones por Módulo E (checkout web) → diferido (spec §5).
-- Ficha completa con edición de contacto (HU-C2), consentimiento (HU-C4), fusión (HU-C5), baja (HU-C6) y log (HU-C10) → territorio de otras HUs.
+- Ficha completa con edición de contacto (HU-C2), consentimiento (HU-C4), prevención de duplicados (HU-C5), baja (HU-C6) y log (HU-C10) → territorio de otras HUs.
 - La integración de Módulo B con Módulo C es solo HU-C7 (consulta unificada), no `DireccionCliente`.

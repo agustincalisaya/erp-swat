@@ -816,8 +816,7 @@ export interface ConsultaUnificadaCliente {
  *    `{ direccion_id, rotulo, tipo }` son parte del contrato: la ficha NO
  *    expone `is_active` ni `created_at`.
  *  - El payload NO incluye `segmento`, campos `deleted_*` ni
- *    `fusionado_en_id` (minimización del payload; HU-C8 y HU-C5 tienen sus
- *    propios contratos).
+ *    `fusionado_en_id` (minimización del payload).
  *
  * @throws {ServiceError} `CLIENTE_NO_ENCONTRADO` si no hay cliente con ese DNI.
  */
@@ -882,12 +881,11 @@ export async function consultarClientePorDni(dni: string): Promise<ConsultaUnifi
  * tres agregados. Los pedidos con `cliente_id = null` (mostrador sin cliente
  * identificado) tampoco entran: el filtro es por `cliente_id IN <clúster>`.
  *
- * CLÚSTER DE FUSIÓN (HU-C5): el historial del cliente primario incluye sus
+ * RELACIÓN HISTÓRICA CONSERVADA PARA HU-C7: el historial del primario incluye sus
  * propios pedidos MÁS los de los clientes secundarios cuyo `fusionado_en_id`
- * apunta a él. HU-C5 re-vincula el historial del duplicado al primario de
- * forma LÓGICA (el secundario conserva sus filas, con `fusionado_en_id`
- * seteado), y `spec_modulo_C.md` §5 delega expresamente esa resolución a esta
- * función. El clúster se arma como `[primario, ...secundarios]` porque el
+ * apunta a él. La relación preexistente vincula el historial del secundario
+ * al primario de forma lógica sin cambiar pedidos. El clúster se arma como
+ * `[primario, ...secundarios]` porque el
  * primario NO tiene `fusionado_en_id` (es `null`): un `findMany` filtrando
  * `fusionado_en_id = primario` solo devolvería secundarios, nunca al propio
  * primario.
