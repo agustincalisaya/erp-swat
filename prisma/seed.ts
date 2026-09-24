@@ -219,7 +219,6 @@ const PERMISO_CLIENTES_CREAR_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000021";
 const PERMISO_CLIENTES_EDITAR_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000022";
 const PERMISO_CLIENTES_GESTIONAR_CONSENTIMIENTO_ID =
   "1a2b3c4d-1111-4a1a-8a1a-000000000023";
-const PERMISO_CLIENTES_FUSIONAR_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000024";
 const PERMISO_CLIENTES_BAJA_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000025";
 const PERMISO_CLIENTES_LEER_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000026";
 const PERMISO_CLIENTES_GESTIONAR_SEGMENTO_ID =
@@ -1446,7 +1445,6 @@ async function main() {
   //   - clientes:editar                 → datos de contacto + direcciones (HU-C3) +
   //                                        canal de contacto (HU-C9) — mismo permiso
   //   - clientes:gestionar_consentimiento → alta/revocación de ConsentimientoCliente (HU-C4)
-  //   - clientes:fusionar               → exclusivo Administrador de CRM (HU-C5)
   //   - clientes:baja                   → exclusivo Administrador de CRM (HU-C6)
   //   - clientes:leer                   → Vendedor, Administrador de CRM, Auditor (HU-C7)
   //   - clientes:gestionar_segmento     → separado de `clientes:editar` por decisión de
@@ -1459,7 +1457,6 @@ async function main() {
         [PERMISO_CLIENTES_CREAR_ID, "clientes:crear", "Dar de alta un Cliente con validación de unicidad por DNI (HU-C1 §2.1)"],
         [PERMISO_CLIENTES_EDITAR_ID, "clientes:editar", "Editar datos de contacto, direcciones y canal de contacto preferido de un Cliente (HU-C2/C3/C9 §2.2/§2.3)"],
         [PERMISO_CLIENTES_GESTIONAR_CONSENTIMIENTO_ID, "clientes:gestionar_consentimiento", "Registrar y revocar el ConsentimientoCliente de tratamiento de datos personales (HU-C4 §2.4)"],
-        [PERMISO_CLIENTES_FUSIONAR_ID, "clientes:fusionar", "Unificar dos registros de Cliente duplicados — exclusivo Administrador de CRM (HU-C5 §2.5)"],
         [PERMISO_CLIENTES_BAJA_ID, "clientes:baja", "Dar de baja lógica un Cliente con motivo obligatorio — exclusivo Administrador de CRM (HU-C6 §2.6)"],
         [PERMISO_CLIENTES_LEER_ID, "clientes:leer", "Consultar un Cliente y su ficha unificada por DNI (HU-C7 §2.7)"],
         [PERMISO_CLIENTES_GESTIONAR_SEGMENTO_ID, "clientes:gestionar_segmento", "Actualizar el segmento comercial de un Cliente — permiso granular separado de `clientes:editar` (HU-C8 §2.8)"],
@@ -1505,13 +1502,11 @@ async function main() {
   });
 
   // ── HU-C1 — Roles VENDEDOR y ADMINISTRADOR_CRM ─────────────────────────────
-  // Reparto de los 7 permisos `clientes:*` (task-chiki.md, prerrequisito de
+  // Reparto de los 6 permisos `clientes:*` de esta sección (task-chiki.md, prerrequisito de
   // roles):
   //   - VENDEDOR            → crear, editar, gestionar_consentimiento,
-  //                           gestionar_segmento, leer. NO baja ni fusionar
-  //                           (van vía solicitud/aprobación, fuera de
-  //                           alcance de HU-C1).
-  //   - ADMINISTRADOR_CRM   → los 7, directo.
+  //                           gestionar_segmento, leer. NO baja.
+  //   - ADMINISTRADOR_CRM   → los 6, directo.
   //   - AUDITOR (ya existía) → se le agrega clientes:leer +
   //                           auditoria:leer_historico (HU-C10 §2.9, ya
   //                           sembrado más arriba sin asignar a ningún Rol).
@@ -1522,7 +1517,7 @@ async function main() {
       id: ROL_VENDEDOR_ID,
       nombre: "VENDEDOR",
       descripcion:
-        "Atención y alta de clientes, venta asistida (Módulo C) — sin permiso de baja ni fusión de duplicados",
+        "Atención y alta de clientes, venta asistida (Módulo C) — sin permiso de baja",
     },
   });
 
@@ -1533,7 +1528,7 @@ async function main() {
       id: ROL_ADMINISTRADOR_CRM_ID,
       nombre: "ADMINISTRADOR_CRM",
       descripcion:
-        "Gestión completa del padrón de clientes (Módulo C), incluida baja lógica y fusión de duplicados",
+        "Gestión completa del padrón de clientes (Módulo C), incluida baja lógica",
     },
   });
 
@@ -1556,7 +1551,6 @@ async function main() {
     PERMISO_CLIENTES_CREAR_ID,
     PERMISO_CLIENTES_EDITAR_ID,
     PERMISO_CLIENTES_GESTIONAR_CONSENTIMIENTO_ID,
-    PERMISO_CLIENTES_FUSIONAR_ID,
     PERMISO_CLIENTES_BAJA_ID,
     PERMISO_CLIENTES_LEER_ID,
     PERMISO_CLIENTES_GESTIONAR_SEGMENTO_ID,
