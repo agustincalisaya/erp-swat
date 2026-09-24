@@ -17,7 +17,10 @@ import { revalidatePath } from "next/cache";
 import { getServerSession } from "@/lib/auth/session";
 import { usuarioTienePermiso } from "@/lib/auth/with-permission";
 import { ServiceError } from "@/lib/errors/service-error";
-import { PublicarListaPreciosSchema } from "@/lib/schemas/lista-precios.schema";
+import {
+  esErrorItemsDuplicados,
+  PublicarListaPreciosSchema,
+} from "@/lib/schemas/lista-precios.schema";
 import { ProveedorIdSchema } from "@/lib/schemas/proveedores.schema";
 import {
   publicarNuevaVersionListaPrecio,
@@ -76,6 +79,12 @@ export async function publicarListaPrecios(
 
   const parsed = PublicarListaPreciosSchema.safeParse(input);
   if (!parsed.success) {
+    if (esErrorItemsDuplicados(parsed.error)) {
+      return fallo(
+        "ITEMS_DUPLICADOS",
+        "La lista no puede incluir la misma variante en más de un ítem",
+      );
+    }
     return fallo(
       "VALIDATION_ERROR",
       parsed.error.issues[0]?.message ?? "Datos inválidos",
