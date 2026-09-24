@@ -28,7 +28,7 @@ Permitir que un Administrador de CRM dé de baja lógicamente a un cliente cuand
 | `deleted_by` | `usuarioId` del actor que ejecuta la baja |
 | `deletion_reason` | Motivo obligatorio (validado con Zod, `min(1)` tras `trim()`) |
 
-No se toca `fusionado_en_id` ni `clientes_fusionados`: la fusión de clientes (HU-C5) queda explícitamente fuera de alcance de esta HU.
+No se toca `fusionado_en_id` ni `clientes_fusionados`: la fusión de clientes queda explícitamente fuera de alcance de esta HU.
 
 ## 3. Diseño e implementación
 
@@ -267,4 +267,4 @@ También se ampliaron dos suites existentes de HU-C7 (`consulta-unificada.integr
 | `src/lib/services/clientes/consulta-unificada.integration.test.ts` y su http | Escenario (e2): cliente dado de baja sigue devolviendo ficha e historial |
 | tests + `package.json` | `baja-cliente.schema.test.ts`, `baja-cliente.integration.test.ts`, `baja-cliente.http.integration.test.ts`, `baja-cliente.consentimientos.integration.test.ts`; scripts `test:integration:c6`, `c6-http`, `c6-consentimientos` |
 
-**Explícitamente fuera de alcance** (no implementado, y no debe agregarse por iniciativa propia): fusión de clientes (HU-C5) y cualquier flujo de solicitud/aprobación de baja.
+**Explícitamente fuera de alcance** (no implementado, y no debe agregarse por iniciativa propia): fusión de clientes y cualquier flujo de solicitud/aprobación de baja.

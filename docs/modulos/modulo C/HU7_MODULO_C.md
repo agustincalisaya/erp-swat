@@ -124,7 +124,7 @@ Verificado contra el fixture real: el único pedido de María Gómez (`V-2026-00
 
 ### 5.3 El clúster de fusión y el detalle crítico del primario
 
-El historial del cliente **primario** incluye sus propios pedidos **más** los de los clientes secundarios cuyo `fusionado_en_id` apunta a él. HU-C5 re-vincula el historial del duplicado al primario de forma **lógica** (el secundario conserva sus filas, con `fusionado_en_id` seteado), y `spec_modulo_C.md` §5 (l. 432) delega expresamente esa resolución a esta función.
+El historial del cliente **primario** incluye sus propios pedidos **más** los de los clientes secundarios cuyo `fusionado_en_id` apunta a él. La relación histórica preexistente re-vincula el historial del duplicado al primario de forma **lógica** (el secundario conserva sus filas, con `fusionado_en_id` seteado). Esta lectura se conserva por compatibilidad y no forma parte de la nueva HU-C5.
 
 **Detalle crítico (el más sutil de la HU):** el clúster se arma como `clusterIds = [clienteId, ...secundarios.map(s => s.id)]` (`cliente.service.ts:836`) porque el **primario no tiene `fusionado_en_id`** (es `null`). Un `findMany` filtrando `fusionado_en_id = primario` devolvería **solo** secundarios, nunca al propio primario. Sin esa línea explícita, el historial **del propio cliente consultado desaparecería** (solo vería los pedidos de sus secundarios). La suite de integración lo cubre: tras crear un pedido `FACTURADO` para el secundario fusionado, la cantidad del primario pasa de `0` a exactamente `1`.
 
@@ -134,7 +134,7 @@ La ficha no escribe una query de direcciones nueva: llama a `listarDireccionesCl
 
 ### 5.5 Minimización del payload
 
-La respuesta **no** incluye `segmento`, campos `deleted_*` ni `fusionado_en_id`. HU-C8 y HU-C5 tienen sus propios contratos. Verificado en runtime: el payload de Juan Pérez tiene exactamente 8 claves de nivel `data` (`canal_preferido`, `cliente_id`, `direcciones`, `dni`, `email`, `historial_compras`, `nombre`, `telefono`), y cada dirección exactamente `{ direccion_id, rotulo, tipo }`. (En la base, `Juan.segmento` es `MAYORISTA` y correctamente **no** se expone.)
+La respuesta **no** incluye `segmento`, campos `deleted_*` ni `fusionado_en_id`. HU-C8 tiene su propio contrato; HU-C5 consulta coincidencias antes del alta. Verificado en runtime: el payload de Juan Pérez tiene exactamente 8 claves de nivel `data` (`canal_preferido`, `cliente_id`, `direcciones`, `dni`, `email`, `historial_compras`, `nombre`, `telefono`), y cada dirección exactamente `{ direccion_id, rotulo, tipo }`. (En la base, `Juan.segmento` es `MAYORISTA` y correctamente **no** se expone.)
 
 ### 5.6 `null` se propaga tal cual (no se default-ea)
 
@@ -225,6 +225,6 @@ El servicio nuevo realiza únicamente `prisma.cliente.findFirst`, `prisma.client
 
 **Pendientes / territorio de otras HUs:**
 - **Flag para Módulo B (importante):** la agregación filtra por `estado`, **no** por `is_active`. Si algún camino de Módulo B soft-deletea un `PedidoVenta` `FACTURADO` **sin** setear `ANULADO`, ese pedido **seguirá contando** en el historial de compras. Módulo B debe anular (`ANULADO`) sus pedidos, no solo soft-deletearlos.
-- **La re-vinculación del historial del secundario al primario es de HU-C5** (fusión). HU-C7 solo **lee** el resultado (`fusionado_en_id`); no fusiona ni modifica nada.
+- **La relación histórica `fusionado_en_id` se conserva por compatibilidad.** HU-C7 solo **lee** el resultado (`fusionado_en_id`); no fusiona ni modifica nada.
 - **La consulta unificada es el único punto de integración de Módulo B con Módulo C** (spec §5, l. 429): Módulo B no consume `DireccionCliente` directamente.
 - No debe agregarse una pantalla de dashboard ni un punto de entrada en la ficha: Tomi delimitó que es un endpoint JSON para el POS.

@@ -9,7 +9,7 @@
  * canal a `CanalContactoCliente` y el de segmento a `SegmentoCliente`. HU-C2 agrega
  * la edición de contacto (`DatosContactoCliente`) y de direcciones. HU-C6
  * agrega la baja lógica (`DialogBajaCliente`, permiso `clientes:baja`). No es
- * un CRUD completo de `Cliente` — consentimiento y fusión son HU-C4/C5/C10,
+ * un CRUD completo de `Cliente` — consentimiento y auditoría son HU-C4/C10,
  * fuera de alcance.
  *
  * Cliente inexistente ⇒ `notFound()`. Se usa `findUnique` + `notFound()` —y no

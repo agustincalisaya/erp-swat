@@ -2,7 +2,7 @@
 
 **Módulo:** C — Gestión de Clientes
 **Responsable:** CH1K10 (autor del commit `048c356`, "feat:Dar de alta a un cliente")
-**Estado:** Implementada (schema, service, endpoint REST, Server Action, pantalla `/clientes/nuevo`, evento de auditoría). Con dos puntos deliberadamente fuera de alcance (dirección → HU-C3, `posibles_duplicados` → HU-C5) y un gap de validación en el formulario — ver Sección 10.
+**Estado:** Implementada (schema, service, endpoint REST, Server Action, pantalla `/clientes/nuevo`, evento de auditoría). Las direcciones pertenecen a HU-C3 y la consulta preventiva previa al alta a HU-C5; ver Sección 10 para el estado histórico de la validación del formulario.
 
 ## 1. Objetivo
 
@@ -49,7 +49,7 @@ Esta sección cubre **solo lo que HU-C1 efectivamente toca**. El detalle campo p
 | `alcance` | `"VENTA_ASISTIDA"` (literal del enum `AlcanceConsentimiento`) |
 | `finalidad` | `"Venta asistida — consentimiento mínimo registrado en el alta del cliente (HU-C1)"` |
 
-**Lo que HU-C1 NO toca:** `DireccionCliente` (cero filas creadas por el alta — HU-C3), campos de fusión (HU-C5), soft delete (HU-C6). El modelo `Cliente` **no** tiene columna "creado por": quién dio de alta al cliente vive únicamente en el `AuditLog` (Sección 7).
+**Lo que HU-C1 NO toca:** `DireccionCliente` (cero filas creadas por el alta — HU-C3), la relación histórica `fusionado_en_id`, soft delete (HU-C6). El modelo `Cliente` **no** tiene columna "creado por": quién dio de alta al cliente vive únicamente en el `AuditLog` (Sección 7).
 
 ## 3. Arquitectura de la solución
 
@@ -163,9 +163,9 @@ El spec exige que no exista un `Cliente` sin consentimiento, pero `CrearClienteS
 - `VENTA_ASISTIDA` es el alcance mínimo: no habilita `COMUNICACIONES_COMERCIALES`, así que no se asume consentimiento de marketing.
 - HU-C4 (`POST /clientes/[id]/consentimientos`) es la vía para ampliarlo o revocarlo; este service nunca lo reemplaza ni lo borra.
 
-### 5.4 `posibles_duplicados` queda afuera (HU-C5)
+### 5.4 Consulta preventiva fuera del servicio de HU-C1 (HU-C5)
 
-`spec_modulo_C.md §2.1` menciona una alerta no bloqueante de "posibles duplicados" (coincidencia aproximada nombre + contacto), pero la lógica que la produce está descripta en HU-C5 (§2.5), no en HU-C1. Implementarla acá obligaría a construir la mitad de HU-C5 (la consulta de coincidencia aproximada) sin su criterio de aceptación ni su modelo de fusión. Queda deliberadamente fuera: ni el schema, ni la respuesta del service, ni el endpoint incluyen el campo. La unicidad **exacta** por DNI (esta HU) y la coincidencia **aproximada** (HU-C5) son problemas distintos.
+`spec_modulo_C.md §2.1` menciona una alerta no bloqueante de "posibles duplicados" (coincidencia aproximada nombre + contacto), pero la lógica que la produce está descripta en HU-C5 (§2.5), no en HU-C1. Implementarla acá obligaría a construir la mitad de HU-C5 (la consulta de coincidencia aproximada) sin el alcance propio de HU-C5. Queda deliberadamente fuera: ni el schema, ni la respuesta del service, ni el endpoint incluyen el campo. HU-C1 conserva la unicidad exacta por DNI; HU-C5 ofrece la consulta preventiva y una alerta aproximada antes de confirmar.
 
 ## 6. RBAC
 
@@ -223,7 +223,7 @@ El spec exige que no exista un `Cliente` sin consentimiento, pero `CrearClienteS
 
 **Pendientes / territorio de otras HUs:**
 - Dirección del cliente → HU-C3.
-- `posibles_duplicados` → HU-C5.
+- Consulta preventiva previa a confirmar el alta → HU-C5.
 - Ampliar o revocar el consentimiento inicial → HU-C4.
 - Corregir datos de un cliente existente (incluida una eventual recuperación con datos distintos) → HU-C2.
 - Tests unitarios del schema y del endpoint; usuario de prueba con rol `VENDEDOR` en el seed.

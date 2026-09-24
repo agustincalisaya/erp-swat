@@ -25,7 +25,7 @@ El Módulo C — Clientes constituye la fuente única de verdad sobre la identid
 
 Desde el punto de vista comercial, el objetivo del módulo es agilizar la venta asistida: recuperar de forma instantánea los datos de un cliente recurrente por su DNI reduce el tiempo de atención y el margen de error en la carga de una operación. Desde el punto de vista operativo, sostiene el padrón de clientes que consumen el resto de los módulos —Ventas (B), E-commerce (E), Tesorería (G)— sin necesidad de recargar datos en cada canal.
 
-Bajo Next.js App Router, el módulo se implementa mediante **Route Handlers** (`app/api/clientes/**/route.ts`) para las integraciones consumidas por otros módulos o clientes no-navegador, y **Server Actions** (`app/(dashboard)/clientes/**/actions.ts`) para los formularios operados por Vendedor y Administrador de CRM. Ambas superficies son wrappers finos: **está prohibido implementar lógica de negocio en el `route.ts` o en la Server Action**. Toda regla de dominio se delega exclusivamente en la capa de servicios `lib/services/clientes/*` (`cliente.service.ts`, `consentimiento.service.ts`, `fusion.service.ts`). El handler/action se limita a: (1) resolver la sesión y verificar el permiso granular vía `withPermission("clientes:<accion>")`, (2) parsear y validar el `body` contra el schema Zod correspondiente, (3) invocar la función de servicio, (4) mapear el resultado o la excepción de negocio al shape de respuesta JSON estándar definido en la sección 2.
+Bajo Next.js App Router, el módulo se implementa mediante **Route Handlers** (`app/api/clientes/**/route.ts`) para las integraciones consumidas por otros módulos o clientes no-navegador, y **Server Actions** (`app/(dashboard)/clientes/**/actions.ts`) para los formularios operados por Vendedor y Administrador de CRM. Ambas superficies son wrappers finos: **está prohibido implementar lógica de negocio en el `route.ts` o en la Server Action**. Toda regla de dominio se delega exclusivamente en la capa de servicios `lib/services/clientes/*` (`cliente.service.ts`, `consentimiento.service.ts`, `prevencion-duplicados.service.ts`). El handler/action se limita a: (1) resolver la sesión y verificar el permiso granular vía `withPermission("clientes:<accion>")`, (2) parsear y validar el `body` contra el schema Zod correspondiente, (3) invocar la función de servicio, (4) mapear el resultado o la excepción de negocio al shape de respuesta JSON estándar definido en la sección 2.
 
 **Regla N.° 1 aplicada al Módulo C (prohibición absoluta de `DELETE`):** ninguna entidad del módulo —`Cliente`, `DireccionCliente`, `ConsentimientoCliente`— admite una sentencia `DELETE` desde el código de aplicación, bajo ninguna circunstancia ni ningún rol, incluyendo Administrador de CRM. Toda baja se implementa como `UPDATE` sobre los campos estándar `is_active`, `deleted_at`, `deleted_by`, `deletion_reason`. El schema refuerza esta restricción a nivel de integridad referencial: toda relación saliente de las entidades de C usa `onDelete: Restrict`.
 
@@ -64,20 +64,15 @@ export type CrearClienteInput = z.infer<typeof CrearClienteSchema>;
 ```
 
 **Comportamiento esperado:**
-- El sistema valida la unicidad del DNI antes de crear el registro. Si ya existe un `Cliente` activo con ese `dni`, la operación **no crea un duplicado**: retorna el registro existente (comportamiento idempotente de "recuperar en vez de duplicar", criterio de aceptación explícito de HU-C1) — esto es distinto de un `409 Conflict`; la respuesta es `200 OK` con el registro preexistente, no un error.
+- El sistema valida la unicidad del DNI antes de crear el registro. Si ya existe un `Cliente` activo o inactivo con ese `dni`, la operación **no crea un duplicado**: retorna el registro existente (HU-C1), sin reactivarlo ni modificarlo.
 - Un cliente dado de alta sin datos adicionales se asume bajo condiciones comerciales estándar por defecto — no existe ningún campo de condición fiscal que default-ear (ver nota de directiva del PO al inicio de este documento).
 - Alta transaccional (`prisma.$transaction`) en estado `is_active = true`.
 - El alta de un cliente **exige** el registro simultáneo de un `ConsentimientoCliente` (HU-C4, sección 2.4) en la misma transacción — no existe un `Cliente` sin al menos un consentimiento inicial registrado.
-- **Alerta de posibles duplicados (no bloqueante):** el servicio de alta ejecuta la verificación de coincidencia aproximada descripta en HU-C5 (sección 2.5) y, de encontrar coincidencias, las incluye en la respuesta bajo `posibles_duplicados` — ver shape debajo. Esto nunca impide ni retrasa la creación del registro.
+- **Alerta preventiva de HU-C5:** el formulario consulta antes de confirmar un DNI existente y posibles coincidencias por nombre, teléfono o email. Las coincidencias aproximadas no bloquean un DNI nuevo; la respuesta de HU-C1 conserva su contrato de alta.
 
-**Respuesta `201 Created` (alta nueva, sin duplicados detectados):**
+**Respuesta `201 Created` (alta nueva):**
 ```json
-{ "data": { "cliente_id": "uuid", "dni": "30123456", "es_nuevo": true, "posibles_duplicados": [] }, "error": null }
-```
-
-**Respuesta `201 Created` (alta nueva, con posible duplicado detectado):**
-```json
-{ "data": { "cliente_id": "uuid", "dni": "30987654", "es_nuevo": true, "posibles_duplicados": [ { "cliente_id": "uuid", "dni": "30123456", "nombre": "Juan Perez" } ] }, "error": null }
+{ "data": { "cliente_id": "uuid", "dni": "30123456", "es_nuevo": true }, "error": null }
 ```
 
 **Respuesta `200 OK` (DNI ya existente, se recupera el registro):**
@@ -102,7 +97,7 @@ export type EditarClienteInput = z.infer<typeof EditarClienteSchema>;
 ```
 
 **Comportamiento esperado:**
-- **El DNI no es editable una vez creado el registro** — el schema de edición no incluye el campo `dni`; si un cliente presenta un DNI distinto, la operación correcta es HU-C5 (fusión de duplicados), nunca una edición directa del campo.
+- **El DNI no es editable una vez creado el registro** — el schema de edición no incluye el campo `dni`; si un cliente presenta un DNI distinto, se debe corregir por un proceso separado; HU-C5 solo previene nuevas altas duplicadas.
 - Toda edición genera un evento de auditoría con `valor_anterior`/`valor_nuevo` hacia el Módulo D (sección 4).
 - Solo se actualizan los campos recibidos (`PATCH` parcial) — no se sobreescriben campos no enviados con `null`.
 
@@ -196,49 +191,18 @@ export type RevocarConsentimientoInput = z.infer<typeof RevocarConsentimientoSch
 { "data": { "consentimiento_id": "uuid", "revocado": true }, "error": null }
 ```
 
-### 2.5. Unificación de clientes duplicados (HU-C5)
+### 2.5. Prevención de duplicados de clientes (HU-C5)
 
-**Ruta:** `POST /app/api/clientes/fusionar/route.ts`
-**Server Action equivalente:** `fusionarClientes()` en `app/(dashboard)/clientes/actions.ts`
-**Permiso requerido:** `clientes:fusionar` (exclusivo Administrador de CRM — el Vendedor solo puede *solicitar* la fusión vía un flujo fuera de alcance de este documento, conforme matriz RBAC del Documento de Alcance § Módulo C, sección 5).
+**Superficie:** formulario de alta de Clientes y acción `consultarPrevencionAltaAction`.
+**Permisos:** `clientes:crear` para consultar durante el alta; `clientes:leer` para ver datos y abrir la ficha de una coincidencia.
 
-```typescript
-export const FusionarClientesSchema = z.object({
-  cliente_primario_id: z.string().uuid(),
-  cliente_secundario_id: z.string().uuid(),
-}).refine(
-  (d) => d.cliente_primario_id !== d.cliente_secundario_id,
-  { message: "El cliente primario y secundario no pueden ser el mismo registro", path: ["cliente_secundario_id"] }
-);
-export type FusionarClientesInput = z.infer<typeof FusionarClientesSchema>;
-```
+Antes de confirmar, el formulario consulta el DNI contra todos los clientes, incluidos los inactivos. Un DNI existente muestra una advertencia y no inicia otra alta. La ficha se puede abrir si el usuario tiene permiso de lectura. No hay reactivación automática.
 
-**Comportamiento esperado:**
-- **Detección de posibles duplicados en el alta (criterio de aceptación de HU-C5, ausente en la Rev. 0 de este documento):** el alta de Cliente (2.1) ya resuelve el caso de DNI **idéntico** a uno activo devolviendo el registro existente — eso cubre unicidad exacta, pero no la detección de un *posible* duplicado con datos similares pero no idénticos (ej. mismo nombre y teléfono con un DNI mal tipeado). Esta HU agrega una verificación adicional, de solo alerta, en `cliente.service.ts`: al recibir un alta (2.1), el servicio ejecuta una búsqueda de coincidencia aproximada por `nombre` + (`telefono` o `email`) contra clientes activos con DNI distinto; si encuentra coincidencia, el alta **no se bloquea** — se completa normalmente y la respuesta `201 Created` incluye un campo adicional `posibles_duplicados: [{ cliente_id, dni, nombre }]` para que el Vendedor decida, desde la UI, si conviene iniciar una fusión (este mismo endpoint, 2.5) en vez de operar con dos registros separados. La decisión de fusionar es siempre manual y posterior al alta — la detección es informativa, nunca bloqueante.
-- **Ningún registro se elimina ni se reescribe físicamente.** El patrón de fusión (criterio de aceptación explícito de HU-C5) desactiva el `cliente_secundario_id` mediante baja lógica con `deletion_reason: "duplicado"` fijo (no editable por quien ejecuta la fusión, para mantener el motivo estandarizado y filtrable en reportes).
-- Las referencias históricas del cliente secundario (fundamentalmente su historial de ventas, cuando exista Módulo B) se **re-vinculan lógicamente** al cliente primario mediante una relación de redirección (`Cliente.fusionado_en_id`, ver 2.5.1) — no se migran físicamente las filas originales de ningún otro módulo.
-- Ninguno de los dos registros originales se sobrescribe: el cliente primario conserva sus propios datos de contacto sin mezclarse con los del secundario; el cliente secundario conserva sus datos históricos intactos, solo desactivado y con la relación de redirección.
-- **Nota de integración pendiente (Módulo B):** hoy no existen ventas reales que re-vincular, porque Módulo B no está construido. El mecanismo de redirección se implementa y testea con datos de prueba (clientes de prueba con DNI potencialmente duplicado, cargados en el seed) — cuando Módulo B exista, debe consultar `Cliente.fusionado_en_id` para resolver el historial de compras del cliente primario incluyendo lo heredado del secundario.
+Con DNI nuevo, el formulario informa posibles coincidencias por nombre, teléfono o email. El usuario puede revisar las fichas y continuar expresamente con el alta aunque el DNI sea diferente. La alerta es de solo lectura y no modifica clientes ni consentimientos.
 
-#### 2.5.1. Campo de redirección — modelo de datos
+La creación definitiva sigue en HU-C1: valida los consentimientos, conserva la unicidad de DNI a nivel de base y recupera un registro existente si otra alta ganó la carrera. HU-C5 no realiza fusión, baja lógica ni cambios de historiales.
 
-```prisma
-// En el modelo Cliente (ver sección de Modelo de Datos si se agrega en una
-// revisión posterior de este documento, o en schema.prisma directamente):
-//   fusionado_en_id String?  — referencia al Cliente primario cuando este
-//   registro fue desactivado por fusión; null en el caso normal.
-//   Relación: fusionado_en Cliente? @relation("FusionCliente", fields: [fusionado_en_id], references: [id], onDelete: Restrict)
-```
-
-**Respuesta `200 OK`:**
-```json
-{ "data": { "cliente_primario_id": "uuid", "cliente_secundario_id": "uuid", "fusion_aplicada": true }, "error": null }
-```
-
-**Respuesta `422 Unprocessable Entity` (secundario ya fusionado previamente):**
-```json
-{ "data": null, "error": { "code": "CLIENTE_YA_FUSIONADO", "message": "El cliente secundario ya fue fusionado previamente hacia otro registro" } }
-```
+Las dos migraciones históricas de fusión permanecen registradas porque fueron aplicadas. La migración correctiva de C5 retira únicamente sus objetos propios tras comprobar que están vacíos y que no hay dependencias externas. `fusionado_en_id`, su relación y su índice permanecen para preservar HU-C7 y los datos legados.
 
 ### 2.6. Baja lógica de Cliente (HU-C6)
 
@@ -347,8 +311,7 @@ export const ConsultarAuditoriaClientesQuerySchema = z.object({
     "cliente:creado",
     "cliente:actualizado",
     "cliente:baja_logica",
-    "cliente:fusionado",
-    "cliente:consentimiento_registrado",
+        "cliente:consentimiento_registrado",
     "cliente:consentimiento_revocado",
   ]).optional(),
   usuario_id: z.string().uuid().optional(),
@@ -372,25 +335,24 @@ export type ConsultarAuditoriaClientesQuery = z.infer<typeof ConsultarAuditoriaC
 
 ## 3. Reglas de Negocio Estrictas (Capa de Servicios)
 
-### 3.1. Máquina de estados de baja lógica y fusión de `Cliente`
+### 3.1. Máquina de estados de baja lógica de `Cliente`
 
 | Estado / condición | Transición | Resultado | Precondición |
 |---|---|---|---|
 | — | Alta (2.1) | `is_active = true`, `fusionado_en_id = null` | DNI válido; si ya existe, se recupera el registro existente (no hay transición nueva) |
 | `is_active = true` | Baja lógica (2.6) | `is_active = false` | `deletion_reason` obligatorio; exclusivo Administrador de CRM |
-| `is_active = true` (como secundario) | Fusión (2.5) | `is_active = false`, `fusionado_en_id = <primario>`, `deletion_reason = "duplicado"` | Exclusivo Administrador de CRM; el cliente primario no cambia de estado |
 
 No existe transición de reactivación (`is_active = false → true`) para `Cliente` en el alcance de este sprint — a diferencia de HU-D7 (Módulo D, reactivación de usuarios), el Backlog no exige esta operación para clientes; si se requiere en un sprint futuro, es una HU nueva a especificar, no una extensión silenciosa de este documento.
 
-### 3.2. Inmutabilidad del DNI y de la relación de fusión
+### 3.2. Inmutabilidad del DNI y compatibilidad histórica
 
 - `Cliente.dni` es inmutable después del alta (ver 2.2) — ninguna función de servicio expone una vía de actualización de este campo, ni siquiera para Administrador de CRM.
-- `Cliente.fusionado_en_id`, una vez seteado por una fusión (2.5), es igualmente inmutable — no existe una operación de "deshacer fusión". Si una fusión fue un error, la corrección documentada es un procedimiento manual fuera de alcance de este spec (análogo al criterio de "alta errónea" de `spec_modulo_H.md` sección 3.5), no una reversión automática.
+- `Cliente.fusionado_en_id` es una relación histórica anterior a esta redefinición. HU-C5 no la escribe ni la elimina; HU-C7 la consulta.
 
 ### 3.3. Auditoría transversal SHA-256 (sin cifrado adicional)
 
 - A diferencia de Módulo H (datos bancarios cifrados con AES-256), Módulo C **no cifra** ningún campo de `Cliente` — el Alcance Funcional es explícito: "el módulo no administra categorías de datos sensibles según la definición de la ley" (Ley N.° 25.326, sección 6.1 del Alcance). El único mecanismo de protección aplicado es el encadenamiento SHA-256 transversal del `AuditLog` (Módulo D), igual que el resto del sistema.
-- Toda mutación de `Cliente`, `DireccionCliente` o `ConsentimientoCliente` (alta, edición, baja, fusión, registro/revocación de consentimiento) emite su evento correspondiente **después** del `COMMIT` de la transacción que la persiste — nunca dentro de ella, mismo patrón fire-and-forget que el resto del sistema (ver `spec_modulo_H.md` sección 3.4, hallazgo de `spec_modulo_D.md` sobre este mismo patrón).
+- Toda mutación de `Cliente`, `DireccionCliente` o `ConsentimientoCliente` (alta, edición, baja, registro/revocación de consentimiento) emite su evento correspondiente **después** del `COMMIT` de la transacción que la persiste — nunca dentro de ella, mismo patrón fire-and-forget que el resto del sistema (ver `spec_modulo_H.md` sección 3.4, hallazgo de `spec_modulo_D.md` sobre este mismo patrón).
 
 ### 3.4. Restricción de borrado físico y patrón de baja lógica
 
@@ -411,7 +373,6 @@ El Módulo C es **emisor** hacia el Módulo D (encadenamiento SHA-256). No consu
 | `cliente:creado` | 2.1, tras `COMMIT` | Módulo D (`audit-log.listener.ts`) | `{ cliente_id, dni, usuario_id, es_nuevo: boolean }` |
 | `cliente:actualizado` | 2.2, 2.3, 2.8, tras `COMMIT` | Módulo D (`audit-log.listener.ts`) | `{ cliente_id, usuario_id, campos_modificados[], valor_anterior, valor_nuevo }` |
 | `cliente:baja_logica` | 2.6, tras `COMMIT` | Módulo D (`audit-log.listener.ts`) | `{ cliente_id, usuario_id, deletion_reason }` |
-| `cliente:fusionado` | 2.5, tras `COMMIT` | Módulo D (`audit-log.listener.ts`) | `{ cliente_primario_id, cliente_secundario_id, usuario_id }` |
 | `cliente:consentimiento_registrado` | 2.4 (alta), tras `COMMIT` | Módulo D (`audit-log.listener.ts`) | `{ consentimiento_id, cliente_id, usuario_id, alcance, finalidad }` |
 | `cliente:consentimiento_revocado` | 2.4 (revocación), tras `COMMIT` | Módulo D (`audit-log.listener.ts`) | `{ consentimiento_id, cliente_id, usuario_id, motivo }` |
 
@@ -419,7 +380,7 @@ El Módulo C es **emisor** hacia el Módulo D (encadenamiento SHA-256). No consu
 
 **Sin eventos nuevos en HU-C7 y HU-C9:** la consulta unificada por DNI (2.7) es de solo lectura y no emite evento propio; la actualización del canal de contacto preferido (2.3) sí se cubre bajo `cliente:actualizado` (no es un evento separado).
 
-**Sin evento nuevo para la detección de posibles duplicados (2.1):** la verificación de coincidencia aproximada introducida en HU-C5 (ver 2.1 y 2.5) es una consulta de solo lectura ejecutada dentro del flujo de alta — no persiste ningún estado propio ni requiere trazabilidad independiente; el alta en sí ya queda registrada por `cliente:creado`. Solo la fusión efectivamente ejecutada (una decisión humana posterior) emite `cliente:fusionado`.
+**HU-C5 no emite eventos propios:** la consulta preventiva es de solo lectura; una creación efectiva conserva el evento `cliente:creado` de HU-C1.
 
 ---
 
@@ -429,7 +390,7 @@ El Módulo C es **emisor** hacia el Módulo D (encadenamiento SHA-256). No consu
 - **Consumo real de HU-C3 (direcciones) por Módulo E (envíos):** Módulo E (E-commerce) no está en el alcance de Sprint 3 — el dato de direcciones se modela y persiste en este sprint, el consumo real por parte de un futuro checkout web queda pendiente de que ese módulo se construya. (El consumo por Módulo B ya no aplica a este ítem: Módulo B, priorizado en este mismo sprint, no consume directamente `DireccionCliente` — su único punto de integración con Módulo C es la consulta unificada de HU-C7, sección 2.7.)
 - ~~Consumo real de HU-C7 (historial de compras) por Módulo B~~ — **ya no aplica.** Módulo B fue sumado al alcance de Sprint 3 por directiva del PO con posterioridad a la Revisión 2 de este documento; HU-C7 (sección 2.7) ya consulta `PedidoVenta` real, sin mock.
 - **Consumo real de HU-C9 (canal de contacto preferido) por Módulo F (Motor de Notificaciones):** el dato se modela y persiste en este sprint; el consumo real queda pendiente de que ese módulo se construya.
-- **Consumo real de HU-C5 (fusión) sobre historial de ventas real:** con Módulo B ya priorizado en este sprint, la re-vinculación de historial de ventas del cliente secundario hacia el primario (`Cliente.fusionado_en_id`, sección 2.5.1) puede validarse contra `PedidoVenta` real una vez que HU-B1/B3 generen datos — HU-C5 está secuenciada después de ambas en el Sprint Backlog para permitir justamente esto. Sigue siendo responsabilidad de `resolverHistorialCompras` (sección 2.7) resolver esa consulta contra Módulo C.
+- La lectura histórica de `fusionado_en_id` pertenece a HU-C7 y se conserva por compatibilidad; HU-C5 ya no genera redirecciones.
 - **Cuenta corriente de Cliente (Alcance § Módulo C, sección 3.3; Backlog HU-B5) — actualizado:** HU-B5 (cuenta corriente + plan de pagos) sí fue priorizada en Sprint 3, sumada junto con el resto de Módulo B. Este documento sigue sin modelar ningún campo de cuenta corriente en `Cliente` — la entidad `CuentaCorrienteCliente` y toda su lógica de negocio son propiedad de `spec_modulo_B.md` (sección 2.5), que la referencia por `cliente_id`; Módulo G sigue siendo el consumidor de su plan de pagos para la proyección de flujo de ingresos, sin cambios respecto de lo ya documentado en el Alcance.
 - **Entidad de configuración global para umbrales de segmentación comercial (sección 2.8):** el umbral de volumen/frecuencia que definiría `MAYORISTA`/`CLIENTE_FRECUENTE` de forma automática no existe aún como configuración parametrizable — la asignación de segmento es manual en este sprint.
 - **Reactivación de un `Cliente` dado de baja lógica:** no forma parte del alcance de las 10 HU de este sprint (ver nota en sección 3.1) — a diferencia de HU-D7 (Módulo D), no hay una HU equivalente para Cliente en el Backlog actual.
