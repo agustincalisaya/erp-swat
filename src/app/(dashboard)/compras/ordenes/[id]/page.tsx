@@ -76,6 +76,16 @@ import { buttonVariants } from "@/components/ui/button";
 
 export const dynamic = "force-dynamic";
 
+// C1 (auditoría transversal Módulo H, 2026-09-26): esta ruta dinámica no
+// exportaba `metadata`, así que la pestaña mostraba el título por defecto de
+// Next ("Create Next App"). Título estático (sin `generateMetadata`): no
+// depende de datos del proveedor/orden, mismo patrón que
+// `compras/ordenes/page.tsx`.
+export const metadata = {
+  title: "Detalle de Orden de Compra — ERP SWAT",
+  description: "Detalle, transiciones de estado e historial de auditoría de una orden de compra (Módulo H).",
+};
+
 const ESTADOS_CANCELABLES = new Set(["BORRADOR", "ENVIADA"]);
 
 const money = new Intl.NumberFormat("es-AR", {
@@ -474,7 +484,7 @@ export default async function DetalleOrdenCompraPage({
               Historial de estado
             </CardTitle>
             <CardDescription>
-              Leído del ledger de auditoría (Módulo D).
+              Leído del ledger de auditoría.
             </CardDescription>
           </CardHeader>
           <CardContent className="pt-5">

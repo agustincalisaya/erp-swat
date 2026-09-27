@@ -109,7 +109,7 @@ export function DialogHomologar({
             {estadoActual === "SUSPENDIDO"
               ? " (re-homologación): vuelve a ser seleccionable para nuevas órdenes de compra."
               : ": queda seleccionable para nuevas órdenes de compra."}
-            {" "}El cambio queda registrado en la auditoría (Módulo D).
+            {" "}El cambio queda registrado en la auditoría.
           </AlertDialogDescription>
         </AlertDialogHeader>
 

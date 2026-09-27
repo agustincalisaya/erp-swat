@@ -23,6 +23,7 @@ import { FiltrosAuditoria } from "@/components/auditoria/FiltrosAuditoria";
 import { TablaAuditLog } from "@/components/auditoria/TablaAuditLog";
 import { BotonVerificarCadena } from "@/components/auditoria/BotonVerificarCadena";
 import { VistaAuditoriaClientes } from "@/components/auditoria/VistaAuditoriaClientes";
+import { VistaAuditoriaProveedores } from "@/components/auditoria/VistaAuditoriaProveedores";
 import { PERMISO_LEER_AUDITORIA_CLIENTES } from "@/lib/services/clientes/auditoria-clientes.service";
 
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
@@ -74,12 +75,18 @@ export default async function LogsPage({ searchParams }: LogsPageProps) {
       (Array.isArray(rawParams.modulo) && rawParams.modulo.includes("clientes"))) {
     return <VistaAuditoriaClientes userId={session.userId} rawParams={rawParams} />;
   }
+  if (rawParams.modulo === "proveedores" ||
+      (Array.isArray(rawParams.modulo) && rawParams.modulo.includes("proveedores"))) {
+    return <VistaAuditoriaProveedores userId={session.userId} rawParams={rawParams} />;
+  }
 
-  const [tieneLeerForense, tieneVerificarCadena, tieneLeerAuditoriaClientes] = await Promise.all([
-    usuarioTienePermiso(session.userId, PERMISO_LEER_FORENSE),
-    usuarioTienePermiso(session.userId, PERMISO_VERIFICAR_CADENA),
-    usuarioTienePermiso(session.userId, PERMISO_LEER_AUDITORIA_CLIENTES),
-  ]);
+  const [tieneLeerForense, tieneVerificarCadena, tieneLeerAuditoriaClientes, tieneLeerAuditoriaProveedores] =
+    await Promise.all([
+      usuarioTienePermiso(session.userId, PERMISO_LEER_FORENSE),
+      usuarioTienePermiso(session.userId, PERMISO_VERIFICAR_CADENA),
+      usuarioTienePermiso(session.userId, PERMISO_LEER_AUDITORIA_CLIENTES),
+      usuarioTienePermiso(session.userId, "auditoria:leer_historico"),
+    ]);
 
   const parsedFiltros = FiltrosAuditoriaSchema.safeParse(rawParams);
   const filtros = parsedFiltros.success ? parsedFiltros.data : FiltrosAuditoriaSchema.parse({});
@@ -137,10 +144,15 @@ export default async function LogsPage({ searchParams }: LogsPageProps) {
           {tieneVerificarCadena && <BotonVerificarCadena />}
         </div>
 
-        {tieneLeerAuditoriaClientes && (
+        {(tieneLeerAuditoriaClientes || tieneLeerAuditoriaProveedores) && (
           <nav aria-label="Módulo de auditoría" className="flex gap-4 text-sm">
             <span aria-current="page" className="font-semibold">Historial general</span>
-            <Link href="/auditoria/logs?modulo=clientes" className="text-blue-600 hover:underline">Clientes</Link>
+            {tieneLeerAuditoriaClientes && (
+              <Link href="/auditoria/logs?modulo=clientes" className="text-blue-600 hover:underline">Clientes</Link>
+            )}
+            {tieneLeerAuditoriaProveedores && (
+              <Link href="/auditoria/logs?modulo=proveedores" className="text-blue-600 hover:underline">Proveedores</Link>
+            )}
           </nav>
         )}
 

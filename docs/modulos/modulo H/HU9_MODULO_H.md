@@ -195,9 +195,13 @@ Hallazgos relevantes surgidos de este relevamiento:
 - **De HU-H9 (confirmado como diseño correcto, no bug):** un comprobante puede cargarse
   con la OC ya en `CERRADA` — es el comportamiento buscado (ver 1.3), no un defecto.
 - **Fuera del alcance de HU-H9, para seguimiento del equipo:**
-  - No existe todavía ninguna pantalla de Tesorería / Cuentas por Pagar — hoy el estado
+  - ~~No existe todavía ninguna pantalla de Tesorería / Cuentas por Pagar — hoy el estado
     `PROVISORIO`/`DEFINITIVA` de HU-G8 solo es verificable por API. Es un vacío esperado
-    para el sprint actual, a cubrir por HU-G10/HU-G7.
+    para el sprint actual, a cubrir por HU-G10/HU-G7.~~
+    **B5 (auditoría transversal Módulo H, 2026-09-26) — desactualizado:** la pantalla ya
+    existe (`src/app/(dashboard)/tesoreria/cuentas-por-pagar/page.tsx`, HU-G10). No le
+    correspondía a HU-H9 actualizar este punto, pero se deja corregido para que no
+    induzca a error a quien lea este documento después.
   - **Punto de negocio a definir con el equipo/PO:** la `CuentaPorPagar` pasa de
     `PROVISORIO` a `DEFINITIVA` recién al ejecutarse el cierre manual de la OC
     (`RECIBIDA_COMPLETA → CERRADA`), no al completarse la recepción total. El código

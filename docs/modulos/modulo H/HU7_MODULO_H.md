@@ -135,3 +135,38 @@ Los 8 casos pasaron con el comportamiento esperado.
 - **Bug preexistente de `usuarioRol.upsert()` (HU-B8).** No es una decisión de esta HU, pero su resolución queda pendiente de que el dueño de HU-B8 decida el fix — ver sección dedicada arriba.
 - **Ventana temporal de `tiempo_entrega_promedio_dias` sin acotar.** La Spec deja explícitamente abierta la posibilidad de un recorte configurable (ej. "últimos 12 meses") como mejora futura; no se implementó ningún límite en esta HU — el promedio se calcula sobre todo el historial de OCs del proveedor.
 - **Nota agregada durante Apply de HU-H8.** Los códigos de error `VALIDACION_QUERY_INVALIDA`/`ERROR_INTERNO` de esta HU, documentados en su momento como la convención confirmada del proyecto, resultaron ser la excepción dentro de Módulo H — un relevamiento posterior (HU-H8) contó los 5 Route Handlers reales del módulo y encontró que 4 de 5 (`proveedores/[id]/route.ts` de H1, `[id]/lista-precios/route.ts` de H2, `auditoria/route.ts` de H6, `verificar-cadena/route.ts` de D.3) usan `VALIDATION_ERROR`/`INTERNAL_ERROR` en inglés. No se corrige el código de esta HU — ya mergeada y en producción, sin motivo funcional para tocarla — pero queda esta nota para que ninguna HU futura copie el patrón de H7 pensando que es el estándar del proyecto: el estándar real es el inglés.
+
+---
+
+> **Adenda — interfaz de usuario, agregada el 2026-09-26 (working tree, pendiente de commit).** Todo lo anterior en este documento describe el cierre original de HU-H7 (endpoint sin UI). La sección siguiente documenta la sección "Comparativa de precios" agregada después, dentro de la MISMA pantalla `/compras/listas-precios` que expone HU-H2/H6, con el mismo estándar de evidencia `archivo:línea` y el mismo formato adoptado en `HU3_MODULO_H.md` §3 y §7.
+
+## Cumplimiento de cada Criterio de Aceptación (interfaz de usuario)
+
+### ✅ Sección "Comparativa" dentro de la pantalla de Listas de Precios, gateada por el mismo permiso del endpoint
+
+`page.tsx` (`src/app/(dashboard)/compras/listas-precios/page.tsx`) resuelve `proveedores:comparar_precios` en paralelo con los permisos de HU-H2 (`page.tsx:65-69`, constante local `PERMISO_COMPARAR_PRECIOS`, `45-48` — el service de esta HU no exporta una constante `PERMISO_*`, ver "Reglas de negocio implementadas" arriba, y la Server Action repite el mismo criterio en `actions.ts:244`) y renderiza la card "Comparativa de precios" solo si `puedeComparar` (`page.tsx:154-169`). El componente cliente `ComparativaPreciosCard.tsx` asume ese gate ya resuelto por el RSC padre y no lo repite (docstring, `ComparativaPreciosCard.tsx:11`).
+
+### ✅ Selector de variante + comparación bajo demanda, vía la misma función de servicio del endpoint HTTP
+
+- El selector de variante (`ComboboxFiltrable`, `ComparativaPreciosCard.tsx:79-93`) usa la misma lista `VarianteParaSelector[]` que ya precarga `page.tsx` para el formulario de HU-H2 (`listarVariantesParaOrden()`, `page.tsx:78`) — no hay una segunda query de variantes para esta sección.
+- El botón "Comparar" (`95-103`) invoca `comparar()` (`51-70`), que llama a la Server Action `compararPreciosAction` (`actions.ts:246-266`, nueva respecto del cierre original de esta HU — no figura en "Arquitectura y archivos" arriba). Esa Server Action delega en `obtenerComparativaPrecios()` (`comparativa-precios.service.ts`, la MISMA función pública que ya usa `GET /api/proveedores/comparativa-precios` documentado arriba) — no hay una segunda implementación de la lógica de comparación para la UI.
+- El caso `422 SIN_PROVEEDORES_COMPARABLES` se traduce a un mensaje en español para el usuario final (*"No hay proveedores homologados con precio vigente para esta variante."*, `ComparativaPreciosCard.tsx:61-65`), en vez de mostrar el código de error crudo.
+
+### ✅ Tabla ordenada `precio_unitario asc`, con la etiqueta "más barato" y las 5 columnas esperadas
+
+- **Orden.** La tabla no reordena nada client-side: recorre `resultado.data.proveedores` en el orden en que ya vienen del service (`ComparativaPreciosCard.tsx:125`), que es exactamente `ordenarComparativa()` (`precio_unitario asc`, desempate `razon_social` con `localeCompare("es")`, documentado arriba en "Reglas de negocio implementadas" / "Arquitectura y archivos").
+- **"Más barato".** Se marca por posición (`indice === 0`), no por comparar precios en el cliente (`ComparativaPreciosCard.tsx:128`: `{indice === 0 && <span>· más barato</span>}`) — consistente con que el service ya garantiza el orden ascendente.
+- **Las 5 columnas** son exactamente las del contrato del endpoint: Proveedor (`117`, `127-129`), Precio vigente (`118`, `130-132`, formateado `es-AR` con 2 decimales), Vigente desde (`119`, `133-140`), Puntaje (`120`, `141`, con fallback `"—"` cuando `puntaje_total` es `null` — nunca `0`, ver "Reglas de negocio implementadas" arriba), Entrega prom. (días) (`121`, `142`, mismo fallback `"—"` cuando `tiempo_entrega_promedio_dias` es `null`).
+
+### ✅ Reutiliza `resolverListaPrecioVigente()` / el mismo mecanismo de "vigente" que HU-H2 y HU-H3
+
+No hay una segunda resolución de "versión vigente" para esta sección de UI: `obtenerComparativaPrecios()` (código del cierre original de esta HU, sin cambios) ya resuelve los candidatos contra `ListaPrecioItem`/`ListaPrecioVersion` vigente, mismo criterio documentado arriba en "Modelo de datos" / "Reglas de negocio implementadas". La UI solo agrega la capa de presentación.
+
+## Bugs encontrados y corregidos — línea de tiempo real (interfaz de usuario)
+
+### Bug 1 (de HU-H2) — Zona horaria, también afectó la columna "Vigente desde" de esta sección
+
+El Bug 1 de la línea de tiempo de HU-H2 (`HU2_MODULO_H.md`, sección "Bugs encontrados y corregidos — línea de tiempo real (interfaz de usuario)") — `fecha_inicio_vigencia` es date-only persistida a medianoche UTC y se mostraba un día antes al formatearse en hora local — afectó también a la columna "Vigente desde" de esta tabla comparativa, que consume el mismo campo. No se duplica la explicación acá: mismo mecanismo, mismo tipo de dato, misma corrección (`timeZone: "UTC"` fijado explícitamente).
+
+- **Fix, en esta pantalla.** `ComparativaPreciosCard.tsx:137-139` (`Intl.DateTimeFormat("es-AR", { dateStyle: "medium", timeZone: "UTC" })`), con el comentario `133-136` que remite explícitamente a `HistorialVersionesListaPrecio` (HU-H2) como "misma corrección" — evidencia de que ambos formateadores se corrigieron juntos, no por separado.
+- No se encontraron bugs adicionales, propios de esta sección de UI, durante su construcción — a diferencia de HU-H2 (4 bugs de UI) y HU-H6 (ver ese documento), esta sección es exclusivamente de presentación sobre un endpoint ya cerrado y verificado, sin lógica nueva de servidor.

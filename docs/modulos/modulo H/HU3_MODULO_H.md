@@ -19,6 +19,49 @@
 
 ---
 
+> ## Adenda — auditoría transversal Módulo H (2026-09-26)
+>
+> `docs/modulos/modulo H/AUDITORIA_TRANSVERSAL_MODULO_H.md` encontró que este
+> documento (regenerado el 04/09/2026) quedó desactualizado en dos puntos.
+> Se deja como adenda, sin reescribir la narrativa original, siguiendo el
+> mismo criterio de la sección 9 (§9.5) de este mismo documento.
+>
+> - **B1 — `RECEPCION_PARCIAL` ya no existe.** La tabla CA1 (§1), la
+>   narrativa de la máquina de estados (§3 CA1, con la tabla de transiciones)
+>   y §6.1 describen el tramo físico como
+>   `CONFIRMADA → RECEPCION_PARCIAL → RECIBIDA_COMPLETA`, citando
+>   `recepcion-reglas.ts:15-22`. Un día después de que este documento se
+>   regeneró (04/09/2026, commit `ca333c4`), H4 V2.1 (`799ad6b`, PR #128)
+>   eliminó la recepción parcial: hoy `recepcion.service.ts:168` exige que la
+>   OC esté `CONFIRMADA` para poder recepcionarla y `:191` siempre deja el
+>   estado en `RECIBIDA_COMPLETA` en una única recepción —
+>   `RECEPCION_PARCIAL` nunca se produce. `HU4_MODULO_H.md` ya refleja V2.1;
+>   este documento no. Corregido también en el código: `event-types.ts`
+>   (`RecepcionRegistradaPayload`, ver B2) y el comentario del modelo
+>   `Recepcion` en `schema.prisma` (ver B3) dejaron de mencionar
+>   `RECEPCION_PARCIAL`.
+> - **B4 — "Camino A" (§5.4/§8.3) está resuelto, y ahora es un delta por
+>   variante.** §5.4/§8.3 describen el "Camino A" (lista de precios sembrada
+>   directo por Prisma en `prisma/seed.ts` porque HU-H2 no existía) como una
+>   solución transitoria mientras HU-H2 no se implementara. HU-H2 ya está
+>   implementada: `orden-compra.service.ts` (`resolverContextoPrecios()`)
+>   delega la resolución de precio en `resolverListaPrecioVigente()`
+>   (`lista-precios.service.ts`) para cualquier proveedor homologado con
+>   lista publicada, sembrado o no. Además, la auditoría transversal (hallazgo
+>   A3) confirmó una decisión de negocio pendiente: una nueva versión de
+>   lista de precios es un **delta** sobre la vigente, no un reemplazo
+>   completo del catálogo — `resolverListaPrecioVigente()` resuelve el precio
+>   POR VARIANTE, caminando hacia atrás por las versiones publicadas del
+>   proveedor hasta encontrar la más reciente que incluya esa variante
+>   puntual (antes resolvía una única "versión cabeza" y una versión parcial
+>   dejaba sin precio al resto del catálogo).
+> - **D8 — `estaEntregaVencida()` (§9.4) — RESUELTO.** El helper de "día
+>   calendario de negocio" (`src/lib/utils/fecha-negocio.ts`,
+>   `esFechaSoloAnteriorAHoyNegocio`) reemplaza la comparación contra el
+>   inicio del día en UTC; ver el detalle en §9.4 más abajo.
+
+---
+
 ## 1. Historia de Usuario y Criterios de Aceptación
 
 **Como** Comprador, **necesito** emitir una orden de compra contra la lista de
@@ -1076,17 +1119,28 @@ Dos lugares donde el código quedó desactualizado respecto de su propio estado:
 Son cosméticos, pero es exactamente el tipo de deriva documentación-vs-código
 que este documento intenta no repetir.
 
-### 9.4. `estaEntregaVencida()` puede adelantarse hasta 3 horas el último día
+### 9.4. `estaEntregaVencida()` puede adelantarse hasta 3 horas el último día — RESUELTO
 
-El cálculo usa el inicio del día **en UTC** (`665-666`). En Argentina (UTC-3),
-entre las 21:00 y la medianoche local, "hoy en UTC" ya es el día siguiente. Una
-orden cuya entrega vence hoy va a marcarse como **vencida a partir de las 21:00
-hora local del mismo día de la entrega**, tres horas antes de que efectivamente
-lo esté.
+> **Estado: resuelto el 2026-09-26** (auditoría transversal Módulo H,
+> hallazgo D8). Archivo: `src/lib/utils/fecha-negocio.ts` (nuevo, helper
+> compartido) + `orden-compra.service.ts` (`estaEntregaVencida()`).
 
-Es una ventana chica y del lado conservador (avisa de más, no de menos), pero es
-real. La alternativa sería normalizar contra la zona horaria de negocio en vez de
-UTC.
+**El hallazgo (vigente hasta el fix):** el cálculo usaba el inicio del día
+**en UTC** (`665-666`). En Argentina (UTC-3), entre las 21:00 y la medianoche
+local, "hoy en UTC" ya era el día siguiente. Una orden cuya entrega vencía hoy
+se marcaba como **vencida a partir de las 21:00 hora local del mismo día de la
+entrega**, tres horas antes de que efectivamente lo estuviera.
+
+Era una ventana chica y del lado conservador (avisaba de más, no de menos),
+pero real.
+
+**El fix.** `estaEntregaVencida()` delega la comparación en
+`esFechaSoloAnteriorAHoyNegocio()` (`src/lib/utils/fecha-negocio.ts`), que
+compara por día calendario de negocio (Argentina) en vez de contra la
+medianoche UTC. Mismo helper que corrige A1 (HU-H2) y A2 (HU-H5) de la
+auditoría transversal — es la misma familia de bug repetida por 3ra/4ta vez,
+de ahí que se centralizara en un módulo compartido en vez de corregirse otra
+vez de forma local.
 
 ### 9.5. Ambas pantallas usan `ordenes_compra:crear` como gate de lectura — RESUELTO
 

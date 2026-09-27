@@ -95,3 +95,63 @@ Los 11 casos pasaron con el comportamiento esperado. Dos limitaciones quedaron d
 - **`auditoria:leer_historico` es un permiso compartido entre tres dominios, no exclusivo de HU-H6.** El permiso que gatea este endpoint fue originalmente creado para HU-C10 (Módulo C, dominio clientes) — el propio `seed.ts` ya documenta esa reutilización como divergencia de nomenclatura conocida y aceptada (también cubre un scope "ventas"). Con HU-H6 pasa a ser un tercer dominio compartiendo el mismo permiso: cualquier usuario con `auditoria:leer_historico` obtiene lectura de auditoría de clientes, ventas y proveedores a la vez, sin forma de otorgar uno sin los otros. **Es una limitación de diseño RBAC preexistente que esta HU hereda, no que introduce** — hoy solo el rol Auditor lo tiene (confirmado por SQL), por eso el Caso 6 dio el resultado esperado, pero si en el futuro se necesita separar el acceso a auditoría por dominio, esto va a requerir permisos granulares nuevos, no un cambio de esta HU.
 - **`fieldErrors` vacío para errores de validación a nivel de objeto (T23).** No es un bug de esta HU — es el comportamiento estándar de Zod para `.refine()` sin `path` — pero si a futuro se necesita que el cliente reciba el mensaje específico de "fecha_desde debe ser anterior o igual a fecha_hasta", el schema tendría que agregar un `path: ["fecha_hasta"]` explícito al `.refine()`. Queda anotado para quien decida esa mejora, no se tocó en esta ronda porque el schema ya está cerrado (Spec §2.2).
 - **`proveedor:legajo_bancario_consultado` sin emisor.** El canal está en `ACCIONES_DOMINIO_PROVEEDORES` desde el día 1 (decisión cerrada del Propose) pero no es certificable end-to-end hasta que exista el emisor real (probable HU-H1) — se testeó únicamente con un `AuditLog` sembrado manualmente, fuera del alcance de la corrida runtime de T20-T30.
+
+---
+
+> **Adenda — interfaz de usuario, agregada el 2026-09-26 (working tree, pendiente de commit).** Todo lo anterior en este documento describe el cierre original de HU-H6 ("Cualquier interfaz de usuario" figuraba explícitamente en "Fuera de alcance" arriba, pensado para consumo por Postman/frontend futuro). Las dos secciones siguientes documentan esa consola de UI, ya construida, con el mismo estándar de evidencia `archivo:línea` y el mismo formato adoptado en `HU3_MODULO_H.md` §3 y §7.
+
+## Cumplimiento de cada Criterio de Aceptación (interfaz de usuario)
+
+### ✅ Consola en `/auditoria/logs?modulo=proveedores`, dentro de la ÚNICA consola de auditoría del proyecto
+
+No se creó una pantalla nueva: `src/app/(dashboard)/auditoria/logs/page.tsx` (D.3, ya existente) enruta a `VistaAuditoriaProveedores` cuando `?modulo=proveedores` (`page.tsx:78-81`), exactamente el mismo patrón que ya usa HU-C10 para `?modulo=clientes` (`page.tsx:74-77`) — mismo componente contenedor, misma convención de query param, sin bifurcar la navegación de auditoría en pantallas separadas.
+
+- `VistaAuditoriaProveedores.tsx` (`src/components/auditoria/VistaAuditoriaProveedores.tsx`) es un Server Component: gatea con `redirect("/no-autorizado")` si el usuario no tiene `auditoria:leer_historico` (`38-42`) — bloqueo real por URL directa, no solo ocultamiento de menú. Reusa el schema (`ConsultarAuditoriaProveedoresQuerySchema`, importado directo del `route.ts` de HU-H6, `VistaAuditoriaProveedores.tsx:5`) y las funciones de servicio ya cerradas (`listarEventosDeDominioProveedores`, `44-58`) — no se reimplementa filtrado ni sanitización en la capa de UI.
+- Navegación cruzada entre modos: la consola general enlaza a `?modulo=proveedores` solo si el usuario tiene el permiso (`page.tsx:153-155`), y la vista de Proveedores enlaza de vuelta a "Historial general" (`VistaAuditoriaProveedores.tsx:91-96`).
+
+### ✅ Sidebar: sub-ítem "Auditoría de Proveedores" bajo "Auditoría Forense", gateado por `auditoria:leer_historico`
+
+`src/components/layout/Sidebar.tsx`: el nombre real del ítem es **"Auditoría de Proveedores"** (no "Auditoría de Proveedor(es)"), agregado como `children` de la entrada "Auditoría Forense" (`Sidebar.tsx:69-91`) — mismo mecanismo `children` que ya soportaba el componente pero que ningún otro ítem usaba hasta ahora (comentario explícito, `79-80`). El sub-ítem concreto:
+
+```tsx
+// Sidebar.tsx:84-89
+{
+  label: "Auditoría de Proveedores",
+  href: "/auditoria/logs?modulo=proveedores",
+  icon: Store,
+  permiso: "auditoria:leer_historico",
+},
+```
+
+Gate por `auditoria:leer_historico` (`Sidebar.tsx:88`) — hoy AUDITOR y SUPERVISOR_COMPRAS (ver "Seed" abajo); COMPRADOR no lo tiene y por lo tanto no ve la entrada, consistente con la nota del propio comentario del código (`81-82`).
+
+### ✅ Tabla con las 5 columnas exactas y `BotonVerificarCadena` exclusivo de quien tiene `auditoria:verificar_cadena`
+
+- **Columnas.** `TablaAuditoriaProveedores.tsx:58-62`: Fecha y hora, Tipo de evento, Usuario responsable, Proveedor, Cambios registrados — en ese orden exacto. "Usuario responsable" resuelve nombre vía `nombresPorUsuarioId` con fallback `"sistema"` si `usuario_id` es `null` (`73-75`); "Proveedor" resuelve razón social vía `razonesSocialesPorProveedorId`, sin link a una ficha de detalle porque esa pantalla no existe todavía (comentario explícito, `77-81`); "Cambios registrados" es un `<details>` colapsable con el JSON ya sanitizado (`84-95`).
+- **`BotonVerificarCadena` acotado por permiso, no por rol hardcodeado.** Se renderiza en `VistaAuditoriaProveedores.tsx:87` solo si `puedeVerificar` (`auditoria:verificar_cadena`, resuelto en `38-41`) — el mismo componente y el mismo endpoint (`POST /api/auditoria/verificar-cadena`) que ya usa la consola general de Módulo D, sin una versión "de proveedores" separada. En el seed real, ese permiso es exclusivo de AUDITOR: Supervisor de Compras ve la tabla completa (tiene `auditoria:leer_historico`) pero no el botón (no tiene `auditoria:verificar_cadena`) — confirmado en runtime, ver "Verificación en runtime" abajo.
+
+### ✅ Seed: `auditoria:leer_historico` pasa a incluir también a `SUPERVISOR_COMPRAS`
+
+Hasta el cierre original de esta HU (documentado arriba en "Decisiones sujetas a revisión": *"hoy solo el rol Auditor lo tiene"*), `auditoria:leer_historico` era exclusivo de AUDITOR. Para que la UI de esta sección tuviera un segundo rol real contra el cual verificar la segregación (Comprador sin acceso, Supervisor con acceso de solo lectura), se agregó un `rolPermiso.upsert` idempotente para `SUPERVISOR_COMPRAS` (`prisma/seed.ts:1885-1904`), con el razonamiento explícito en el propio comentario del seed (`1889-1891`): *"NO se le da a COMPRADOR, que no debe poder consultar el historial forense del circuito que él mismo opera"*. AUDITOR conserva además `auditoria:verificar_cadena`, que Supervisor de Compras no recibió — de ahí la asimetría tabla-sí/botón-no del punto anterior. Esto no reabre la limitación de diseño ya declarada arriba (`auditoria:leer_historico` sigue siendo un permiso compartido entre tres dominios) — solo agrega un rol más a un permiso que ya era compartido.
+
+**Verificación en runtime (2026-09-26, base sembrada), roles reales vía login:**
+
+| Rol | `GET /auditoria/logs?modulo=proveedores` | Tabla | `BotonVerificarCadena` |
+|---|---|---|---|
+| SUPERVISOR_COMPRAS | `200` | Sí, con los eventos de HU-H2 | No (sin `auditoria:verificar_cadena`) |
+| AUDITOR | `200` | Sí | Sí — "Verificar integridad de la cadena" → "Cadena íntegra — 6 registros verificados" (tras el fix del Bug 4 (de HU-H2) — ruptura de la cadena SHA-256 por precisión de punto flotante, ver `HU2_MODULO_H.md` — y un reseteo limpio) |
+| COMPRADOR | `403` en `GET /api/proveedores/auditoria`; `/auditoria/logs?modulo=proveedores` → `redirect` a `/no-autorizado` ("Acceso Denegado"); sin el sub-ítem "Auditoría de Proveedores" en el sidebar | — | — |
+
+## Bugs encontrados y corregidos — línea de tiempo real (interfaz de usuario)
+
+### Bug 2 (de la línea de tiempo de HU-H2) — parte de auditoría: UUID en vez de nombre/razón social
+
+HU2_MODULO_H.md documenta la mitad de este bug ("Aprobada por" del historial de versiones). Esta es la otra mitad, propia de esta consola: la tabla mostraba `proveedor_id` crudo en la columna "Proveedor" y el UUID de `usuario_id` en "Usuario responsable", en vez de la razón social y el nombre completo respectivamente.
+
+- **Por qué el mecanismo es distinto al de HU-H2.** `AuditLog` no tiene una relación directa a `Proveedor` ni a `Usuario` resoluble con un `include` — `proveedor_id` ni siquiera es una columna propia del modelo (`auditoria-proveedores.service.ts:1-11`, "IMPORTANTE"): vive dentro del JSON `valor_anterior`/`valor_nuevo` para casi todos los eventos del dominio (`resolverProveedorId()`, `234-247`), o es directamente el `registro_id` cuando `tabla_afectada === "proveedores"`. Por eso el fix no pudo ser un `include` como en HU-H2: se resolvió con dos funciones de batch, en una sola query cada una, evitando N+1:
+  - `resolverNombresUsuarios()` (`auditoria-proveedores.service.ts:399-411`) — batch de `usuario_id` únicos.
+  - `resolverRazonesSocialesProveedores()` (`426-438`) — batch de `proveedor_id` únicos (ya resueltos por `resolverProveedorId()` desde cada fila).
+- **Consumo.** `VistaAuditoriaProveedores.tsx:55-58` llama ambas funciones en paralelo (`Promise.all`) después de listar los eventos, y pasa los dos `Map` resultantes a `TablaAuditoriaProveedores`, que los usa con fallback `"—"` (proveedor no resuelto) o `"sistema"` (evento sin `usuario_id`) — `TablaAuditoriaProveedores.tsx:73-75`, `82`.
+- **Descartado.** Igual que en HU-H2: ni un join manual por fila ni una resolución N+1. Tampoco se intentó forzar un `include` de Prisma (no hay relación de schema que lo permita, a diferencia del caso de HU-H2 donde `ListaPrecioVersion` sí tiene FK directa a `Usuario`).
+
+No se encontraron bugs adicionales, propios de esta consola de UI, más allá de esta mitad del Bug 2 — el resto de la línea de tiempo de bugs de esta sesión (zona horaria, texto de proceso interno, ruptura de la cadena SHA-256) es exclusiva de la pantalla de HU-H2 y está documentada en `HU2_MODULO_H.md`.

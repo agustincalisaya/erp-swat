@@ -19,6 +19,26 @@ import * as dotenv from "dotenv";
 
 dotenv.config();
 
+/**
+ * Sprint 3 (cierre HU-H2/H6, fixture de variación crítica) — a diferencia del
+ * resto de este archivo, este único bloque SÍ importa un service real
+ * (`publicarNuevaVersionListaPrecio`), para no reimplementar el cálculo de
+ * variación/umbral ni el encadenamiento SHA-256 del ledger fuera de su única
+ * fuente de verdad (`lista-precios.service.ts` → evento
+ * `proveedor:variacion_precio_critica` → `audit-log.listener.ts` →
+ * `registrarAuditLog()`). Ese service (y su cadena de imports) usa
+ * `import "server-only"`, que revienta bajo `tsx` a secas — por eso
+ * `package.json`/`prisma.config.ts` corren `prisma db seed` con
+ * `node --conditions=react-server --import tsx`, la MISMA condición de
+ * exports que ya usan los scripts `test:integration:*` de este proyecto para
+ * poder importar código con `server-only` fuera del bundler de Next
+ * (`server-only` resuelve a un `empty.js` no-op bajo la condición
+ * `react-server`, ver `node_modules/server-only/package.json`).
+ */
+import { publicarNuevaVersionListaPrecio } from "@/lib/services/proveedores/lista-precios.service";
+import { domainEventBus } from "@/lib/events/domain-event-bus";
+import { verificarCadenaIntegridad } from "@/lib/services/auditoria/audit-log.service";
+
 const prisma = new PrismaClient();
 
 const PASSWORD_SEED = "abc123456789";
@@ -208,6 +228,25 @@ const LISTA_PRECIO_VERSION_2_ID = "1a2b3c4d-5678-4a1a-8a1a-000000000001";
 const LISTA_PRECIO_ITEM_V2_CAMISA_1_ID = "1a2b3c4d-9abc-4a1a-8a1a-000000000001";
 const LISTA_PRECIO_ITEM_V2_CAMISA_2_ID = "1a2b3c4d-9abc-4a1a-8a1a-000000000002";
 const LISTA_PRECIO_ITEM_V2_BORCEGOS_1_ID = "1a2b3c4d-9abc-4a1a-8a1a-000000000003";
+
+// --- Origen: Sprint 3 — UI de Listas de Precios (HU-H2/H6/H7) ---
+// Segundo proveedor HOMOLOGADO, exclusivamente para poder ejercitar HU-H7
+// (comparativa de precios entre proveedores) contra una variante real que
+// YA tiene precio vigente en `proveedorHomologado` (namespace `6666`,
+// siguiente slot libre: `...002` lo ocupa `proveedorPendiente`).
+const PROVEEDOR_SEGUNDO_HOMOLOGADO_ID = "1a2b3c4d-6666-4a1a-8a1a-000000000003";
+// Namespace nuevo `b2b2` (no colisiona con ningún otro usado en este archivo
+// — verificado por grep antes de elegirlo) para la ListaPrecio/Version/Items
+// del segundo proveedor.
+const LISTA_PRECIO_SEGUNDO_HOMOLOGADO_ID = "1a2b3c4d-b2b2-4a1a-8a1a-000000000001";
+const LISTA_PRECIO_VERSION_SEGUNDO_ID = "1a2b3c4d-b2b2-4a1a-8a1a-000000000002";
+const LISTA_PRECIO_ITEM_SEGUNDO_CAMISA_1_ID = "1a2b3c4d-b2b2-4a1a-8a1a-000000000003";
+const LISTA_PRECIO_ITEM_SEGUNDO_BORCEGOS_1_ID = "1a2b3c4d-b2b2-4a1a-8a1a-000000000004";
+// La tercera ListaPrecioVersion de `proveedorHomologado` (>20% de variación,
+// pendiente de aprobación) NO tiene una constante de id fija: se publica vía
+// el service real `publicarNuevaVersionListaPrecio()`, que genera su propio
+// `id` (Prisma `@default(uuid())`) — ver el bloque de seed correspondiente,
+// más abajo, que la identifica por `fecha_inicio_vigencia` fija en su lugar.
 
 // --- Origen: Sprint 3 — Módulo C (Clientes) ---
 // RBAC: permisos granulares de Cliente (spec_modulo_C.md §5 del Alcance) +
@@ -1843,6 +1882,27 @@ async function main() {
     });
   }
 
+  // Sprint 3 (cierre HU-H6/UI de Listas de Precios) — `auditoria:leer_historico`
+  // (sembrado en el bloque de Módulo C, `PERMISO_AUDITORIA_LEER_HISTORICO_ID`)
+  // habilita `GET /api/proveedores/auditoria` (H6) y la consola
+  // `/auditoria/logs?modulo=proveedores`. Hasta acá solo lo tenía AUDITOR — se
+  // suma SUPERVISOR_COMPRAS (decisión explícita del usuario: NO se le da a
+  // COMPRADOR, que no debe poder consultar el historial forense del circuito
+  // que él mismo opera).
+  await prisma.rolPermiso.upsert({
+    where: {
+      rol_id_permiso_id: {
+        rol_id: rolSupervisorCompras.id,
+        permiso_id: PERMISO_AUDITORIA_LEER_HISTORICO_ID,
+      },
+    },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: {
+      rol_id: rolSupervisorCompras.id,
+      permiso_id: PERMISO_AUDITORIA_LEER_HISTORICO_ID,
+    },
+  });
+
   // El Comprador ya NO puede emitir (enviar) NI cancelar una orden — ambas
   // exclusivas del Supervisor de Compras. Si una corrida previa del seed dejó
   // los vínculos viejos, se eliminan (este seed es dueño de RolPermiso — ver
@@ -2085,7 +2145,7 @@ async function main() {
 
   const listaPrecioVersion = await prisma.listaPrecioVersion.upsert({
     where: { id: LISTA_PRECIO_VERSION_ID },
-    update: { publicada: true, is_active: true },
+    update: { publicada: true, is_active: true, creada_por_id: usuarioComprador.id },
     create: {
       id: LISTA_PRECIO_VERSION_ID,
       lista_precio_id: listaPrecioHomologado.id,
@@ -2094,6 +2154,7 @@ async function main() {
       requiere_aprobacion: false,
       publicada: true,
       is_active: true,
+      creada_por_id: usuarioComprador.id,
     },
   });
 
@@ -2130,7 +2191,7 @@ async function main() {
 
   const listaPrecioVersion2 = await prisma.listaPrecioVersion.upsert({
     where: { id: LISTA_PRECIO_VERSION_2_ID },
-    update: { publicada: true, is_active: true },
+    update: { publicada: true, is_active: true, creada_por_id: usuarioComprador.id },
     create: {
       id: LISTA_PRECIO_VERSION_2_ID,
       lista_precio_id: listaPrecioHomologado.id,
@@ -2139,6 +2200,7 @@ async function main() {
       requiere_aprobacion: false,
       publicada: true,
       is_active: true,
+      creada_por_id: usuarioComprador.id,
     },
   });
 
@@ -2158,6 +2220,155 @@ async function main() {
         is_active: true,
       },
     });
+  }
+
+  // ── Módulo H — Segundo proveedor HOMOLOGADO (HU-H7, comparativa) ──────────
+  //
+  // Único propósito: poder ejercitar la comparativa de precios (HU-H7) con
+  // más de un proveedor ofreciendo la MISMA variante. Comparte
+  // VARIANTE_CAMISA_TACTICA_1_ID (más barato que la vigente de
+  // `proveedorHomologado`, 15600 < 16400) y VARIANTE_BORCEGOS_1_ID (más caro,
+  // 45200 > 43500) con `listaPrecioVersion2`. `VarianteSKU.proveedor_id` NO
+  // cambia (sigue apuntando a `proveedorHomologado` — es el "proveedor
+  // habitual" de Módulo A, un campo distinto de "quién más la vende"):
+  // `comparativa-precios.service.ts` descubre proveedores candidatos vía
+  // `ListaPrecioItem`, nunca vía `VarianteSKU.proveedor_id` (verificado
+  // contra `resolverCandidatosPorVariante`).
+  const proveedorSegundoHomologado = await prisma.proveedor.upsert({
+    where: { id: PROVEEDOR_SEGUNDO_HOMOLOGADO_ID },
+    update: { estado: "HOMOLOGADO", is_active: true, deleted_at: null },
+    create: {
+      id: PROVEEDOR_SEGUNDO_HOMOLOGADO_ID,
+      razon_social: "Suministros Tácticos Cuyo S.A.",
+      nombre_fantasia: "Tácticos Cuyo",
+      cuit: "30-71987654-2",
+      condiciones_pago: "30 días",
+      categorias: ["Textil Táctico", "Calzado"],
+      estado: "HOMOLOGADO",
+      contacto_nombre: "Marina Ibáñez",
+      contacto_email: "compras@tacticoscuyo.example.com",
+      is_active: true,
+    },
+  });
+
+  const listaPrecioSegundoHomologado = await prisma.listaPrecio.upsert({
+    where: { id: LISTA_PRECIO_SEGUNDO_HOMOLOGADO_ID },
+    update: {},
+    create: {
+      id: LISTA_PRECIO_SEGUNDO_HOMOLOGADO_ID,
+      proveedor_id: proveedorSegundoHomologado.id,
+      is_active: true,
+    },
+  });
+
+  const listaPrecioVersionSegundo = await prisma.listaPrecioVersion.upsert({
+    where: { id: LISTA_PRECIO_VERSION_SEGUNDO_ID },
+    update: { publicada: true, is_active: true, creada_por_id: usuarioComprador.id },
+    create: {
+      id: LISTA_PRECIO_VERSION_SEGUNDO_ID,
+      lista_precio_id: listaPrecioSegundoHomologado.id,
+      fecha_inicio_vigencia: diasAtras(3),
+      variacion_porcentual_maxima: 0,
+      requiere_aprobacion: false,
+      publicada: true,
+      is_active: true,
+      creada_por_id: usuarioComprador.id,
+    },
+  });
+
+  for (const [id, varianteSkuId, precio] of [
+    [LISTA_PRECIO_ITEM_SEGUNDO_CAMISA_1_ID, VARIANTE_CAMISA_TACTICA_1_ID, 15600.0], // más barato que 16400 (proveedorHomologado)
+    [LISTA_PRECIO_ITEM_SEGUNDO_BORCEGOS_1_ID, VARIANTE_BORCEGOS_1_ID, 45200.0], // más caro que 43500 (proveedorHomologado)
+  ] as const) {
+    await prisma.listaPrecioItem.upsert({
+      where: { id },
+      update: { precio_unitario: precio, is_active: true },
+      create: {
+        id,
+        lista_precio_version_id: listaPrecioVersionSegundo.id,
+        variante_sku_id: varianteSkuId,
+        precio_unitario: precio,
+        is_active: true,
+      },
+    });
+  }
+
+  // ── Módulo H — Versión PENDIENTE DE APROBACIÓN + evento de auditoría real ─
+  //
+  // Publica (vía el service REAL, no un insert directo) una tercera versión
+  // sobre la MISMA ListaPrecio de `proveedorHomologado`, con una variación de
+  // Camisa 1 muy por encima del umbral crítico (21000 vs. 16400 vigente ≈
+  // +28.05% > UMBRAL_VARIACION_CRITICA_PORCENTUAL=20) → queda
+  // `publicada = false` / `requiere_aprobacion = true`, y dispara el evento
+  // `proveedor:variacion_precio_critica` post-COMMIT, que `audit-log.listener.ts`
+  // escribe en el ledger real (`registrarAuditLog`, encadenado SHA-256) — NO
+  // se inserta ningún `AuditLog` a mano.
+  //
+  // Fecha "hoy" (inicio de día UTC) calculada al correr la seed — así, al
+  // aprobarla, queda más nueva que `listaPrecioVersion2` (`diasAtras(2)`) y
+  // `fecha_inicio_vigencia <= now()`, por lo que pasa a ser la VIGENTE
+  // (`resolverListaPrecioVigente()`/`derivarEstadoListaPrecioVersion`). Antes
+  // era una fecha fija (2026-01-15) que quedaba vieja apenas pasaba esa
+  // fecha real — nunca podía ser vigente tras aprobarse.
+  //
+  // Idempotente por `(lista_precio_id, requiere_aprobacion=true,
+  // publicada=false)`: si ya existe una versión pendiente de aprobación para
+  // esta ListaPrecio (fecha "hoy" de una corrida anterior, o ya aprobada en
+  // otra corrida), no se publica una segunda — la fecha fija anterior ya no
+  // sirve de clave de idempotencia porque cambia en cada corrida. El ledger
+  // es append-only — la seed nunca borra ni reescribe filas de `AuditLog`;
+  // si la cadena no verifica, solo lo reporta.
+  //
+  // A3 (auditoría transversal Módulo H, 2026-09-26): esta versión de 1 solo
+  // ítem (Camisa 1 = VARIANTE_CAMISA_TACTICA_1_ID, M/Verde) es también el
+  // caso que reprodujo el hallazgo A3 — al aprobarla (rol Supervisor de
+  // Compras, botón "Aprobar" del historial de `/compras/listas-precios`),
+  // pasa a ser la versión más nueva y publicada de `proveedorHomologado`,
+  // pero NO incluye Camisa 2 (L/Negro) ni Borcegos 1, que sí tenían precio en
+  // `listaPrecioVersion2`. Antes de la corrección de `obtenerVersionVigente()`
+  // (`lista-precios.service.ts`), aprobarla dejaba esas dos variantes SIN
+  // precio vigente (exactamente el bug que encontró la auditoría). Con la
+  // resolución por variante ya corregida, aprobarla es ahora un ejemplo
+  // correcto del comportamiento de "delta": Camisa 1 resuelve contra esta
+  // versión nueva (21000) y Camisa 2/Borcegos 1 siguen resolviendo contra
+  // `listaPrecioVersion2` (16900 / 43500) — se deja la demo tal cual para que
+  // siga sirviendo de caso de prueba manual, ya no de regresión.
+  const FECHA_LISTA_PRECIO_VERSION_PENDIENTE = new Date();
+  FECHA_LISTA_PRECIO_VERSION_PENDIENTE.setUTCHours(0, 0, 0, 0);
+
+  const versionPendienteExistente = await prisma.listaPrecioVersion.findFirst({
+    where: {
+      lista_precio_id: listaPrecioHomologado.id,
+      requiere_aprobacion: true,
+      publicada: false,
+    },
+    select: { id: true },
+  });
+
+  if (!versionPendienteExistente) {
+    // `audit-log.listener.ts` se registra vía un import() dinámico disparado
+    // al crearse el singleton de `domainEventBus` (ver docstring de
+    // `domain-event-bus.ts`) — una promesa, no una operación síncrona. Se
+    // espera activamente a que el listener quede registrado antes de emitir.
+    for (let intento = 0; intento < 50; intento++) {
+      if (domainEventBus.listenerCount("proveedor:variacion_precio_critica") > 0) break;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+
+    await publicarNuevaVersionListaPrecio(
+      proveedorHomologado.id,
+      FECHA_LISTA_PRECIO_VERSION_PENDIENTE,
+      [{ variante_sku_id: VARIANTE_CAMISA_TACTICA_1_ID, precio_unitario: 21000.0 }], // +28.05% vs 16400 → crítico
+      usuarioComprador.id,
+    );
+
+    // Deja que `colaLedger` drene antes de verificar.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    const integridad = await verificarCadenaIntegridad();
+    if (!integridad.integra) {
+      console.error("[seed] La cadena de AuditLog no verifica tras publicar la versión crítica de HU-H2.", integridad);
+    }
   }
 
   // ── Módulo H — Orden de Compra controlada (HU-H4 V2) ───────────────────────
@@ -3095,6 +3306,8 @@ async function main() {
   console.table({
     vendedor_seed: `${usuarioVendedor.nombre_usuario}  <${usuarioVendedor.email}>`,
     lista_precio_version_2_id: listaPrecioVersion2.id,
+    proveedor_segundo_homologado_id: proveedorSegundoHomologado.id,
+    lista_precio_version_segundo_id: listaPrecioVersionSegundo.id,
     permiso_clientes_leer_id: PERMISO_CLIENTES_LEER_ID,
     permiso_auditoria_leer_historico_id: PERMISO_AUDITORIA_LEER_HISTORICO_ID,
     permiso_proveedores_publicar_lista_id: PERMISO_PROVEEDORES_PUBLICAR_LISTA_ID,

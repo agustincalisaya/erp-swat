@@ -110,32 +110,36 @@ export function ComprobantesProveedorCard({
             <table className="w-full text-sm">
               <thead className="border-b border-border">
                 <tr>
-                  <th className="text-left py-3 font-semibold text-xs uppercase tracking-wide text-muted-foreground">
+                  <th className="text-left py-3 pr-3 font-semibold text-xs uppercase tracking-wide text-muted-foreground">
                     Tipo
                   </th>
-                  <th className="text-left py-3 font-semibold text-xs uppercase tracking-wide text-muted-foreground">
+                  <th className="text-left py-3 px-3 font-semibold text-xs uppercase tracking-wide text-muted-foreground">
                     Número
                   </th>
-                  <th className="text-left py-3 font-semibold text-xs uppercase tracking-wide text-muted-foreground">
+                  <th className="text-left py-3 px-3 font-semibold text-xs uppercase tracking-wide text-muted-foreground">
                     Emisión
                   </th>
-                  <th className="text-right py-3 font-semibold text-xs uppercase tracking-wide text-muted-foreground">
+                  {/* H9 (auditoría transversal Módulo H, 2026-09-26): sin
+                      padding horizontal, "Monto total" (alineado a la
+                      derecha) quedaba pegado a "Registrado por" (alineado a
+                      la izquierda) — se agrega `px-3`/`pl-3` a ambas. */}
+                  <th className="text-right py-3 px-3 font-semibold text-xs uppercase tracking-wide text-muted-foreground">
                     Monto total
                   </th>
-                  <th className="text-left py-3 font-semibold text-xs uppercase tracking-wide text-muted-foreground">
+                  <th className="text-left py-3 px-3 font-semibold text-xs uppercase tracking-wide text-muted-foreground">
                     Registrado por
                   </th>
-                  <th className="text-left py-3 font-semibold text-xs uppercase tracking-wide text-muted-foreground">
+                  <th className="text-left py-3 px-3 font-semibold text-xs uppercase tracking-wide text-muted-foreground">
                     Estado
                   </th>
-                  <th className="py-3" aria-hidden="true" />
+                  <th className="py-3 pl-3" aria-hidden="true" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {comprobantes.map((c) => (
                   <tr key={c.id} className={c.is_active ? "" : "opacity-60"}>
-                    <td className="py-3">{TIPO_LABEL[c.tipo] ?? c.tipo}</td>
-                    <td className="py-3 font-mono text-xs">
+                    <td className="py-3 pr-3">{TIPO_LABEL[c.tipo] ?? c.tipo}</td>
+                    <td className="py-3 px-3 font-mono text-xs">
                       {c.numero_comprobante}
                       {c.archivo_adjunto_url && (
                         <a
@@ -148,16 +152,16 @@ export function ComprobantesProveedorCard({
                         </a>
                       )}
                     </td>
-                    <td className="py-3 tabular-nums">
+                    <td className="py-3 px-3 tabular-nums">
                       {formatFechaSolo(c.fecha_emision)}
                     </td>
-                    <td className="py-3 text-right tabular-nums font-medium">
+                    <td className="py-3 px-3 text-right tabular-nums font-medium">
                       {money.format(Number(c.monto_total))}
                     </td>
-                    <td className="py-3 text-muted-foreground">
+                    <td className="py-3 px-3 text-muted-foreground">
                       {c.registrado_por_nombre ?? "—"}
                     </td>
-                    <td className="py-3">
+                    <td className="py-3 px-3">
                       {c.is_active ? (
                         <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
                           Activo
@@ -171,7 +175,7 @@ export function ComprobantesProveedorCard({
                         </span>
                       )}
                     </td>
-                    <td className="py-3 text-right">
+                    <td className="py-3 pl-3 text-right">
                       {c.is_active && puedeAnular && (
                         <DialogAnularComprobante
                           comprobanteId={c.id}
