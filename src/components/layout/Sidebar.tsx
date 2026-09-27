@@ -32,7 +32,7 @@
  */
 import type { LucideIcon } from "lucide-react";
 // 1. Agregamos el ícono "Layers" a la importación
-import { ScrollText, ShieldCheck, Users, Package, Warehouse, ScanBarcode, Layers, FileSearch, ShoppingCart, ClipboardList, Store, PackageCheck, Undo2, Wallet, Banknote, Receipt, FileText, UserPlus } from "lucide-react";
+import { ScrollText, ShieldCheck, Users, Package, Warehouse, ScanBarcode, Layers, FileSearch, ShoppingCart, ClipboardList, Store, PackageCheck, Undo2, Wallet, Banknote, Receipt, FileText, UserPlus, Tags } from "lucide-react";
 import { getServerSession } from "@/lib/auth/session";
 import { usuarioTienePermiso } from "@/lib/auth/with-permission";
 import { SidebarNav, type SidebarNavSection } from "@/components/layout/SidebarNav";
@@ -73,6 +73,21 @@ const SECCIONES: SeccionConfig[] = [
         // Inventario cuelga acá como sub-ítem en vez de vivir como
         // entrada de primer nivel aparte en "Inventario" (evita el
         // nombre duplicado "Auditoría Forense" en dos lugares del menú).
+        // Sprint 3 (cierre HU-H6/UI de Listas de Precios) — "Auditoría de
+        // Proveedores" (`/auditoria/logs?modulo=proveedores`, mismo patrón
+        // que `?modulo=clientes` de HU-C10) cuelga acá como sub-ítem real
+        // (`children`, mecanismo ya soportado por este componente aunque
+        // hasta ahora ningún ítem lo usaba). Gate por
+        // `auditoria:leer_historico` — hoy AUDITOR y SUPERVISOR_COMPRAS;
+        // COMPRADOR no lo tiene, así que no ve la entrada.
+        children: [
+          {
+            label: "Auditoría de Proveedores",
+            href: "/auditoria/logs?modulo=proveedores",
+            icon: Store,
+            permiso: "auditoria:leer_historico",
+          },
+        ],
       },
       {
         label: "Auditoría del Inventario",
@@ -106,20 +121,43 @@ const SECCIONES: SeccionConfig[] = [
     label: "Compras",
     icon: ShoppingCart,
     items: [
+      // C4 (auditoría transversal Módulo H, 2026-09-26): este ítem no tenía
+      // `permiso` — se mostraba a cualquier sesión autenticada, incluido el
+      // Encargado de Depósito, que no tiene `proveedores:leer` y recibía
+      // "Acceso Denegado" al entrar. Gate agregado por `proveedores:leer`
+      // (Comprador, Supervisor de Compras y Auditor ya lo tienen sembrado).
+      {
+        label: "Proveedores",
+        href: "/compras/proveedores",
+        icon: Store,
+        permiso: "proveedores:leer",
+      },
       // Gate por `ordenes_compra:leer` (Alcance §5) — permiso de lectura
       // separado de `crear`. Lo tienen Comprador, Supervisor de Compras y
       // Auditor. Las acciones de transición (enviar/confirmar/cerrar/cancelar)
       // se gatean por sus permisos granulares en el detalle.
       {
-        label: "Proveedores",
-        href: "/compras/proveedores",
-        icon: Store,
-      },
-      {
         label: "Órdenes de Compra",
         href: "/compras/ordenes",
         icon: ClipboardList,
         permiso: "ordenes_compra:leer",
+      },
+      // Sprint 3 (cierre HU-H2/H6/H7) — pantalla unificada de publicación,
+      // historial/aprobación y comparativa de precios.
+      //
+      // C7 (auditoría transversal Módulo H, 2026-09-26): el gate original
+      // era `proveedores:publicar_lista`, así que el Auditor (que tiene
+      // `proveedores:leer` y puede consultar el historial por API, Alcance
+      // Funcional §5) no veía la entrada — sin link, sin forma de llegar a
+      // la pantalla que sí lo deja entrar en modo lectura. Se cambia a
+      // `proveedores:leer`: sigue visible para Comprador/Supervisor (que
+      // también lo tienen sembrado) y ahora también para Auditor; el
+      // Encargado de Depósito (sin `proveedores:leer`) sigue sin verlo.
+      {
+        label: "Lista de Precios",
+        href: "/compras/listas-precios",
+        icon: Tags,
+        permiso: "proveedores:leer",
       },
       {
         label: "Recepción de Mercadería",

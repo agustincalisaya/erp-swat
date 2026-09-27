@@ -340,7 +340,16 @@ export interface OrdenCompraItemsEditadosPayload {
   }[];
 }
 
-/** HU-H4: recepción física persistida y estado físico de la OC actualizado. */
+/**
+ * HU-H4: recepción física persistida y estado físico de la OC actualizado.
+ *
+ * B2 (auditoría transversal Módulo H, 2026-09-26): `estado_nuevo_oc` incluía
+ * `"RECEPCION_PARCIAL"`, residuo de tipos de un diseño anterior a H4 V2.1
+ * (`799ad6b`, PR #128) — `recepcion.service.ts:168` exige que la OC esté
+ * `CONFIRMADA` y `:191` siempre fija `RECIBIDA_COMPLETA`; ese valor nunca se
+ * produjo desde V2.1. Se retira del tipo (nunca se emitió con ese valor, así
+ * que ningún `AuditLog` existente lo persistió con este shape).
+ */
 export interface RecepcionRegistradaPayload {
   recepcion_id: string;
   orden_compra_id: string;
@@ -348,8 +357,8 @@ export interface RecepcionRegistradaPayload {
   deposito_destino_id: string;
   recibida_por_id: string;
   fecha_recepcion: string;
-  estado_anterior_oc: "CONFIRMADA" | "RECEPCION_PARCIAL";
-  estado_nuevo_oc: "RECEPCION_PARCIAL" | "RECIBIDA_COMPLETA";
+  estado_anterior_oc: "CONFIRMADA";
+  estado_nuevo_oc: "RECIBIDA_COMPLETA";
 }
 
 /**

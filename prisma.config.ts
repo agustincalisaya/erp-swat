@@ -8,7 +8,15 @@ export default defineConfig({
   schema: "prisma/schema.prisma",
   migrations: {
     path: "prisma/migrations",
-    seed: "tsx prisma/seed.ts",
+    // `--conditions=react-server`: mismo mecanismo que ya usan los scripts
+    // `test:integration:*` de `package.json` para poder importar código con
+    // `import "server-only"` fuera del bundler de Next (necesario desde el
+    // fixture de HU-H2 que llama al service real `publicarNuevaVersionListaPrecio`
+    // — ver el comentario de cabecera de `prisma/seed.ts`). Este archivo
+    // (`prisma.config.ts`) es el que Prisma realmente usa para `db seed`
+    // — pisa el campo `package.json#prisma.seed`, que se deja igual de
+    // actualizado por si alguna herramienta todavía lo lee.
+    seed: "node --conditions=react-server --import tsx prisma/seed.ts",
   },
   engine: "classic",
   datasource: {

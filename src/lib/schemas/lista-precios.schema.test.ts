@@ -10,6 +10,7 @@ import {
   esErrorItemsDuplicados,
   PublicarListaPreciosSchema,
 } from "./lista-precios.schema.ts";
+import { diaNegocioIso } from "../utils/fecha-negocio.ts";
 
 const SKU_A = "11111111-1111-4111-8111-111111111111";
 const SKU_B = "22222222-2222-4222-8222-222222222222";
@@ -36,6 +37,23 @@ test("PublicarListaPreciosSchema: variantes distintas son válidas", () => {
     ],
   });
   assert.equal(parsed.success, true);
+});
+
+test("PublicarListaPreciosSchema: acepta la fecha de HOY como fecha-solo AAAA-MM-DD (bug A1 corregido)", () => {
+  const parsed = PublicarListaPreciosSchema.safeParse({
+    fecha_inicio_vigencia: diaNegocioIso(),
+    items: [{ variante_sku_id: SKU_A, precio_unitario: 1000 }],
+  });
+  assert.equal(parsed.success, true);
+});
+
+test("PublicarListaPreciosSchema: rechaza el día de AYER", () => {
+  const ayer = new Date(new Date(`${diaNegocioIso()}T00:00:00.000Z`).getTime() - 24 * 60 * 60 * 1000);
+  const parsed = PublicarListaPreciosSchema.safeParse({
+    fecha_inicio_vigencia: ayer.toISOString().slice(0, 10),
+    items: [{ variante_sku_id: SKU_A, precio_unitario: 1000 }],
+  });
+  assert.equal(parsed.success, false);
 });
 
 test("PublicarListaPreciosSchema: otro error de validación no se confunde con ITEMS_DUPLICADOS", () => {

@@ -379,3 +379,60 @@ export async function listarEventosDeDominioProveedores(
     },
   };
 }
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Resolución de nombre de usuario (UI `/auditoria/logs?modulo=proveedores`,
+// columna "Usuario responsable") — auxiliar de solo lectura, no forma parte
+// del contrato de `listarEventosDeDominioProveedores` (que expone
+// `usuario_id` crudo, sin resolver, igual que `auditoria-clientes.service.ts`
+// no lo hace tampoco a este nivel). Batch en una sola query — evita N+1 al
+// resolver el nombre de cada fila de la tabla.
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Resuelve `nombre_completo` para un conjunto de `usuario_id` (batch, una
+ * sola query). Un id que no exista más (usuario dado de baja físicamente,
+ * caso inexistente en este proyecto de soft-delete estricto, pero
+ * defensivo igual) simplemente no aparece en el `Map` devuelto — el
+ * llamador decide el fallback (ej. mostrar el propio id).
+ */
+export async function resolverNombresUsuarios(
+  usuarioIds: (string | null)[],
+): Promise<Map<string, string>> {
+  const idsUnicos = [...new Set(usuarioIds.filter((id): id is string => id !== null))];
+  if (idsUnicos.length === 0) return new Map();
+
+  const usuarios = await prisma.usuario.findMany({
+    where: { id: { in: idsUnicos } },
+    select: { id: true, nombre_completo: true },
+  });
+
+  return new Map(usuarios.map((u) => [u.id, u.nombre_completo]));
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Resolución de razón social de proveedor (UI `/auditoria/logs?modulo=proveedores`,
+// columna "Proveedor") — mismo patrón/motivo que `resolverNombresUsuarios`
+// (batch en una sola query, evita N+1 al resolver la fila del proveedor de
+// cada asiento de la tabla). Auxiliar de solo lectura, no forma parte del
+// contrato de `listarEventosDeDominioProveedores`.
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Resuelve `razon_social` para un conjunto de `proveedor_id` (batch, una sola
+ * query). Un id que no exista más simplemente no aparece en el `Map`
+ * devuelto — el llamador decide el fallback (ej. mostrar el propio id).
+ */
+export async function resolverRazonesSocialesProveedores(
+  proveedorIds: (string | null)[],
+): Promise<Map<string, string>> {
+  const idsUnicos = [...new Set(proveedorIds.filter((id): id is string => id !== null))];
+  if (idsUnicos.length === 0) return new Map();
+
+  const proveedores = await prisma.proveedor.findMany({
+    where: { id: { in: idsUnicos } },
+    select: { id: true, razon_social: true },
+  });
+
+  return new Map(proveedores.map((p) => [p.id, p.razon_social]));
+}

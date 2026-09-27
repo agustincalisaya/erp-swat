@@ -27,6 +27,7 @@ import { prisma } from "@/lib/db/prisma";
 import { domainEventBus } from "@/lib/events/domain-event-bus";
 import { ServiceError } from "@/lib/errors/service-error";
 import { resolverListaPrecioVigente } from "@/lib/services/proveedores/lista-precios.service";
+import { esFechaSoloAnteriorAHoyNegocio } from "@/lib/utils/fecha-negocio";
 import type {
   AccionOrdenCompra,
   CambiarEstadoOrdenCompraInput,
@@ -149,6 +150,22 @@ async function generarNumeroOrden(tx: Prisma.TransactionClient): Promise<string>
  * Sprint 3: el paso 2 fue migrado a `resolverListaPrecioVigente()` (HU-H2,
  * Pieza 1). Los pasos 1, 3 y 4 permanecen en HU-H3: son responsabilidad del
  * contrato de OrdenCompra, no de la publicación de listas.
+ *
+ * A3 (auditoría transversal Módulo H, 2026-09-26): el paso 4 resuelve el
+ * precio POR VARIANTE (`resolverListaPrecioVigente(proveedorId, skuId, tx)`
+ * para cada SKU), no contra una única "versión cabeza" del proveedor. Una
+ * versión nueva puede ser un delta parcial (ej. un solo ítem); antes de esta
+ * corrección, publicar esa versión dejaba SIN PRECIO a todo el resto del
+ * catálogo del proveedor, aunque tuvieran precio vigente en una versión
+ * anterior — `resolverListaPrecioVigente()` ya resuelve ese "caminar hacia
+ * atrás" por variante (ver `lista-precios.service.ts`), este service solo
+ * deja de asumir que un único llamado sin `variante_sku_id` alcanza. El paso
+ * 2 (existencia de AL MENOS una lista vigente) se mantiene sin variante: es
+ * la precondición "el proveedor tiene lista de precios publicada" y también
+ * el id que viaja en el evento `orden_compra:creada` /
+ * `orden_compra:items_editados` como referencia de auditoría (no se usa para
+ * ninguna decisión de negocio — cada ítem puede, desde A3, provenir de una
+ * versión distinta).
  */
 async function resolverContextoPrecios(
   tx: Prisma.TransactionClient,
@@ -213,20 +230,34 @@ async function resolverContextoPrecios(
   }
 
   // 4. ...y tener precio en la lista vigente. El cliente NUNCA envía el precio:
-  //    se congela acá el de la lista.
-  const preciosVigentes = await tx.listaPrecioItem.findMany({
-    where: {
-      lista_precio_version_id: versionVigente.id,
-      variante_sku_id: { in: skuIds },
-      is_active: true,
-      deleted_at: null,
-    },
-    select: { variante_sku_id: true, precio_unitario: true },
-  });
-  const precioPorSku = new Map(
-    preciosVigentes.map((p) => [p.variante_sku_id, p.precio_unitario]),
-  );
-  const skuSinPrecio = skuIds.filter((id) => !precioPorSku.has(id));
+  //    se congela acá el de la lista. POR VARIANTE (A3): cada SKU puede
+  //    resolver contra una versión publicada distinta de `versionVigente`
+  //    (la "cabeza" del paso 2) — la más reciente que efectivamente la
+  //    incluya. Antes se buscaba cada SKU únicamente dentro de
+  //    `versionVigente.id`, así que una versión parcial dejaba sin precio a
+  //    cualquier variante que no trajera.
+  const precioPorSku = new Map<string, Prisma.Decimal>();
+  const skuSinPrecio: string[] = [];
+  for (const skuId of skuIds) {
+    const versionDelSku = await resolverListaPrecioVigente(proveedorId, skuId, tx);
+    if (!versionDelSku) {
+      skuSinPrecio.push(skuId);
+      continue;
+    }
+    const item = await tx.listaPrecioItem.findFirst({
+      where: {
+        lista_precio_version_id: versionDelSku.id,
+        variante_sku_id: skuId,
+        is_active: true,
+        deleted_at: null,
+      },
+      select: { precio_unitario: true },
+    });
+    // `item` no puede ser `null` acá: `resolverListaPrecioVigente()` con
+    // `variante_sku_id` ya confirmó (filtro `items.some`) que esa versión
+    // trae un `ListaPrecioItem` activo para este SKU.
+    precioPorSku.set(skuId, item!.precio_unitario);
+  }
   if (skuSinPrecio.length > 0) {
     throw new ServiceError(
       "SKU_SIN_PRECIO_VIGENTE",
@@ -652,8 +683,18 @@ export interface FiltrosListadoOrdenesCompra {
  * cumplieron; BORRADOR/ENVIADA aún no tienen fecha; CANCELADA es terminal).
  *
  * `fecha_entrega_comprometida` se persiste como fecha-solo (medianoche UTC);
- * se compara contra el inicio del día de hoy en UTC para que el propio día
- * de entrega no cuente como vencido.
+ * se compara contra el día calendario de HOY en huso horario de negocio
+ * (Argentina) para que el propio día de entrega no cuente como vencido.
+ *
+ * D8 (auditoría transversal Módulo H, 2026-09-26): antes se comparaba contra
+ * el inicio del día en UTC (`setUTCHours(0,0,0,0)`), no en huso horario de
+ * Argentina — entre las 21:00 y la medianoche hora local, "hoy en UTC" ya era
+ * el día siguiente, así que una entrega vencía hasta 3 h antes de tiempo. La
+ * comparación real vive ahora en `esFechaSoloAnteriorAHoyNegocio`
+ * (`src/lib/utils/fecha-negocio.ts`, testeada unitariamente) — este service
+ * importa `server-only` y no puede probarse bajo el runner nativo de Node,
+ * así que la lógica de fecha se extrajo a ese módulo puro en vez de quedar
+ * solo acá.
  */
 export function estaEntregaVencida(
   fechaEntregaComprometida: Date | null,
@@ -661,9 +702,7 @@ export function estaEntregaVencida(
 ): boolean {
   if (!fechaEntregaComprometida) return false;
   if (estado !== "CONFIRMADA" && estado !== "RECEPCION_PARCIAL") return false;
-  const inicioDeHoyUTC = new Date();
-  inicioDeHoyUTC.setUTCHours(0, 0, 0, 0);
-  return new Date(fechaEntregaComprometida) < inicioDeHoyUTC;
+  return esFechaSoloAnteriorAHoyNegocio(new Date(fechaEntregaComprometida));
 }
 
 export interface OrdenCompraResumen {

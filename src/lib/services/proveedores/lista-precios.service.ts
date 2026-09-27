@@ -35,8 +35,30 @@ import type { ListaPrecioVersion } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { domainEventBus } from "@/lib/events/domain-event-bus";
 import { ServiceError } from "@/lib/errors/service-error";
-import { UMBRAL_VARIACION_CRITICA_PORCENTUAL } from "@/lib/services/proveedores/lista-precios.constants";
 import type { ProveedorVariacionPrecioCriticaItemPayload } from "@/lib/events/event-types";
+import {
+  calcularVariacionPorcentual,
+  calcularVariacionMaximaDelLote,
+  debeRequerirAprobacion,
+  calcularResultadoPreview,
+  derivarEstadoListaPrecioVersion,
+  type ItemConPrecioAnterior,
+  type PreviewListaPreciosResultado,
+  type EstadoListaPrecioVersion,
+} from "@/lib/services/proveedores/lista-precios.calculo";
+import { fechaDeVigenciaAlcanzada } from "@/lib/utils/fecha-negocio";
+
+// Re-exportados: `route.ts`/`actions.ts` importan estos símbolos puros desde
+// ESTE módulo (punto de entrada público de HU-H2), aunque su implementación
+// real vive en `lista-precios.calculo.ts` (sin `server-only`, testeable sin
+// I/O — ver docstring de ese archivo).
+export {
+  calcularResultadoPreview,
+  derivarEstadoListaPrecioVersion,
+  type ItemConPrecioAnterior,
+  type PreviewListaPreciosResultado,
+  type EstadoListaPrecioVersion,
+};
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Permisos granulares (propose.md, "Decisiones de diseño" punto 5 — ya
@@ -65,10 +87,6 @@ interface ItemInput {
   precio_unitario: number;
 }
 
-interface ItemConVariacion {
-  variacion_porcentual: number | null;
-}
-
 interface ItemVersionCreateInput {
   lista_precio_version_id: string;
   variante_sku_id: string;
@@ -77,52 +95,11 @@ interface ItemVersionCreateInput {
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Cálculo de variación porcentual (propose.md — "Cálculo de variación
-// porcentual y evento crítico" · Design §2)
+// porcentual y evento crítico" · Design §2). `calcularVariacionPorcentual` /
+// `calcularVariacionMaximaDelLote` / `debeRequerirAprobacion` viven en
+// `lista-precios.calculo.ts` (módulo PURO, importado arriba) — no se
+// reimplementan acá.
 // ──────────────────────────────────────────────────────────────────────────────
-
-/**
- * Variación % de un ítem contra su precio previamente vigente.
- *
- * Firma EXACTA de la tabla de auxiliares privadas del Design: ambos
- * parámetros son `number` (no `number | null`). La regla cerrada de
- * propose.md/spec.md ("null si no hay precio anterior, ese ítem se excluye
- * del cálculo") se resuelve por composición: el llamador (T5, fuera de este
- * alcance) NO invoca esta función para un ítem sin precio previo — el `null`
- * de este helper cubre únicamente la guarda defensiva de división por cero
- * (`precio_anterior <= 0`), que en la práctica no debería ocurrir porque
- * `precio_unitario` es `.positive()` en el schema Zod. Ver DUDA/BLOQUEO en el
- * reporte de T4 sobre esta interpretación.
- */
-function calcularVariacionPorcentual(
-  precio_anterior: number,
-  precio_nuevo: number,
-): number | null {
-  if (precio_anterior <= 0) return null;
-  return ((precio_nuevo - precio_anterior) / precio_anterior) * 100;
-}
-
-/**
- * Máximo de la magnitud (`Math.abs`) de las variaciones no-`null`: una baja
- * de precio cuenta igual que una suba del mismo tamaño (Alcance Funcional
- * §2.2 habla de "variación significativa de precio", sin dirección). El
- * resultado es siempre `>= 0` — el signo de cada ítem se conserva en
- * `items_variacion_critica[].variacion_porcentual` del evento crítico.
- * `0` si todos son `null` (primera publicación completa) — sin rama de
- * código especial, resuelto naturalmente por el valor inicial `0` del
- * `reduce` (propose.md, "Caso borde: primera publicación de una
- * ListaPrecio").
- */
-function calcularVariacionMaximaDelLote(items: ItemConVariacion[]): number {
-  return items.reduce((maximo, item) => {
-    if (item.variacion_porcentual === null) return maximo;
-    return Math.max(maximo, Math.abs(item.variacion_porcentual));
-  }, 0);
-}
-
-/** Compara la variación máxima del lote contra el umbral crítico parametrizado. */
-function debeRequerirAprobacion(variacion_maxima: number): boolean {
-  return variacion_maxima > UMBRAL_VARIACION_CRITICA_PORCENTUAL;
-}
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Validaciones de precondición (spec.md — Checklist de validaciones en orden
@@ -233,34 +210,83 @@ async function validarFechaNoDuplicada(
 // ──────────────────────────────────────────────────────────────────────────────
 
 /**
- * Versión vigente: `publicada = true AND fecha_inicio_vigencia <= now()`,
+ * Versión vigente: `publicada = true AND` vigencia alcanzada (ver más abajo),
  * `is_active`/`deleted_at` estrictos, orden descendente por
- * `fecha_inicio_vigencia`, `take(1)` implícito vía `findFirst`
- * (propose.md, decisión 2).
+ * `fecha_inicio_vigencia` — la primera candidata cuya vigencia ya se alcanzó
+ * es la vigente (propose.md, decisión 2).
  *
- * Cuando se recibe `variante_sku_id`, el filtro NO se aplica en el `where`
- * de nivel superior de la resolución de "vigente" — eso podría saltar a una
- * versión más vieja que sí tenga la variante, lo cual es incorrecto: la
- * ausencia de esa variante en la versión vigente es información válida
- * ("esta variante no tiene precio en la lista vigente"), no un caso a
- * resolver buscando más atrás. Por eso la versión vigente se resuelve
- * primero SIN el filtro de variante, y recién después se chequea si esa
- * versión específica trae un `ListaPrecioItem` activo para la variante
- * pedida; si no lo trae, se devuelve `null` (corrección de precisión sobre
- * la duda reportada en T4, confirmada por el usuario).
+ * A3 (auditoría transversal Módulo H, 2026-09-26 —
+ * `docs/modulos/modulo H/AUDITORIA_TRANSVERSAL_MODULO_H.md`): decisión de
+ * negocio confirmada — una versión nueva es un DELTA sobre la vigente, no un
+ * reemplazo completo del catálogo del proveedor. Cuando se recibe
+ * `variante_sku_id`, la resolución YA NO se limita a la versión "cabeza" del
+ * proveedor (la última publicada, sin importar qué variantes trae): camina
+ * hacia atrás por TODAS las versiones publicadas del proveedor hasta
+ * encontrar la más reciente que efectivamente incluya esa variante (filtro
+ * relacional `items.some`). Antes se resolvía la versión "cabeza" sin
+ * variante y recién después se chequeaba si ESA versión puntual traía la
+ * variante, devolviendo `null` si no — exactamente el bug que dejaba sin
+ * precio a las variantes que una versión parcial no incluía (audit A3, caso
+ * reproducido: proveedor InduSur, versión parcial de 1 ítem, la otra
+ * variante quedaba sin precio pese a tenerlo en la versión anterior).
+ *
+ * Sin `variante_sku_id`, el comportamiento no cambia de intención: resuelve
+ * la versión "cabeza" del proveedor (la publicada más reciente con vigencia
+ * alcanzada), usada para el badge "Vigente" del historial
+ * (`listarVersionesListaPrecio`) y como referencia de auditoría — nunca para
+ * resolver el precio de un ítem puntual (eso siempre pasa por la rama con
+ * `variante_sku_id`).
+ *
+ * Seguimiento post-A3 (2026-09-26, confirmado por el usuario) — vigencia por
+ * DÍA DE NEGOCIO, no por instante: el filtro `fecha_inicio_vigencia <=
+ * new Date()` dejaba "vigente" una fecha-solo de MAÑANA hasta 3 h antes de
+ * la medianoche real de Argentina (a partir de las 21:00 hora local, "mañana
+ * a medianoche UTC" ya es `<= new Date()`). No se puede resolver esto con un
+ * único límite `{ lte: X }` en el `where`: los valores de
+ * `fecha_inicio_vigencia` conviven en dos convenciones (fecha-solo a
+ * medianoche UTC desde la UI/schema, o un instante real desde algunos
+ * llamadores directos del service — ver `diaDeVigencia`), y cada convención
+ * necesita un límite distinto. Por eso el filtro de fecha se saca del `where`
+ * (siguen filtrando `publicada`/`is_active`/`deleted_at`/la variante en el
+ * propio SQL) y `fechaDeVigenciaAlcanzada()` decide en JS sobre la primera
+ * candidata en orden descendente — el volumen de versiones por proveedor es
+ * chico, no es un problema de performance.
  */
 async function obtenerVersionVigente(
   proveedor_id: string,
   variante_sku_id?: string,
   tx?: Prisma.TransactionClient,
+  ahora: Date = new Date(),
 ): Promise<ListaPrecioVersion | null> {
   const cliente = tx ?? prisma;
-  const versionVigente = await cliente.listaPrecioVersion.findFirst({
+
+  if (variante_sku_id) {
+    const candidatas = await cliente.listaPrecioVersion.findMany({
+      where: {
+        publicada: true,
+        is_active: true,
+        deleted_at: null,
+        lista_precio: {
+          proveedor_id,
+          is_active: true,
+          deleted_at: null,
+        },
+        items: {
+          some: { variante_sku_id, is_active: true, deleted_at: null },
+        },
+      },
+      orderBy: { fecha_inicio_vigencia: "desc" },
+    });
+    return (
+      candidatas.find((v) => fechaDeVigenciaAlcanzada(v.fecha_inicio_vigencia, ahora)) ?? null
+    );
+  }
+
+  const candidatas = await cliente.listaPrecioVersion.findMany({
     where: {
       publicada: true,
       is_active: true,
       deleted_at: null,
-      fecha_inicio_vigencia: { lte: new Date() },
       lista_precio: {
         proveedor_id,
         is_active: true,
@@ -269,20 +295,7 @@ async function obtenerVersionVigente(
     },
     orderBy: { fecha_inicio_vigencia: "desc" },
   });
-
-  if (!versionVigente || !variante_sku_id) return versionVigente;
-
-  const tieneVariante = await cliente.listaPrecioItem.findFirst({
-    where: {
-      lista_precio_version_id: versionVigente.id,
-      variante_sku_id,
-      is_active: true,
-      deleted_at: null,
-    },
-    select: { id: true },
-  });
-
-  return tieneVariante ? versionVigente : null;
+  return candidatas.find((v) => fechaDeVigenciaAlcanzada(v.fecha_inicio_vigencia, ahora)) ?? null;
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -335,6 +348,18 @@ interface EmitirVariacionCriticaPayload {
   items_variacion_critica: ProveedorVariacionPrecioCriticaItemPayload[];
 }
 
+/**
+ * Redondea un porcentaje a 2 decimales (misma escala que la columna
+ * `variacion_porcentual_maxima Decimal(14, 2)`). El payload del evento se
+ * persiste como `jsonb` en `AuditLog` y se hashea con el valor en memoria:
+ * un double con muchos decimales (ej. 28.205128205128204) puede volver de la
+ * base con el último dígito distinto y romper la verificación de la cadena.
+ * Con 2 decimales el valor hasheado y el releído son idénticos.
+ */
+function redondearPorcentaje(valor: number): number {
+  return Math.round(valor * 100) / 100;
+}
+
 /** Post-commit: emite `proveedor:variacion_precio_critica` SOLO si `variacion_maxima` supera el umbral. */
 async function emitirVariacionCriticaSiCorresponde(
   payload: EmitirVariacionCriticaPayload,
@@ -350,8 +375,11 @@ async function emitirVariacionCriticaSiCorresponde(
     timestamp: new Date().toISOString(),
     proveedor_id: payload.proveedor_id,
     lista_precio_version_id: payload.lista_precio_version_id,
-    variacion_porcentual_maxima: payload.variacion_maxima,
-    items_variacion_critica: payload.items_variacion_critica,
+    variacion_porcentual_maxima: redondearPorcentaje(payload.variacion_maxima),
+    items_variacion_critica: payload.items_variacion_critica.map((item) => ({
+      ...item,
+      variacion_porcentual: redondearPorcentaje(item.variacion_porcentual),
+    })),
   });
 }
 
@@ -517,6 +545,7 @@ export async function publicarNuevaVersionListaPrecio(
         variacion_porcentual_maxima,
         publicada,
         requiere_aprobacion,
+        creada_por_id: usuario_id,
       },
       select: { id: true },
     });
@@ -667,12 +696,246 @@ export async function aprobarListaPrecioVersion(
  * T7 — Wrapper público de `obtenerVersionVigente` (T4): NO duplica su
  * lógica, expone la resolución de "versión vigente" para que la consuman
  * H3, H7 y H8 en piezas futuras (`propose.md`, decisión de diseño 2). Misma
- * firma exacta de 3 parámetros y mismo tipo de retorno que el helper privado.
+ * firma que el helper privado, extendida con un 4to parámetro opcional
+ * `ahora` (seguimiento post-A3, 2026-09-26) — retrocompatible: todo llamador
+ * existente con 1-3 argumentos sigue funcionando igual, con `ahora = new
+ * Date()` por defecto. Se agrega para poder inyectar "ahora" en tests que
+ * ejercitan el corte de día de negocio (`fechaDeVigenciaAlcanzada`) sin
+ * depender del reloj real de la máquina que corre el test.
  */
 export async function resolverListaPrecioVigente(
   proveedor_id: string,
   variante_sku_id?: string,
   tx?: Prisma.TransactionClient,
+  ahora?: Date,
 ): Promise<ListaPrecioVersion | null> {
-  return obtenerVersionVigente(proveedor_id, variante_sku_id, tx);
+  return obtenerVersionVigente(proveedor_id, variante_sku_id, tx, ahora);
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Preview de variación (UI "Calcular variación" — no persiste nada) — reusa
+// EXACTAMENTE los mismos helpers privados que `publicarNuevaVersionListaPrecio`
+// (`calcularVariacionPorcentual` / `calcularVariacionMaximaDelLote` /
+// `debeRequerirAprobacion`), nunca una fórmula duplicada. La única diferencia
+// de decisión con el POST real es que el preview NO valida
+// `validarFechaNoDuplicada` (no recibe `fecha_inicio_vigencia`: no hay nada
+// que insertar todavía, así que no hay fecha que pueda colisionar) — el resto
+// del checklist de precondiciones (proveedor homologado, existencia de
+// variantes, SKUs duplicados) se aplica idéntico.
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Orquestador de I/O del preview — expuesto a la Server Action / Route
+ * Handler de "Calcular variación". Aplica los pasos 1-3 del checklist de
+ * `publicarNuevaVersionListaPrecio` (SKUs duplicados → proveedor homologado →
+ * existencia de variantes), resuelve el precio anterior de cada ítem con el
+ * mismo helper `obtenerVersionVigente` + `ListaPrecioItem.findFirst` que usa
+ * el POST real (sin `tx`: esto NUNCA persiste nada) y delega la decisión en
+ * `calcularResultadoPreview`. NO valida `fecha_inicio_vigencia` (ver docstring
+ * de la sección) porque este orquestador no la recibe.
+ */
+export async function previsualizarVariacionListaPrecios(
+  proveedor_id: string,
+  items: ItemInput[],
+): Promise<PreviewListaPreciosResultado> {
+  const skuIds = items.map((item) => item.variante_sku_id);
+  if (new Set(skuIds).size !== skuIds.length) {
+    throw new ServiceError(
+      "ITEMS_DUPLICADOS",
+      "La lista no puede incluir la misma variante en más de un ítem",
+    );
+  }
+
+  await validarProveedorHomologado(proveedor_id);
+  await validarExistenciaVariantes(proveedor_id, items);
+
+  const itemsConPrecioAnterior: ItemConPrecioAnterior[] = [];
+  for (const item of items) {
+    const versionVigente = await obtenerVersionVigente(proveedor_id, item.variante_sku_id);
+    let precio_anterior: number | null = null;
+    if (versionVigente) {
+      const itemPrevio = await prisma.listaPrecioItem.findFirst({
+        where: {
+          lista_precio_version_id: versionVigente.id,
+          variante_sku_id: item.variante_sku_id,
+          is_active: true,
+          deleted_at: null,
+        },
+        select: { precio_unitario: true },
+      });
+      if (itemPrevio) precio_anterior = itemPrevio.precio_unitario.toNumber();
+    }
+    itemsConPrecioAnterior.push({
+      variante_sku_id: item.variante_sku_id,
+      precio_anterior,
+      precio_nuevo: item.precio_unitario,
+    });
+  }
+
+  return calcularResultadoPreview(itemsConPrecioAnterior);
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// A3 (auditoría transversal Módulo H, 2026-09-26) — variantes con precio
+// vigente HOY para un proveedor, cada una potencialmente desde una versión
+// distinta. Usada exclusivamente por la UI de publicación para avisar qué
+// variantes vigentes quedan afuera de una nueva versión parcial (ver
+// `FormularioNuevaVersionListaPrecio.tsx`) — NUNCA para resolver el precio de
+// una OC puntual (eso sigue siendo `resolverListaPrecioVigente` por SKU).
+// ──────────────────────────────────────────────────────────────────────────────
+
+export interface VarianteConPrecioVigente {
+  variante_sku_id: string;
+  precio_unitario: number;
+  lista_precio_version_id: string;
+}
+
+/**
+ * Trae TODOS los `ListaPrecioItem` activos de versiones publicadas y
+ * vigentes del proveedor (sin filtrar por variante) y se queda, por
+ * variante, con el de la versión de `fecha_inicio_vigencia` más reciente —
+ * exactamente el mismo criterio de "más reciente que la incluya" que aplica
+ * `obtenerVersionVigente()` una variante a la vez, pero resuelto acá en un
+ * único query + reducción en memoria porque se necesitan TODAS las
+ * variantes con precio, no una puntual.
+ */
+export async function listarVariantesConPrecioVigente(
+  proveedor_id: string,
+  ahora: Date = new Date(),
+): Promise<VarianteConPrecioVigente[]> {
+  // Seguimiento post-A3 (2026-09-26): igual que `obtenerVersionVigente()`, el
+  // filtro de fecha NO se puede resolver con un único límite `{ lte: X }` en
+  // el `where` (dos convenciones posibles de `fecha_inicio_vigencia` — ver
+  // `fechaDeVigenciaAlcanzada`). Se trae candidatas sin filtrar por fecha
+  // (solo `publicada`/`is_active`/`deleted_at`) y se decide en JS.
+  const items = await prisma.listaPrecioItem.findMany({
+    where: {
+      is_active: true,
+      deleted_at: null,
+      lista_precio_version: {
+        publicada: true,
+        is_active: true,
+        deleted_at: null,
+        lista_precio: { proveedor_id, is_active: true, deleted_at: null },
+      },
+    },
+    select: {
+      variante_sku_id: true,
+      precio_unitario: true,
+      lista_precio_version_id: true,
+      lista_precio_version: { select: { fecha_inicio_vigencia: true } },
+    },
+  });
+
+  const masRecientePorVariante = new Map<
+    string,
+    { precio: Prisma.Decimal; versionId: string; fecha: Date }
+  >();
+  for (const item of items) {
+    const fecha = item.lista_precio_version.fecha_inicio_vigencia;
+    if (!fechaDeVigenciaAlcanzada(fecha, ahora)) continue;
+    const actual = masRecientePorVariante.get(item.variante_sku_id);
+    if (!actual || fecha > actual.fecha) {
+      masRecientePorVariante.set(item.variante_sku_id, {
+        precio: item.precio_unitario,
+        versionId: item.lista_precio_version_id,
+        fecha,
+      });
+    }
+  }
+
+  return Array.from(masRecientePorVariante.entries()).map(
+    ([variante_sku_id, v]) => ({
+      variante_sku_id,
+      precio_unitario: v.precio.toNumber(),
+      lista_precio_version_id: v.versionId,
+    }),
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Historial de versiones por proveedor (UI de listas de precios) — de solo
+// lectura, no reimplementa la resolución de "vigente": reusa
+// `obtenerVersionVigente` (mismo helper de T4/T7) para marcar cuál de las
+// versiones devueltas es la vigente real.
+// ──────────────────────────────────────────────────────────────────────────────
+
+export interface ListaPrecioVersionResumen {
+  id: string;
+  fecha_inicio_vigencia: Date;
+  publicada: boolean;
+  requiere_aprobacion: boolean;
+  variacion_porcentual_maxima: number;
+  /**
+   * Nombre del usuario que publicó la versión (`creada_por_id` →
+   * `Usuario.nombre_completo`, vía `include`). `null` para las versiones
+   * creadas antes de que este campo existiera (`creada_por_id` nulo en la
+   * fila).
+   */
+  publicada_por_nombre: string | null;
+  /** Nombre del usuario que aprobó la versión (solo si superó el umbral crítico). */
+  aprobada_por_nombre: string | null;
+  aprobada_at: Date | null;
+  cantidad_items: number;
+  estado: EstadoListaPrecioVersion;
+}
+
+/**
+ * Lista todas las versiones (activas, no soft-deleted) de la `ListaPrecio`
+ * de un proveedor, orden `fecha_inicio_vigencia desc`, cada una con su
+ * `estado` derivado (`derivarEstadoListaPrecioVersion`). Resuelve la vigente
+ * UNA sola vez (`obtenerVersionVigente` sin `variante_sku_id`) y compara por
+ * `id` contra cada fila — no repite la query de "vigente" por versión.
+ */
+export async function listarVersionesListaPrecio(
+  proveedor_id: string,
+): Promise<ListaPrecioVersionResumen[]> {
+  // Un único "ahora" para toda la respuesta (versión vigente + estado de cada
+  // fila): evita que un skew de milisegundos entre dos `new Date()` distintos
+  // pudiera, en el borde exacto de un cambio de día de negocio, hacer que
+  // `obtenerVersionVigente()` y `derivarEstadoListaPrecioVersion()` no
+  // coincidieran sobre cuál es "hoy".
+  const ahora = new Date();
+  const [versiones, versionVigente] = await Promise.all([
+    prisma.listaPrecioVersion.findMany({
+      where: {
+        is_active: true,
+        deleted_at: null,
+        lista_precio: { proveedor_id, is_active: true, deleted_at: null },
+      },
+      orderBy: { fecha_inicio_vigencia: "desc" },
+      select: {
+        id: true,
+        fecha_inicio_vigencia: true,
+        publicada: true,
+        requiere_aprobacion: true,
+        variacion_porcentual_maxima: true,
+        aprobada_at: true,
+        creada_por: { select: { nombre_completo: true } },
+        aprobada_por: { select: { nombre_completo: true } },
+        items: {
+          where: { is_active: true, deleted_at: null },
+          select: { id: true },
+        },
+      },
+    }),
+    obtenerVersionVigente(proveedor_id, undefined, undefined, ahora),
+  ]);
+
+  return versiones.map((version) => ({
+    id: version.id,
+    fecha_inicio_vigencia: version.fecha_inicio_vigencia,
+    publicada: version.publicada,
+    requiere_aprobacion: version.requiere_aprobacion,
+    variacion_porcentual_maxima: version.variacion_porcentual_maxima.toNumber(),
+    publicada_por_nombre: version.creada_por?.nombre_completo ?? null,
+    aprobada_por_nombre: version.aprobada_por?.nombre_completo ?? null,
+    aprobada_at: version.aprobada_at,
+    cantidad_items: version.items.length,
+    estado: derivarEstadoListaPrecioVersion(
+      version,
+      versionVigente?.id === version.id,
+      ahora,
+    ),
+  }));
 }

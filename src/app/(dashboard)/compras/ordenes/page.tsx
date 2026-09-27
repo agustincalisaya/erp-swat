@@ -22,6 +22,7 @@ import {
   listarOrdenesCompra,
   listarProveedoresHomologados,
   PERMISO_LEER_ORDEN_COMPRA,
+  PERMISO_CREAR_ORDEN_COMPRA,
 } from "@/lib/services/proveedores/orden-compra.service";
 import { FiltrosListadoOrdenesCompraSchema } from "@/lib/schemas/ordenes-compra.schema";
 import { TablaOrdenesCompra } from "@/components/compras/TablaOrdenesCompra";
@@ -100,6 +101,12 @@ export default async function OrdenesCompraPage({
   );
   if (!autorizado) redirect("/no-autorizado");
 
+  // C3 (auditoría transversal Módulo H, 2026-09-26): el botón "Nueva orden
+  // de compra" se mostraba a cualquiera con acceso de lectura (ej. Auditor),
+  // que al hacer clic recibía "Acceso Denegado" — el gate del servidor
+  // funcionaba, faltaba ocultar el link en la UI.
+  const puedeCrear = await usuarioTienePermiso(session.userId, PERMISO_CREAR_ORDEN_COMPRA);
+
   const params = await searchParams;
 
   return (
@@ -121,15 +128,17 @@ export default async function OrdenesCompraPage({
               </p>
             </div>
           </div>
-          <div className="pl-12 sm:pl-0">
-            <Link
-              href="/compras/ordenes/nueva"
-              className={`${buttonVariants()} bg-blue-600 hover:bg-blue-700 text-white gap-2`}
-            >
-              <PackagePlus className="size-4" aria-hidden="true" />
-              Nueva orden de compra
-            </Link>
-          </div>
+          {puedeCrear && (
+            <div className="pl-12 sm:pl-0">
+              <Link
+                href="/compras/ordenes/nueva"
+                className={`${buttonVariants()} bg-blue-600 hover:bg-blue-700 text-white gap-2`}
+              >
+                <PackagePlus className="size-4" aria-hidden="true" />
+                Nueva orden de compra
+              </Link>
+            </div>
+          )}
         </div>
 
         {/* ── Tabla en Card ──────────────────────────────────────────── */}

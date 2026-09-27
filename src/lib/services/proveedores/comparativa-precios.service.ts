@@ -22,7 +22,7 @@ import "server-only";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { resolverListaPrecioVigente } from "@/lib/services/proveedores/lista-precios.service";
-import { differenceInCalendarDays } from "date-fns";
+import { diasDesdeFechaSolo } from "@/lib/utils/fecha-negocio";
 import { ServiceError } from "@/lib/errors/service-error";
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -311,11 +311,19 @@ async function obtenerPuntajeTotal(proveedorId: string): Promise<number | null> 
  * directa `OrdenCompra.recepciones: Recepcion[]`, sin tabla intermedia —
  * resuelto en una sola query con el `orderBy`/`take` anidado, sin N+1).
  *
- * Fórmula: `differenceInCalendarDays(recepcion.fecha_recepcion,
- * oc.fecha_entrega_comprometida)`. Orden de argumentos confirmado: `date-fns`
- * resta el segundo argumento del primero, así que un valor positivo significa
- * que la recepción ocurrió DESPUÉS de lo comprometido (atraso) y uno
- * negativo que ocurrió ANTES (adelanto) — signo correcto sin invertir nada.
+ * Fórmula: `diasDesdeFechaSolo(oc.fecha_entrega_comprometida,
+ * recepcion.fecha_recepcion)` (`src/lib/utils/fecha-negocio.ts`) — un valor
+ * positivo significa que la recepción ocurrió DESPUÉS de lo comprometido
+ * (atraso) y uno negativo que ocurrió ANTES (adelanto).
+ *
+ * Seguimiento post-A2 (auditoría transversal Módulo H, 2026-09-26): antes se
+ * usaba `differenceInCalendarDays()` de `date-fns`, que calcula el día
+ * calendario en el huso horario LOCAL DEL PROCESO (server), no en el de
+ * negocio (Argentina) — mismo bug de fondo que A2 (`evaluacion.calculo.ts`),
+ * en otro consumidor (este KPI de HU-H7, no el puntaje de HU-H5).
+ * `fecha_entrega_comprometida` es una fecha-solo a medianoche UTC;
+ * `fecha_recepcion` es un instante real — `diasDesdeFechaSolo` ya resuelve
+ * esa combinación exacta (reutilizado, no reimplementado).
  *
  * Una OC sin `fecha_entrega_comprometida` (nullable en el schema) se excluye
  * del cálculo — no hay desvío que medir sin fecha comprometida. Sin deltas
@@ -349,7 +357,7 @@ async function calcularTiempoEntregaPromedio(proveedorId: string): Promise<numbe
     if (!recepcionMasReciente) continue; // defensivo: OC en estado válido sin Recepcion registrada
 
     deltas.push(
-      differenceInCalendarDays(recepcionMasReciente.fecha_recepcion, oc.fecha_entrega_comprometida),
+      diasDesdeFechaSolo(oc.fecha_entrega_comprometida, recepcionMasReciente.fecha_recepcion),
     );
   }
 

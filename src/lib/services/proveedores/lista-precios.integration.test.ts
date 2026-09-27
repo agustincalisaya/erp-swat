@@ -46,6 +46,13 @@ test(
 
     t.after(async () => {
       const filtroProveedor = { proveedor_id: { in: proveedoresFixture } };
+      // A3 — ordenes de compra creadas por el caso de `crearOrdenCompra`: se
+      // borran ANTES que sus `VarianteSKU`/`Proveedor` (FK `onDelete:
+      // Restrict`). Nunca se toca `AuditLog` (append-only).
+      await prisma.ordenCompraItem.deleteMany({
+        where: { orden_compra: filtroProveedor },
+      });
+      await prisma.ordenCompra.deleteMany({ where: filtroProveedor });
       await prisma.listaPrecioItem.deleteMany({
         where: { lista_precio_version: { lista_precio: filtroProveedor } },
       });
@@ -286,6 +293,265 @@ test(
         assert.equal(resultado.variacion_porcentual_maxima, 10);
         assert.equal(resultado.requiere_aprobacion, false);
         assert.equal(resultado.publicada, true);
+      },
+    );
+
+    // ────────────────────────────────────────────────────────────────────
+    // A3 (auditoría transversal Módulo H, 2026-09-26) — reproduce EXACTO el
+    // caso del audit: proveedor InduSur (acá, un proveedor QA dedicado),
+    // versión previa con 2 variantes, versión nueva PARCIAL (1 sola
+    // variante) — la variante omitida debe seguir resolviendo su precio
+    // contra la versión anterior, tanto en `resolverListaPrecioVigente()`
+    // como end-to-end vía `crearOrdenCompra()` (HU-H3, consumidor real).
+    // ────────────────────────────────────────────────────────────────────
+
+    await t.test(
+      "A3 — una versión parcial NO deja sin precio a las variantes que no incluye (resolución por variante)",
+      async () => {
+        const ordenCompra = await import("./orden-compra.service.ts");
+
+        const proveedor = await prisma.proveedor.create({
+          data: {
+            razon_social: `QA HU-H2 A3 ${sufijo}`,
+            cuit: `20-${sufijo}-A3`,
+            categorias: [],
+            estado: "HOMOLOGADO",
+          },
+          select: { id: true },
+        });
+        proveedoresFixture.push(proveedor.id);
+
+        const varianteA = await prisma.varianteSKU.create({
+          data: {
+            producto_maestro_id: productoMaestro.id,
+            sku: `QA-H2-${sufijo}-A3-A`,
+            talle: "M",
+            color: "Verde",
+            genero: "Unisex",
+            modelo: "QA-H2-A3",
+            proveedor_id: proveedor.id,
+          },
+          select: { id: true },
+        });
+        const varianteB = await prisma.varianteSKU.create({
+          data: {
+            producto_maestro_id: productoMaestro.id,
+            sku: `QA-H2-${sufijo}-A3-B`,
+            talle: "L",
+            color: "Negro",
+            genero: "Unisex",
+            modelo: "QA-H2-A3",
+            proveedor_id: proveedor.id,
+          },
+          select: { id: true },
+        });
+        // Variante SIN precio en ninguna versión — control del caso "sin
+        // versión que la incluya" pedido en la tarea.
+        const varianteSinPrecio = await prisma.varianteSKU.create({
+          data: {
+            producto_maestro_id: productoMaestro.id,
+            sku: `QA-H2-${sufijo}-A3-C`,
+            talle: "S",
+            color: "Azul",
+            genero: "Unisex",
+            modelo: "QA-H2-A3",
+            proveedor_id: proveedor.id,
+          },
+          select: { id: true },
+        });
+        variantesFixture.push(varianteA.id, varianteB.id, varianteSinPrecio.id);
+
+        // Versión previa: ambas variantes con precio, publicada, vigente.
+        await prisma.listaPrecioVersion.create({
+          data: {
+            lista_precio: { create: { proveedor_id: proveedor.id } },
+            fecha_inicio_vigencia: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
+            variacion_porcentual_maxima: 0,
+            requiere_aprobacion: false,
+            publicada: true,
+            items: {
+              create: [
+                { variante_sku_id: varianteA.id, precio_unitario: 100 },
+                { variante_sku_id: varianteB.id, precio_unitario: 200 },
+              ],
+            },
+          },
+        });
+
+        // Versión nueva PARCIAL: solo varianteA, 0% de variación (auto-publica).
+        const versionParcial = await listaPrecios.publicarNuevaVersionListaPrecio(
+          proveedor.id,
+          new Date(),
+          [{ variante_sku_id: varianteA.id, precio_unitario: 100 }],
+          USUARIO_ID,
+        );
+        assert.equal(versionParcial.publicada, true);
+
+        // 1. `resolverListaPrecioVigente()` — varianteA resuelve contra la
+        //    versión nueva; varianteB (omitida) sigue resolviendo contra la
+        //    versión anterior, NO devuelve null.
+        const vigenteA = await listaPrecios.resolverListaPrecioVigente(proveedor.id, varianteA.id);
+        assert.equal(vigenteA?.id, versionParcial.lista_precio_version_id);
+
+        const vigenteB = await listaPrecios.resolverListaPrecioVigente(proveedor.id, varianteB.id);
+        assert.ok(vigenteB, "varianteB (omitida por la versión parcial) debe seguir teniendo precio vigente");
+        assert.notEqual(vigenteB!.id, versionParcial.lista_precio_version_id);
+
+        const itemB = await prisma.listaPrecioItem.findFirst({
+          where: { lista_precio_version_id: vigenteB!.id, variante_sku_id: varianteB.id },
+          select: { precio_unitario: true },
+        });
+        assert.equal(itemB?.precio_unitario.toNumber(), 200);
+
+        // 2. Control — una variante sin precio en NINGUNA versión publicada
+        //    sigue sin resolver (no debe "heredar" nada).
+        const vigenteSinPrecio = await listaPrecios.resolverListaPrecioVigente(
+          proveedor.id,
+          varianteSinPrecio.id,
+        );
+        assert.equal(vigenteSinPrecio, null);
+
+        // 3. End-to-end (HU-H3, consumidor real): una OC que pide AMBAS
+        //    variantes (A de la versión nueva, B de la anterior) debe poder
+        //    crearse, congelando el precio correcto de cada una.
+        const oc = await ordenCompra.crearOrdenCompra(
+          {
+            proveedor_id: proveedor.id,
+            items: [
+              { variante_sku_id: varianteA.id, cantidad_solicitada: 1 },
+              { variante_sku_id: varianteB.id, cantidad_solicitada: 1 },
+            ],
+          },
+          USUARIO_ID,
+        );
+        const itemsOc = await prisma.ordenCompraItem.findMany({
+          where: { orden_compra_id: oc.orden_compra_id },
+          select: { variante_sku_id: true, precio_unitario: true },
+        });
+        const precioPorSku = new Map(itemsOc.map((i) => [i.variante_sku_id, i.precio_unitario.toNumber()]));
+        assert.equal(precioPorSku.get(varianteA.id), 100);
+        assert.equal(precioPorSku.get(varianteB.id), 200);
+
+        // 4. Control — una OC que pide la variante sin precio en ninguna
+        //    versión debe rechazarse con SKU_SIN_PRECIO_VIGENTE.
+        const { ServiceError } = await import("../../errors/service-error.ts");
+        await assert.rejects(
+          ordenCompra.crearOrdenCompra(
+            {
+              proveedor_id: proveedor.id,
+              items: [{ variante_sku_id: varianteSinPrecio.id, cantidad_solicitada: 1 }],
+            },
+            USUARIO_ID,
+          ),
+          (err: unknown) => {
+            assert.ok(err instanceof ServiceError);
+            assert.equal(err.code, "SKU_SIN_PRECIO_VIGENTE");
+            return true;
+          },
+        );
+      },
+    );
+
+    // ────────────────────────────────────────────────────────────────────
+    // Seguimiento post-A3 (2026-09-26, confirmado por el usuario) — vigencia
+    // por DÍA DE NEGOCIO (Argentina), no por instante. Fechas sintéticas fijas
+    // (no dependen del reloj real): `ahora` se inyecta directo en
+    // `resolverListaPrecioVigente`.
+    // ────────────────────────────────────────────────────────────────────
+
+    await t.test(
+      "Seguimiento A3 — una fecha-solo de MAÑANA no queda vigente hasta la medianoche real de Argentina",
+      async () => {
+        const proveedor = await prisma.proveedor.create({
+          data: {
+            razon_social: `QA HU-H2 VIG ${sufijo}`,
+            cuit: `20-${sufijo}-VIG`,
+            categorias: [],
+            estado: "HOMOLOGADO",
+          },
+          select: { id: true },
+        });
+        proveedoresFixture.push(proveedor.id);
+
+        const variante = await prisma.varianteSKU.create({
+          data: {
+            producto_maestro_id: productoMaestro.id,
+            sku: `QA-H2-${sufijo}-VIG`,
+            talle: "M",
+            color: "Gris",
+            genero: "Unisex",
+            modelo: "QA-H2-VIG",
+            proveedor_id: proveedor.id,
+          },
+          select: { id: true },
+        });
+        variantesFixture.push(variante.id);
+
+        // Versión previa (control): siempre vigente, cualquiera sea `ahora`.
+        await prisma.listaPrecioVersion.create({
+          data: {
+            lista_precio: { create: { proveedor_id: proveedor.id } },
+            fecha_inicio_vigencia: new Date("2026-09-19T00:00:00.000Z"),
+            variacion_porcentual_maxima: 0,
+            requiere_aprobacion: false,
+            publicada: true,
+            items: { create: [{ variante_sku_id: variante.id, precio_unitario: 100 }] },
+          },
+        });
+
+        // Versión con fecha_inicio_vigencia = fecha-solo "mañana" (medianoche
+        // UTC exacta), publicada — sin insertar vía el service para que la
+        // fecha quede EXACTA (0 componente horario), tal como la deja
+        // `z.coerce.date()` sobre un `<input type="date">`.
+        const listaPrecio = await prisma.listaPrecio.findFirstOrThrow({
+          where: { proveedor_id: proveedor.id },
+          select: { id: true },
+        });
+        const versionManana = await prisma.listaPrecioVersion.create({
+          data: {
+            lista_precio_id: listaPrecio.id,
+            fecha_inicio_vigencia: new Date("2026-09-27T00:00:00.000Z"),
+            variacion_porcentual_maxima: 0,
+            requiere_aprobacion: false,
+            publicada: true,
+            items: { create: [{ variante_sku_id: variante.id, precio_unitario: 150 }] },
+          },
+          select: { id: true },
+        });
+
+        // A las 22:00 hora Argentina del día 26 (= 2026-09-27T01:00:00Z): la
+        // versión de "mañana" NO debe estar vigente todavía.
+        const antesDeMedianocheArgentina = await listaPrecios.resolverListaPrecioVigente(
+          proveedor.id,
+          variante.id,
+          undefined,
+          new Date("2026-09-27T01:00:00.000Z"),
+        );
+        assert.notEqual(
+          antesDeMedianocheArgentina?.id,
+          versionManana.id,
+          "una fecha-solo de mañana no debe quedar vigente 3 h antes de la medianoche real de Argentina",
+        );
+
+        // Justo a la medianoche real de Argentina (2026-09-27T03:00:00Z): sí.
+        const enMedianocheArgentina = await listaPrecios.resolverListaPrecioVigente(
+          proveedor.id,
+          variante.id,
+          undefined,
+          new Date("2026-09-27T03:00:00.000Z"),
+        );
+        assert.equal(enMedianocheArgentina?.id, versionManana.id);
+
+        // Sin `ahora` explícito (firma retrocompatible, usa el reloj real):
+        // no debe romper — devuelve la versión previa como mínimo (la de
+        // "mañana" según el calendario sintético del test siempre queda en
+        // el pasado real, así que HOY resuelve contra ella igual; solo
+        // valida que la llamada de 3 argumentos sigue funcionando).
+        const sinAhoraExplicito = await listaPrecios.resolverListaPrecioVigente(
+          proveedor.id,
+          variante.id,
+        );
+        assert.ok(sinAhoraExplicito, "la firma de 2-3 argumentos (retrocompatible) debe seguir funcionando");
       },
     );
   },

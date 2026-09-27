@@ -119,7 +119,7 @@ export function DialogVolverPendiente({
             {estadoActual === "SUSPENDIDO"
               ? " deja de estar suspendido y queda a la espera de una nueva homologación."
               : " deja de ser seleccionable en nuevas órdenes de compra hasta que se lo homologue de nuevo."}
-            {" "}El cambio queda registrado en la auditoría (Módulo D).
+            {" "}El cambio queda registrado en la auditoría.
           </AlertDialogDescription>
         </AlertDialogHeader>
 

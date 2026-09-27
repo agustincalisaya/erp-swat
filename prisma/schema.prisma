@@ -65,6 +65,7 @@ model Usuario {
   recepciones_registradas  Recepcion[]            @relation("RecepcionRecibidaPor")
   evaluaciones_registradas EvaluacionProveedor[]  @relation("EvaluacionRegistradaPor")
   listas_precio_aprobadas  ListaPrecioVersion[]   @relation("ListaPrecioVersionAprobadaPor")
+  listas_precio_creadas    ListaPrecioVersion[]   @relation("ListaPrecioVersionCreadaPor")
   comprobantes_registrados ComprobanteProveedor[] @relation("ComprobanteProveedorRegistradoPor")
 
   // --- Relaciones HU-A9 (Reclasificación de Devueltos) ---
@@ -809,6 +810,11 @@ model ListaPrecioVersion {
   publicada                   Boolean   @default(false)
   aprobada_por_id             String?
   aprobada_at                 DateTime?
+  /// Usuario que publicó la versión (`publicarNuevaVersionListaPrecio`,
+  /// `usuario_id` recibido como 4to parámetro). Distinto de `aprobada_por_id`
+  /// (solo se completa si la versión superó el umbral crítico y requirió
+  /// aprobación explícita).
+  creada_por_id                String?
 
   // --- Soft delete estricto ---
   is_active       Boolean   @default(true)
@@ -822,6 +828,7 @@ model ListaPrecioVersion {
   // --- Relaciones ---
   lista_precio ListaPrecio       @relation(fields: [lista_precio_id], references: [id], onDelete: Restrict)
   aprobada_por Usuario?          @relation("ListaPrecioVersionAprobadaPor", fields: [aprobada_por_id], references: [id], onDelete: Restrict)
+  creada_por   Usuario?          @relation("ListaPrecioVersionCreadaPor", fields: [creada_por_id], references: [id], onDelete: Restrict)
   items        ListaPrecioItem[]
 
   /// Índice de la consulta de "versión vigente" (spec §2.3 / §3.4):
@@ -946,13 +953,17 @@ model OrdenCompraItem {
   @@map("orden_compra_items")
 }
 
-/// Recepción de mercadería contra una OrdenCompra (HU-H4). Puede existir
-/// más de una Recepcion por OrdenCompra para soportar recepción parcial
-/// (OrdenCompra.estado = RECEPCION_PARCIAL hasta que la suma de cantidades
-/// recibidas cubra lo solicitado, y RECIBIDA_COMPLETA cuando se completa).
-/// HU-H4 registra atómicamente las cantidades aceptadas en stock. Si existe
-/// al menos una unidad aceptada, crea un único MovimientoStock de INGRESO
-/// vinculado directamente a esta recepción; un rechazo total no lo crea.
+/// Recepción de mercadería contra una OrdenCompra (HU-H4). B3 (auditoría
+/// transversal Módulo H, 2026-09-26): este comentario describía recepción
+/// PARCIAL (varias Recepcion por OrdenCompra hasta cubrir lo solicitado) —
+/// diseño de una versión anterior a H4 V2.1 (commit `799ad6b`, PR #128), que
+/// la eliminó. Hoy existe COMO MÁXIMO UNA Recepcion por OrdenCompra:
+/// `recepcion.service.ts:168` exige que la OC esté CONFIRMADA (una orden ya
+/// recibida no admite una segunda recepción) y `:191` siempre deja el estado
+/// en RECIBIDA_COMPLETA, nunca RECEPCION_PARCIAL. HU-H4 registra
+/// atómicamente las cantidades aceptadas en stock. Si existe al menos una
+/// unidad aceptada, crea un único MovimientoStock de INGRESO vinculado
+/// directamente a esta recepción; un rechazo total no lo crea.
 model Recepcion {
   id                      String   @id @default(uuid())
   orden_compra_id         String

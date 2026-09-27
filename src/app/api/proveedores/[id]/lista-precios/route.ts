@@ -24,8 +24,10 @@ import {
 import { ProveedorIdSchema } from "@/lib/schemas/proveedores.schema";
 import {
   publicarNuevaVersionListaPrecio,
+  listarVersionesListaPrecio,
   PERMISO_PUBLICAR_LISTA_PRECIO,
 } from "@/lib/services/proveedores/lista-precios.service";
+import { PERMISO_LEER } from "@/lib/services/proveedores/proveedor.service";
 import { ServiceError } from "@/lib/errors/service-error";
 
 type Context = { params: Promise<{ id: string }> };
@@ -100,6 +102,50 @@ export const POST = withPermission(
         );
       }
       console.error("[POST /api/proveedores/[id]/lista-precios] Error inesperado:", err);
+      return NextResponse.json(
+        { data: null, error: { code: "INTERNAL_ERROR", message: "Error interno del servidor" } },
+        { status: 500 },
+      );
+    }
+  },
+);
+
+/**
+ * @module route — GET /api/proveedores/[id]/lista-precios
+ * @description Historial completo de versiones de la lista de precios de un
+ * proveedor (UI "Lista de Precios"). Gate: `proveedores:leer` — de solo
+ * lectura, separado de `proveedores:publicar_lista` (que exige poder
+ * publicar, no solo consultar). Mismo criterio que `ordenes_compra:leer`
+ * frente a `ordenes_compra:crear` (spec_modulo_H.md §2.5, permiso de
+ * lectura independiente de la acción de escritura) — Comprador y Supervisor
+ * de Compras ya tienen `proveedores:leer` sembrado.
+ *
+ * Respuestas: 200 OK · 400 VALIDATION_ERROR · 401 UNAUTHORIZED ·
+ * 403 FORBIDDEN · 500 INTERNAL_ERROR.
+ */
+export const GET = withPermission(
+  PERMISO_LEER,
+  async (_req: NextRequest, _session, context) => {
+    const { id } = await (context as Context).params;
+    const parsedId = ProveedorIdSchema.safeParse(id);
+    if (!parsedId.success) {
+      return NextResponse.json(
+        {
+          data: null,
+          error: {
+            code: "VALIDATION_ERROR",
+            message: parsedId.error.issues[0]?.message ?? "ID de proveedor inválido",
+          },
+        },
+        { status: 400 },
+      );
+    }
+
+    try {
+      const versiones = await listarVersionesListaPrecio(parsedId.data);
+      return NextResponse.json({ data: { versiones }, error: null }, { status: 200 });
+    } catch (err) {
+      console.error("[GET /api/proveedores/[id]/lista-precios] Error inesperado:", err);
       return NextResponse.json(
         { data: null, error: { code: "INTERNAL_ERROR", message: "Error interno del servidor" } },
         { status: 500 },
