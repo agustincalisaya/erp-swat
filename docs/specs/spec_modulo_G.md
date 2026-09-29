@@ -306,6 +306,7 @@ model IngresoTesoreria {
   caja_virtual           String   @default("MERCADO_PAGO_CANAL_WEB") // constante — no se crea un catálogo de cajas nuevo en esta HU, ver comportamiento
   contra_asientos        ContraAsientoIngreso[]
   created_at             DateTime @default(now())
+  updated_at             DateTime @updatedAt // Sprint 4, cierre: `estado` transiciona (HU-G2) — deja constancia de cuándo
   @@map("ingresos_tesoreria")
 }
 

@@ -2,7 +2,8 @@
  * @file src/app/api/cron/check-pruebas-vencidas/route.ts
  * @description API Route de Cron — HU-A10 (spec_modulo_A.md §2.9).
  *
- * Responsabilidad: liberar las `Reserva` cuyo TTL (72 h) haya vencido,
+ * Responsabilidad: liberar las `Reserva` cuya `fecha_expiracion` ya pasó
+ * (TTL persistido por reserva — HU-A10 Rev. 3; 72 h por defecto),
  * devolviendo el stock atómicamente al estado DISPONIBLE. Toda la lógica
  * transaccional vive en `reserva.service.ts` (`liberarReservasVencidas()`);
  * este handler solo autentica el request del orquestador y delega.
@@ -32,10 +33,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import {
-  liberarReservasVencidas,
-  TTL_RESERVA_DEFAULT_HORAS,
-} from "@/lib/services/inventario/reserva.service";
+import { liberarReservasVencidas } from "@/lib/services/inventario/reserva.service";
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   // ── 1. Autenticación por secret compartido ──────────────────────────────────
@@ -66,7 +64,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     if (resultado.total_liberadas === 0) {
       console.log(
         `[CRON][check-pruebas-vencidas] ✅ Sin reservas vencidas. ` +
-          `(umbral TTL ${resultado.ttl_horas}h: ${resultado.umbral})`,
+          `(fecha_expiracion <= ${resultado.umbral})`,
       );
     } else {
       console.warn(
@@ -79,7 +77,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       {
         ok: true,
         ejecutado_at: ahora.toISOString(),
-        ttl_reservado_horas: resultado.ttl_horas,
         umbral_reservado: resultado.umbral,
         total_reservas_liberadas: resultado.total_liberadas,
       },
@@ -91,7 +88,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       {
         ok: false,
         ejecutado_at: ahora.toISOString(),
-        ttl_reservado_horas: TTL_RESERVA_DEFAULT_HORAS,
         error: "Error al liberar reservas vencidas.",
       },
       { status: 500 },

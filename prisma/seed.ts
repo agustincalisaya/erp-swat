@@ -12,6 +12,7 @@
 //
 // ============================================================================
 
+import { createHash, randomBytes } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 import { hashPassword } from "@/lib/auth/password-hash-core";
 import { generarSku, type Genero } from "@/lib/utils/sku";
@@ -36,6 +37,8 @@ dotenv.config();
  * `react-server`, ver `node_modules/server-only/package.json`).
  */
 import { publicarNuevaVersionListaPrecio } from "@/lib/services/proveedores/lista-precios.service";
+import { obtenerCostoReposicionVigente } from "@/lib/services/proveedores/costo-reposicion.service";
+import { encrypt } from "@/lib/crypto/aes";
 import { domainEventBus } from "@/lib/events/domain-event-bus";
 import { verificarCadenaIntegridad } from "@/lib/services/auditoria/audit-log.service";
 
@@ -370,6 +373,10 @@ const PERMISO_VENTAS_LEER_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000038";
 const PERMISO_VENTAS_ANULAR_PEDIDO_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000039";
 const PERMISO_VENTAS_LEER_LOG_OPERATIVO_ID =
   "1a2b3c4d-1111-4a1a-8a1a-000000000040";
+// HU-B9 (Sprint 4) — UUID aleatorio verificado contra seed.ts, sin continuar
+// el namespace numerado `1111` (ver nota de colisión de HU-B8).
+const PERMISO_VENTAS_GESTIONAR_LISTA_PRECIOS_ID =
+  "377cbaff-d5e6-4ea7-8d25-c63a42cdcec0";
 
 // HU-B8 — roles operativos de Ventas (agrupan los permisos `ventas:*` de
 // arriba, ningún permiso nuevo). Mapeo confirmado en el relevamiento de
@@ -464,6 +471,102 @@ const PEDIDO_VENTA_REMITO_PARCIAL_ITEM_ENTREGA_ID =
   "1a2b3c4d-be03-4a1a-8a1a-000000000003";
 const PEDIDO_VENTA_REMITO_PARCIAL_ITEM_AUTORIZACION_ID =
   "1a2b3c4d-be03-4a1a-8a1a-000000000004";
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Sprint 4 — Módulo E (E-commerce) + HU-B9 (Lista de Precios de Venta)
+// UUID aleatorios (`crypto.randomUUID()`) verificados contra un grep completo
+// de seed.ts — mismo criterio que ROL_CAJERO_POS_ID, sin namespace numerado a
+// mano (ver la nota de colisión de HU-B8 más arriba).
+// ──────────────────────────────────────────────────────────────────────────────
+
+// HU-E10 (spec_modulo_E.md §2.10) — permisos `ecommerce:*`.
+const PERMISO_ECOMMERCE_GESTIONAR_CATALOGO_ID = "18494e73-f0b7-4bec-84fb-7b65984c959b";
+const PERMISO_ECOMMERCE_GESTIONAR_CUPONES_ID = "5c5140b1-8ad0-4e82-9ed2-c87352573aea";
+const PERMISO_ECOMMERCE_ANULAR_ORDEN_NO_ABONADA_ID = "baa5e385-e1a2-49ca-a6fa-8b93d01d998e";
+const PERMISO_ECOMMERCE_CANCELAR_PEDIDO_PAGADO_ID = "f8eb98d6-1c61-46b4-bfd1-06c4f7fc7255";
+const PERMISO_ECOMMERCE_LEER_COLA_PREPARACION_ID = "248e72a2-0d6e-4a35-a977-edea583806d7";
+const PERMISO_ECOMMERCE_PREPARAR_PEDIDO_ID = "79c4a42c-7382-48f2-97e8-1a7ce26ae2d5";
+const PERMISO_ECOMMERCE_VALIDAR_RETIRO_QR_ID = "8549117c-fca7-47b9-8f73-d4f3f85e777c";
+const PERMISO_ECOMMERCE_LEER_HISTORIAL_ORDENES_ID = "1a68c39a-f427-47c8-8923-56413c22a177";
+const PERMISO_ECOMMERCE_EXPORTAR_METRICAS_ID = "c603f9c6-2bf4-4d95-b06c-e339f09ae303";
+const PERMISO_ECOMMERCE_SOLICITAR_ACCESO_LOG_PAGOS_ID = "fe71b5b4-09ba-407a-bff0-1aa64656f656";
+
+// HU-E10 — roles y un usuario de prueba por rol (criterio "seed idempotente").
+const ROL_ADMINISTRADOR_ECOMMERCE_ID = "5a4b283b-fdaf-4253-ab3e-be13c118d74d";
+const ROL_OPERADOR_PICK_PACK_ID = "a0028adb-6bc1-48fe-b3e9-2a626d718d4e";
+const USUARIO_ADMIN_ECOMMERCE_SEED_ID = "ff9df5a6-2f1a-4285-a935-c6969f933f1a";
+const USUARIO_OPERADOR_PICK_PACK_SEED_ID = "62fd609c-ea3b-4e62-b9d2-5ccffad13849";
+const USUARIO_ROL_ADMIN_ECOMMERCE_ID = "c6a749f0-5aa6-4983-83e7-7111b02ae5d7";
+const USUARIO_ROL_OPERADOR_PICK_PACK_ID = "c9bb2cbe-1118-4411-ac03-3dd02880a709";
+
+// spec_modulo_E.md §2.2 — usuario de sistema "Canal Web": `registrado_por_id`
+// de los PedidoVenta de canal WEB. No es una persona ni tiene rol asignado.
+const USUARIO_CANAL_WEB_ID = "b49a122e-fea6-43c4-8b8f-36a2491fddeb";
+
+// HU-B9 (spec_modulo_B.md §2.9) — lista general + primera versión.
+const LISTA_PRECIO_VENTA_GENERAL_ID = "16d1dbbf-b91e-4c07-93f0-007572d0d116";
+const LISTA_PRECIO_VENTA_VERSION_1_ID = "f7bc2652-5022-4d5c-b235-be90b8f1677d";
+
+// Sprint 4 — permisos de Módulos D (D.4), F y G (HU-G11).
+const PERMISO_INTEGRACIONES_ADMINISTRAR_CONECTOR_ID = "b2b597a8-d562-4a4f-8cc2-b159c707eeac";
+const PERMISO_NOTIFICACIONES_ADMINISTRAR_PLANTILLAS_ID = "5a8c727d-0c7e-4f24-b2d7-376d9dd2b948";
+const PERMISO_CONFIGURACION_ADMINISTRAR_ID = "208089c2-9e4b-44eb-b3cc-87c698ff3ca8";
+const PERMISO_CONFIGURACION_LEER_ID = "881b8fc2-11e6-46a4-a155-a04235e19836";
+// Módulo F — rol Administrador de Plataforma (spec_modulo_F.md §2.1.1/§2.2),
+// con un usuario de prueba. Los roles Desarrollador/DevOps y Marketing/
+// Atención al Cliente de la misma matriz NO se siembran: la granularidad de
+// permisos por acción para ellos está "a definir" en la spec.
+const ROL_ADMINISTRADOR_PLATAFORMA_ID = "1e0efc5b-586f-431a-b1d4-f4dbdab7c60a";
+const USUARIO_ADMIN_PLATAFORMA_SEED_ID = "245b3307-a299-4cf5-b1c6-238b45455848";
+const USUARIO_ROL_ADMIN_PLATAFORMA_ID = "046702f5-330e-49e1-86e4-b8fead9244ee";
+const PERMISO_TESORERIA_LEER_INGRESOS_WEB_ID ="27abe108-4c98-4f04-9010-6b5a901cef45";
+
+// HU-F1 — Conector SANDBOX activo + bitácora de ejemplo.
+const CONECTOR_PAGO_SANDBOX_ID = "5b2c56c2-ce9f-4b9f-82f0-f92c334f81d8";
+const INVOCACION_CONECTOR_COBRO_OK_ID = "a183c9c5-fb10-4970-9474-387b5a5334fd";
+const INVOCACION_CONECTOR_CONSULTA_FALLIDA_ID = "8b122bd0-5c8f-472e-a93f-a8745620f921";
+const INVOCACION_CONECTOR_CONSULTA_OK_ID = "d63d8c84-5766-4838-a968-e4ac2354fd18";
+
+// HU-E8 — cuentas de Cliente Web.
+const CUENTA_WEB_JUAN_PEREZ_ID = "e9440ab2-091d-414d-9fc9-e02d312a1df5";
+const CUENTA_WEB_MARIA_GOMEZ_ID = "49af5604-c606-447f-adf0-4637a045fa84";
+
+// HU-E5/HU-E11 — producto extra para el caso `visibilidad_web = false`
+// (los 3 ProductoMaestro previos ya cubren "publicable" y "no publicable").
+const PRODUCTO_GORRA_TACTICA_ID = "92e96764-fc2b-4a4d-a615-258fd769968c";
+const VARIANTE_GORRA_TACTICA_ID = "bc8d1631-2378-4c63-826f-16e2cc814eea";
+const CONTENIDO_WEB_CAMISA_TACTICA_ID = "294e081c-f561-4cfe-98d8-1405326ba6db";
+const CONTENIDO_WEB_BORCEGOS_ID = "46390457-e84e-4045-9cd2-bd9010f6fbf2";
+const CONTENIDO_WEB_CAMISA_POLICIA_ID = "66882d66-81c4-4441-aeff-9066909b80ac";
+const CONTENIDO_WEB_GORRA_TACTICA_ID = "a8ba9e46-5aa0-4224-8cde-b6faa676126f";
+const FOTO_WEB_CAMISA_TACTICA_ID = "1e6f9b96-6dde-4528-8784-d84d30eb8f73";
+const FOTO_WEB_BORCEGOS_ID = "8e490a11-2b5d-494a-91be-e0516f7727f5";
+const FOTO_WEB_CAMISA_POLICIA_ID = "6378eec9-b0e2-449a-a426-55d160d4cb43";
+const FOTO_WEB_GORRA_TACTICA_ID = "27e8250b-aaad-4f88-a0ca-8eafa3736357";
+
+// HU-E1 — stock del depósito del canal web (Showroom) para las variantes
+// con precio que todavía no tenían fila ahí.
+const STOCK_CT2_SHOWROOM_ID = "d039332f-6f4f-4355-b6e7-6b340897ebdb";
+const STOCK_CT3_SHOWROOM_ID = "676e1f19-bc5f-4fec-bbb5-5108365f94df";
+const STOCK_B2_SHOWROOM_ID = "fe533994-5e90-43dd-8c07-eebbaf691c6f";
+const STOCK_GORRA_SHOWROOM_ID = "d5f5e76e-6d21-42b4-ad87-f16f219d19bd";
+
+// HU-E4 — cupones y aplicaciones.
+const CUPON_VIGENTE_ID = "1634c3e2-60fd-425a-8677-c0b180507d9a";
+const CUPON_VENCIDO_ID = "d0eabb60-ec2c-422b-9f1e-c012013923ad";
+const CUPON_AGOTADO_ID = "32d07824-4721-4128-b9d8-286278dd7151";
+const CUPON_APLICACION_PENDIENTE_ID = "69486b09-0c4d-4750-8d25-f139a65b2c89";
+const CUPON_APLICACION_AGOTADO_ID = "54072209-97b4-4705-88aa-fc8e8a29570f";
+
+// HU-E2 y consumidoras — un pedido web por estado (ver bloque en main).
+const PEDIDO_WEB_PAGO_PENDIENTE_IDS = { pedido: "f8aad0fc-85a3-4dd4-81cf-4fbf3fc14f6b", ecommerce: "385f3f34-2984-4b69-aa63-c61458c3cc9e", items: [{ item: "1c9c09b9-9451-4168-ace1-0615292b174c", reserva: "19345ba5-4a77-4c8a-9c2f-0ac389ebec2f" }] };
+const PEDIDO_WEB_PAGO_RECHAZADO_IDS = { pedido: "a78b0893-c771-4ed1-b726-e5a3bc257645", ecommerce: "93c07b31-7058-402d-b66a-b65d2f9e373a", items: [{ item: "d5dd6dd4-5511-4c3d-9437-92149afc8169", reserva: "2a9f2d2e-6fe2-4520-931e-b0ff888e5976" }], transaccion: "0e9f2bb0-698e-4a4a-99d9-9e9b3b113b26" };
+const PEDIDO_WEB_EN_PREPARACION_LIBRE_IDS = { pedido: "91a9f1cf-e278-4f9c-8584-4ee166c6c01d", ecommerce: "c62a900f-d1bf-43b9-a7a1-58472d152e0d", items: [{ item: "b83f44c5-82b1-447f-86d7-3a5f7b611768", reserva: "a15ad7a1-dc9c-475d-bf77-df09e01286fd" }], comprobante: "f0e7aa08-6870-4ae4-9597-5cf5a00741f4", medio_pago: "c7c02aa8-737f-41e7-9e6a-06a8d5304916", transaccion: "9c4c5bdd-0702-4a09-a12c-a38d479ec7f6" };
+const PEDIDO_WEB_EN_PREPARACION_ASIGNADO_IDS = { pedido: "77c6531f-bd36-482a-b91a-e8e1f81ee39d", ecommerce: "900a0cab-0528-4f13-8988-452b2e8b3313", items: [{ item: "4225b4cc-5e82-40a5-bac4-dd3ee2a4217c", reserva: "10e71c6c-81e4-4bf2-8165-8dbad5cf7002" }, { item: "24eae8f3-6083-49a3-8486-86b31fd29cfe", reserva: "d822526c-28e4-44c2-8442-883654f17f81" }], comprobante: "a3014651-763c-4df3-a199-786cac67add6", medio_pago: "b2e4db08-7264-425b-9631-bf4bf94ed91d", transaccion: "2851c532-a653-4ca9-a5ed-a4fa8f32f89c" };
+const PEDIDO_WEB_LISTO_PARA_RETIRO_IDS = { pedido: "ba514a5b-d5e1-47c0-8325-92684b9e9c62", ecommerce: "8dde8baf-1f08-48d7-b003-82241444b163", items: [{ item: "f8b690b0-6e74-43e2-882d-a0162a145241", reserva: "7b92537c-e2c4-4071-a5f0-3ef2af4f6f6b" }], comprobante: "1c4b8624-f1c5-434a-90cf-24ecee1f1282", medio_pago: "5881d6ec-33da-4be6-bd24-7ba650552c54", transaccion: "72c41d41-b73b-4d0e-95d3-f8c9a4455e6e" };
+const PEDIDO_WEB_LISTO_PLAZO_VENCIDO_IDS = { pedido: "09997231-c847-4c99-b18d-59ee9588cd6d", ecommerce: "2c4cadd4-40ff-47e6-82d0-8d3fd4f32788", items: [{ item: "567e86ef-d1c8-4584-b3e2-caac1f6f49d4", reserva: "0588503d-cff2-4815-81f9-f7e92528126a" }], comprobante: "b01350d1-5412-41d1-bdb8-8203428d4734", medio_pago: "a96b2eb5-e54e-4583-8aa8-410bbdaf8b0d", transaccion: "b3f6d30d-a20a-4837-ae99-e67a49481f84" };
+const PEDIDO_WEB_ENTREGADO_IDS = { pedido: "e8559382-2cc2-414c-9adf-6afcd5f0552f", ecommerce: "31b0b43a-60fe-4f0b-86a6-f1be089290a9", items: [{ item: "abaeb811-cad0-4e93-a7c2-afc890134f09", reserva: "2d495408-8e38-42b8-97d4-01e6b78466b3" }], comprobante: "4c338928-a46f-4571-a7ad-38dce5af86ec", medio_pago: "9dcde0b7-9429-4ffc-845c-79ddc08d458a", transaccion: "c98abda4-a319-4858-92e0-807096528e4c" };
+const PEDIDO_WEB_ANULADO_IDS = { pedido: "d0ebfcb9-743b-412b-89c1-12a38a117ffd", ecommerce: "10326af2-d711-4365-98ff-509c598af7a5", items: [{ item: "c6f49d12-c32b-4ca9-8c0f-c132e5f42e92", reserva: "7e7802c0-8e7a-4ed0-8dba-1fb5bcb6a4d2" }] };
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Helpers — Fechas
@@ -1683,6 +1786,7 @@ async function main() {
   //   - ventas:leer                          → todos los roles del módulo (catálogo/precios/comprobantes propios)
   //   - ventas:anular_pedido                 → exclusivo Supervisor de Ventas (HU-B7 §2.8)
   //   - ventas:leer_log_operativo            → exclusivo Supervisor de Ventas, acceso restringido (HU-B6 §2.6)
+  //   - ventas:gestionar_lista_precios       → exclusivo Supervisor de Ventas (HU-B9 §2.9, Sprint 4)
   // HU-B8 crea los roles CAJERO_POS y SUPERVISOR_VENTAS y les asigna estos
   // permisos — ver bloque "Módulo B (Sprint 3) — Roles operativos de
   // Ventas" más abajo, junto a los usuarios de prueba.
@@ -1698,6 +1802,7 @@ async function main() {
         [PERMISO_VENTAS_AUTORIZAR_EXCEPCION_CREDITO_ID, "ventas:autorizar_excepcion_credito", "Autorizar una operación de cuenta corriente que excede el límite de crédito disponible — exclusivo Supervisor de Ventas (HU-B5 §2.5)"],
         [PERMISO_VENTAS_LEER_ID, "ventas:leer", "Consultar catálogo, precios, disponibilidad de stock y comprobantes propios del pedido (HU-B7 §2.7)"],
         [PERMISO_VENTAS_ANULAR_PEDIDO_ID, "ventas:anular_pedido", "Anular un PedidoVenta en estado RESERVADO — exclusivo Supervisor de Ventas (HU-B7 §2.8)"],
+        [PERMISO_VENTAS_GESTIONAR_LISTA_PRECIOS_ID, "ventas:gestionar_lista_precios", "Publicar versiones de la Lista de Precios de Venta y consultar la sugerencia de precio — exclusivo Supervisor de Ventas (HU-B9 §2.9)"],
         [PERMISO_VENTAS_LEER_LOG_OPERATIVO_ID, "ventas:leer_log_operativo", "Consultar el log de auditoría del módulo con alcance restringido a las operaciones propias o escaladas al Supervisor, sin verificar_integridad (HU-B6 §2.6)"],
       ] as const
     ).map(([id, codigo, descripcion]) =>
@@ -2895,14 +3000,15 @@ async function main() {
     });
   }
 
-  // SUPERVISOR_VENTAS agrupa todo lo de CAJERO_POS más sus 4 permisos
-  // exclusivos.
+  // SUPERVISOR_VENTAS agrupa todo lo de CAJERO_POS más sus 5 permisos
+  // exclusivos (el 5.° es `ventas:gestionar_lista_precios`, HU-B9 §2.9).
   const permisosSupervisorVentas = [
     ...permisosCajeroPos,
     PERMISO_VENTAS_AUTORIZAR_EXCEPCION_DESCUENTO_ID,
     PERMISO_VENTAS_AUTORIZAR_EXCEPCION_CREDITO_ID,
     PERMISO_VENTAS_ANULAR_PEDIDO_ID,
     PERMISO_VENTAS_LEER_LOG_OPERATIVO_ID,
+    PERMISO_VENTAS_GESTIONAR_LISTA_PRECIOS_ID,
   ];
 
   for (const permiso_id of permisosSupervisorVentas) {
@@ -3045,9 +3151,16 @@ async function main() {
   // `clienteMariaGomezPrimario`. `origen_reserva: "LICITACION"` usa el enum
   // `OrigenReserva` de Módulo A TAL COMO EXISTE HOY, sin renombrar (nota
   // inicial de spec_modulo_B.md, decisión ya tomada por el equipo) ─────────
+  // `fecha_expiracion` = `vigencia_hasta` del Presupuesto (diasAtras(-4)):
+  // con el cron de HU-A10 Rev. 3 (`fecha_expiracion <= now()`), el valor
+  // anterior (inicio + 72h = "ahora") liberaba la reserva apenas corría y
+  // dejaba huérfanos al Presupuesto y al PedidoVenta de licitación. Va
+  // también en `update` para corregir bases ya sembradas al re-correr (no
+  // "des-libera" una reserva que el cron ya haya cerrado: en ese caso hay que
+  // resetear `fecha_fin_reserva` a mano).
   const reservaPresupuestoLicitacion = await prisma.reserva.upsert({
     where: { id: RESERVA_PRESUPUESTO_LICITACION_ID },
-    update: {},
+    update: { fecha_expiracion: diasAtras(-4) },
     create: {
       id: RESERVA_PRESUPUESTO_LICITACION_ID,
       // Borcegos 1 (42, Negro, HOMBRE, Combate) — stock sembrado en el
@@ -3056,6 +3169,7 @@ async function main() {
       deposito_id: deposito.id,
       cantidad: 10,
       fecha_inicio_reserva: diasAtras(3),
+      fecha_expiracion: diasAtras(-4),
       motivo: "Cotización institucional — Presupuesto Módulo B (HU-B3)",
       origen_reserva: "LICITACION",
       registrado_por_id: usuarioCajero.id,
@@ -3228,6 +3342,1124 @@ async function main() {
     },
   });
 
+  // ══════════════════════════════════════════════════════════════════════════
+  // Sprint 4 — Módulo E (E-commerce), HU-B9 y ConfiguracionSistema (D.4)
+  // ══════════════════════════════════════════════════════════════════════════
+
+  // ── Usuario de sistema "Canal Web" (spec_modulo_E.md §2.2) ──────────────────
+  // Registrante de los PedidoVenta de canal WEB. Contraseña aleatoria que no
+  // se persiste ni se imprime en ningún lado: la cuenta existe como
+  // responsable trazable (RULES.md Regla N.° 2), no para iniciar sesión.
+  const passwordCanalWeb = await hashPassword(randomBytes(32).toString("hex"));
+  const usuarioCanalWeb = await prisma.usuario.upsert({
+    where: { nombre_usuario: "canal.web.sistema" },
+    update: {},
+    create: {
+      id: USUARIO_CANAL_WEB_ID,
+      nombre_usuario: "canal.web.sistema",
+      email: "canal.web.sistema@erp-swat.local",
+      password_hash: passwordCanalWeb.hash,
+      password_salt: passwordCanalWeb.salt,
+      nombre_completo: "Canal Web (usuario de sistema — Módulo E)",
+      estado: "ACTIVO",
+      is_active: true,
+    },
+  });
+
+  // ── HU-E10 — permisos `ecommerce:*` (matriz de spec_modulo_E.md §2.10) ──────
+  // `ventas:validar_identidad_cliente_web` (§2.8) NO se siembra: su nombre es
+  // provisional y la spec pide confirmarlo con el owner de RBAC antes.
+  await Promise.all(
+    (
+      [
+        [PERMISO_ECOMMERCE_GESTIONAR_CATALOGO_ID, "ecommerce:gestionar_catalogo", "Alta/edición del contenido web y visibilidad de productos — exclusivo Administrador E-commerce (HU-E5/HU-E11)"],
+        [PERMISO_ECOMMERCE_GESTIONAR_CUPONES_ID, "ecommerce:gestionar_cupones", "Alta, edición y baja de cupones de descuento — exclusivo Administrador E-commerce (HU-E4)"],
+        [PERMISO_ECOMMERCE_ANULAR_ORDEN_NO_ABONADA_ID, "ecommerce:anular_orden_no_abonada", "Anular manualmente una orden web no abonada — exclusivo Administrador E-commerce (HU-E7)"],
+        [PERMISO_ECOMMERCE_CANCELAR_PEDIDO_PAGADO_ID, "ecommerce:cancelar_pedido_pagado", "Cancelar un pedido web pagado antes de su entrega — exclusivo Administrador E-commerce (HU-E13)"],
+        [PERMISO_ECOMMERCE_LEER_COLA_PREPARACION_ID, "ecommerce:leer_cola_preparacion", "Consultar la cola de preparación Click & Collect (Administrador: consulta + prioriza; Operador: consulta + toma) (HU-E12)"],
+        [PERMISO_ECOMMERCE_PREPARAR_PEDIDO_ID, "ecommerce:preparar_pedido", "Tomar, confirmar ítems por escaneo y completar la preparación de un pedido — exclusivo Operador de Pick & Pack (HU-E12)"],
+        [PERMISO_ECOMMERCE_VALIDAR_RETIRO_QR_ID, "ecommerce:validar_retiro_qr", "Validar el retiro Click & Collect por QR + DNI — exclusivo Operador de Pick & Pack (HU-E12)"],
+        [PERMISO_ECOMMERCE_LEER_HISTORIAL_ORDENES_ID, "ecommerce:leer_historial_ordenes", "Consultar el historial de órdenes web de todos los clientes — exclusivo Administrador E-commerce (HU-E10)"],
+        [PERMISO_ECOMMERCE_EXPORTAR_METRICAS_ID, "ecommerce:exportar_metricas", "Exportar métricas del canal web — exclusivo Administrador E-commerce (HU-E10; endpoint sin contrato todavía, spec §5)"],
+        [PERMISO_ECOMMERCE_SOLICITAR_ACCESO_LOG_PAGOS_ID, "ecommerce:solicitar_acceso_log_pagos", "Solicitar acceso al log de pagos, sujeto a aprobación — Administrador E-commerce (HU-E6; mecanismo de aprobación sin definir, spec §2.6)"],
+      ] as const
+    ).map(([id, codigo, descripcion]) =>
+      prisma.permiso.upsert({
+        where: { id },
+        update: REACTIVAR_REFERENCIA_RBAC,
+        create: { id, codigo, descripcion, modulo: "MODULO_E" },
+      }),
+    ),
+  );
+
+  // ── HU-E10 — roles de e-commerce ────────────────────────────────────────────
+  const rolAdministradorEcommerce = await prisma.rol.upsert({
+    where: { id: ROL_ADMINISTRADOR_ECOMMERCE_ID },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: {
+      id: ROL_ADMINISTRADOR_ECOMMERCE_ID,
+      nombre: "ADMINISTRADOR_ECOMMERCE",
+      descripcion: "Administración del canal web (Módulo E) — catálogo, cupones, anulaciones/cancelaciones, historial y priorización de la cola",
+    },
+  });
+
+  const rolOperadorPickPack = await prisma.rol.upsert({
+    where: { id: ROL_OPERADOR_PICK_PACK_ID },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: {
+      id: ROL_OPERADOR_PICK_PACK_ID,
+      nombre: "OPERADOR_PICK_PACK",
+      descripcion: "Preparación y entrega Click & Collect (Módulo E) — sin acceso a datos de facturación ni de pago",
+    },
+  });
+
+  const permisosPorRolEcommerce: Array<[string, string[]]> = [
+    [
+      rolAdministradorEcommerce.id,
+      [
+        PERMISO_ECOMMERCE_GESTIONAR_CATALOGO_ID,
+        PERMISO_ECOMMERCE_GESTIONAR_CUPONES_ID,
+        PERMISO_ECOMMERCE_ANULAR_ORDEN_NO_ABONADA_ID,
+        PERMISO_ECOMMERCE_CANCELAR_PEDIDO_PAGADO_ID,
+        PERMISO_ECOMMERCE_LEER_COLA_PREPARACION_ID,
+        PERMISO_ECOMMERCE_LEER_HISTORIAL_ORDENES_ID,
+        PERMISO_ECOMMERCE_EXPORTAR_METRICAS_ID,
+        PERMISO_ECOMMERCE_SOLICITAR_ACCESO_LOG_PAGOS_ID,
+      ],
+    ],
+    [
+      rolOperadorPickPack.id,
+      [
+        PERMISO_ECOMMERCE_LEER_COLA_PREPARACION_ID,
+        PERMISO_ECOMMERCE_PREPARAR_PEDIDO_ID,
+        PERMISO_ECOMMERCE_VALIDAR_RETIRO_QR_ID,
+      ],
+    ],
+  ];
+
+  for (const [rol_id, permisos] of permisosPorRolEcommerce) {
+    for (const permiso_id of permisos) {
+      await prisma.rolPermiso.upsert({
+        where: { rol_id_permiso_id: { rol_id, permiso_id } },
+        update: REACTIVAR_REFERENCIA_RBAC,
+        create: { rol_id, permiso_id },
+      });
+    }
+  }
+
+  // ── HU-E10 — un usuario de prueba por rol ───────────────────────────────────
+  const usuarioAdminEcommerce = await prisma.usuario.upsert({
+    where: { nombre_usuario: "admin.ecommerce.seed" },
+    update: {},
+    create: {
+      id: USUARIO_ADMIN_ECOMMERCE_SEED_ID,
+      nombre_usuario: "admin.ecommerce.seed",
+      email: "admin.ecommerce.seed@erp-swat.local",
+      password_hash: passwordSeed.hash,
+      password_salt: passwordSeed.salt,
+      nombre_completo: "Administrador E-commerce Seed (Módulo E)",
+      estado: "ACTIVO",
+      is_active: true,
+    },
+  });
+
+  const usuarioOperadorPickPack = await prisma.usuario.upsert({
+    where: { nombre_usuario: "operador.pickpack.seed" },
+    update: {},
+    create: {
+      id: USUARIO_OPERADOR_PICK_PACK_SEED_ID,
+      nombre_usuario: "operador.pickpack.seed",
+      email: "operador.pickpack.seed@erp-swat.local",
+      password_hash: passwordSeed.hash,
+      password_salt: passwordSeed.salt,
+      nombre_completo: "Operador de Pick & Pack Seed (Módulo E)",
+      estado: "ACTIVO",
+      is_active: true,
+    },
+  });
+
+  for (const [id, usuario_id, rol_id] of [
+    [USUARIO_ROL_ADMIN_ECOMMERCE_ID, usuarioAdminEcommerce.id, rolAdministradorEcommerce.id],
+    [USUARIO_ROL_OPERADOR_PICK_PACK_ID, usuarioOperadorPickPack.id, rolOperadorPickPack.id],
+  ] as const) {
+    await prisma.usuarioRol.upsert({
+      where: { usuario_id_rol_id: { usuario_id, rol_id } },
+      update: {},
+      create: { id, usuario_id, rol_id },
+    });
+  }
+
+  // ── D.4 — ConfiguracionSistema (spec_modulo_D.md §6.2) ──────────────────────
+  // Solo las 4 claves definidas en la tabla de §6.2, con sus valores de
+  // ejemplo (el depósito del canal web es el Showroom real de este seed).
+  // `update: {}`: re-correr el seed nunca pisa un valor ya ajustado por un
+  // Administrador.
+  //
+  // PENDIENTES — NO sembradas a propósito (ninguna spec las define todavía;
+  // dependen de una decisión del owner de Módulo D):
+  //   - umbral de arqueo ciego (HU-B2) y % máximo de descuento por perfil
+  //     (HU-B4) — spec_modulo_B.md §5;
+  //   - intentos fallidos de login de Cliente Web (HU-E8), plazo de carrito
+  //     abandonado (HU-E1/E5), cantidad máxima y tamaño máximo de fotos
+  //     (HU-E11) — spec_modulo_E.md §5.
+  for (const [clave, valor, descripcion, modulo] of [
+    ["ECOMMERCE_DEPOSITO_CANAL_WEB_ID", depositoShowroom.id, "Depósito cuyo stock se publica en el canal web (HU-E1) y donde se ubica físicamente la preparación (HU-E12)", "E"],
+    ["ECOMMERCE_CHECKOUT_TTL_HORAS", "1", "TTL en horas de la reserva de stock del checkout web (HU-E1 → ttl_horas de HU-A10)", "E"],
+    ["ECOMMERCE_PLAZO_RETIRO_DIAS", "10", "Días desde LISTO_PARA_RETIRO hasta VENCIDO_SIN_RETIRO (HU-E13)", "E"],
+    ["VENTAS_MARGEN_SUGERIDO_PRECIO_VENTA", "0.35", "Margen para el precio sugerido: costo de reposición × (1 + margen) (HU-B9)", "B"],
+  ] as const) {
+    await prisma.configuracionSistema.upsert({
+      where: { clave },
+      update: {},
+      create: { clave, valor, descripcion, modulo, actualizado_por_id: usuarioAdmin.id },
+    });
+  }
+
+  // ── HU-B9 — Lista de Precios de Venta general + versión 1 ───────────────────
+  // `costo_reposicion_referencia` = costo vigente que devuelve el servicio
+  // real de HU-H8 (`obtenerCostoReposicionVigente()`: menor precio vigente
+  // entre proveedores, ignorando versiones pendientes de aprobación) sobre los
+  // fixtures de Módulo H de este mismo seed. Con esos fixtures da:
+  //   Camisa 1 = 15600 · Camisa 2 = 16900 · Camisa 3 = 15950
+  //   Borcegos 1 = 43500 · Borcegos 2 = 41500
+  // `precio_venta` = costo × (1 + VENTAS_MARGEN_SUGERIDO_PRECIO_VENTA),
+  // redondeado a la centena — la misma sugerencia de HU-B9. Ningún ítem queda
+  // bajo costo. Publica el Supervisor de Ventas (único rol con
+  // `ventas:gestionar_lista_precios`, spec_modulo_B.md §2.9).
+  //
+  // Corrección de fixture (Sprint 4): la primera versión de este bloque usaba
+  // los precios de la ListaPrecioVersion 1 de Módulo H (Camisa 1/2 y
+  // Borcegos 1 no coincidían con HU-H8). Por eso precio y costo también van
+  // en `update`: re-correr el seed corrige bases ya sembradas.
+  const listaPrecioVentaGeneral = await prisma.listaPrecioVenta.upsert({
+    where: { id: LISTA_PRECIO_VENTA_GENERAL_ID },
+    update: {},
+    create: { id: LISTA_PRECIO_VENTA_GENERAL_ID },
+  });
+
+  const listaPrecioVentaVersion1 = await prisma.listaPrecioVentaVersion.upsert({
+    where: { id: LISTA_PRECIO_VENTA_VERSION_1_ID },
+    update: {},
+    create: {
+      id: LISTA_PRECIO_VENTA_VERSION_1_ID,
+      lista_id: listaPrecioVentaGeneral.id,
+      vigente_desde: diasAtras(1),
+      publicado_por_id: usuarioSupervisorVentas.id,
+    },
+  });
+
+  const margenSugerido = Number(
+    (
+      await prisma.configuracionSistema.findUniqueOrThrow({
+        where: { clave: "VENTAS_MARGEN_SUGERIDO_PRECIO_VENTA" },
+      })
+    ).valor,
+  );
+  const redondearCentena = (monto: number) => Math.round(monto / 100) * 100;
+
+  /** Precio de venta vigente por variante — lo reutilizan los pedidos web. */
+  const precioVentaPorVariante = new Map<string, number>();
+
+  for (const variante_sku_id of [
+    VARIANTE_CAMISA_TACTICA_1_ID,
+    VARIANTE_CAMISA_TACTICA_2_ID,
+    VARIANTE_CAMISA_TACTICA_3_ID,
+    VARIANTE_BORCEGOS_1_ID,
+    VARIANTE_BORCEGOS_2_ID,
+  ]) {
+    const costoVigente = await obtenerCostoReposicionVigente(variante_sku_id, { prisma });
+    if (!costoVigente) {
+      // Los fixtures de Módulo H de este seed siempre dan costo para estas 5
+      // variantes: si no, el seed quedó inconsistente y conviene cortar acá.
+      throw new Error(
+        `[seed HU-B9] HU-H8 no devolvió costo de reposición para la variante ${variante_sku_id}`,
+      );
+    }
+    const costo_reposicion_referencia = costoVigente.precio_unitario;
+    const precio_venta = redondearCentena(costo_reposicion_referencia * (1 + margenSugerido));
+    precioVentaPorVariante.set(variante_sku_id, precio_venta);
+
+    await prisma.listaPrecioVentaItem.upsert({
+      where: {
+        version_id_variante_sku_id: { version_id: listaPrecioVentaVersion1.id, variante_sku_id },
+      },
+      update: { precio_venta, costo_reposicion_referencia },
+      create: {
+        version_id: listaPrecioVentaVersion1.id,
+        variante_sku_id,
+        precio_venta,
+        costo_reposicion_referencia,
+      },
+    });
+  }
+
+  // ── Sprint 4 — permisos de D.4 / F / G ──────────────────────────────────────
+  // Asignación según el texto de cada spec:
+  //   - configuracion:administrar     → ADMINISTRADOR ("exclusivo Administrador", D §6.3)
+  //   - tesoreria:leer_ingresos_web   → TESORERO_CENTRAL (G §7, provisional: "se siembra
+  //                                     provisionalmente solo para TESORERO_CENTRAL")
+  //   - integraciones:administrar_conector, notificaciones:administrar_plantillas →
+  //     ADMINISTRADOR_PLATAFORMA (F §2.1.1/§2.2; rol sembrado abajo). Los otros
+  //     roles que habilita la spec (Desarrollador/DevOps, Marketing/Atención al
+  //     Cliente) no se siembran: su granularidad de permisos está "a definir".
+  //   - configuracion:leer            → SIN ASIGNAR: D §6.3 no nombra rol para el
+  //     Route Handler HTTP (los consumidores internos no pasan por este permiso).
+  // `ventas:validar_identidad_cliente_web` (E §2.8) NO se siembra: nombre provisional.
+  await Promise.all(
+    (
+      [
+        [PERMISO_INTEGRACIONES_ADMINISTRAR_CONECTOR_ID, "integraciones:administrar_conector", "Alta, health-check, bitácora y baja del Conector de Mercado Pago — exclusivo Administrador de Plataforma (HU-F1)", "MODULO_F"],
+        [PERMISO_NOTIFICACIONES_ADMINISTRAR_PLANTILLAS_ID, "notificaciones:administrar_plantillas", "Alta, edición y baja de plantillas de notificación — exclusivo Administrador de Plataforma (HU-F2)", "MODULO_F"],
+        [PERMISO_CONFIGURACION_ADMINISTRAR_ID, "configuracion:administrar", "Actualizar valores de ConfiguracionSistema — exclusivo Administrador (D.4 §6.3)", "MODULO_D"],
+        [PERMISO_CONFIGURACION_LEER_ID, "configuracion:leer", "Consultar ConfiguracionSistema por el Route Handler HTTP (D.4 §6.3; los servicios internos leen sin este permiso)", "MODULO_D"],
+        [PERMISO_TESORERIA_LEER_INGRESOS_WEB_ID, "tesoreria:leer_ingresos_web", "Consultar y reprocesar ingresos de Tesorería por cobros web (HU-G11) — alcance de roles provisional", "MODULO_G"],
+      ] as const
+    ).map(([id, codigo, descripcion, modulo]) =>
+      prisma.permiso.upsert({
+        where: { id },
+        update: REACTIVAR_REFERENCIA_RBAC,
+        create: { id, codigo, descripcion, modulo },
+      }),
+    ),
+  );
+
+  // ── Módulo F — rol Administrador de Plataforma + usuario de prueba ──────────
+  const rolAdministradorPlataforma = await prisma.rol.upsert({
+    where: { id: ROL_ADMINISTRADOR_PLATAFORMA_ID },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: {
+      id: ROL_ADMINISTRADOR_PLATAFORMA_ID,
+      nombre: "ADMINISTRADOR_PLATAFORMA",
+      descripcion: "Administración de la plataforma (Módulo F) — Conector de Mercado Pago y plantillas de notificación",
+    },
+  });
+
+  const usuarioAdminPlataforma = await prisma.usuario.upsert({
+    where: { nombre_usuario: "admin.plataforma.seed" },
+    update: {},
+    create: {
+      id: USUARIO_ADMIN_PLATAFORMA_SEED_ID,
+      nombre_usuario: "admin.plataforma.seed",
+      email: "admin.plataforma.seed@erp-swat.local",
+      password_hash: passwordSeed.hash,
+      password_salt: passwordSeed.salt,
+      nombre_completo: "Administrador de Plataforma Seed (Módulo F)",
+      estado: "ACTIVO",
+      is_active: true,
+    },
+  });
+
+  await prisma.usuarioRol.upsert({
+    where: {
+      usuario_id_rol_id: { usuario_id: usuarioAdminPlataforma.id, rol_id: rolAdministradorPlataforma.id },
+    },
+    update: {},
+    create: {
+      id: USUARIO_ROL_ADMIN_PLATAFORMA_ID,
+      usuario_id: usuarioAdminPlataforma.id,
+      rol_id: rolAdministradorPlataforma.id,
+    },
+  });
+
+  for (const [rol_id, permiso_id] of [
+    [rolAdministrador.id, PERMISO_CONFIGURACION_ADMINISTRAR_ID],
+    [rolTesorero.id, PERMISO_TESORERIA_LEER_INGRESOS_WEB_ID],
+    [rolAdministradorPlataforma.id, PERMISO_INTEGRACIONES_ADMINISTRAR_CONECTOR_ID],
+    [rolAdministradorPlataforma.id, PERMISO_NOTIFICACIONES_ADMINISTRAR_PLANTILLAS_ID],
+  ] as const) {
+    await prisma.rolPermiso.upsert({
+      where: { rol_id_permiso_id: { rol_id, permiso_id } },
+      update: REACTIVAR_REFERENCIA_RBAC,
+      create: { rol_id, permiso_id },
+    });
+  }
+
+  // ── Cifrado AES (lib/crypto/aes.ts) ─────────────────────────────────────────
+  // `encrypt()` exige ENCRYPTION_KEY_PROVEEDORES. Sin ella, se saltan los dos
+  // bloques que guardan datos cifrados (ConectorPago + su bitácora, y
+  // TransaccionPagoLog) en vez de abortar todo el seed.
+  const hayClaveCifrado = Boolean(process.env.ENCRYPTION_KEY_PROVEEDORES);
+  if (!hayClaveCifrado) {
+    console.warn(
+      "[seed] ENCRYPTION_KEY_PROVEEDORES no está definida: se omiten ConectorPago SANDBOX, " +
+        "InvocacionConectorPago y TransaccionPagoLog (requieren lib/crypto/aes.ts).",
+    );
+  }
+
+  // ── HU-F1 — Conector de Mercado Pago SANDBOX, ACTIVO ────────────────────────
+  // Credenciales FICTICIAS (no son de ninguna cuenta real de Mercado Pago),
+  // cifradas igual que en la app: un par ciphertext/IV por secreto. SANDBOX
+  // puede activarse sin health-check (F §2.1.1), por eso
+  // `ultimo_health_check_exitoso_at` queda null.
+  if (hayClaveCifrado) {
+    const accessToken = encrypt("TEST-0000000000000000-SEED-ACCESS-TOKEN-FICTICIO");
+    const publicKey = encrypt("TEST-SEED-PUBLIC-KEY-FICTICIA");
+    const webhookSecret = encrypt("seed-webhook-secret-ficticio");
+
+    const conectorSandbox = await prisma.conectorPago.upsert({
+      where: { id: CONECTOR_PAGO_SANDBOX_ID },
+      update: {},
+      create: {
+        id: CONECTOR_PAGO_SANDBOX_ID,
+        nombre: "Mercado Pago — Sandbox (seed)",
+        entorno: "SANDBOX",
+        estado: "ACTIVO",
+        access_token_cifrado: accessToken.ciphertext,
+        access_token_iv: accessToken.iv,
+        public_key_cifrada: publicKey.ciphertext,
+        public_key_iv: publicKey.iv,
+        webhook_secret_cifrado: webhookSecret.ciphertext,
+        webhook_secret_iv: webhookSecret.iv,
+      },
+    });
+
+    for (const [id, operacion, exitosa, detalle_error, hace_horas] of [
+      [INVOCACION_CONECTOR_COBRO_OK_ID, "INICIAR_COBRO", true, null, 30],
+      [INVOCACION_CONECTOR_CONSULTA_FALLIDA_ID, "CONSULTAR_PAGO", false, "timeout", 29],
+      [INVOCACION_CONECTOR_CONSULTA_OK_ID, "CONSULTAR_PAGO", true, null, 28],
+    ] as const) {
+      await prisma.invocacionConectorPago.upsert({
+        where: { id },
+        update: {},
+        create: {
+          id,
+          conector_id: conectorSandbox.id,
+          operacion,
+          exitosa,
+          detalle_error,
+          created_at: new Date(Date.now() - hace_horas * 60 * 60 * 1000),
+        },
+      });
+    }
+  }
+
+  // ── HU-E8 — Cuentas de Cliente Web ──────────────────────────────────────────
+  // Misma contraseña de prueba que el resto del seed (argon2id vía
+  // hashPassword; la sal viaja embebida en el hash PHC, por eso alcanza con
+  // `password_hash`). Juan Pérez: cuenta operativa (ya tiene consentimiento
+  // vigente). María Gómez: DNI ya existente como Cliente de mostrador →
+  // `vinculacion_pendiente = true`, inhabilitada para checkout (E §2.8).
+  const cuentaWebJuanPerez = await prisma.cuentaClienteWeb.upsert({
+    where: { cliente_id: clienteJuanPerez.id },
+    update: {},
+    create: {
+      id: CUENTA_WEB_JUAN_PEREZ_ID,
+      cliente_id: clienteJuanPerez.id,
+      email: "juan.perez@example.com",
+      password_hash: passwordSeed.hash,
+    },
+  });
+
+  const cuentaWebMariaGomez = await prisma.cuentaClienteWeb.upsert({
+    where: { cliente_id: clienteMariaGomezPrimario.id },
+    update: {},
+    create: {
+      id: CUENTA_WEB_MARIA_GOMEZ_ID,
+      cliente_id: clienteMariaGomezPrimario.id,
+      email: "maria.gomez@example.com",
+      password_hash: passwordSeed.hash,
+      vinculacion_pendiente: true,
+    },
+  });
+
+  // ── HU-E5/HU-E11 — Producto extra para `visibilidad_web = false` ────────────
+  // Los 3 ProductoMaestro previos ya se usan para "publicable" (Camisa
+  // Táctica, Borcegos) y "no publicable por falta de precio" (Camisa de
+  // Policía). La Gorra cumple todos los requisitos de publicación (foto,
+  // descripción, precio, stock) salvo la bandera, que queda en false.
+  const productoGorraTactica = await prisma.productoMaestro.upsert({
+    where: { id: PRODUCTO_GORRA_TACTICA_ID },
+    update: {},
+    create: {
+      id: PRODUCTO_GORRA_TACTICA_ID,
+      codigo_producto: "GORTAC",
+      nombre: "Gorra Táctica",
+      rubro: "Indumentaria",
+      categoria: "Accesorios",
+      unidad_medida: "UNIDAD",
+      descripcion: "Gorra táctica — datos de prueba (Sprint 4, caso visibilidad web desactivada)",
+      costo_estandar_referencia: 7000.0,
+      is_active: true,
+    },
+  });
+
+  await prisma.varianteSKU.upsert({
+    where: { id: VARIANTE_GORRA_TACTICA_ID },
+    update: {},
+    create: {
+      id: VARIANTE_GORRA_TACTICA_ID,
+      producto_maestro_id: productoGorraTactica.id,
+      proveedor_id: proveedorHomologado.id,
+      sku: generarSku({
+        codigoProducto: productoGorraTactica.codigo_producto,
+        modelo: "Operativa",
+        talle: "U",
+        codigoColor: "Negro",
+        genero: "UNISEX",
+      }),
+      ean_qr: "7791234500099",
+      talle: "U",
+      color: "Negro",
+      genero: "UNISEX",
+      modelo: "Operativa",
+      is_active: true,
+    },
+  });
+
+  // Precio manual: la Gorra no tiene ListaPrecio de proveedor, así que HU-H8
+  // respondería SIN_COSTO_REPOSICION_DISPONIBLE → `costo_reposicion_referencia`
+  // null y sin validación de bajo costo (B §2.9).
+  await prisma.listaPrecioVentaItem.upsert({
+    where: {
+      version_id_variante_sku_id: {
+        version_id: listaPrecioVentaVersion1.id,
+        variante_sku_id: VARIANTE_GORRA_TACTICA_ID,
+      },
+    },
+    update: {},
+    create: {
+      version_id: listaPrecioVentaVersion1.id,
+      variante_sku_id: VARIANTE_GORRA_TACTICA_ID,
+      precio_venta: 9500.0,
+      costo_reposicion_referencia: null,
+    },
+  });
+
+  // ── HU-E1/HU-E11 — Contenido web del catálogo ───────────────────────────────
+  // URLs de placeholder: el storage de fotos no está definido (E §5).
+  for (const c of [
+    {
+      id: CONTENIDO_WEB_CAMISA_TACTICA_ID,
+      foto_id: FOTO_WEB_CAMISA_TACTICA_ID,
+      producto_maestro_id: productoCamisaTactica.id,
+      titulo_comercial: "Camisa Táctica Ripstop",
+      descripcion: "Camisa táctica de tela ripstop, manga corta o larga. Datos de prueba.",
+      visibilidad_web: true,
+      foto: "https://placehold.co/800x800?text=Camisa+Tactica",
+    },
+    {
+      id: CONTENIDO_WEB_BORCEGOS_ID,
+      foto_id: FOTO_WEB_BORCEGOS_ID,
+      producto_maestro_id: productoBorcegos.id,
+      titulo_comercial: "Borcegos de Combate",
+      descripcion: "Borcegos de combate con suela antideslizante. Datos de prueba.",
+      visibilidad_web: true,
+      foto: "https://placehold.co/800x800?text=Borcegos",
+    },
+    {
+      // No publicable: tiene foto, descripción y visibilidad, pero su única
+      // variante no tiene precio en la Lista de Precios de Venta (E §2.11).
+      id: CONTENIDO_WEB_CAMISA_POLICIA_ID,
+      foto_id: FOTO_WEB_CAMISA_POLICIA_ID,
+      producto_maestro_id: productoMaestro.id,
+      titulo_comercial: "Camisa de Policía",
+      descripcion: "Camisa reglamentaria. Datos de prueba — sin precio de venta vigente.",
+      visibilidad_web: true,
+      foto: "https://placehold.co/800x800?text=Camisa+Policia",
+    },
+    {
+      // Publicable en todo salvo la bandera (HU-E5).
+      id: CONTENIDO_WEB_GORRA_TACTICA_ID,
+      foto_id: FOTO_WEB_GORRA_TACTICA_ID,
+      producto_maestro_id: productoGorraTactica.id,
+      titulo_comercial: "Gorra Táctica Operativa",
+      descripcion: "Gorra táctica con abrojo para parche. Datos de prueba — visibilidad web desactivada.",
+      visibilidad_web: false,
+      foto: "https://placehold.co/800x800?text=Gorra+Tactica",
+    },
+  ]) {
+    const contenido = await prisma.productoWebContenido.upsert({
+      where: { producto_maestro_id: c.producto_maestro_id },
+      update: {},
+      create: {
+        id: c.id,
+        producto_maestro_id: c.producto_maestro_id,
+        titulo_comercial: c.titulo_comercial,
+        descripcion: c.descripcion,
+        visibilidad_web: c.visibilidad_web,
+      },
+    });
+    await prisma.productoWebFoto.upsert({
+      where: { id: c.foto_id },
+      update: {},
+      create: {
+        id: c.foto_id,
+        producto_web_contenido_id: contenido.id,
+        url: c.foto,
+        es_principal: true,
+        orden: 0,
+      },
+    });
+  }
+
+  // ── HU-E1 — Stock del canal web (Showroom) ──────────────────────────────────
+  // Filas NUEVAS; las ya sembradas (CT1 = 4, B1 = 3 en Showroom) no se tocan.
+  // Mismo criterio del resto del seed: la cantidad se siembra directo en
+  // `stock_depositos` (los movimientos del seed no aplican deltas) y
+  // representa el DISPONIBLE ya descontado lo que consumen los pedidos web de
+  // abajo:
+  //   CT2: 12 − 1 reservada (PAGO_PENDIENTE) − 4 vendidas = 7
+  //   CT3:  8 − 2 vendidas = 6 (PAGO_RECHAZADO y ANULADO liberaron la suya)
+  //   B2:   0 → caso "agotado en la web"
+  for (const s of [
+    { id: STOCK_CT2_SHOWROOM_ID, vid: VARIANTE_CAMISA_TACTICA_2_ID, qty: 7 },
+    { id: STOCK_CT3_SHOWROOM_ID, vid: VARIANTE_CAMISA_TACTICA_3_ID, qty: 6 },
+    { id: STOCK_B2_SHOWROOM_ID, vid: VARIANTE_BORCEGOS_2_ID, qty: 0 },
+    { id: STOCK_GORRA_SHOWROOM_ID, vid: VARIANTE_GORRA_TACTICA_ID, qty: 5 },
+  ]) {
+    await prisma.stockDeposito.upsert({
+      where: {
+        variante_sku_id_deposito_id: { variante_sku_id: s.vid, deposito_id: depositoShowroom.id },
+      },
+      update: {},
+      create: {
+        id: s.id,
+        variante_sku_id: s.vid,
+        deposito_id: depositoShowroom.id,
+        cantidad: s.qty,
+        punto_pedido: 0,
+        stock_seguridad: 0,
+        is_active: true,
+      },
+    });
+  }
+
+  // ── HU-E4 — Cupones ─────────────────────────────────────────────────────────
+  const cuponVigente = await prisma.cuponDescuento.upsert({
+    where: { codigo: "SWAT10" },
+    update: {},
+    create: {
+      id: CUPON_VIGENTE_ID,
+      codigo: "SWAT10",
+      tipo_beneficio: "PORCENTAJE",
+      valor: 10,
+      vigente_desde: diasAtras(10),
+      vigente_hasta: diasAtras(-30),
+      limite_uso_por_cliente: 1,
+    },
+  });
+
+  await prisma.cuponDescuento.upsert({
+    where: { codigo: "INVIERNO5000" },
+    update: {},
+    create: {
+      id: CUPON_VENCIDO_ID,
+      codigo: "INVIERNO5000",
+      tipo_beneficio: "MONTO_FIJO",
+      valor: 5000,
+      vigente_desde: diasAtras(60),
+      vigente_hasta: diasAtras(30),
+      limite_uso_por_cliente: 1,
+    },
+  });
+
+  // Agotado: límite global 1, ya consumido por la aplicación confirmada del
+  // pedido ENTREGADO de abajo.
+  const cuponAgotado = await prisma.cuponDescuento.upsert({
+    where: { codigo: "LANZAMIENTO15" },
+    update: {},
+    create: {
+      id: CUPON_AGOTADO_ID,
+      codigo: "LANZAMIENTO15",
+      tipo_beneficio: "PORCENTAJE",
+      valor: 15,
+      vigente_desde: diasAtras(30),
+      vigente_hasta: diasAtras(-30),
+      limite_uso_global: 1,
+      limite_uso_por_cliente: 1,
+    },
+  });
+
+  // ── HU-E2 y consumidoras — Pedidos web, uno por estado ──────────────────────
+  // Correspondencia `estado_ecommerce` ↔ `PedidoVenta.estado` según E §3.1.
+  // Todos: canal WEB, registrado por `canal.web.sistema`, cliente Juan Pérez,
+  // depósito del canal web (Showroom), `origen_reserva` null (el valor para
+  // checkout web no está decidido — E §2.2). `numero_venta` continúa la
+  // secuencia de `generarNumeroVenta()` (`V-<año>-<count+1>`): V-2026-000004
+  // en adelante, contiguos, para que el generador no choque con ellos.
+  // Los pagados llevan comprobante Factura B, cobro MERCADO_PAGO,
+  // TransaccionPagoLog e IngresoTesoreria en PENDIENTE_CONCILIACION.
+  // Sin MovimientoStock: mismo patrón que los pedidos de Sprint 3.
+  //
+  // LIMITACIÓN: las fechas son relativas al momento en que se corre el seed
+  // y `update: {}` no las refresca. Una base sembrada hace días "envejece":
+  // el plazo de retiro del pedido LISTO_PARA_RETIRO termina venciendo. La
+  // única excepción es la reserva del pedido PAGO_PENDIENTE, que se refresca
+  // en cada corrida (ver `update` abajo).
+  const leerConfigNumero = async (clave: string) =>
+    Number((await prisma.configuracionSistema.findUniqueOrThrow({ where: { clave } })).valor);
+  const ttlCheckoutHoras = await leerConfigNumero("ECOMMERCE_CHECKOUT_TTL_HORAS");
+  const plazoRetiroDias = await leerConfigNumero("ECOMMERCE_PLAZO_RETIRO_DIAS");
+  const sumarHoras = (fecha: Date, horas: number) => new Date(fecha.getTime() + horas * 60 * 60 * 1000);
+  const redondearCentavos = (monto: number) => Math.round(monto * 100) / 100;
+
+  const datosFacturacionJuanPerez = JSON.stringify({
+    nombre: clienteJuanPerez.nombre,
+    email: clienteJuanPerez.email,
+  });
+
+  interface PedidoWebSeed {
+    ids: {
+      pedido: string;
+      ecommerce: string;
+      items: readonly { item: string; reserva: string }[];
+      comprobante?: string;
+      medio_pago?: string;
+      transaccion?: string;
+    };
+    numero_venta: string;
+    estado_ecommerce:
+      | "PAGO_PENDIENTE"
+      | "PAGO_RECHAZADO"
+      | "EN_PREPARACION"
+      | "LISTO_PARA_RETIRO"
+      | "ENTREGADO"
+      | "ANULADO";
+    estado_venta: "RESERVADO" | "FACTURADO" | "CERRADO" | "ANULADO";
+    fecha_checkout: Date;
+    variantes: string[];
+    pago?: { estado: "APROBADO" | "RECHAZADO"; mercadopago_payment_id: string };
+    cupon?: { aplicacion_id: string; cupon_id: string; porcentaje: number; confirmada: boolean };
+    operador?: { id: string; prioridad_manual?: number };
+    fecha_listo?: Date;
+    anulacion?: { motivo: string };
+  }
+
+  const pedidosWeb: PedidoWebSeed[] = [
+    {
+      // Reserva vigente + cupón aplicado sin confirmar (HU-E2/E4/E7).
+      ids: PEDIDO_WEB_PAGO_PENDIENTE_IDS,
+      numero_venta: "V-2026-000004",
+      estado_ecommerce: "PAGO_PENDIENTE",
+      estado_venta: "RESERVADO",
+      fecha_checkout: new Date(),
+      variantes: [VARIANTE_CAMISA_TACTICA_2_ID],
+      cupon: { aplicacion_id: CUPON_APLICACION_PENDIENTE_ID, cupon_id: cuponVigente.id, porcentaje: 10, confirmada: false },
+    },
+    {
+      // Rechazado: reserva liberada de inmediato, sin IngresoTesoreria (E §2.2).
+      ids: PEDIDO_WEB_PAGO_RECHAZADO_IDS,
+      numero_venta: "V-2026-000005",
+      estado_ecommerce: "PAGO_RECHAZADO",
+      estado_venta: "RESERVADO",
+      fecha_checkout: diasAtras(2),
+      variantes: [VARIANTE_CAMISA_TACTICA_3_ID],
+      pago: { estado: "RECHAZADO", mercadopago_payment_id: "1320000000005" },
+    },
+    {
+      // En la cola, todavía sin tomar (HU-E12 "ingreso automático").
+      ids: PEDIDO_WEB_EN_PREPARACION_LIBRE_IDS,
+      numero_venta: "V-2026-000006",
+      estado_ecommerce: "EN_PREPARACION",
+      estado_venta: "FACTURADO",
+      fecha_checkout: diasAtras(1),
+      variantes: [VARIANTE_CAMISA_TACTICA_2_ID],
+      pago: { estado: "APROBADO", mercadopago_payment_id: "1320000000006" },
+    },
+    {
+      // Tomado por el Operador, con prioridad manual; dos ítems para el
+      // escaneo ítem por ítem de HU-E12.
+      ids: PEDIDO_WEB_EN_PREPARACION_ASIGNADO_IDS,
+      numero_venta: "V-2026-000007",
+      estado_ecommerce: "EN_PREPARACION",
+      estado_venta: "FACTURADO",
+      fecha_checkout: diasAtras(2),
+      variantes: [VARIANTE_CAMISA_TACTICA_2_ID, VARIANTE_CAMISA_TACTICA_3_ID],
+      pago: { estado: "APROBADO", mercadopago_payment_id: "1320000000007" },
+      operador: { id: usuarioOperadorPickPack.id, prioridad_manual: 1 },
+    },
+    {
+      ids: PEDIDO_WEB_LISTO_PARA_RETIRO_IDS,
+      numero_venta: "V-2026-000008",
+      estado_ecommerce: "LISTO_PARA_RETIRO",
+      estado_venta: "FACTURADO",
+      fecha_checkout: diasAtras(3),
+      variantes: [VARIANTE_CAMISA_TACTICA_2_ID],
+      pago: { estado: "APROBADO", mercadopago_payment_id: "1320000000008" },
+      operador: { id: usuarioOperadorPickPack.id },
+      fecha_listo: diasAtras(2),
+    },
+    {
+      // Listo hace más que ECOMMERCE_PLAZO_RETIRO_DIAS: el job de HU-E13
+      // todavía no lo pasó a VENCIDO_SIN_RETIRO (ese estado no se siembra).
+      ids: PEDIDO_WEB_LISTO_PLAZO_VENCIDO_IDS,
+      numero_venta: "V-2026-000009",
+      estado_ecommerce: "LISTO_PARA_RETIRO",
+      estado_venta: "FACTURADO",
+      fecha_checkout: diasAtras(14),
+      variantes: [VARIANTE_CAMISA_TACTICA_3_ID],
+      pago: { estado: "APROBADO", mercadopago_payment_id: "1320000000009" },
+      operador: { id: usuarioOperadorPickPack.id },
+      fecha_listo: diasAtras(12),
+    },
+    {
+      // Historial: retirado con QR + DNI → PedidoVenta REMITO_EMITIDO →
+      // CERRADO en el mismo commit (E §3.1). Consumió el cupón agotado.
+      ids: PEDIDO_WEB_ENTREGADO_IDS,
+      numero_venta: "V-2026-000010",
+      estado_ecommerce: "ENTREGADO",
+      estado_venta: "CERRADO",
+      fecha_checkout: diasAtras(20),
+      variantes: [VARIANTE_CAMISA_TACTICA_2_ID],
+      pago: { estado: "APROBADO", mercadopago_payment_id: "1320000000010" },
+      cupon: { aplicacion_id: CUPON_APLICACION_AGOTADO_ID, cupon_id: cuponAgotado.id, porcentaje: 15, confirmada: true },
+      operador: { id: usuarioOperadorPickPack.id },
+      fecha_listo: diasAtras(19),
+    },
+    {
+      // Orden no abonada anulada manualmente por el Administrador E-commerce
+      // (E §2.7): baja lógica en PedidoVenta y en su extensión.
+      ids: PEDIDO_WEB_ANULADO_IDS,
+      numero_venta: "V-2026-000011",
+      estado_ecommerce: "ANULADO",
+      estado_venta: "ANULADO",
+      fecha_checkout: diasAtras(5),
+      variantes: [VARIANTE_CAMISA_TACTICA_3_ID],
+      anulacion: { motivo: "El cliente desistió de la compra antes de pagar" },
+    },
+  ];
+
+  const pedidoWebPorEstado = new Map<string, { id: string; numero_venta: string }>();
+
+  for (const p of pedidosWeb) {
+    const fechaPago = sumarHoras(p.fecha_checkout, 10 / 60);
+    const fechaAnulacion = sumarHoras(p.fecha_checkout, 2);
+    const reservaVigente = p.estado_ecommerce === "PAGO_PENDIENTE";
+    const pagoAprobado = p.pago?.estado === "APROBADO";
+
+    // Cierre de la reserva: confirmada por venta al aprobarse el pago;
+    // liberada al rechazarse el pago o al anularse la orden.
+    const fechaFinReserva = reservaVigente
+      ? null
+      : p.anulacion
+        ? fechaAnulacion
+        : fechaPago;
+
+    const subtotal = p.variantes.reduce((acc, vid) => acc + precioVentaPorVariante.get(vid)!, 0);
+    const descuento = p.cupon ? redondearCentavos((subtotal * p.cupon.porcentaje) / 100) : 0;
+    const total = Math.max(0, redondearCentavos(subtotal - descuento));
+
+    const baja = p.anulacion
+      ? {
+          is_active: false,
+          deleted_at: fechaAnulacion,
+          deleted_by: usuarioAdminEcommerce.id,
+          deletion_reason: p.anulacion.motivo,
+        }
+      : {};
+
+    const pedido = await prisma.pedidoVenta.upsert({
+      where: { id: p.ids.pedido },
+      update: {},
+      create: {
+        id: p.ids.pedido,
+        numero_venta: p.numero_venta,
+        cliente_id: clienteJuanPerez.id,
+        canal: "WEB",
+        estado: p.estado_venta,
+        total,
+        fecha_facturacion: pagoAprobado ? fechaPago : null,
+        registrado_por_id: usuarioCanalWeb.id,
+        created_at: p.fecha_checkout,
+        ...baja,
+      },
+    });
+    pedidoWebPorEstado.set(`${p.estado_ecommerce}:${p.numero_venta}`, pedido);
+
+    for (const [i, variante_sku_id] of p.variantes.entries()) {
+      const { item, reserva } = p.ids.items[i];
+      // PAGO_PENDIENTE: la expiración (24h) excede a propósito
+      // ECOMMERCE_CHECKOUT_TTL_HORAS para que el fixture sobreviva una jornada
+      // de desarrollo, y se refresca en cada corrida del seed.
+      const fechaExpiracion = reservaVigente
+        ? sumarHoras(new Date(), 24)
+        : sumarHoras(p.fecha_checkout, ttlCheckoutHoras);
+
+      await prisma.reserva.upsert({
+        where: { id: reserva },
+        update: reservaVigente
+          ? { fecha_inicio_reserva: new Date(), fecha_expiracion: fechaExpiracion, fecha_fin_reserva: null }
+          : {},
+        create: {
+          id: reserva,
+          variante_sku_id,
+          deposito_id: depositoShowroom.id,
+          cantidad: 1,
+          fecha_inicio_reserva: p.fecha_checkout,
+          fecha_expiracion: fechaExpiracion,
+          fecha_fin_reserva: fechaFinReserva,
+          motivo: `Checkout web — ${p.numero_venta}`,
+          origen_reserva: null,
+          registrado_por_id: usuarioCanalWeb.id,
+        },
+      });
+
+      await prisma.pedidoVentaItem.upsert({
+        where: { id: item },
+        update: {},
+        create: {
+          id: item,
+          pedido_venta_id: pedido.id,
+          variante_sku_id,
+          cantidad: 1,
+          precio_unitario: precioVentaPorVariante.get(variante_sku_id)!,
+          reserva_id: reserva,
+          cantidad_facturada: pagoAprobado ? 1 : 0,
+          cantidad_entregada: p.estado_ecommerce === "ENTREGADO" ? 1 : 0,
+        },
+      });
+    }
+
+    if (p.cupon) {
+      await prisma.cuponAplicacion.upsert({
+        where: { id: p.cupon.aplicacion_id },
+        update: {},
+        create: {
+          id: p.cupon.aplicacion_id,
+          cupon_id: p.cupon.cupon_id,
+          pedido_venta_id: pedido.id,
+          cliente_id: clienteJuanPerez.id,
+          monto_descontado: descuento,
+          confirmada: p.cupon.confirmada,
+          created_at: p.fecha_checkout,
+        },
+      });
+    }
+
+    await prisma.pedidoVentaEcommerce.upsert({
+      where: { pedido_venta_id: pedido.id },
+      update: {},
+      create: {
+        id: p.ids.ecommerce,
+        pedido_venta_id: pedido.id,
+        estado_ecommerce: p.estado_ecommerce,
+        mercadopago_payment_id: p.pago?.mercadopago_payment_id ?? null,
+        cupon_aplicacion_id: p.cupon?.aplicacion_id ?? null,
+        // Token único por pedido; se conserva en ENTREGADO como historial (la
+        // validez del QR se resuelve siempre contra `estado_ecommerce`, E §2.3).
+        codigo_qr_retiro: p.fecha_listo
+          ? createHash("sha256").update(`seed-qr-retiro:${p.ids.ecommerce}`).digest("hex")
+          : null,
+        plazo_retiro_vencimiento: p.fecha_listo
+          ? sumarHoras(p.fecha_listo, plazoRetiroDias * 24)
+          : null,
+        operador_asignado_id: p.operador?.id ?? null,
+        prioridad_manual: p.operador?.prioridad_manual ?? null,
+        created_at: p.fecha_checkout,
+        ...baja,
+      },
+    });
+
+    if (!p.pago) continue;
+
+    // F §2.1.3: el webhook se deduplica antes de despachar el evento.
+    await prisma.webhookPagoLog.upsert({
+      where: {
+        mercadopago_payment_id_topic: {
+          mercadopago_payment_id: p.pago.mercadopago_payment_id,
+          topic: "payment",
+        },
+      },
+      update: {},
+      create: {
+        mercadopago_payment_id: p.pago.mercadopago_payment_id,
+        topic: "payment",
+        created_at: fechaPago,
+      },
+    });
+
+    if (hayClaveCifrado && p.ids.transaccion) {
+      const datosFacturacion = encrypt(datosFacturacionJuanPerez);
+      await prisma.transaccionPagoLog.upsert({
+        where: { id: p.ids.transaccion },
+        update: {},
+        create: {
+          id: p.ids.transaccion,
+          pedido_venta_ecommerce_id: p.ids.ecommerce,
+          mercadopago_payment_id: p.pago.mercadopago_payment_id,
+          monto: total,
+          estado_pago: p.pago.estado,
+          resultado_webhook: JSON.stringify({
+            id: p.pago.mercadopago_payment_id,
+            status: pagoAprobado ? "approved" : "rejected",
+            status_detail: pagoAprobado ? "accredited" : "cc_rejected_insufficient_amount",
+            transaction_amount: total,
+          }),
+          datos_facturacion_cifrados: datosFacturacion.ciphertext,
+          datos_facturacion_iv: datosFacturacion.iv,
+          created_at: fechaPago,
+        },
+      });
+    }
+
+    if (!pagoAprobado) continue;
+
+    await prisma.ventaMedioPago.upsert({
+      where: { id: p.ids.medio_pago! },
+      update: {},
+      create: {
+        id: p.ids.medio_pago!,
+        pedido_venta_id: pedido.id,
+        medio: "MERCADO_PAGO",
+        importe: total,
+        referencia: p.pago.mercadopago_payment_id,
+      },
+    });
+
+    // E §2.2: el cliente web no elige comprobante — siempre Factura B.
+    await prisma.comprobanteFiscal.upsert({
+      where: { id: p.ids.comprobante! },
+      update: {},
+      create: {
+        id: p.ids.comprobante!,
+        pedido_venta_id: pedido.id,
+        tipo_comprobante: "FACTURA_B",
+        cae_simulado: `6803159827${p.numero_venta.slice(-4)}`,
+        qr_data_url: "data:image/png;base64,SIMULADO-SEED-NO-AFIP==",
+        es_simulado: true,
+        monto_total: total,
+        emitido_por_id: usuarioCanalWeb.id,
+        created_at: fechaPago,
+      },
+    });
+
+    // HU-G11: caja virtual constante, sin TurnoCaja.
+    await prisma.ingresoTesoreria.upsert({
+      where: { pedido_venta_id: pedido.id },
+      update: {},
+      create: {
+        pedido_venta_id: pedido.id,
+        mercadopago_payment_id: p.pago.mercadopago_payment_id,
+        monto: total,
+        fecha: fechaPago,
+      },
+    });
+  }
+
+  // ── HU-F2 — Plantillas de notificación ──────────────────────────────────────
+  // De la tabla de F §3.3 se siembran solo eventos con nombre confirmado:
+  //   - stock:umbral_critico_alcanzado → existe en event-types.ts.
+  //   - ecommerce:pedido_listo_para_retiro / ecommerce:pedido_vencido_sin_retiro →
+  //     mismo nombre en F §3.3 y E §4; todavía no están en event-types.ts
+  //     (se agregan al implementar HU-E12/HU-E13).
+  // Sin plantilla, a propósito: `usuario:suspendido_automaticamente` (ejercita
+  // el texto por defecto — F §2.2 lo usa de ejemplo). No se siembran los tres
+  // "a confirmar" de F §3.3. Tampoco `ecommerce:pedido_pago_confirmado`,
+  // `ecommerce:carrito_articulo_no_disponible` ni
+  // `ecommerce:plazo_retiro_por_vencer`: sus nombres ya quedaron alineados
+  // entre F §3.3 y E §4, pero se dejan sin plantilla para no ampliar este
+  // fixture (el Motor cae al texto por defecto).
+  // Placeholders: solo campos que el payload del evento trae (F §3.2).
+  const plantillasPorEvento = new Map<string, { id: string; asunto: string; cuerpo: string }>();
+  for (const [tipo_evento, asunto, cuerpo, prioridad_default] of [
+    [
+      "stock:umbral_critico_alcanzado",
+      "Stock en umbral crítico",
+      "Una variante alcanzó el umbral crítico: quedan {{cantidad_resultante}} unidades (punto de pedido {{punto_pedido}}).",
+      "ADVERTENCIA",
+    ],
+    [
+      "ecommerce:pedido_listo_para_retiro",
+      "Tu pedido está listo para retirar",
+      "Tu pedido {{numero_venta}} ya está listo para retirar en Sucursal Salta.",
+      "INFORMATIVA",
+    ],
+    [
+      "ecommerce:pedido_vencido_sin_retiro",
+      "Tu pedido venció sin ser retirado",
+      "El plazo para retirar tu pedido {{numero_venta}} venció.",
+      "CRITICA",
+    ],
+  ] as const) {
+    const plantilla = await prisma.plantillaNotificacion.upsert({
+      where: { tipo_evento },
+      update: {},
+      create: { tipo_evento, asunto, cuerpo, prioridad_default },
+    });
+    plantillasPorEvento.set(tipo_evento, plantilla);
+  }
+
+  // ── HU-F3 — Notificaciones de ejemplo ───────────────────────────────────────
+  // `clave_idempotencia` con la fórmula de F §2.3 para eventos sin
+  // `evento_id` propio: sha256(tipo_evento:registro_id:destinatario_id). El
+  // listener de F3 todavía no existe, así que no hay helper exportado que
+  // reutilizar — si al implementarlo cambia la fórmula, estas filas quedan
+  // con una clave distinta (sin efecto práctico: son fixtures).
+  const claveIdempotencia = (tipoEvento: string, registroId: string, destinatarioId: string) =>
+    createHash("sha256").update(`${tipoEvento}:${registroId}:${destinatarioId}`).digest("hex");
+  const renderizar = (texto: string, variables: Record<string, string | number>) =>
+    Object.entries(variables).reduce(
+      (acc, [clave, valor]) => acc.replaceAll(`{{${clave}}}`, String(valor)),
+      texto,
+    );
+
+  const plantillaUmbral = plantillasPorEvento.get("stock:umbral_critico_alcanzado")!;
+  const plantillaListo = plantillasPorEvento.get("ecommerce:pedido_listo_para_retiro")!;
+  const archivada = (fecha: Date) => ({ is_active: false, deleted_at: fecha, deleted_by: usuarioEncargado.id });
+
+  // Personal interno — `encargado.seed` (Rol Encargado de Depósito, único
+  // destinatario de `stock:umbral_critico_alcanzado` en F §3.3). Las tres son
+  // ADVERTENCIA: es la prioridad de ese evento y el Encargado no recibe
+  // ningún otro evento de la tabla.
+  for (const n of [
+    { registro_id: STOCK_CT1_CENTRAL_ID, cantidad: 7, punto_pedido: 8, leida_at: diasAtras(4), extra: {} },
+    { registro_id: STOCK_B1_SHOWROOM_ID, cantidad: 2, punto_pedido: 3, leida_at: null, extra: {} },
+    { registro_id: STOCK_CT1_SHOWROOM_ID, cantidad: 1, punto_pedido: 2, leida_at: diasAtras(9), extra: archivada(diasAtras(8)) },
+  ]) {
+    const clave_idempotencia = claveIdempotencia("stock:umbral_critico_alcanzado", n.registro_id, usuarioEncargado.id);
+    await prisma.notificacion.upsert({
+      where: { clave_idempotencia },
+      update: {},
+      create: {
+        plantilla_id: plantillaUmbral.id,
+        tipo_evento: "stock:umbral_critico_alcanzado",
+        asunto: plantillaUmbral.asunto,
+        cuerpo: renderizar(plantillaUmbral.cuerpo, {
+          cantidad_resultante: n.cantidad,
+          punto_pedido: n.punto_pedido,
+        }),
+        prioridad: "ADVERTENCIA",
+        clave_idempotencia,
+        usuario_destinatario_id: usuarioEncargado.id,
+        leida_at: n.leida_at,
+        ...n.extra,
+      },
+    });
+  }
+
+  // Cliente Web — Juan Pérez: un aviso de "listo para retirar" por cada
+  // pedido que pasó por LISTO_PARA_RETIRO.
+  for (const n of [
+    { pedido: pedidoWebPorEstado.get("LISTO_PARA_RETIRO:V-2026-000008")!, leida_at: null, extra: {} },
+    { pedido: pedidoWebPorEstado.get("LISTO_PARA_RETIRO:V-2026-000009")!, leida_at: diasAtras(11), extra: {} },
+    {
+      pedido: pedidoWebPorEstado.get("ENTREGADO:V-2026-000010")!,
+      leida_at: diasAtras(19),
+      extra: { is_active: false, deleted_at: diasAtras(17), deleted_by: cuentaWebJuanPerez.id },
+    },
+  ]) {
+    const clave_idempotencia = claveIdempotencia(
+      "ecommerce:pedido_listo_para_retiro",
+      n.pedido.id,
+      cuentaWebJuanPerez.id,
+    );
+    await prisma.notificacion.upsert({
+      where: { clave_idempotencia },
+      update: {},
+      create: {
+        plantilla_id: plantillaListo.id,
+        tipo_evento: "ecommerce:pedido_listo_para_retiro",
+        asunto: plantillaListo.asunto,
+        cuerpo: renderizar(plantillaListo.cuerpo, { numero_venta: n.pedido.numero_venta }),
+        prioridad: "INFORMATIVA",
+        clave_idempotencia,
+        cuenta_cliente_web_destinatario_id: cuentaWebJuanPerez.id,
+        leida_at: n.leida_at,
+        ...n.extra,
+      },
+    });
+  }
+
   // ── Resumen final ───────────────────────────────────────────────────────────
 
   console.log("\nSeed HU-7 completado:");
@@ -3341,6 +4573,33 @@ async function main() {
     cuenta_corriente_juan_perez_id: cuentaCorrienteJuanPerez.id,
     cuenta_corriente_operacion_aprobada_id: CUENTA_CORRIENTE_OPERACION_APROBADA_ID,
     cuenta_corriente_operacion_retenida_id: CUENTA_CORRIENTE_OPERACION_RETENIDA_ID,
+  });
+
+  console.log(
+    `\nSeed Sprint 4 — Módulo E / HU-B9 / ConfiguracionSistema completado (password: "${PASSWORD_SEED}"):`,
+  );
+  console.table({
+    admin_ecommerce_seed: `${usuarioAdminEcommerce.nombre_usuario}  <${usuarioAdminEcommerce.email}>`,
+    operador_pickpack_seed: `${usuarioOperadorPickPack.nombre_usuario}  <${usuarioOperadorPickPack.email}>`,
+    admin_plataforma_seed: `${usuarioAdminPlataforma.nombre_usuario}  <${usuarioAdminPlataforma.email}>`,
+    rol_administrador_plataforma_id: rolAdministradorPlataforma.id,
+    usuario_canal_web_id: `${usuarioCanalWeb.id}  (sistema, sin login)`,
+    rol_administrador_ecommerce_id: rolAdministradorEcommerce.id,
+    rol_operador_pick_pack_id: rolOperadorPickPack.id,
+    lista_precio_venta_general_id: listaPrecioVentaGeneral.id,
+    lista_precio_venta_version_1_id: listaPrecioVentaVersion1.id,
+    ecommerce_deposito_canal_web_id: depositoShowroom.id,
+    cuenta_web_juan_perez: `${cuentaWebJuanPerez.email}  (password: "${PASSWORD_SEED}")`,
+    cuenta_web_maria_gomez_pendiente: `${cuentaWebMariaGomez.email}  (vinculacion_pendiente)`,
+    conector_pago_sandbox: hayClaveCifrado ? CONECTOR_PAGO_SANDBOX_ID : "OMITIDO (sin ENCRYPTION_KEY_PROVEEDORES)",
+    cupones: "SWAT10 (vigente) · INVIERNO5000 (vencido) · LANZAMIENTO15 (agotado)",
+    producto_web_no_visible: productoGorraTactica.nombre,
+    ...Object.fromEntries(
+      [...pedidoWebPorEstado.entries()].map(([clave, pedido]) => [
+        `pedido_web_${clave.split(":")[0].toLowerCase()}_${pedido.numero_venta.slice(-2)}`,
+        pedido.numero_venta,
+      ]),
+    ),
   });
 }
 
