@@ -522,11 +522,15 @@ model ListaPrecioVentaItem {
   version_id            String
   version               ListaPrecioVentaVersion @relation(fields: [version_id], references: [id], onDelete: Restrict)
   variante_sku_id       String
-  variante_sku          VarianteSku @relation(fields: [variante_sku_id], references: [id], onDelete: Restrict)
+  variante_sku          VarianteSKU @relation(fields: [variante_sku_id], references: [id], onDelete: Restrict)
   precio_venta          Decimal  @db.Decimal(12, 2)
   costo_reposicion_referencia Decimal? @db.Decimal(12, 2) // null si Módulo H no tenía costo de reposición disponible al momento de publicar (ver comportamiento)
   confirmado_bajo_costo Boolean  @default(false)
   motivo_bajo_costo     String?
+  is_active             Boolean  @default(true)   // Sprint 4, cierre: alinea el modelo con la regla de baja lógica estándar de esta misma sección
+  deleted_at            DateTime?
+  deleted_by            String?
+  deletion_reason       String?
   @@unique([version_id, variante_sku_id])
   @@map("items_lista_precio_venta")
 }

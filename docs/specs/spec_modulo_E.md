@@ -84,12 +84,13 @@ model CarritoWebItem {
   carrito_id      String
   carrito         CarritoWeb @relation(fields: [carrito_id], references: [id], onDelete: Restrict)
   variante_sku_id String
-  variante_sku    VarianteSku @relation(fields: [variante_sku_id], references: [id], onDelete: Restrict)
+  variante_sku    VarianteSKU @relation(fields: [variante_sku_id], references: [id], onDelete: Restrict)
   cantidad        Int
   is_active       Boolean  @default(true)
   deleted_at      DateTime?
   deleted_by      String?
   deletion_reason String?
+  created_at      DateTime @default(now()) // Sprint 4, cierre: faltaba — ningún motivo documentado para omitirlo
   @@unique([carrito_id, variante_sku_id])
   @@map("items_carrito_web")
 }
@@ -247,6 +248,10 @@ model CuponAplicacion {
   cliente_id      String
   monto_descontado Decimal @db.Decimal(12, 2)
   confirmada      Boolean  @default(false) // true recién al confirmarse el pago (HU-E2) — ver comportamiento
+  is_active       Boolean  @default(true)  // Sprint 4, cierre: baja lógica al rechazarse el pago o vencer la reserva — ver comportamiento
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
   created_at      DateTime @default(now())
   @@map("aplicaciones_cupon")
 }
@@ -560,6 +565,7 @@ model ProductoWebFoto {
   deleted_at               DateTime?
   deleted_by               String?
   deletion_reason          String?
+  created_at               DateTime @default(now()) // Sprint 4, cierre: faltaba — ningún motivo documentado para omitirlo
   @@map("fotos_producto_web")
 }
 ```
@@ -713,11 +719,13 @@ Webhook de pago (2.2, heredado del contrato de HU-F1), consumo de cupón (2.4), 
 | Evento | Disparado por | Consumidor | Payload mínimo |
 |---|---|---|---|
 | `ecommerce:carrito_articulo_no_disponible` | 2.1/2.5, al desactivarse un artículo con ítems en carritos activos | Módulo F (HU-F3, notificación al cliente) | `{ carrito_id, variante_sku_id, cliente_web_cuenta_id? }` |
+| `ecommerce:pedido_pago_confirmado` | 2.2, tras `COMMIT` del procesamiento del webhook con pago aprobado (`estado_ecommerce → PAGO_CONFIRMADO`) | Módulo F (HU-F3, notificación al Cliente Web dueño del pedido y al Rol Operador de Pick & Pack — ingreso a la cola de 2.12) | `{ pedido_venta_id, numero_venta, cliente_web_cuenta_id }` |
 | `ecommerce:transaccion_pago_registrada` | 2.2/2.6, tras `COMMIT` del webhook procesado — **evento sensible** | Módulo D (SHA-256 reforzado) | `{ transaccion_id, pedido_venta_id, monto, estado_pago, mercadopago_payment_id }` |
 | `ecommerce:acceso_dato_cifrado_auditado` | 2.6, en cada lectura de `datos_facturacion_cifrados` por un Auditor — **evento sensible** | Módulo D (SHA-256 reforzado) | `{ transaccion_id, usuario_auditor_id, timestamp }` |
 | `ecommerce:orden_anulada` | 2.7, manual o automática por TTL — **evento sensible** | Módulo D (SHA-256 reforzado) | `{ pedido_venta_id, usuario_id?, deletion_reason, automatico: boolean }` |
 | `ecommerce:cuenta_web_registrada` / `ecommerce:cuenta_web_bloqueada` / `ecommerce:cuenta_web_vinculada` / `ecommerce:cuenta_web_baja` | 2.8, tras `COMMIT` de cada transición | Módulo D (auditoría estándar) | `{ cuenta_id, cliente_id, evento_especifico }` |
-| `ecommerce:pedido_tomado` / `ecommerce:pedido_listo_para_retiro` / `ecommerce:pedido_entregado` / `ecommerce:qr_invalido_rechazado` | 2.12, cada transición de la cola de preparación | Módulo D (auditoría estándar; `qr_invalido_rechazado` es evento sensible) | `{ pedido_venta_id, operador_id, timestamp, estado_ecommerce }` |
+| `ecommerce:pedido_tomado` / `ecommerce:pedido_listo_para_retiro` / `ecommerce:pedido_entregado` / `ecommerce:qr_invalido_rechazado` | 2.12, cada transición de la cola de preparación | Módulo D (auditoría estándar; `qr_invalido_rechazado` es evento sensible); Módulo F (HU-F3, notificación al cliente) — solo `pedido_listo_para_retiro` | `{ pedido_venta_id, operador_id, timestamp, estado_ecommerce }` |
+| `ecommerce:plazo_retiro_por_vencer` | 2.13, job programado, como recordatorio previo al vencimiento del plazo de retiro — momento exacto **a definir** (ver 2.13) | Módulo F (HU-F3, notificación al cliente) | `{ pedido_venta_id, numero_venta, cliente_web_cuenta_id, plazo_retiro_vencimiento }` |
 | `ecommerce:pedido_cancelado` / `ecommerce:pedido_vencido_sin_retiro` | 2.13, cancelación o vencimiento de plazo — **evento sensible** | Módulo D (SHA-256 reforzado), Módulo F (HU-F3, notificación) | `{ pedido_venta_id, motivo?, nota_credito_id?, automatico: boolean }` |
 
 **Regla de exclusión de datos sensibles en el payload (misma convención que el resto del ERP):** ningún evento de este módulo incluye datos de facturación cifrados, contraseñas ni el contenido completo del webhook de Mercado Pago en su payload — se referencia por `transaccion_id`/`pedido_venta_id`, dejando que la consulta de detalle se resuelva contra la entidad correspondiente si se necesita.

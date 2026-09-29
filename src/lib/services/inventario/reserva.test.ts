@@ -122,16 +122,14 @@ test("la liberación por venta usa EGRESO, cierra la reserva, no reincrementa st
   assert.doesNotMatch(bloque, /increment:/);
 });
 
-test("la liberación por TTL usa INGRESO compensatorio RESERVADO→DISPONIBLE con la limitación documentada", () => {
+test("la liberación por TTL usa INGRESO compensatorio RESERVADO→DISPONIBLE y ya no arrastra la limitación de 72h fijo", () => {
   const fuente = readFileSync(new URL("./reserva.service.ts", import.meta.url), "utf8");
   const bloque = fuente.slice(fuente.indexOf("export async function liberarReservasVencidas"));
   assert.match(bloque, /tipo_movimiento: "INGRESO"/);
   assert.match(bloque, /estado_origen: "RESERVADO"[\s\S]*estado_destino: "DISPONIBLE"/);
   assert.match(bloque, /increment: reserva\.cantidad/);
-  assert.match(
-    bloque,
-    /LIMITACIÓN CONOCIDA: cron aplica 72h fijo por origen, no respeta ttl_horas explícito de e-commerce — resolver al implementar HU-E1/,
-  );
+  // HU-A10 Rev. 3: la limitación quedó resuelta al persistir fecha_expiracion.
+  assert.doesNotMatch(bloque, /LIMITACIÓN CONOCIDA/);
 });
 
 test("los eventos de dominio se emiten fuera de prisma.$transaction (regla de emisión spec §4)", () => {
@@ -287,19 +285,30 @@ test("G — confirmarReservaPorVenta emite stock:reserva_liberada con motivo_lib
 
 // liberarReservasVencidas() ───────────────────────────────────────────────────
 
-test("H — liberarReservasVencidas selecciona sólo reservas activas, sin cierre y anteriores al umbral", () => {
+test("H — liberarReservasVencidas selecciona sólo reservas activas, sin cierre y con fecha_expiracion vencida (HU-A10 Rev. 3)", () => {
   const bloque = sliceLiberarVencidas(leerServicio());
   assert.match(
     bloque,
-    /prisma\.reserva\.findMany\(\{\s*where: \{\s*is_active: true,\s*deleted_at: null,\s*fecha_fin_reserva: null,\s*fecha_inicio_reserva: \{ lt: umbral \},/,
+    /prisma\.reserva\.findMany\(\{\s*where: \{\s*is_active: true,\s*deleted_at: null,\s*fecha_fin_reserva: null,\s*fecha_expiracion: \{ lte: umbral \},/,
   );
+  assert.doesNotMatch(bloque, /fecha_inicio_reserva: \{ lt:/);
 });
 
-test("I — el umbral del cron se calcula restando TTL_RESERVA_DEFAULT_HORAS y el bloque no regresó a AJUSTE", () => {
+test("I — el cron ya no aplica un TTL fijo: el umbral es `ahora`, sin restar TTL_RESERVA_DEFAULT_HORAS, y el bloque no regresó a AJUSTE", () => {
   const bloque = sliceLiberarVencidas(leerServicio());
-  assert.match(bloque, /const ttlHoras = TTL_RESERVA_DEFAULT_HORAS/);
-  assert.match(bloque, /umbral\.setHours\(umbral\.getHours\(\) - ttlHoras\)/);
+  assert.match(bloque, /const umbral = ahora;/);
+  assert.doesNotMatch(bloque, /TTL_RESERVA_DEFAULT_HORAS/);
   assert.doesNotMatch(bloque, /tipo_movimiento: "AJUSTE"/);
+});
+
+test("I2 — crearReserva persiste fecha_expiracion = fecha_inicio_reserva + ttlHoras (HU-A10 Rev. 3)", () => {
+  const bloque = sliceCrearReserva(leerServicio());
+  assert.match(
+    bloque,
+    /const fechaExpiracion = new Date\(fechaInicioReserva\.getTime\(\) \+ ttlHoras \* 60 \* 60 \* 1000\)/,
+  );
+  assert.match(bloque, /fecha_inicio_reserva: fechaInicioReserva/);
+  assert.match(bloque, /fecha_expiracion: fechaExpiracion/);
 });
 
 test("J — se emite un stock:reserva_liberada con motivo TTL_VENCIDO por cada reserva liberada, tras el loop transaccional", () => {

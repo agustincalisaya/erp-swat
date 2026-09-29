@@ -22,7 +22,7 @@ El Módulo F es la capa de integración tecnológica transversal del ERP: no tie
 - **Conector de Mercado Pago (HU-F1):** encapsula toda comunicación con la pasarela de pago detrás de un patrón Adapter, de forma que ningún módulo de negocio (B, E, G) invoque el SDK de Mercado Pago directamente. Es el único punto del sistema que retiene credenciales de pago.
 - **Motor de Notificaciones internas (HU-F2 + HU-F3):** entrega, dentro del propio sistema, los avisos que en un ERP tradicional saldrían por email o WhatsApp — bandeja de notificaciones por usuario o por rol, alimentada por eventos de dominio de todo el sistema.
 
-Bajo Next.js App Router, el módulo se implementa mediante **Route Handlers** (`app/api/integraciones/**`, `app/api/notificaciones/**`, `app/api/webhooks/**`) para las superficies consumidas por otros módulos, la PWA y Mercado Pago mismo (webhook), y **Server Actions** (`app/(dashboard)/administracion/**/actions.ts`) para los formularios de gestión del Administrador de Plataforma. Ambas superficies son wrappers finos: **está prohibido implementar lógica de negocio en el `route.ts` o en la Server Action**. Toda regla de dominio se delega en `lib/services/integraciones/*` (`conector-mercadopago.service.ts`) y `lib/services/notificaciones/*` (`plantilla-notificacion.service.ts`, `notificacion.service.ts`). El handler/action se limita a: (1) resolver la sesión y verificar el permiso granular vía `withPermission("integraciones:<accion>")` o `withPermission("notificaciones:<accion>")`, (2) parsear y validar el `body` con Zod, (3) invocar la función de servicio, (4) mapear el resultado al shape de respuesta JSON estándar de la sección 2.
+Bajo Next.js App Router, el módulo se implementa mediante **Route Handlers** (`app/api/integraciones/**`, `app/api/notificaciones/**`, `app/api/webhooks/**`) para las superficies consumidas por otros módulos, la PWA y Mercado Pago mismo (webhook), y **Server Actions** (`app/(dashboard)/administracion/**/actions.ts`) para los formularios de gestión de los roles de plataforma (matriz de roles en 2.1.1 y 2.2). Ambas superficies son wrappers finos: **está prohibido implementar lógica de negocio en el `route.ts` o en la Server Action**. Toda regla de dominio se delega en `lib/services/integraciones/*` (`conector-mercadopago.service.ts`) y `lib/services/notificaciones/*` (`plantilla-notificacion.service.ts`, `notificacion.service.ts`). El handler/action se limita a: (1) resolver la sesión y verificar el permiso granular vía `withPermission("integraciones:<accion>")` o `withPermission("notificaciones:<accion>")`, (2) parsear y validar el `body` con Zod, (3) invocar la función de servicio, (4) mapear el resultado al shape de respuesta JSON estándar de la sección 2.
 
 **Regla N.° 1 aplicada al Módulo F (prohibición absoluta de `DELETE`):** ninguna entidad del módulo —`ConectorPago`, `PlantillaNotificacion`, `Notificacion`— admite `DELETE`. Toda baja se implementa como `UPDATE` sobre `is_active`, `deleted_at`, `deleted_by`, `deletion_reason` (con la excepción del "archivado" de una `Notificacion` individual por su destinatario, ver 2.3, que reutiliza el mismo mecanismo pero sin requerir `deletion_reason`, al no ser un evento de auditoría de negocio).
 
@@ -46,7 +46,9 @@ Bajo Next.js App Router, el módulo se implementa mediante **Route Handlers** (`
 
 **Ruta:** `POST /app/api/integraciones/mercadopago/conectores/route.ts`
 **Server Action equivalente:** `crearConectorMercadoPago()` en `app/(dashboard)/administracion/integraciones/actions.ts`
-**Permiso requerido:** `integraciones:administrar_conector` (exclusivo Administrador de Plataforma).
+**Permiso requerido:** `integraciones:administrar_conector`. Roles habilitados (según la matriz del Alcance Funcional § Módulo F, sección 5 — incorporada en Sprint 4; el Alcance no está versionado en el repositorio, la redacción se tomó de la revisión del equipo): **Administrador de Plataforma** (alta, activación, health-check, bitácora y baja del Conector) y **Desarrollador/DevOps** (también rota credenciales y cambia el `entorno` de un Conector).
+
+**A definir — granularidad de permisos por acción:** hoy un único permiso (`integraciones:administrar_conector`) cubre todas las rutas de 2.1.1 a 2.1.5, así que otorgarlo a Desarrollador/DevOps le daría también alta y baja del Conector, no solo rotación de credenciales y cambio de entorno. Queda a definir con el equipo si hace falta separar permisos por acción (ej. uno de rotación de credenciales distinto del de alta/baja) antes de sembrar ese rol — este documento no cambia el modelo de permisos. Además, ninguna ruta de 2.1 define todavía un contrato de "rotar credenciales" ni de "cambiar entorno" sobre un Conector existente (solo alta, health-check, bitácora y baja): también a definir.
 
 ```typescript
 // src/lib/schemas/integraciones.schema.ts
@@ -164,7 +166,9 @@ export type CrearConectorMercadoPagoInput = z.infer<typeof CrearConectorMercadoP
 **Ruta (edición):** `PATCH /app/api/notificaciones/plantillas/[id]/route.ts`
 **Ruta (baja lógica):** `PATCH /app/api/notificaciones/plantillas/[id]/baja/route.ts`
 **Server Action equivalente:** `crearPlantillaNotificacion()`, `editarPlantillaNotificacion()`, `darDeBajaPlantillaNotificacion()` en `app/(dashboard)/administracion/notificaciones/actions.ts`
-**Permiso requerido:** `notificaciones:administrar_plantillas` (exclusivo Administrador de Plataforma).
+**Permiso requerido:** `notificaciones:administrar_plantillas`. Roles habilitados (según la matriz del Alcance Funcional § Módulo F, sección 5 — incorporada en Sprint 4; el Alcance no está versionado en el repositorio, la redacción se tomó de la revisión del equipo): **Administrador de Plataforma** y **Marketing/Atención al Cliente** (ambos crean, editan y dan de baja plantillas).
+
+**A definir — granularidad de permisos por acción:** si Marketing/Atención al Cliente debe tener exactamente las mismas acciones que el Administrador de Plataforma, alcanza con este único permiso; si no (ej. editar redacción sí, dar de baja no), habrá que separar permisos por acción. Queda a definir con el equipo antes de sembrar ese rol — este documento no cambia el modelo de permisos.
 
 ```typescript
 export const CrearPlantillaNotificacionSchema = z.object({
@@ -188,6 +192,7 @@ export const EditarPlantillaNotificacionSchema = z.object({
 - Un cambio de redacción (`asunto`/`cuerpo`) no requiere intervención de DevOps ni un nuevo despliegue — es un `UPDATE` directo sobre la fila, consumido en tiempo real por el Motor de Notificaciones (HU-F3) en el próximo evento que dispare ese `tipo_evento`.
 - **Texto por defecto cuando no hay plantilla activa (criterio de aceptación explícito):** si un evento de dominio no tiene ninguna `PlantillaNotificacion` con `is_active = true` para su `tipo_evento`, HU-F3 (sección 2.3) genera la notificación con un texto genérico por defecto (`DEFAULT_NOTIFICATION_TEXT`, constante en `lib/services/notificaciones/notificacion.service.ts`) en lugar de fallar o de omitir la notificación — un evento crítico (ej. `usuario:suspendido_automaticamente`) nunca debe quedar sin notificar por falta de plantilla.
 - La baja lógica de una plantilla (`is_active = false`, `deleted_at`, `deleted_by`, `deletion_reason`) hace que el Motor de Notificaciones caiga al texto por defecto para ese `tipo_evento` desde ese momento — no bloquea la generación de notificaciones futuras, solo pierde la redacción personalizada.
+- **Una plantilla por evento en toda su historia (`schema.prisma`: `PlantillaNotificacion.tipo_evento @unique`, decisión de Sprint 4):** la unicidad es a nivel tabla, incluidas las plantillas dadas de baja. Consecuencia práctica: una vez dada de baja la plantilla de un `tipo_evento`, **no** se puede crear otra nueva para ese mismo evento — para volver a tener (o "reemplazar") la redacción personalizada de un evento se **reactiva y edita la plantilla existente**, nunca se crea una fila nueva. Es una limitación asumida, no un bug. **Cambio posible de un sprint futuro (no implementado):** reemplazar el `@unique` por un índice único parcial (`WHERE is_active = true`) si el equipo decide que hace falta conservar un historial de plantillas por evento.
 
 **Respuesta `201 Created`:**
 ```json
@@ -243,7 +248,7 @@ export type ListarNotificacionesQuery = z.infer<typeof ListarNotificacionesQuery
         "tipo_evento": "ecommerce:pedido_listo_para_retiro",
         "prioridad": "INFORMATIVA",
         "asunto": "Tu pedido está listo para retirar",
-        "cuerpo": "Tu pedido #E-2026-000412 ya está listo para retirar en Sucursal Salta.",
+        "cuerpo": "Tu pedido V-2026-004821 ya está listo para retirar en Sucursal Salta.",
         "leida_at": null,
         "created_at": "2026-09-29T16:00:00.000Z"
       }
@@ -285,8 +290,8 @@ El listener `notificacion.listener.ts` se suscribe, en Sprint 4, a los siguiente
 | *(evento de OC pendiente de aprobación — a confirmar nombre real contra Módulo H, ver sección 6)* | Módulo H | INFORMATIVA | Rol Supervisor de Compras |
 | `ecommerce:pedido_pago_confirmado` (HU-E2/E12) | Módulo E | INFORMATIVA | Cliente Web dueño del pedido + Rol Operador de Pick & Pack |
 | `ecommerce:pedido_listo_para_retiro` (HU-E3/E9/E12) | Módulo E | INFORMATIVA | Cliente Web dueño del pedido |
-| `ecommerce:articulo_carrito_desactivado` (HU-E1/E5) | Módulo E | ADVERTENCIA | Cliente Web dueño del carrito |
-| `ecommerce:plazo_retiro_por_vencer` \| `ecommerce:pedido_vencido_sin_retiro` (HU-E13) | Módulo E | ADVERTENCIA / CRITICA | Cliente Web dueño del pedido |
+| `ecommerce:carrito_articulo_no_disponible` (HU-E1/E5) | Módulo E | ADVERTENCIA | Cliente Web dueño del carrito |
+| `ecommerce:plazo_retiro_por_vencer` \| `ecommerce:pedido_vencido_sin_retiro` (HU-E13) | Módulo E | `plazo_retiro_por_vencer`: ADVERTENCIA · `pedido_vencido_sin_retiro`: CRITICA | Cliente Web dueño del pedido |
 
 **Nota de relevamiento — tres nombres de evento sin confirmar:** los tres eventos marcados *"a confirmar"* en la tabla (diferencia de arqueo, ruptura de cadena de hashes, OC pendiente de aprobación) están descriptos en el criterio de aceptación de HU-F3 por su efecto de negocio, no por el nombre exacto del evento de dominio ya emitido por Módulos A/B/D/G/H. Antes de implementar el listener, confirmar contra `lib/events/event-types.ts` y las specs de esos módulos (`spec_modulo_D.md` sección 5, `spec_modulo_H.md`) el nombre real — no asumirlo. Los eventos de Módulo E de esta misma tabla sí están definidos en `spec_modulo_E.md` de este mismo sprint, así que no tienen esa ambigüedad.
 

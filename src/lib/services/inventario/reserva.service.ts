@@ -78,9 +78,12 @@ export interface ReservaLiberadaTtl {
 export interface LiberacionTtlResultado {
   total_liberadas: number;
   liberadas: ReservaLiberadaTtl[];
-  /** ISO 8601 del umbral usado (`now - ttl_horas`). */
+  /**
+   * ISO 8601 del corte usado: se liberan las reservas con
+   * `fecha_expiracion <= umbral` (HU-A10 Rev. 3). El TTL ya no es un valor
+   * único del cron — cada reserva trae el suyo persistido.
+   */
   umbral: string;
-  ttl_horas: number;
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -116,6 +119,11 @@ export async function crearReserva(
 ): Promise<ReservaCongelada> {
   const ttlHoras = resolverTtlHoras(input.origen_reserva, input.ttl_horas);
   const reservaId = randomUUID();
+  // HU-A10 Rev. 3: el vencimiento se precomputa y persiste al congelar
+  // (`fecha_inicio_reserva + ttl_horas`), así el cron respeta el TTL real de
+  // cada reserva — incluido el `ttl_horas` acotado de e-commerce.
+  const fechaInicioReserva = new Date();
+  const fechaExpiracion = new Date(fechaInicioReserva.getTime() + ttlHoras * 60 * 60 * 1000);
 
   const reserva = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     const [variante, deposito] = await Promise.all([
@@ -157,6 +165,8 @@ export async function crearReserva(
         cantidad: input.cantidad,
         origen_reserva: input.origen_reserva,
         motivo: input.motivo ?? null,
+        fecha_inicio_reserva: fechaInicioReserva,
+        fecha_expiracion: fechaExpiracion,
         fecha_fin_reserva: null,
         registrado_por_id: usuarioId,
       },
@@ -304,9 +314,11 @@ export async function confirmarReservaPorVenta(
  * Libera todas las `Reserva` activas cuyo TTL haya vencido. Invocada por el
  * cron `POST /api/cron/check-pruebas-vencidas`.
  *
- * Selección: `is_active: true`, `fecha_fin_reserva: null`,
- * `fecha_inicio_reserva < now - 72h` — aprovecha el índice compuesto
- * `@@index([is_active, fecha_fin_reserva, fecha_inicio_reserva])`.
+ * Selección (HU-A10 Rev. 3, spec §2.9): `is_active: true`,
+ * `fecha_fin_reserva: null`, `fecha_expiracion <= now()` — respeta el TTL
+ * persistido de cada reserva individual (default 72h o el `ttl_horas`
+ * explícito con el que se congeló). Aprovecha el índice compuesto
+ * `@@index([is_active, fecha_fin_reserva, fecha_expiracion])`.
  *
  * Por cada reserva vencida, dentro de su propia `prisma.$transaction`:
  *  1. Incrementa `StockDeposito.cantidad` (reversión del congelamiento).
@@ -323,17 +335,14 @@ export async function confirmarReservaPorVenta(
 export async function liberarReservasVencidas(
   ahora: Date = new Date(),
 ): Promise<LiberacionTtlResultado> {
-  // LIMITACIÓN CONOCIDA: cron aplica 72h fijo por origen, no respeta ttl_horas explícito de e-commerce — resolver al implementar HU-E1
-  const ttlHoras = TTL_RESERVA_DEFAULT_HORAS;
-  const umbral = new Date(ahora);
-  umbral.setHours(umbral.getHours() - ttlHoras);
+  const umbral = ahora;
 
   const vencidas = await prisma.reserva.findMany({
     where: {
       is_active: true,
       deleted_at: null,
       fecha_fin_reserva: null,
-      fecha_inicio_reserva: { lt: umbral },
+      fecha_expiracion: { lte: umbral },
     },
     select: {
       id: true,
@@ -342,7 +351,7 @@ export async function liberarReservasVencidas(
       cantidad: true,
       registrado_por_id: true,
     },
-    orderBy: { fecha_inicio_reserva: "asc" },
+    orderBy: { fecha_expiracion: "asc" },
   });
 
   const liberadas: ReservaLiberadaTtl[] = [];
@@ -423,6 +432,5 @@ export async function liberarReservasVencidas(
     total_liberadas: liberadas.length,
     liberadas,
     umbral: umbral.toISOString(),
-    ttl_horas: ttlHoras,
   };
 }

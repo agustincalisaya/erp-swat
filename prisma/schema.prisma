@@ -50,14 +50,14 @@ model Usuario {
   updated_at DateTime @updatedAt
 
   // --- Relaciones ---
-  roles                      UsuarioRol[]
-  audit_logs                 AuditLog[]
-  movimientos_registrados    MovimientoStock[]    @relation("MovimientoRegistradoPor")
-  transferencias_despachadas TransferenciaStock[] @relation("TransferenciaDespachadaPor")
-  transferencias_recibidas   TransferenciaStock[] @relation("TransferenciaRecibidaPor")
-  reservas_registradas       Reserva[]            @relation("ReservaRegistradaPor")
-  sesiones                   Sesion[]
-  consentimientos_registrados ConsentimientoCliente[] @relation("ConsentimientoRegistradoPor")
+  roles                       UsuarioRol[]
+  audit_logs                  AuditLog[]
+  movimientos_registrados     MovimientoStock[]             @relation("MovimientoRegistradoPor")
+  transferencias_despachadas  TransferenciaStock[]          @relation("TransferenciaDespachadaPor")
+  transferencias_recibidas    TransferenciaStock[]          @relation("TransferenciaRecibidaPor")
+  reservas_registradas        Reserva[]                     @relation("ReservaRegistradaPor")
+  sesiones                    Sesion[]
+  consentimientos_registrados ConsentimientoCliente[]       @relation("ConsentimientoRegistradoPor")
   eventos_consentimiento      EventoConsentimientoCliente[] @relation("EventoConsentimientoRegistradoPor")
 
   // --- Relaciones Sprint 2 (Módulo H / G) ---
@@ -79,6 +79,12 @@ model Usuario {
   comprobantes_fiscales_emitidos ComprobanteFiscal[]        @relation("ComprobanteFiscalEmitidoPor")
   pedido_venta_items_autorizados PedidoVentaItem[]          @relation("PedidoVentaItemAutorizadoPor")
   operaciones_cc_autorizadas     CuentaCorrienteOperacion[] @relation("CuentaCorrienteOperacionAutorizadaPor")
+
+  // --- Relaciones Sprint 4 (Módulos D / B / E / F) ---
+  configuraciones_actualizadas   ConfiguracionSistema[]    @relation("ConfiguracionActualizadaPor")
+  listas_precio_venta_publicadas ListaPrecioVentaVersion[] @relation("ListaPrecioVentaPublicadaPor")
+  pedidos_ecommerce_asignados    PedidoVentaEcommerce[]    @relation("PedidoEcommerceOperadorAsignado")
+  notificaciones_recibidas       Notificacion[]            @relation("NotificacionUsuarioDestinatario")
 
   @@map("usuarios")
 }
@@ -237,6 +243,32 @@ model Sesion {
   @@map("sesiones")
 }
 
+/// D.4 — Configuración global del sistema (spec_modulo_D.md §6, Sprint 4).
+/// Almacén clave/valor para parámetros transversales sin entidad de dominio
+/// natural (TTL de checkout web, plazo de retiro, margen sugerido de precio,
+/// etc.). `valor` es JSON serializado como string si no es un escalar simple.
+/// Nota: SIN bloque de soft delete por diseño (spec §6.2) — un parámetro no se
+/// "da de baja", se actualiza su `valor`; cada cambio queda auditado vía el
+/// evento `configuracion:actualizada` (spec §6.4), que preserva el historial.
+model ConfiguracionSistema {
+  id          String  @id @default(uuid())
+  clave       String  @unique
+  valor       String
+  descripcion String?
+  /// Dominio dueño semántico del parámetro ("E", "B", ...), no del modelo.
+  modulo      String
+
+  actualizado_por_id String
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  actualizado_por Usuario @relation("ConfiguracionActualizadaPor", fields: [actualizado_por_id], references: [id], onDelete: Restrict)
+
+  @@map("configuraciones_sistema")
+}
+
 // ============================================================================
 // --- MÓDULO A: INVENTARIO Y DEPÓSITO ---
 // ============================================================================
@@ -272,6 +304,9 @@ model ProductoMaestro {
 
   // --- Relaciones ---
   variantes VarianteSKU[]
+
+  // --- Relación Sprint 4 (Módulo E) ---
+  contenido_web ProductoWebContenido?
 
   @@map("productos_maestros")
 }
@@ -329,6 +364,10 @@ model VarianteSKU {
   // --- Relación Sprint 3 (Módulo B) ---
   presupuesto_items  PresupuestoItem[]
   pedido_venta_items PedidoVentaItem[]
+
+  // --- Relaciones Sprint 4 (Módulos B / E) ---
+  lista_precio_venta_items ListaPrecioVentaItem[]
+  carrito_web_items        CarritoWebItem[]
 
   @@index([proveedor_id])
   @@map("variantes_sku")
@@ -627,10 +666,11 @@ enum EstadoReclasificacionSolicitud {
 }
 
 /// Reserva temporal de una unidad de stock originada por una seña o
-/// licitación (Criterio 5 — Máquina de Estados). El TTL por defecto es
-/// de 72 horas: si `fecha_fin_reserva` sigue siendo NULL transcurrido ese
-/// tiempo, la API Cron `/api/cron/check-pruebas-vencidas` devuelve el stock
-/// atómicamente al estado DISPONIBLE.
+/// licitación (Criterio 5 — Máquina de Estados). Desde Sprint 4 (HU-A10,
+/// spec_modulo_A.md §2.9 Rev. 3) el vencimiento se persiste por reserva en
+/// `fecha_expiracion` (TTL recibido, o 72h por defecto): si `fecha_fin_reserva`
+/// sigue siendo NULL al llegar a ese instante, el cron de liberación devuelve
+/// el stock atómicamente al estado DISPONIBLE.
 ///
 /// Relación con el stock:
 ///  - Al crear la Reserva → `StockDeposito.cantidad` se decrementa (DISPONIBLE → RESERVADO).
@@ -647,6 +687,11 @@ model Reserva {
   fecha_inicio_reserva DateTime  @default(now())
   /// NULL = reserva activa. Se setea al confirmar venta o al liberar por TTL.
   fecha_fin_reserva    DateTime?
+  /// HU-A10 Rev. 3 (Sprint 4) — precomputada al congelar:
+  /// `fecha_inicio_reserva + (ttl_horas recibido, o 72h si se omitió)`.
+  /// Reemplaza el umbral fijo de 72h que aplicaba el cron hasta la Rev. 2.
+  /// Las filas previas a la migración se backfillearon con +72h.
+  fecha_expiracion     DateTime
 
   /// Motivo legible de la reserva (ej: "Seña N.° 1234", "Licitación GCBA-2026-001").
   /// Opcional pero recomendado para trazabilidad.
@@ -678,12 +723,12 @@ model Reserva {
   // --- Relación Sprint 3 (Módulo B) ---
   /// Una Reserva nunca se comparte entre más de un ítem de Ventas — ver
   /// `@unique` en `PresupuestoItem.reserva_id` / `PedidoVentaItem.reserva_id`.
-  presupuesto_item  PresupuestoItem?  @relation("PresupuestoItemReserva")
-  pedido_venta_item PedidoVentaItem?  @relation("PedidoVentaItemReserva")
+  presupuesto_item  PresupuestoItem? @relation("PresupuestoItemReserva")
+  pedido_venta_item PedidoVentaItem? @relation("PedidoVentaItemReserva")
 
   /// Índice compuesto para la query del cron: busca reservas activas sin cierre
-  /// dentro de una ventana temporal (fecha_inicio_reserva < umbral).
-  @@index([is_active, fecha_fin_reserva, fecha_inicio_reserva])
+  /// ya vencidas (`fecha_expiracion <= now()`, HU-A10 Rev. 3).
+  @@index([is_active, fecha_fin_reserva, fecha_expiracion])
   @@map("reservas")
 }
 
@@ -814,7 +859,7 @@ model ListaPrecioVersion {
   /// `usuario_id` recibido como 4to parámetro). Distinto de `aprobada_por_id`
   /// (solo se completa si la versión superó el umbral crítico y requirió
   /// aprobación explícita).
-  creada_por_id                String?
+  creada_por_id               String?
 
   // --- Soft delete estricto ---
   is_active       Boolean   @default(true)
@@ -1315,14 +1360,18 @@ model Cliente {
   updated_at DateTime @updatedAt
 
   // --- Relaciones ---
-  direcciones     DireccionCliente[]
-  consentimientos ConsentimientoCliente[]
+  direcciones            DireccionCliente[]
+  consentimientos        ConsentimientoCliente[]
   eventos_consentimiento EventoConsentimientoCliente[]
 
   // --- Relaciones Sprint 3 (Módulo B) ---
   presupuestos     Presupuesto[]
   pedidos_venta    PedidoVenta[]
   cuenta_corriente CuentaCorrienteCliente?
+
+  // --- Relaciones Sprint 4 (Módulo E) ---
+  cuenta_web         CuentaClienteWeb?
+  aplicaciones_cupon CuponAplicacion[]
 
   // Índice creado por la migración histórica C5; sigue sirviendo a HU-C7.
   @@index([fusionado_en_id])
@@ -1382,9 +1431,9 @@ model ConsentimientoCliente {
   updated_at DateTime @updatedAt
 
   // --- Relaciones ---
-  cliente Cliente @relation(fields: [cliente_id], references: [id], onDelete: Restrict)
-  registrado_por Usuario? @relation("ConsentimientoRegistradoPor", fields: [registrado_por_id], references: [id], onDelete: Restrict)
-  eventos EventoConsentimientoCliente[]
+  cliente        Cliente                       @relation(fields: [cliente_id], references: [id], onDelete: Restrict)
+  registrado_por Usuario?                      @relation("ConsentimientoRegistradoPor", fields: [registrado_por_id], references: [id], onDelete: Restrict)
+  eventos        EventoConsentimientoCliente[]
 
   @@index([cliente_id])
   @@map("consentimientos_cliente")
@@ -1393,29 +1442,29 @@ model ConsentimientoCliente {
 /// Hechos históricos de C4. Las resoluciones agregan una fila y referencian
 /// la solicitud; nunca modifican el evento de solicitud original.
 model EventoConsentimientoCliente {
-  id                   String @id @default(uuid())
-  cliente_id           String
-  consentimiento_id    String?
-  tipo                 TipoEventoConsentimientoCliente
-  alcance              AlcanceConsentimiento
-  finalidad            String
-  fecha_evento         DateTime @default(now())
-  usuario_id           String
-  motivo               String?
-  solicitud_evento_id  String? @unique
+  id                  String                          @id @default(uuid())
+  cliente_id          String
+  consentimiento_id   String?
+  tipo                TipoEventoConsentimientoCliente
+  alcance             AlcanceConsentimiento
+  finalidad           String
+  fecha_evento        DateTime                        @default(now())
+  usuario_id          String
+  motivo              String?
+  solicitud_evento_id String?                         @unique
 
   is_active       Boolean   @default(true)
   deleted_at      DateTime?
   deleted_by      String?
   deletion_reason String?
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
 
-  cliente Cliente @relation(fields: [cliente_id], references: [id], onDelete: Restrict)
-  consentimiento ConsentimientoCliente? @relation(fields: [consentimiento_id], references: [id], onDelete: Restrict)
-  usuario Usuario @relation("EventoConsentimientoRegistradoPor", fields: [usuario_id], references: [id], onDelete: Restrict)
+  cliente          Cliente                      @relation(fields: [cliente_id], references: [id], onDelete: Restrict)
+  consentimiento   ConsentimientoCliente?       @relation(fields: [consentimiento_id], references: [id], onDelete: Restrict)
+  usuario          Usuario                      @relation("EventoConsentimientoRegistradoPor", fields: [usuario_id], references: [id], onDelete: Restrict)
   solicitud_evento EventoConsentimientoCliente? @relation("ResolucionSolicitudConsentimiento", fields: [solicitud_evento_id], references: [id], onDelete: Restrict)
-  resolucion EventoConsentimientoCliente? @relation("ResolucionSolicitudConsentimiento")
+  resolucion       EventoConsentimientoCliente? @relation("ResolucionSolicitudConsentimiento")
 
   @@index([cliente_id, alcance, fecha_evento, id], map: "eventos_consentimiento_cliente_estado_idx")
   @@index([consentimiento_id, fecha_evento, id], map: "eventos_consentimiento_cliente_historial_idx")
@@ -1578,6 +1627,10 @@ model PedidoVenta {
   /// (HU-B1). Nulo para pedidos que aún no llegaron a instancia de cobro
   /// (ej. recién generados desde HU-B3, todavía sin facturar).
   turno_caja_id         String?
+  /// Sprint 4 — canal de origen del pedido (spec_modulo_B.md §5 Rev. 6 /
+  /// spec_modulo_E.md §1: "la orden web se registra como un PedidoVenta más
+  /// con canal = WEB"). Default MOSTRADOR para los pedidos existentes.
+  canal                 CanalVenta        @default(MOSTRADOR)
   estado                EstadoPedidoVenta @default(RESERVADO)
   total                 Decimal           @db.Decimal(12, 2)
   /// Seteado al transicionar RESERVADO → FACTURADO (total o primera entrega
@@ -1597,14 +1650,20 @@ model PedidoVenta {
   updated_at DateTime @updatedAt
 
   // --- Relaciones ---
-  cliente                     Cliente?                   @relation(fields: [cliente_id], references: [id], onDelete: Restrict)
-  presupuesto_origen          Presupuesto?               @relation(fields: [presupuesto_origen_id], references: [id], onDelete: Restrict)
-  turno_caja                  TurnoCaja?                 @relation(fields: [turno_caja_id], references: [id], onDelete: Restrict)
-  registrado_por              Usuario                    @relation("PedidoVentaRegistradoPor", fields: [registrado_por_id], references: [id], onDelete: Restrict)
-  items                       PedidoVentaItem[]
-  medios_pago                 VentaMedioPago[]
-  comprobantes                ComprobanteFiscal[]
+  cliente                      Cliente?                   @relation(fields: [cliente_id], references: [id], onDelete: Restrict)
+  presupuesto_origen           Presupuesto?               @relation(fields: [presupuesto_origen_id], references: [id], onDelete: Restrict)
+  turno_caja                   TurnoCaja?                 @relation(fields: [turno_caja_id], references: [id], onDelete: Restrict)
+  registrado_por               Usuario                    @relation("PedidoVentaRegistradoPor", fields: [registrado_por_id], references: [id], onDelete: Restrict)
+  items                        PedidoVentaItem[]
+  medios_pago                  VentaMedioPago[]
+  comprobantes                 ComprobanteFiscal[]
   operaciones_cuenta_corriente CuentaCorrienteOperacion[]
+
+  // --- Relaciones Sprint 4 (Módulos E / G) ---
+  ecommerce              PedidoVentaEcommerce?
+  aplicaciones_cupon     CuponAplicacion[]
+  ingreso_tesoreria      IngresoTesoreria?
+  contra_asiento_ingreso ContraAsientoIngreso?
 
   /// Fuente directa de HU-C7 (spec_modulo_C.md §2.7): filtro por
   /// `cliente_id` + `estado IN (FACTURADO, REMITO_EMITIDO, CERRADO)`.
@@ -1621,6 +1680,14 @@ enum EstadoPedidoVenta {
   REMITO_EMITIDO
   CERRADO
   ANULADO
+}
+
+/// Canal de origen de un `PedidoVenta` (Sprint 4). El detalle del ciclo de
+/// vida web vive en la extensión 1:1 `PedidoVentaEcommerce` (Módulo E), no
+/// en este enum ni en `EstadoPedidoVenta`.
+enum CanalVenta {
+  MOSTRADOR
+  WEB
 }
 
 /// Línea de ítem de un PedidoVenta. `reserva_id` es `@unique` por el mismo
@@ -1873,4 +1940,589 @@ enum EstadoOperacionCC {
   APROBADA
   RETENIDA
   RECHAZADA
+}
+
+/// HU-B9 (Sprint 4, spec_modulo_B.md §2.9) — Lista de Precios de Venta al
+/// público, única para mostrador y e-commerce. Mismo patrón lista → versión
+/// → ítem que `ListaPrecio` de Módulo H, pero entidad separada y sin relación
+/// de datos con ella (el costo de reposición se consulta, nunca se copia salvo
+/// como `costo_reposicion_referencia` congelado al publicar).
+model ListaPrecioVenta {
+  id     String @id @default(uuid())
+  nombre String @default("Lista de Precios de Venta — General")
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+
+  // --- Relaciones ---
+  versiones ListaPrecioVentaVersion[]
+
+  @@map("listas_precio_venta")
+}
+
+/// Versión inmutable de la `ListaPrecioVenta`. La vigente en un instante es la
+/// de `vigente_desde` más reciente `<= now()` con `is_active = true` — se
+/// resuelve por consulta (`resolverPrecioVentaVigente()`), nunca con un flag.
+/// Publicar una versión nueva jamás modifica ni desactiva las anteriores.
+model ListaPrecioVentaVersion {
+  id               String   @id @default(uuid())
+  lista_id         String
+  vigente_desde    DateTime
+  publicado_por_id String
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+
+  // --- Relaciones ---
+  lista         ListaPrecioVenta       @relation(fields: [lista_id], references: [id], onDelete: Restrict)
+  publicado_por Usuario                @relation("ListaPrecioVentaPublicadaPor", fields: [publicado_por_id], references: [id], onDelete: Restrict)
+  items         ListaPrecioVentaItem[]
+
+  @@index([lista_id, vigente_desde])
+  @@map("versiones_lista_precio_venta")
+}
+
+/// Precio de venta de una `VarianteSKU` dentro de una versión. Inmutable
+/// igual que su versión padre. `confirmado_bajo_costo`/`motivo_bajo_costo`
+/// registran la excepción de precio por debajo del costo de reposición.
+model ListaPrecioVentaItem {
+  id                          String   @id @default(uuid())
+  version_id                  String
+  variante_sku_id             String
+  precio_venta                Decimal  @db.Decimal(12, 2)
+  /// null si Módulo H no tenía costo de reposición disponible al publicar
+  /// (spec §2.9 — en ese caso no aplica la validación de "bajo costo").
+  costo_reposicion_referencia Decimal? @db.Decimal(12, 2)
+  confirmado_bajo_costo       Boolean  @default(false)
+  motivo_bajo_costo           String?
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  // --- Relaciones ---
+  version      ListaPrecioVentaVersion @relation(fields: [version_id], references: [id], onDelete: Restrict)
+  variante_sku VarianteSKU             @relation(fields: [variante_sku_id], references: [id], onDelete: Restrict)
+
+  @@unique([version_id, variante_sku_id])
+  @@map("items_lista_precio_venta")
+}
+
+// ============================================================================
+// --- MÓDULO G: INGRESOS POR COBROS ONLINE (SPRINT 4, HU-G11) ---
+// ============================================================================
+
+/// Ingreso de Tesorería por un cobro web confirmado (spec_modulo_G.md §2.6).
+/// Lo crea el listener de `ecommerce:transaccion_pago_registrada`, sin turno
+/// de caja: se acredita a la caja virtual constante `MERCADO_PAGO_CANAL_WEB`
+/// (sin relación con `TurnoCaja` por diseño). Doble guarda de idempotencia:
+/// `mercadopago_payment_id` y `pedido_venta_id` son ambos `@unique`.
+/// Sin bloque de soft delete (spec §2.6): nunca se elimina y un reintegro se
+/// registra como `ContraAsientoIngreso` aparte. Lo único que cambia es
+/// `estado` (PENDIENTE_CONCILIACION → CONCILIADO, HU-G2) — `updated_at` deja
+/// constancia de cuándo.
+model IngresoTesoreria {
+  id                     String   @id @default(uuid())
+  pedido_venta_id        String   @unique
+  mercadopago_payment_id String   @unique
+  monto                  Decimal  @db.Decimal(12, 2)
+  fecha                  DateTime
+  /// "PENDIENTE_CONCILIACION" | "CONCILIADO" — la transición a CONCILIADO es
+  /// de HU-G2, fuera de spec_modulo_G.md.
+  estado                 String   @default("PENDIENTE_CONCILIACION")
+  /// Constante — no existe catálogo de cajas virtuales (spec §2.6).
+  caja_virtual           String   @default("MERCADO_PAGO_CANAL_WEB")
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  pedido_venta    PedidoVenta            @relation(fields: [pedido_venta_id], references: [id], onDelete: Restrict)
+  contra_asientos ContraAsientoIngreso[]
+
+  @@map("ingresos_tesoreria")
+}
+
+/// Contra-asiento de un `IngresoTesoreria` por reintegro de Módulo E
+/// (HU-E13). Asiento contable inmutable: sin bloque de soft delete por diseño
+/// (spec_modulo_G.md §2.6). `pedido_venta_id @unique` = un reintegro por venta.
+model ContraAsientoIngreso {
+  id                  String  @id @default(uuid())
+  ingreso_original_id String
+  pedido_venta_id     String  @unique
+  monto               Decimal @db.Decimal(12, 2)
+  motivo              String
+
+  created_at DateTime @default(now())
+
+  // --- Relaciones ---
+  ingreso_original IngresoTesoreria @relation(fields: [ingreso_original_id], references: [id], onDelete: Restrict)
+  pedido_venta     PedidoVenta      @relation(fields: [pedido_venta_id], references: [id], onDelete: Restrict)
+
+  @@index([ingreso_original_id])
+  @@map("contra_asientos_ingreso")
+}
+
+// ============================================================================
+// --- MÓDULO E: E-COMMERCE / CLICK & COLLECT (SPRINT 4) ---
+// ============================================================================
+
+/// Carrito web (HU-E1, spec_modulo_E.md §2.1). Visitante sin sesión:
+/// identificado por `carrito_token` (cookie firmada, sin PII). Al iniciar
+/// sesión se fusiona con el carrito persistente de la cuenta. Los carritos
+/// abandonados se desactivan por baja lógica (nunca se eliminan).
+model CarritoWeb {
+  id                    String  @id @default(uuid())
+  /// null una vez fusionado a una cuenta.
+  carrito_token         String? @unique
+  cuenta_cliente_web_id String? @unique
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  updated_at DateTime @updatedAt
+  created_at DateTime @default(now())
+
+  // --- Relaciones ---
+  cuenta_cliente_web CuentaClienteWeb? @relation(fields: [cuenta_cliente_web_id], references: [id], onDelete: Restrict)
+  items              CarritoWebItem[]
+
+  @@map("carritos_web")
+}
+
+/// Ítem de un `CarritoWeb`. Sin precio propio: se resuelve en tiempo real con
+/// `resolverPrecioVentaVigente()` (HU-B9). Quitar un ítem es baja lógica.
+model CarritoWebItem {
+  id              String @id @default(uuid())
+  carrito_id      String
+  variante_sku_id String
+  cantidad        Int
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+
+  // --- Relaciones ---
+  carrito      CarritoWeb  @relation(fields: [carrito_id], references: [id], onDelete: Restrict)
+  variante_sku VarianteSKU @relation(fields: [variante_sku_id], references: [id], onDelete: Restrict)
+
+  @@unique([carrito_id, variante_sku_id])
+  @@map("items_carrito_web")
+}
+
+/// Ciclo de vida específico de e-commerce (spec_modulo_E.md §2.2 / §3.1).
+/// Extiende —no reemplaza— `EstadoPedidoVenta` de Módulo B.
+enum EstadoEcommerce {
+  PAGO_PENDIENTE
+  PAGO_CONFIRMADO
+  PAGO_RECHAZADO
+  EN_PREPARACION
+  LISTO_PARA_RETIRO
+  ENTREGADO
+  ANULADO
+  CANCELADO
+  VENCIDO_SIN_RETIRO
+}
+
+/// Extensión 1:1 de `PedidoVenta` para pedidos de canal WEB (HU-E2, §2.2).
+/// Lleva el estado Click & Collect propio sin tocar la máquina de estados de
+/// Módulo B (Regla N.° 3); la correspondencia entre ambos estados está en
+/// spec_modulo_E.md §3.1. La validez del QR se resuelve siempre contra
+/// `estado_ecommerce`, nunca contra una expiración propia del QR (§2.3).
+model PedidoVentaEcommerce {
+  id                       String          @id @default(uuid())
+  pedido_venta_id          String          @unique
+  estado_ecommerce         EstadoEcommerce @default(PAGO_PENDIENTE)
+  mercadopago_payment_id   String?
+  cupon_aplicacion_id      String?         @unique
+  codigo_qr_retiro         String?         @unique
+  plazo_retiro_vencimiento DateTime?
+  operador_asignado_id     String?
+  prioridad_manual         Int?
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  updated_at DateTime @updatedAt
+  created_at DateTime @default(now())
+
+  // --- Relaciones ---
+  pedido_venta      PedidoVenta          @relation(fields: [pedido_venta_id], references: [id], onDelete: Restrict)
+  cupon_aplicacion  CuponAplicacion?     @relation(fields: [cupon_aplicacion_id], references: [id], onDelete: Restrict)
+  operador_asignado Usuario?             @relation("PedidoEcommerceOperadorAsignado", fields: [operador_asignado_id], references: [id], onDelete: Restrict)
+  transacciones     TransaccionPagoLog[]
+
+  @@map("pedidos_venta_ecommerce")
+}
+
+/// Cupón de descuento (HU-E4, §2.4). Único por pedido, no acumulable; el
+/// descuento se calcula sobre precios de HU-B9 ya congelados en el pedido.
+model CuponDescuento {
+  id                     String   @id @default(uuid())
+  codigo                 String   @unique
+  /// "PORCENTAJE" | "MONTO_FIJO"
+  tipo_beneficio         String
+  valor                  Decimal  @db.Decimal(12, 2)
+  vigente_desde          DateTime
+  vigente_hasta          DateTime
+  limite_uso_global      Int?
+  limite_uso_por_cliente Int      @default(1)
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+
+  // --- Relaciones ---
+  aplicaciones CuponAplicacion[]
+
+  @@map("cupones_descuento")
+}
+
+/// Aplicación de un cupón a un pedido web (HU-E4). Nace con
+/// `confirmada = false` al iniciar el checkout (reserva optimista del uso) y
+/// pasa a `true` recién al confirmarse el pago; los límites de uso cuentan
+/// solo las `confirmada = true`. Si el pago se rechaza o la reserva vence, la
+/// aplicación pasa a inactiva por baja lógica (spec §2.4).
+model CuponAplicacion {
+  id               String  @id @default(uuid())
+  cupon_id         String
+  pedido_venta_id  String
+  cliente_id       String
+  monto_descontado Decimal @db.Decimal(12, 2)
+  confirmada       Boolean @default(false)
+
+  // --- Soft delete estricto (pago rechazado / reserva vencida — spec §2.4) ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+
+  // --- Relaciones ---
+  cupon            CuponDescuento        @relation(fields: [cupon_id], references: [id], onDelete: Restrict)
+  pedido_venta     PedidoVenta           @relation(fields: [pedido_venta_id], references: [id], onDelete: Restrict)
+  cliente          Cliente               @relation(fields: [cliente_id], references: [id], onDelete: Restrict)
+  pedido_ecommerce PedidoVentaEcommerce?
+
+  @@index([cupon_id, confirmada])
+  @@index([cupon_id, cliente_id])
+  @@index([pedido_venta_id])
+  @@map("aplicaciones_cupon")
+}
+
+/// Contenido comercial web de un `ProductoMaestro` (HU-E11, §2.11), 1:1.
+/// Talles/colores/géneros se leen siempre de `VarianteSKU` (Módulo A), nunca
+/// se copian acá. `visibilidad_web` es independiente de `is_active` de
+/// inventario (HU-E5) y su cambio es un UPDATE reversible, no baja lógica.
+model ProductoWebContenido {
+  id                  String  @id @default(uuid())
+  producto_maestro_id String  @unique
+  titulo_comercial    String
+  descripcion         String
+  /// false hasta cumplir los requisitos de publicación (spec §2.11).
+  visibilidad_web     Boolean @default(false)
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  updated_at DateTime @updatedAt
+  created_at DateTime @default(now())
+
+  // --- Relaciones ---
+  producto_maestro ProductoMaestro   @relation(fields: [producto_maestro_id], references: [id], onDelete: Restrict)
+  fotos            ProductoWebFoto[]
+
+  @@map("contenidos_producto_web")
+}
+
+/// Foto de un `ProductoWebContenido`. `url` ya resuelta por un storage externo
+/// (mecanismo fuera de alcance de spec_modulo_E.md, §5).
+model ProductoWebFoto {
+  id                        String  @id @default(uuid())
+  producto_web_contenido_id String
+  url                       String
+  es_principal              Boolean @default(false)
+  orden                     Int     @default(0)
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+
+  // --- Relaciones ---
+  producto_web_contenido ProductoWebContenido @relation(fields: [producto_web_contenido_id], references: [id], onDelete: Restrict)
+
+  @@index([producto_web_contenido_id])
+  @@map("fotos_producto_web")
+}
+
+/// Cuenta de acceso de Cliente Web (HU-E8, §2.8). NO es un rol del RBAC
+/// interno. Los datos personales viven en `Cliente` (Módulo C); acá solo
+/// `email` + `password_hash` (argon2id). `token_version` se incrementa en baja
+/// lógica/blanqueo e invalida toda sesión emitida antes. `cliente_id @unique`
+/// = un DNI, una única cuenta web.
+model CuentaClienteWeb {
+  id                    String    @id @default(uuid())
+  cliente_id            String    @unique
+  email                 String    @unique
+  password_hash         String
+  token_version         Int       @default(0)
+  intentos_fallidos     Int       @default(0)
+  bloqueada_hasta       DateTime?
+  /// true si el DNI ya existía como Cliente de mostrador sin validar —
+  /// la cuenta queda inhabilitada para checkout hasta la validación presencial.
+  vinculacion_pendiente Boolean   @default(false)
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+
+  // --- Relaciones ---
+  cliente        Cliente        @relation(fields: [cliente_id], references: [id], onDelete: Restrict)
+  carrito        CarritoWeb?
+  notificaciones Notificacion[] @relation("NotificacionClienteWebDestinatario")
+
+  @@map("cuentas_cliente_web")
+}
+
+/// Detalle operativo de cada transacción de pago web (HU-E6, §2.6). El
+/// hash-chain vive exclusivamente en `AuditLog` (evento sensible
+/// `ecommerce:transaccion_pago_registrada`); esta tabla no tiene cadena propia.
+/// Nunca almacena datos de tarjeta.
+model TransaccionPagoLog {
+  id                         String  @id @default(uuid())
+  pedido_venta_ecommerce_id  String
+  mercadopago_payment_id     String
+  monto                      Decimal @db.Decimal(12, 2)
+  /// "APROBADO" | "RECHAZADO" | "PENDIENTE"
+  estado_pago                String
+  /// Payload relevante del webhook, sin datos de tarjeta.
+  resultado_webhook          String
+  /// Ciphertext AES-256-GCM (`lib/crypto/aes.ts`) del email/nombre de
+  /// facturación del comprador al momento de la transacción (Ley N.° 25.326).
+  datos_facturacion_cifrados String
+  /// IV asociado a `datos_facturacion_cifrados` — `encrypt()` devuelve
+  /// `{ ciphertext, iv }` y sin el IV el dato no puede descifrarse (mismo
+  /// patrón que `Proveedor.datos_bancarios_iv`). No figura en spec_modulo_E.md
+  /// §2.6; agregado con confirmación del equipo (Sprint 4).
+  datos_facturacion_iv       String
+
+  created_at DateTime @default(now())
+
+  // --- Relaciones ---
+  pedido_venta_ecommerce PedidoVentaEcommerce @relation(fields: [pedido_venta_ecommerce_id], references: [id], onDelete: Restrict)
+
+  @@index([pedido_venta_ecommerce_id])
+  @@index([mercadopago_payment_id])
+  @@map("log_transacciones_pago")
+}
+
+// ============================================================================
+// --- MÓDULO F: CONECTOR DE PAGO Y NOTIFICACIONES INTERNAS (SPRINT 4) ---
+// ============================================================================
+
+/// Conector de Mercado Pago (HU-F1, spec_modulo_F.md §2.1). Único punto del
+/// sistema que retiene credenciales de pago, cifradas con AES-256-GCM
+/// (`lib/crypto/aes.ts`) — un par ciphertext/IV por secreto, mismo patrón que
+/// `Proveedor.datos_bancarios_cifrado`/`_iv`. "Un único Conector ACTIVO por
+/// entorno" se valida en la capa de servicios (sin `@@unique([entorno])`,
+/// porque puede haber varios INACTIVO en el mismo entorno — spec §2.1.1).
+model ConectorPago {
+  id                             String              @id @default(uuid())
+  nombre                         String
+  entorno                        EntornoConectorPago
+  estado                         EstadoConectorPago  @default(INACTIVO)
+  access_token_cifrado           String
+  access_token_iv                String
+  public_key_cifrada             String
+  public_key_iv                  String
+  webhook_secret_cifrado         String
+  webhook_secret_iv              String
+  ultimo_health_check_exitoso_at DateTime?
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  invocaciones InvocacionConectorPago[]
+
+  @@index([entorno, estado, is_active])
+  @@map("conectores_pago")
+}
+
+enum EntornoConectorPago {
+  SANDBOX
+  PRODUCCION
+}
+
+/// Nace INACTIVO; en PRODUCCION solo pasa a ACTIVO con un health-check exitoso.
+enum EstadoConectorPago {
+  ACTIVO
+  INACTIVO
+}
+
+/// Bitácora operativa de invocaciones del Conector (HU-F1, spec §2.1.4):
+/// una fila por llamada del Adapter a Mercado Pago, exitosa o fallida, sin
+/// datos sensibles del pago. Vista de conveniencia — NO reemplaza el hash-chain
+/// de `AuditLog`. Append-only: sin bloque de soft delete, mismo criterio que
+/// `AuditLog`. Modelo no incluido en spec_modulo_F.md; agregado con
+/// confirmación del equipo (Sprint 4).
+model InvocacionConectorPago {
+  id            String  @id @default(uuid())
+  conector_id   String
+  /// Ej. "INICIAR_COBRO", "CONSULTAR_PAGO" (spec §2.1.4); el resto de los
+  /// valores surge de las funciones del Adapter (spec §3.1).
+  operacion     String
+  exitosa       Boolean
+  detalle_error String?
+
+  created_at DateTime @default(now())
+
+  // --- Relaciones ---
+  conector ConectorPago @relation(fields: [conector_id], references: [id], onDelete: Restrict)
+
+  @@index([conector_id, created_at])
+  @@map("invocaciones_conector_pago")
+}
+
+/// Deduplicación de webhooks entrantes de Mercado Pago (HU-F1, spec §2.1.3):
+/// el `payment_id` + `topic` se persiste ANTES de despachar
+/// `pago:webhook_confirmado`; un reintento de Mercado Pago choca contra el
+/// `@@unique` (P2002 → no-op, `duplicado: true`). Append-only: sin bloque de
+/// soft delete. Modelo no incluido en spec_modulo_F.md; agregado con
+/// confirmación del equipo (Sprint 4).
+model WebhookPagoLog {
+  id                     String @id @default(uuid())
+  mercadopago_payment_id String
+  topic                  String
+
+  created_at DateTime @default(now())
+
+  @@unique([mercadopago_payment_id, topic])
+  @@map("log_webhooks_pago")
+}
+
+/// Plantilla de notificación interna (HU-F2, spec §2.2). `tipo_evento` es el
+/// string del evento de dominio (`lib/events/event-types.ts`) y es inmutable
+/// tras el alta. Sin plantilla activa para un evento, el Motor usa
+/// `DEFAULT_NOTIFICATION_TEXT`.
+///
+/// `tipo_evento @unique` (a nivel tabla, incluidas las dadas de baja): existe
+/// como máximo UNA plantilla por evento en toda su historia. Para "reemplazar"
+/// la redacción de un evento se edita la plantilla existente — y, si estaba
+/// dada de baja, se reactiva y edita —, nunca se crea una fila nueva. Un
+/// índice único parcial (`WHERE is_active = true`) que permita historial de
+/// plantillas por evento queda como posible cambio de un sprint futuro
+/// (spec_modulo_F.md §2.2) — no implementado.
+model PlantillaNotificacion {
+  id                String                @id @default(uuid())
+  tipo_evento       String                @unique
+  asunto            String
+  /// Admite placeholders `{{variable}}` (spec §3.2).
+  cuerpo            String
+  prioridad_default PrioridadNotificacion
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  notificaciones Notificacion[]
+
+  @@map("plantillas_notificacion")
+}
+
+enum PrioridadNotificacion {
+  CRITICA
+  ADVERTENCIA
+  INFORMATIVA
+}
+
+/// Notificación interna (HU-F3, spec §2.3). Una fila por destinatario final
+/// resuelto (un rol se expande a sus usuarios al generarla). El destinatario
+/// es exactamente UNO de: `usuario_destinatario_id` (personal interno) o
+/// `cuenta_cliente_web_destinatario_id` (Cliente Web) — garantizado por el
+/// CHECK `notificaciones_destinatario_unico_chk` de la migración.
+/// `tipo_evento`/`asunto`/`cuerpo` se persisten ya resueltos (placeholders
+/// reemplazados) para que editar la plantilla no altere notificaciones ya
+/// emitidas; `plantilla_id` es null cuando se usó el texto por defecto.
+/// Archivar = baja lógica del lado del destinatario (sin `deletion_reason`
+/// obligatorio — spec §2.3).
+model Notificacion {
+  id                                 String                @id @default(uuid())
+  plantilla_id                       String?
+  tipo_evento                        String
+  asunto                             String
+  cuerpo                             String
+  prioridad                          PrioridadNotificacion
+  /// sha256 derivado del evento de origen + destinatario (spec §2.3).
+  clave_idempotencia                 String                @unique
+  usuario_destinatario_id            String?
+  cuenta_cliente_web_destinatario_id String?
+  leida_at                           DateTime?
+
+  // --- Soft delete estricto (archivado) ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+
+  // --- Relaciones ---
+  plantilla                       PlantillaNotificacion? @relation(fields: [plantilla_id], references: [id], onDelete: Restrict)
+  usuario_destinatario            Usuario?               @relation("NotificacionUsuarioDestinatario", fields: [usuario_destinatario_id], references: [id], onDelete: Restrict)
+  cuenta_cliente_web_destinatario CuentaClienteWeb?      @relation("NotificacionClienteWebDestinatario", fields: [cuenta_cliente_web_destinatario_id], references: [id], onDelete: Restrict)
+
+  @@index([usuario_destinatario_id, is_active, leida_at])
+  @@index([cuenta_cliente_web_destinatario_id, is_active, leida_at])
+  @@map("notificaciones")
 }
