@@ -1,12 +1,13 @@
 ```markdown
 # Especificación Técnica — Módulo D (Seguridad, RBAC y Auditoría Forense)
 ## ERP SWAT Indumentarias
+## Revisión 1 — Sprint 4: se agrega D.4 (Configuración Global del Sistema, `ConfiguracionSistema`), tarea técnica del Sprint 4 sin dueño de módulo asignado en el Backlog. Se adopta en este documento porque D ya es la capa administrativa/transversal del sistema (mismo criterio que llevó a D a concentrar RBAC y auditoría) y porque sus primeros tres consumidores (HU-E1/E12, HU-E13, HU-B9) son de otros módulos — igual que `AuditLog`, conviene que la entidad viva en el módulo que ningún consumidor "posee" en particular. Si el equipo prefiere otro dueño, es un cambio de ubicación del documento, no de contrato: reportar antes de mover.
 
 **Metodología:** Specification-Driven Development (SDD)
 **Stack:** Next.js 14+ (App Router) · Node.js · PostgreSQL 16 · Prisma ORM · Zod
-**Referencias normativas:** `RULES.md` (Reglas N.° 1, 2 y 3) · `contexto_modulo_d.md` · `schema.prisma`
+**Referencias normativas:** `RULES.md` (Reglas N.° 1, 2 y 3) · `contexto_modulo_d.md` · `schema.prisma` · `Product Backlog — SWAT Indumentarias.xlsx` (hoja **Sprint 4**, tarea técnica "Entidad de configuración global del sistema")
 
-**Alcance de este documento:** D.2 (Gestión de Seguridad y Accesos — RBAC) y D.3 (Trazabilidad Forense — Log de Auditoría). **D.1 (Panel de Comando BI/Dashboard) queda explícitamente fuera de alcance** en esta etapa — depende de datos de módulos aún no construidos (Ventas, Proveedores) y de decisiones arquitectónicas (CQRS, mecanismo de tiempo real) no resueltas todavía. Se retomará como documento independiente cuando existan los módulos emisores de esos eventos.
+**Alcance de este documento:** D.2 (Gestión de Seguridad y Accesos — RBAC), D.3 (Trazabilidad Forense — Log de Auditoría) y D.4 (Configuración Global del Sistema, agregada en Sprint 4). **D.1 (Panel de Comando BI/Dashboard) queda explícitamente fuera de alcance** en esta etapa — depende de datos de módulos aún no construidos (Ventas, Proveedores) y de decisiones arquitectónicas (CQRS, mecanismo de tiempo real) no resueltas todavía. Se retomará como documento independiente cuando existan los módulos emisores de esos eventos.
 
 **Nota de conciliación de esquema:** este documento usa exclusivamente la entidad `AuditLog` ya presente en `schema.prisma` (Sprint 1). El modelo `LogAuditoria` mencionado en una versión previa de `spec_modulo_D.md` **no se adopta** — perdía el campo `ip` (exigido por la Regla N.° 2 de `RULES.md`) y el campo `hash_anterior` explícito, y ya existe código y specs del Módulo A (`spec_modulo_A.md`, `task_cali.md`) que referencian `AuditLog` por nombre.
 
@@ -302,6 +303,7 @@ D.3 no define eventos propios para emitir — es exclusivamente **consumidor**. 
 | `usuario:suspendido_automaticamente` | Módulo D (D.2 — flujo de login) | `accion="SUSPENSION_AUTOMATICA"`, `tabla_afectada="Usuario"` |
 | `usuario:baja_logica` | Módulo D (D.2) | `accion="DELETE_LOGICO"`, `tabla_afectada="Usuario"` |
 | `rol:permisos_actualizados` | Módulo D (D.2) | `accion="UPDATE_PERMISOS"`, `tabla_afectada="Rol"` |
+| `configuracion:actualizada` | Módulo D (D.4, Sprint 4) | `accion="UPDATE"`, `tabla_afectada="ConfiguracionSistema"` |
 
 ### 5.1. Regla de exclusión de datos sensibles en el payload de auditoría
 
@@ -309,7 +311,86 @@ Ningún evento debe incluir en `valor_anterior`/`valor_nuevo` el contenido en te
 
 ---
 
-## 6. Fuera de Alcance (diferido)
+## 6. D.4 — Configuración Global del Sistema (`ConfiguracionSistema`)
+
+### 6.1. Naturaleza de la entidad
+
+`ConfiguracionSistema` es un almacén genérico clave/valor para parámetros operativos que hoy están dispersos como constantes hardcodeadas o directamente ausentes en el resto del sistema — el Sprint 4 la necesita para tres consumidores concretos: el depósito del canal web (HU-E1/HU-E12), el TTL del checkout de e-commerce (HU-E1) y el plazo de retiro Click & Collect (HU-E13), a los que se suma el margen sugerido de precios de HU-B9 (Módulo B). No reemplaza ninguna configuración ya modelada como campo propio de una entidad (ej. `StockDeposito.punto_pedido` de Módulo A) — es exclusivamente para parámetros transversales sin entidad de dominio natural que los contenga.
+
+No tiene UI propia en Sprint 4: los cuatro consumidores la leen server-side; el alta/edición de valores se realiza vía Route Handler, consumible desde Postman o desde una pantalla de administración que se construya en un sprint posterior.
+
+### 6.2. Modelo de datos (referencia para `schema.prisma`)
+
+```prisma
+model ConfiguracionSistema {
+  id          String   @id @default(uuid())
+  clave       String   @unique
+  valor       String   // JSON serializado como string si el valor no es escalar simple
+  descripcion String?
+  modulo      String   // "E", "B", etc. — dominio dueño semántico del parámetro, no del modelo
+  actualizado_por_id String
+  actualizado_por    Usuario @relation(fields: [actualizado_por_id], references: [id], onDelete: Restrict)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@map("configuraciones_sistema")
+}
+```
+
+No lleva bloque de baja lógica (`is_active`/`deleted_at`/`deleted_by`/`deletion_reason`): un parámetro de configuración no se "da de baja", se actualiza o dejar de tener efecto reemplazando su `valor` — la Regla N.° 1 de `RULES.md` (prohibición de `DELETE` físico) aplica igual, pero no hay un estado "inactivo" con sentido para una fila clave/valor. Cada cambio de `valor` sí queda auditado (sección 6.4), preservando el historial completo sin necesidad de baja lógica.
+
+**Claves sembradas para Sprint 4** (`prisma/seed.ts`):
+
+| `clave` | `valor` (ejemplo) | `modulo` | Consumida por |
+|---|---|---|---|
+| `ECOMMERCE_DEPOSITO_CANAL_WEB_ID` | `"<uuid del Showroom>"` | `E` | HU-E1 (catálogo/disponibilidad), HU-E12 (ubicación física en depósito) |
+| `ECOMMERCE_CHECKOUT_TTL_HORAS` | `"1"` | `E` | HU-E1 (`ttl_horas` explícito pasado al servicio de reserva de HU-A10) |
+| `ECOMMERCE_PLAZO_RETIRO_DIAS` | `"10"` | `E` | HU-E13 (vencimiento de "Listo para Retiro") |
+| `VENTAS_MARGEN_SUGERIDO_PRECIO_VENTA` | `"0.35"` | `B` | HU-B9 (precio sugerido = costo de reposición × (1 + margen)) |
+
+### 6.3. Interfaces y Contratos
+
+**Ruta (consulta por clave):** `GET /app/api/configuracion/[clave]/route.ts`
+**Ruta (actualización):** `PATCH /app/api/configuracion/[clave]/route.ts`
+**Server Action equivalente:** `actualizarConfiguracionSistema()` en `app/(dashboard)/auditoria/configuracion/actions.ts`
+**Permiso requerido:** `configuracion:leer` (cualquier módulo que consuma un valor, vía llamada interna server-to-server — no gateado por sesión de usuario cuando la invocación es interna, ver nota 6.3.1); `configuracion:administrar` (exclusivo Administrador, para la mutación).
+
+```typescript
+// src/lib/schemas/configuracion.schema.ts
+export const ActualizarConfiguracionSistemaSchema = z.object({
+  valor: z.string().min(1, "El valor no puede estar vacío"),
+});
+export type ActualizarConfiguracionSistemaInput = z.infer<typeof ActualizarConfiguracionSistemaSchema>;
+```
+
+**Comportamiento esperado:**
+- La consulta por `clave` retorna `404 CONFIGURACION_NO_ENCONTRADA` si la clave no existe — ningún consumidor debe asumir un valor por defecto implícito en código; si un default tiene sentido, se siembra explícitamente en `seed.ts` (tabla de 6.2), nunca como fallback silencioso en el servicio consumidor.
+- La actualización es un `UPDATE` directo de una sola fila (`clave` es `@unique`, no requiere `$transaction` multi-tabla). Persiste `actualizado_por_id = usuarioId` de la sesión.
+- **6.3.1. Nota de acceso — servidor a servidor:** los cuatro consumidores de Sprint 4 (HU-E1, HU-E12, HU-E13, HU-B9) leen esta entidad desde su propia capa de servicios (`lib/services/**`), no desde el navegador — no pasan por el gate `withPermission("configuracion:leer")` de un usuario final, invocan directamente `obtenerConfiguracion(clave)` (función exportada de `lib/services/sistema/configuracion.service.ts`), que no revalida permiso porque no hay sesión de usuario en ese punto de la pila (es una lectura interna de servicio a servicio, mismo patrón ya usado por `resolverListaPrecioVigente()` de Módulo H). El Route Handler de 6.3 (`GET`) sí gatea `configuracion:leer` porque ese endpoint es la superficie expuesta a un cliente HTTP externo (Postman, una futura UI de administración), no la vía que usan los consumidores internos.
+
+**Respuesta `200 OK` (consulta):**
+```json
+{ "data": { "clave": "ECOMMERCE_CHECKOUT_TTL_HORAS", "valor": "1", "modulo": "E" }, "error": null }
+```
+
+**Respuesta `200 OK` (actualización):**
+```json
+{ "data": { "clave": "ECOMMERCE_PLAZO_RETIRO_DIAS", "valor_anterior": "10", "valor_nuevo": "15" }, "error": null }
+```
+
+**Respuesta `404 Not Found`:**
+```json
+{ "data": null, "error": { "code": "CONFIGURACION_NO_ENCONTRADA", "message": "No existe una configuración con clave ECOMMERCE_TTL_INEXISTENTE" } }
+```
+
+### 6.4. Auditoría de cambios
+
+Toda actualización de `valor` emite, tras el `COMMIT`, el evento `configuracion:actualizada` (agregado a la tabla de eventos de la sección 5) con `valor_anterior`/`valor_nuevo`, consumido por `audit-log.listener.ts` igual que el resto del sistema — sin mecanismo de hashing propio, mismo criterio que D.2/D.3.
+
+---
+
+## 7. Fuera de Alcance (diferido)
 
 - **D.1 — Panel de Comando BI/Dashboard:** requiere Módulo B (Ventas) y Módulo H (Proveedores) como emisores de datos reales, además de decisiones no resueltas de arquitectura CQRS y mecanismo de actualización en tiempo real (polling / SSE / WebSockets). Se especificará como documento independiente cuando existan esos módulos.
 - **Reactivación automática de `SUSPENDIDO` al expirar `bloqueado_hasta`:** este documento define la transición manual (2.2.3) y la transición automática de entrada a `SUSPENDIDO` (2.1), pero no un job/cron de reactivación automática al vencer el plazo — para Sprint actual, la reactivación es manual vía 2.2.3. Si se requiere automática, es una HU separada (job programado, fuera del ciclo request-response de Next.js).
