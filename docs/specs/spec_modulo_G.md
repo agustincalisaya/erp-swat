@@ -1,19 +1,19 @@
 # Especificación Técnica — Módulo G (Gestión de Caja y Tesorería)
-## Contenido para Sprint 2 — HU-G8 + HU-G10 (recorte por asignación de equipo)
-## Revisión 3 — incorpora HU-G10 (registro de pago con evidencia) sobre la Revisión 2 verificada contra el repositorio
+## Contenido para Sprint 2 (HU-G8 + HU-G10) y Sprint 4 (HU-G11) — recorte por asignación de equipo
+## Revisión 5 — Sprint 4: agrega HU-G11 (registro automático de ingresos por cobros online), sección 2.6 nueva. Consume `ecommerce:transaccion_pago_registrada` de `spec_modulo_E.md` (HU-E2/HU-E6) y el contrato de reintegro de HU-E13. Mismo patrón arquitectónico reactivo que HU-G8 (listener + entidad propia + evento de seguimiento). Sin cambios en las secciones de HU-G8/HU-G10 (Sprint 2).
 ## Revisión 4 — HU-G10 implementada y verificada en runtime (2026-09-10); reconcilia el pseudocódigo de la Rev. 3 contra el código real
 
 > **Estado de HU-G10 al 2026-09-10.** Implementada y verificada. Se entregó en tres PRs encadenados (`feature-branch-chain`, sin rama-tracker intermedia): **PR1** `feature/HU-G10-pago-backend` (contrato backend, base `develop`), **PR2a** `feature/HU-G10-pago-ui-lista` (consola de solo lectura), **PR2b** `feature/HU-G10-pago-ui-form` (form + server actions + modal). El bloqueante de HU-H9 quedó resuelto (`ComprobanteProveedor` mergeado). Cinco decisiones fijadas en la Rev. 3 se implementaron con ajustes respecto del pseudocódigo — ver anotaciones `— implementado (2026-09-10)` en §2.4, §3.7, §4.1, §4.2 y §5. Verificación en runtime: Fase 11 corrida dos veces (pre y post-merge de `origin/develop`), `verificar-cadena → integra: true`, `audit_logs` 3 → 10 (delta +7, sin filas de más), + walkthrough de browser de la consola.
 
 **Metodología:** Specification-Driven Development (SDD)
 **Stack:** Next.js 16 (App Router) · Node.js · PostgreSQL 16 · Prisma ORM 6 · TypeScript (strict) · Zod
-**Referencias normativas:** `RULES.md` (Regla N.° 1 — Restricción Estricta de Borrado Físico; Regla N.° 2 — Trazabilidad Inalterable, hash SHA-256 encadenado) · `Documento de Alcance Funcional y Técnico` (sección Módulo G; sección 2.1 "Flujo de estados de una Orden de Compra"; sección 3.4 corregida — Módulo H como fuente de la proyección de egresos junto con B/C/E; sección 5 y 5.1 — matriz de acceso y restricción de datos bancarios) · `Product Backlog — SWAT Indumentarias.xlsx` (hoja `Sprint 2`, HU-G8, HU-G10, HU-H9) · `schema.prisma` (modelos `CuentaPorPagar`, `OrdenCompra`, `OrdenCompraItem`, `Recepcion`, `RecepcionItem`, `Proveedor`) · `spec_modulo_H.md` (evento `orden_compra:estado_cambiado`, emitido por HU-H3; modelo `ComprobanteProveedor`, HU-H9)
+**Referencias normativas:** `RULES.md` (Regla N.° 1 — Restricción Estricta de Borrado Físico; Regla N.° 2 — Trazabilidad Inalterable, hash SHA-256 encadenado) · `Documento de Alcance Funcional y Técnico` (sección Módulo G; sección 2.1 "Flujo de estados de una Orden de Compra"; sección 3.4 corregida — Módulo H como fuente de la proyección de egresos junto con B/C/E; sección 5 y 5.1 — matriz de acceso y restricción de datos bancarios) · `Product Backlog — SWAT Indumentarias.xlsx` (hoja `Sprint 2`, HU-G8, HU-G10, HU-H9; hoja `Sprint 4`, HU-G11) · `schema.prisma` (modelos `CuentaPorPagar`, `OrdenCompra`, `OrdenCompraItem`, `Recepcion`, `RecepcionItem`, `Proveedor`) · `spec_modulo_H.md` (evento `orden_compra:estado_cambiado`, emitido por HU-H3; modelo `ComprobanteProveedor`, HU-H9) · `spec_modulo_E.md` (sección 2.2/2.6/2.13, HU-E2/HU-E6/HU-E13 — origen del evento consumido por HU-G11, sección 2.6)
 
 ---
 
 ## ⚠️ Alcance de este documento
 
-**Este documento NO cubre todo el Módulo G.** Cubre **HU-G8** (Compromisos de Pago / Cuenta por Pagar) y **HU-G10** (registro del pago con medio de pago, cuenta de origen y comprobante de proveedor asociado), las dos HU de Módulo G asignadas en Sprint 2. HU-G7 (posición diaria de tesorería) y el resto de Módulo G quedan fuera por asignación de equipo, no por decisión del PO.
+**Este documento NO cubre todo el Módulo G.** Cubre **HU-G8** (Compromisos de Pago / Cuenta por Pagar) y **HU-G10** (registro del pago con medio de pago, cuenta de origen y comprobante de proveedor asociado), las dos HU de Módulo G asignadas en Sprint 2, más **HU-G11** (registro automático de ingresos por cobros online, sección 2.6, Sprint 4). HU-G7 (posición diaria de tesorería), HU-G2 (conciliación automática de cobros electrónicos) y el resto de Módulo G quedan fuera por asignación de equipo, no por decisión del PO.
 
 **HU-G10 no crea un endpoint ni una función de servicio paralela.** Amplía directamente `marcarCuentaPorPagarPagada()` y `MarcarPagadaSchema`, ya entregados y testeados por HU-G8 (sección 2.4 de la Revisión 2), agregando los campos de evidencia de pago. No hay una segunda vía de mutación sobre la transición `DEFINITIVA → PAGADA`.
 
@@ -288,6 +288,77 @@ No existe UI propia para este endpoint en Sprint 2 (no hay HU-G7 que la consuma)
 
 ---
 
+## 2.6. Registro automático de ingresos por cobros online (HU-G11, Sprint 4)
+
+**Contenido agregado para Sprint 4.** Sección nueva — el resto de este documento (§1 a §2.5, HU-G8/HU-G10) corresponde a Sprint 2 y no se modifica. HU-G11 sigue el **mismo patrón arquitectónico ya establecido por HU-G8** (sección 1, "Patrón arquitectónico nuevo"): un listener reactivo que escribe estado de dominio propio dentro de su propia `prisma.$transaction` y emite un evento de seguimiento post-commit — no un endpoint de alta manual.
+
+**Origen y dependencia:** consume `ecommerce:transaccion_pago_registrada`, emitido por Módulo E al confirmarse un pago web (`spec_modulo_E.md` secciones 2.2 y 2.6, HU-E2/HU-E6) — evento **sensible**, con encadenamiento SHA-256 propio hacia Módulo D, del cual este listener es un consumidor adicional (no reemplaza ni compite con el consumo de Módulo D). Módulo G no valida el pago en sí — esa responsabilidad es exclusiva de Módulo E/F; Módulo G únicamente proyecta el ingreso hacia Tesorería.
+
+**Modelo de datos:**
+```prisma
+model IngresoTesoreria {
+  id                     String   @id @default(uuid())
+  pedido_venta_id        String   @unique // idempotencia por venta — ver comportamiento
+  mercadopago_payment_id String   @unique // idempotencia por pago — segunda guarda, ver comportamiento
+  monto                  Decimal  @db.Decimal(12, 2)
+  fecha                  DateTime
+  estado                 String   @default("PENDIENTE_CONCILIACION") // "PENDIENTE_CONCILIACION" | "CONCILIADO" — la transición a CONCILIADO es responsabilidad de HU-G2, fuera de este documento (ver Fuera de Alcance)
+  caja_virtual           String   @default("MERCADO_PAGO_CANAL_WEB") // constante — no se crea un catálogo de cajas nuevo en esta HU, ver comportamiento
+  contra_asientos        ContraAsientoIngreso[]
+  created_at             DateTime @default(now())
+  @@map("ingresos_tesoreria")
+}
+
+model ContraAsientoIngreso {
+  id                  String   @id @default(uuid())
+  ingreso_original_id String
+  ingreso_original    IngresoTesoreria @relation(fields: [ingreso_original_id], references: [id], onDelete: Restrict)
+  pedido_venta_id     String   @unique // un reintegro por venta — idempotencia, ver comportamiento
+  monto               Decimal  @db.Decimal(12, 2)
+  motivo              String
+  created_at          DateTime @default(now())
+  // Sin is_active/deleted_at/deleted_by/deletion_reason: es un asiento contable inmutable por diseño
+  // (nunca se edita ni se elimina — criterio de aceptación explícito), no una entidad con ciclo de baja lógica.
+  @@map("contra_asientos_ingreso")
+}
+```
+
+**Ruta (consulta, mismo patrón de 2.5):** `GET /api/tesoreria/ingresos-web` → `src/app/api/tesoreria/ingresos-web/route.ts`
+**Permiso requerido:** `cuentas_por_pagar:leer` **no aplica** — se agrega un permiso propio `tesoreria:leer_ingresos_web` (namespace `MODULO_G`, mismo rol `TESORERO_CENTRAL` que el resto de este documento; ver sección 7 actualizada).
+
+```typescript
+export const FiltrosListadoIngresosWebSchema = z.object({
+  estado: z.enum(["PENDIENTE_CONCILIACION", "CONCILIADO"]).optional(),
+  fecha_desde: z.coerce.date().optional(),
+  fecha_hasta: z.coerce.date().optional(),
+  page: z.coerce.number().int().positive().default(1),
+  page_size: z.coerce.number().int().positive().max(100).default(25),
+});
+export type FiltrosListadoIngresosWebInput = z.infer<typeof FiltrosListadoIngresosWebSchema>;
+```
+
+**Comportamiento esperado:**
+- **Registro automático, sin turno de Cajero POS (criterio de aceptación explícito, no negociable):** al procesar `ecommerce:transaccion_pago_registrada`, el listener (`src/lib/events/listeners/ingreso-tesoreria.listener.ts`) crea una fila `IngresoTesoreria` con `identificador de pago de Mercado Pago, monto, fecha` y `estado = "PENDIENTE_CONCILIACION"`. Los cobros web **no** se imputan a ningún `TurnoCaja` de Módulo B (HU-B2) — se acreditan a la caja virtual constante `"MERCADO_PAGO_CANAL_WEB"`. Este documento no crea un catálogo de cajas nuevo (mismo criterio de "catálogo const sin entidad propia" ya usado por `cuenta_origen_id` de HU-G10, sección 5) — si en el futuro existen múltiples cajas virtuales, esa es una ampliación de HU-G7, no de esta sección.
+- **Idempotencia con doble guarda (criterio de aceptación explícito: "un mismo identificador de pago de Mercado Pago nunca genera dos ingresos"):** `mercadopago_payment_id` es `@unique`. El listener usa `create` con captura de `P2002` tratado como no-op, mismo patrón de idempotencia que HU-A10/HU-H4/HU-F3/HU-E2. Se agrega además `pedido_venta_id` como `@unique` — no porque el criterio de aceptación lo pida explícitamente, sino porque `spec_modulo_E.md` (sección 3.6) garantiza que el webhook de origen ya es idempotente por pago; esta segunda guarda evita que un reprocesamiento manual (ver el punto de fallo, abajo) cree un ingreso duplicado si se reintenta con el mismo pedido pero, por algún error externo, un `mercadopago_payment_id` distinto.
+- **Después del `COMMIT` de la venta, sin revertirla (criterio de aceptación explícito, no negociable — mismo patrón fire-and-forget que todo el proyecto):** el listener corre después del `COMMIT` de la transacción de Módulo E que confirmó el pago (sección 2.2 de `spec_modulo_E.md`). Una falla en este registro **no revierte la venta ya confirmada** — es el mismo principio ya documentado en la sección 3.6 de este propio documento ("Fallo del listener — sin conciliación en este slice") para HU-G8.
+- **"Pendiente y reintentable, visible para el Tesorero" (criterio de aceptación explícito) — sin mecanismo de reintento automático en este proyecto (hallazgo de relevamiento, no resuelto silenciosamente):** el Backlog exige que una falla de este registro quede "pendiente y reintentable". Ningún listener existente en el ERP (ni el de HU-G8, según la sección 3.6 de este mismo documento, ni `audit-log.listener.ts`) implementa una cola de reintentos — el patrón establecido es fire-and-forget con logueo del error, sin reintento automático. Este documento **no inventa** una infraestructura de colas nueva para resolver esto. Se define, como salida mínima consistente con el patrón existente, un endpoint manual de reprocesamiento: `POST /api/tesoreria/ingresos-web/reprocesar/route.ts` (permiso `tesoreria:leer_ingresos_web`), que recibe un `pedido_venta_id` y vuelve a invocar el mismo servicio de creación de `IngresoTesoreria` a partir del `PedidoVentaEcommerce` ya confirmado — visible para el Tesorero como una acción manual, no como un reintento automático en background. Se reporta como decisión tomada para no dejar el criterio de aceptación sin cobertura, a confirmar con el equipo si se prefiere una cola de reintentos real antes de implementar.
+- **Consulta por fecha y estado (criterio de aceptación explícito):** el endpoint de arriba filtra por `estado`/`fecha_desde`/`fecha_hasta`, mismo patrón de paginación `page`/`page_size` que 2.5.
+- **Insumo de HU-G2 y HU-G7 (criterio de aceptación explícito, ambas fuera de este documento):** la transición `PENDIENTE_CONCILIACION → CONCILIADO` es responsabilidad de HU-G2 (conciliación automática de cobros electrónicos) — no definida aquí, mismo criterio de "fuera de asignación de equipo" ya declarado en la sección ⚠️ Alcance de este documento. La posición diaria de tesorería (HU-G7) consume este listado como una fuente más, junto a Módulo B/C/H (ya señalado en Referencias normativas).
+- **Contra-asiento por reintegro (criterio de aceptación explícito, no negociable):** un reintegro de Módulo E (`spec_modulo_E.md` sección 2.13, HU-E13) genera una fila `ContraAsientoIngreso` vinculada al `IngresoTesoreria` original — **nunca se edita ni se elimina** el ingreso original, el contra-asiento es un registro aparte, inmutable desde su creación (sin campos de baja lógica, ver modelo arriba — es un asiento contable, no una entidad de ciclo de vida). `pedido_venta_id` `@unique` en `ContraAsientoIngreso` evita que un mismo reintegro genere dos contra-asientos (idempotencia, coherente con el propio criterio de "un pedido nunca genera dos reintegros" ya definido en `spec_modulo_E.md` sección 2.13).
+- **Evento auditado obligatorio:** tanto la creación de un `IngresoTesoreria` como la de un `ContraAsientoIngreso` emiten `tesoreria:ingreso_web_registrado` / `tesoreria:contra_asiento_ingreso_registrado` (sección 4) hacia Módulo D, con encadenamiento SHA-256 — mismo patrón que el resto de este documento.
+
+**Respuesta `200 OK` (consulta):**
+```json
+{ "data": { "registros": [ { "ingreso_id": "uuid", "pedido_venta_id": "uuid", "mercadopago_payment_id": "...", "monto": "87000.00", "fecha": "2026-09-28T14:02:11.000Z", "estado": "PENDIENTE_CONCILIACION", "caja_virtual": "MERCADO_PAGO_CANAL_WEB" } ], "total": 1, "page": 1, "page_size": 25 }, "error": null }
+```
+
+**Respuesta `201 Created` (reprocesamiento manual):**
+```json
+{ "data": { "ingreso_id": "uuid", "pedido_venta_id": "uuid", "reprocesado": true }, "error": null }
+```
+
+---
+
 ## 3. Reglas de Negocio Estrictas (Capa de Servicios)
 
 ### 3.1. El `PROVISORIO` nunca es deuda exigible
@@ -337,6 +408,8 @@ El evento `orden_compra:estado_cambiado` es post-commit fire-and-forget: si `gen
 |---|---|---|---|
 | `orden_compra:estado_cambiado` *(consumido)* | HU-H3 | Listener de 2.1/2.2/2.3 | Ver "Payload consumido" arriba — shape real de `event-types.ts:302-313` |
 | `cuenta_por_pagar:estado_cambiado` *(nuevo)* | 2.1, 2.2, 2.3, 2.4 | `audit-log.listener.ts` | Ver abajo |
+| `ecommerce:transaccion_pago_registrada` *(consumido, Sprint 4)* | Módulo E, `spec_modulo_E.md` sección 2.2/2.6 (HU-E2/HU-E6) | Listener de 2.6 (`ingreso-tesoreria.listener.ts`) | Ver `spec_modulo_E.md` sección 4 — `{ transaccion_id, pedido_venta_id, monto, estado_pago, mercadopago_payment_id }` |
+| `tesoreria:ingreso_web_registrado` / `tesoreria:contra_asiento_ingreso_registrado` *(nuevos, Sprint 4)* | 2.6 | `audit-log.listener.ts` | `{ ingreso_id \| contra_asiento_id, pedido_venta_id, monto, mercadopago_payment_id? }` |
 
 ### 4.1. `CuentaPorPagarEstadoCambiadoPayload`
 
@@ -414,6 +487,13 @@ PATCH /pagar ──► marcarCuentaPorPagarPagada ──► cuenta_por_pagar:est
 - **Sin uniqueness a nivel DB** de un `PROVISORIO` activo por OC (no se permite migración en esta HU). La garantía es solo de capa de aplicación; un doble-emit genuinamente simultáneo podría crear dos filas. Aceptado.
 - **HU-G7 y el resto de Módulo G** — fuera de este documento.
 
+### Pendientes específicos de HU-G11 (Sprint 4)
+
+- **Transición `PENDIENTE_CONCILIACION → CONCILIADO`** — responsabilidad de HU-G2, no definida en este documento. `IngresoTesoreria.estado` queda modelado con ambos valores, pero el endpoint/servicio que ejecuta la conciliación automática contra la liquidación real de Mercado Pago es de HU-G2.
+- **Mecanismo de "pendiente y reintentable" ante fallo del listener** — resuelto en este documento con un endpoint manual de reprocesamiento (2.6), no con una cola de reintentos automática, por no existir ese patrón en ningún otro listener del proyecto. A confirmar con el equipo si se prefiere una solución de cola real antes de implementar (ver nota completa en 2.6).
+- **Permiso `tesoreria:leer_ingresos_web` — alcance de roles a confirmar.** El Alcance Funcional no lo detalla con el mismo nivel que `cuentas_por_pagar:leer`; se siembra provisionalmente solo para `TESORERO_CENTRAL`.
+- **Migración nueva, no incluida en este documento:** `model IngresoTesoreria`, `model ContraAsientoIngreso` y el permiso `tesoreria:leer_ingresos_web` no existen todavía en `schema.prisma`/`seed.ts` — a diferencia de HU-G8 (que reutilizó un modelo ya migrado), HU-G11 requiere migración nueva desde cero.
+
 ### Pendientes específicos de HU-G10
 
 - **`ComprobanteProveedor` (HU-H9) — resuelto (2026-09-10).** El modelo está mergeado; el bloqueante ya no aplica.
@@ -453,6 +533,7 @@ Evidencia obligatoria: **Postman + SQL + capturas**. Compilar sin errores **no**
 |---|---|---|
 | `cuentas_por_pagar:leer` | `MODULO_G` | `TESORERO_CENTRAL`, `AUDITOR`, `ADMINISTRADOR` (y `CAJERO_POS` cuando exista — ver §5) |
 | `cuentas_por_pagar:pagar` | `MODULO_G` | `TESORERO_CENTRAL` |
+| `tesoreria:leer_ingresos_web` *(nuevo, Sprint 4, HU-G11)* | `MODULO_G` | `TESORERO_CENTRAL` (el Alcance no cita explícitamente a `AUDITOR`/`ADMINISTRADOR` para este permiso puntual — a confirmar antes de sembrar; no se asume por analogía con `cuentas_por_pagar:leer`) |
 
 - No se crea `cuentas_por_pagar:cancelar` — la cancelación es automática vía listener, no un endpoint manual.
 - No se crea el rol `CAJERO_POS`.

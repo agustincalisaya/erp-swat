@@ -1,5 +1,6 @@
 # Especificación Técnica — Módulo B (Ventas y Punto de Venta - POS)
-## ERP SWAT Indumentarias — Sprint 3
+## ERP SWAT Indumentarias — Sprint 3 / Sprint 4
+## Revisión 6 — Sprint 4: alta de HU-B9 (Lista de Precios de Venta) y ajuste técnico de resolución de precio en HU-B1/HU-B3/HU-B4. HU-B9 introduce la entidad `ListaPrecioVenta` (única para mostrador y e-commerce, ver nueva sección 2.9) y el patrón de resolución de precio exclusivamente server-side ya aplicado por Módulo H (`resolverListaPrecioVigente()`) — HU-B1 y HU-B3 **no** son reabiertas como historias: es un ajuste técnico aprobado por el PO (~3 SP) sobre la forma en que sus schemas reciben el precio, sin cambio de criterios de aceptación de fondo salvo el que HU-B9 agrega explícitamente. El campo `precio_unitario`/`precio_cotizado` deja de aceptarse desde el cliente en ambos endpoints; el servidor lo resuelve contra la versión vigente de `ListaPrecioVenta` y lo congela en el ítem. HU-B4 pasa a calcular el porcentaje de descuento y el cambio manual de precio contra ese mismo precio de lista resuelto server-side, en vez de un valor arbitrario recibido en el request. Referencia cruzada: Módulo E (checkout web) consume la misma función de resolución — ver `spec_modulo_E.md` HU-E1/HU-E2 — y Módulo D expone `ConfiguracionSistema` (`spec_modulo_D.md` §6) con la clave `VENTAS_MARGEN_SUGERIDO_PRECIO_VENTA` que usa la sugerencia automática de precio de esta sección.
 ## Revisión 5 — HU-B6 implementada (rama `feature/HU-B6`, commit `2433f81`). Corrige el contrato de 2.6 definido en la Rev. 4 contra lo que confirmó la implementación real: (1) el query schema pasa a `page`/`page_size` (no `pagina`/`por_pagina`) y a `verificar_integridad: z.enum(["true","false"]).transform(...)` (no `z.coerce.boolean()`, que probado contra el endpoint real trataba `?verificar_integridad=false` como `true`); (2) el alcance del Supervisor de Ventas se resuelve con **una sola query con `OR`** y paginación en base — no con el filtrado en memoria que describía la Rev. 4; (3) se agrega el filtro `pedido_venta_id` como `OR` entre `registro_id` (descuento/precio) y el path JSON `valor_nuevo.pedido_venta_id` (excepción de crédito, donde `registro_id` es la operación de cuenta corriente, no el pedido) — caso no contemplado en la Rev. 4; (4) la verificación de integridad se implementa como función propia del dominio ventas (`verificarCadenaHashesVentas()`), porque ni la de Módulo A ni la de Módulo D aceptan parámetros de dominio; (5) se corrige el texto sobre `auditoria:leer_historico`: `seed.ts` **sí** lo asigna a `AUDITOR`/`MASTER` (no "sin asignar a ningún Rol", como decía la Rev. 4) — esto no cambia el permiso real que usa el endpoint (`auditoria:leer_forense`), solo corrige una afirmación inexacta sobre el seed. Detalle completo del relevamiento y las decisiones de implementación en `HU6_MODULO_B.md`.
 ## Revisión 4 — Corrección de HU-B6 (2.6): el permiso `auditoria:leer_historico` y la función `listarEventosPorDominio` citados en la Rev. 0/2 nunca se implementaron en Módulo D — confirmado contra `seed.ts` (el permiso quedó sembrado como stub, sin asignar a ningún Rol, con comentario explícito del equipo documentando la divergencia) y contra el patrón real ya shippeado de HU-A6 (`spec_modulo_A.md`, `HU7_MODULO_A.md`, en `develop`). El código real usa el permiso `auditoria:leer_forense` (rol AUDITOR) y un servicio propio por módulo que consulta `AuditLog` directamente filtrado por `accion`, sin ninguna función compartida de "por dominio" en Módulo D. Se corrige el contrato de 2.6 en consecuencia, se fija el contrato de alcance del Supervisor de Ventas (sin definir en revisiones anteriores) y se agrega `venta:excepcion_credito_resuelta` al enum `tipo_evento` (evento sensible agregado por HU-B5 en la Rev. 3, ausente del enum original pese a que la sección decía estar "alineada 1:1" con la tabla de eventos de la sección 4).
 ## Revisión 3 — Correcciones sobre Rev. 2 (HU-B5): endpoint faltante de resolución de excepción de crédito (2.5, `PATCH .../operaciones/[id]/resolver`, cierra el permiso `ventas:autorizar_excepcion_credito` que estaba definido sin ruta propia) y corrección del shape de la respuesta `422 LIMITE_CREDITO_EXCEDIDO` para incluir `error.details.operacion_id`
@@ -8,7 +9,7 @@
 
 **Metodología:** Specification-Driven Development (SDD)
 **Stack:** Next.js 16 (App Router) · Node.js · PostgreSQL 16 · Prisma ORM · TypeScript · Zod
-**Referencias normativas:** `RULES.md` (Regla N.° 1 — Restricción Estricta de Borrado Físico; Regla N.° 2 — Protección de Datos Personales y Trazabilidad Inalterable) · `Documento de Alcance Funcional y Técnico` (sección Módulo B, vigente) · `Product Backlog — SWAT Indumentarias.xlsx` (hoja **Sprint 3**, HU-B1 a HU-B7 ya actualizadas sin integración real a AFIP) · `schema.prisma` · `spec_modulo_A.md` (sección 2.9, servicio de reserva consumido por este módulo; sección 2.10/HU-A6, patrón real de consola de auditoría forense por dominio) · `spec_modulo_C.md` (integración de datos de cliente) · `spec_modulo_D.md` (RBAC y auditoría) · `spec_modulo_H.md` (patrón de referencia de formato) · `seed.ts` (RBAC real sembrado, incluida la nota de divergencia de `auditoria:leer_historico`)
+**Referencias normativas:** `RULES.md` (Regla N.° 1 — Restricción Estricta de Borrado Físico; Regla N.° 2 — Protección de Datos Personales y Trazabilidad Inalterable) · `Documento de Alcance Funcional y Técnico` (sección Módulo B, vigente) · `Product Backlog — SWAT Indumentarias.xlsx` (hoja **Sprint 3**, HU-B1 a HU-B7 ya actualizadas sin integración real a AFIP; hoja **Sprint 4**, HU-B9) · `schema.prisma` · `spec_modulo_A.md` (sección 2.9, servicio de reserva consumido por este módulo; sección 2.10/HU-A6, patrón real de consola de auditoría forense por dominio) · `spec_modulo_C.md` (integración de datos de cliente) · `spec_modulo_D.md` (RBAC, auditoría y `ConfiguracionSistema` §6) · `spec_modulo_H.md` (patrón de referencia de formato y de `resolverListaPrecioVigente()`, replicado por HU-B9 para precio de venta) · `spec_modulo_E.md` (consumidor de la resolución de precio de HU-B9 desde el checkout web) · `seed.ts` (RBAC real sembrado, incluida la nota de divergencia de `auditoria:leer_historico`)
 
 ---
 
@@ -71,27 +72,24 @@ export const RegistrarVentaMostradorSchema = z.object({
       z.object({
         variante_sku_id: z.string().uuid(),
         cantidad: z.number().int().positive(),
-        precio_unitario: z.number().positive(),
         descuento_porcentual: z.number().min(0).max(100).optional(),
       })
     )
     .min(1, "La venta debe incluir al menos un ítem"),
   medios_pago: z.array(MedioPagoSchema).min(1, "Debe indicarse al menos un medio de pago"),
+  importe_total_esperado: z.number().positive(),
   tipo_comprobante: z.enum(["FACTURA_A", "FACTURA_B", "TICKET"]),
-}).refine(
-  (d) => {
-    const totalItems = d.items.reduce((acc, i) => acc + i.precio_unitario * i.cantidad * (1 - (i.descuento_porcentual ?? 0) / 100), 0);
-    const totalPagos = d.medios_pago.reduce((acc, m) => acc + m.importe, 0);
-    return Math.abs(totalItems - totalPagos) < 0.01;
-  },
-  { message: "La suma de los medios de pago debe igualar exactamente el importe total de la venta", path: ["medios_pago"] }
-);
+});
 export type RegistrarVentaMostradorInput = z.infer<typeof RegistrarVentaMostradorSchema>;
 ```
 
+**Ajuste técnico Sprint 4 (HU-B9, Revisión 6) — el precio deja de viajar en el `body`:** hasta la Rev. 5, `items[].precio_unitario` era un campo obligatorio enviado por el cliente y el `.refine()` validaba la suma de medios de pago contra ese precio declarado. Con HU-B9 (sección 2.9) esto se elimina del contrato de entrada: **el precio unitario de cada ítem se resuelve exclusivamente en el servidor**, dentro de la capa de servicios, invocando `resolverPrecioVentaVigente(variante_sku_id)` (sección 2.9) — el POS nunca acepta ni valida un precio enviado por el cliente. El campo `importe_total_esperado` reemplaza la validación previa: es el total que la UI del POS calculó y mostró al Cajero antes de confirmar el cobro (a partir de los mismos precios que luego resuelve el servidor), y la capa de servicios lo revalida contra el total resuelto server-side (ítems al precio de `ListaPrecioVenta` vigente, con descuentos aplicados) **dentro de la misma transacción** — un desvío entre ambos (más allá de un margen de redondeo de centavos) responde `409 PRECIO_DESACTUALIZADO`, indicando que la UI debe refrescar precios antes de reintentar. La suma de `medios_pago` se sigue validando contra ese total ya resuelto server-side, no contra `importe_total_esperado` directamente.
+
 **Comportamiento esperado:**
-- **Cobro multimedio real (criterio de aceptación explícito):** los medios de pago pueden combinarse en proporciones arbitrarias siempre que la suma iguale exactamente el importe total — validado en el `.refine()` del schema, y revalidado en la capa de servicios dentro de la misma transacción por si el precio unitario resuelto server-side difiere del enviado por el cliente.
+- **Resolución de precio server-side (HU-B9, Revisión 6):** para cada ítem, la capa de servicios invoca `resolverPrecioVentaVigente(variante_sku_id)` (sección 2.9) contra la versión vigente de `ListaPrecioVenta` — nunca contra un valor recibido en el `body` (ver ajuste técnico documentado sobre el schema, arriba). Un `variante_sku_id` sin precio de venta vigente rechaza el ítem completo con `422 SKU_SIN_PRECIO_VIGENTE`, antes de tocar stock o cobro.
+- **Cobro multimedio real (criterio de aceptación explícito):** los medios de pago pueden combinarse en proporciones arbitrarias siempre que la suma iguale exactamente el total resuelto server-side (precios de lista vigentes menos descuentos aplicados) — validado en la capa de servicios dentro de la misma transacción, revalidando `importe_total_esperado` contra ese total (`409 PRECIO_DESACTUALIZADO` si difieren más allá de un margen de redondeo).
 - Cada medio de pago se persiste como una línea de cobro independiente (`VentaMedioPago`), con su propio importe y referencia — esto permite a Tesorería (Módulo G) conciliar cada medio contra su fuente externa por separado.
+- El precio unitario resuelto queda **congelado** en `PedidoVentaItem.precio_unitario` al confirmar el cobro — una versión posterior de `ListaPrecioVenta` nunca lo altera retroactivamente (mismo principio de congelamiento que 2.3 y 2.9).
 - **Selección manual de comprobante, sin regla derivada de condición fiscal del cliente** (directiva del PO, ver `spec_modulo_C.md`): el Cajero elige `tipo_comprobante` explícitamente al confirmar el cobro. El sistema no infiere ni valida el tipo de comprobante contra ningún dato de `Cliente` — Módulo C no tiene condición de IVA ni CUIT/CUIL (ver sección 3.5 sobre esta restricción transversal).
 - Egreso de stock definitivo: la capa de servicios invoca el servicio de reserva/venta de Módulo A (`spec_modulo_A.md` sección 2.9, ruta `PATCH /app/api/inventario/reservas/[id]/confirmar/route.ts` si la venta se originó desde una `Reserva` previa, o el flujo de egreso directo de Módulo A si es una venta 100% de mostrador sin reserva previa) para transicionar el stock de `Disponible` a `Vendido` dentro de la misma operación lógica. **No** se reimplementa lógica de descuento de stock en este módulo — Módulo A es la única fuente de verdad (mismo principio arquitectónico que ya rige HU-A10).
 - La emisión de comprobante fiscal se delega en `comprobante-fiscal.service.ts` (sección 2.7, HU-B7) dentro de la misma transacción de la venta — ninguna venta queda confirmada sin su comprobante correspondiente ya generado.
@@ -114,6 +112,16 @@ export type RegistrarVentaMostradorInput = z.infer<typeof RegistrarVentaMostrado
 **Respuesta `422 Unprocessable Entity` (sin turno abierto):**
 ```json
 { "data": null, "error": { "code": "SIN_TURNO_ABIERTO", "message": "El Cajero POS debe tener un turno de caja abierto para registrar ventas" } }
+```
+
+**Respuesta `422 Unprocessable Entity` (ítem sin precio vigente — HU-B9, Revisión 6):**
+```json
+{ "data": null, "error": { "code": "SKU_SIN_PRECIO_VIGENTE", "message": "La variante no tiene un precio de venta vigente en la Lista de Precios de Venta" } }
+```
+
+**Respuesta `409 Conflict` (total esperado desactualizado — HU-B9, Revisión 6):**
+```json
+{ "data": null, "error": { "code": "PRECIO_DESACTUALIZADO", "message": "El total esperado no coincide con el precio vigente resuelto por el servidor; actualice los precios antes de confirmar el cobro" } }
 ```
 
 ### 2.2. Apertura y cierre de turno con arqueo ciego (HU-B2)
@@ -175,7 +183,6 @@ export const CrearPresupuestoSchema = z.object({
       z.object({
         variante_sku_id: z.string().uuid(),
         cantidad: z.number().int().positive(),
-        precio_cotizado: z.number().positive(),
       })
     )
     .min(1, "El presupuesto debe incluir al menos un ítem"),
@@ -183,9 +190,12 @@ export const CrearPresupuestoSchema = z.object({
 export type CrearPresupuestoInput = z.infer<typeof CrearPresupuestoSchema>;
 ```
 
+**Ajuste técnico Sprint 4 (HU-B9, Revisión 6):** `precio_cotizado` deja de recibirse en el `body`. El servicio propone, para cada ítem, el precio vigente de `ListaPrecioVenta` resuelto server-side (`resolverPrecioVentaVigente()`, sección 2.9) — ese es el precio que se congela en el presupuesto al emitirlo. Un cambio manual sobre ese precio propuesto sigue exclusivamente el circuito de autorización de HU-B4 (sección 2.4), tal como ya ocurría antes de este ajuste; este documento no habilita una vía alternativa para que el vendedor declare un precio propio fuera de ese circuito.
+
 **Comportamiento esperado:**
 - **Congelamiento automático de stock (criterio de aceptación explícito):** al emitir el presupuesto, el servicio invoca el servicio centralizado de reserva de Módulo A (`spec_modulo_A.md` sección 2.9, `POST /app/api/inventario/reservas/route.ts`) para cada ítem cotizado, con `origen_reserva` resuelto según el enum vigente hoy en `schema.prisma` (`"LICITACION"` o `"PEDIDO_INSTITUCIONAL"` — ver nota de directiva al inicio de este documento sobre por qué no se renombra este valor en esta tarea) y `ttl_horas` derivado de `vigencia_dias`. **Módulo B no implementa lógica de congelamiento propia** — es el mismo principio arquitectónico de exclusividad que exige HU-A10, verificado explícitamente en esta sección tal como pide la nota técnica del Backlog.
 - Vencimiento automático: si el presupuesto no se convierte en pedido antes de su vigencia, el job de liberación por TTL de Módulo A (sección 2.9 de `spec_modulo_A.md`) libera la reserva sin intervención de este módulo. `Presupuesto.estado` transiciona a `VENCIDO` mediante un evento de dominio disparado por el mismo job o por una consulta perezosa al momento de la siguiente lectura del presupuesto (decisión de implementación a definir por el equipo, no bloqueante).
+- **Precio congelado durante la vigencia (HU-B9, Revisión 6):** el precio resuelto al emitir el presupuesto queda fijo en `PresupuestoItem.precio_cotizado` durante toda su vigencia; al aceptarse (conversión a `PedidoVenta`), ese mismo precio se traslada al pedido sin volver a resolverlo — una versión posterior de `ListaPrecioVenta` publicada entre la emisión y la aceptación no lo altera.
 - **Entregas parciales (criterio de aceptación explícito):** un `PedidoVenta` originado en la aceptación de un presupuesto puede facturarse y remitarse en más de un evento — cada remito repite el ciclo Facturación → Remito hasta agotar el saldo del pedido. El pedido cierra (`estado = CERRADO`) solo cuando la totalidad de lo adjudicado fue facturado y entregado; el histórico de entregas parciales queda siempre consultable.
 - Ningún `Presupuesto` ni `PedidoVenta` se elimina físicamente — baja lógica estándar (`is_active`, `deleted_at`, `deleted_by`, `deletion_reason`), conforme a la sección 2.4 del Alcance Funcional § Módulo B.
 
@@ -222,6 +232,7 @@ export type AutorizarOverrideDescuentoInput = z.infer<typeof AutorizarOverrideDe
 ```
 
 **Comportamiento esperado:**
+- **Base de cálculo (HU-B9, Revisión 6):** tanto el porcentaje de descuento como el `precio_lista_modificado` se calculan siempre contra el precio de `ListaPrecioVenta` ya resuelto server-side (sección 2.9) y congelado en el ítem de la venta o presupuesto en curso — nunca contra un valor declarado en un request anterior. Esto reemplaza cualquier lectura previa de este documento que asumiera un precio de origen arbitrario recibido del cliente.
 - El sistema define, por perfil de usuario, un porcentaje máximo de descuento aplicable **sin** intervención de terceros (ej. Cajero POS: hasta 5%, parametrizable — no hardcodeado). Un descuento dentro de ese margen se aplica directamente en HU-B1, sin pasar por este endpoint.
 - Cuando el Cajero intenta aplicar un descuento por encima de su margen (o un cambio manual de precio de lista), la operación de venta **queda en espera** — el `PedidoVenta` o la línea de venta en curso transiciona a un estado de espera de aprobación hasta que este endpoint sea invocado exitosamente por un Supervisor de Ventas con su propia credencial.
 - **Recargos por financiación en cuotas** siguen la misma lógica de configuración por perfil y el mismo patrón de aprobación — se modelan como un caso más de este mismo endpoint, no como una ruta separada.
@@ -471,6 +482,113 @@ export type AnularPedidoVentaInput = z.infer<typeof AnularPedidoVentaSchema>;
 
 ---
 
+### 2.9. Lista de Precios de Venta versionada — única para mostrador y e-commerce (HU-B9, Sprint 4)
+
+**Origen:** HU-B9 del Backlog (hoja Sprint 4, 5 SP). Introduce la entidad que centraliza el precio de venta al público, hasta ahora ausente del módulo: hasta la Rev. 5, HU-B1 y HU-B3 recibían el precio directamente del cliente en el `body` (ver ajustes técnicos documentados sobre esas secciones). Esta sección define esa entidad y la función de resolución server-side de la que dependen HU-B1 (2.1), HU-B3 (2.3), HU-B4 (2.4) y, fuera de este documento, el checkout de Módulo E (`spec_modulo_E.md`, HU-E1/HU-E2/HU-E4/HU-E5).
+
+**Modelo de datos (`schema.prisma`, mismo patrón lista → versión → ítem que `ListaPrecio`/`ListaPrecioVersion`/`ListaPrecioItem` de Módulo H — ver `spec_modulo_H.md` sección 2.3 — pero como entidad separada: precio de venta al público, no precio de proveedor):**
+```prisma
+model ListaPrecioVenta {
+  id          String                    @id @default(uuid())
+  nombre      String                    @default("Lista de Precios de Venta — General")
+  is_active   Boolean                   @default(true)
+  deleted_at  DateTime?
+  deleted_by  String?
+  deletion_reason String?
+  versiones   ListaPrecioVentaVersion[]
+  created_at  DateTime                  @default(now())
+  @@map("listas_precio_venta")
+}
+
+model ListaPrecioVentaVersion {
+  id              String   @id @default(uuid())
+  lista_id        String
+  lista           ListaPrecioVenta @relation(fields: [lista_id], references: [id], onDelete: Restrict)
+  vigente_desde   DateTime
+  publicado_por_id String
+  publicado_por    Usuario @relation(fields: [publicado_por_id], references: [id], onDelete: Restrict)
+  items           ListaPrecioVentaItem[]
+  is_active       Boolean  @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+  created_at      DateTime @default(now())
+  @@index([lista_id, vigente_desde])
+  @@map("versiones_lista_precio_venta")
+}
+
+model ListaPrecioVentaItem {
+  id                    String   @id @default(uuid())
+  version_id            String
+  version               ListaPrecioVentaVersion @relation(fields: [version_id], references: [id], onDelete: Restrict)
+  variante_sku_id       String
+  variante_sku          VarianteSku @relation(fields: [variante_sku_id], references: [id], onDelete: Restrict)
+  precio_venta          Decimal  @db.Decimal(12, 2)
+  costo_reposicion_referencia Decimal? @db.Decimal(12, 2) // null si Módulo H no tenía costo de reposición disponible al momento de publicar (ver comportamiento)
+  confirmado_bajo_costo Boolean  @default(false)
+  motivo_bajo_costo     String?
+  @@unique([version_id, variante_sku_id])
+  @@map("items_lista_precio_venta")
+}
+```
+
+**Ruta (alta de versión):** `POST /app/api/ventas/lista-precios/versiones/route.ts`
+**Ruta (consulta vigente):** `GET /app/api/ventas/lista-precios/vigente/route.ts`
+**Ruta (sugerencia de precio por SKU, previa a publicar):** `GET /app/api/ventas/lista-precios/sugerencia/[variante_sku_id]/route.ts`
+**Server Action equivalente:** `publicarVersionListaPrecioVenta()`, `obtenerSugerenciaPrecio()` en `app/(dashboard)/ventas/lista-precios/actions.ts`
+**Permiso requerido:** `ventas:gestionar_lista_precios` (exclusivo Supervisor de Ventas, conforme matriz RBAC del Alcance Sprint 4). La consulta de precio vigente por SKU (usada internamente por HU-B1/HU-B3/HU-B4 y por Módulo E) **no** pasa por este permiso — es una función de servicio (`resolverPrecioVentaVigente()`, más abajo), no un endpoint gateado por RBAC de usuario final, mismo patrón que el servicio de costo de reposición de Módulo H, que tampoco pasa por RBAC de usuario final por ser consumo servicio-a-servicio (`spec_modulo_H.md` sección 2.11, HU-H8).
+
+```typescript
+export const ItemListaPrecioVentaSchema = z.object({
+  variante_sku_id: z.string().uuid(),
+  precio_venta: z.number().positive(),
+  motivo_bajo_costo: z.string().min(1).optional(),
+}).refine(
+  (d) => true, // la comparación contra costo_reposicion_referencia ocurre en la capa de servicios, no en el schema — el schema no tiene acceso al costo vigente
+  {}
+);
+
+export const CrearVersionListaPrecioVentaSchema = z.object({
+  vigente_desde: z.coerce.date(),
+  items: z.array(ItemListaPrecioVentaSchema).min(1, "La versión debe incluir al menos un ítem"),
+});
+export type CrearVersionListaPrecioVentaInput = z.infer<typeof CrearVersionListaPrecioVentaSchema>;
+```
+
+**Comportamiento esperado:**
+- **Entidad separada de la lista de proveedor (criterio de aceptación explícito):** `ListaPrecioVenta` no tiene relación de datos con `ListaPrecio` de Módulo H — solo la consulta, de forma síncrona y de solo lectura, para obtener `costo_reposicion_referencia` al momento de sugerir un precio (invoca el servicio de costo de reposición vigente ya expuesto por Módulo H, `spec_modulo_H.md` sección 2.11, HU-H8 — `GET /app/api/proveedores/costo-reposicion/[variante_sku_id]/route.ts` — nunca una copia local del costo).
+- **Sugerencia automática de precio:** al iniciar la carga de una nueva versión, para cada SKU el servicio sugiere `precio_venta = costo_reposicion × (1 + margen)`, donde `margen` se lee de `ConfiguracionSistema` (`spec_modulo_D.md` sección 6, clave `VENTAS_MARGEN_SUGERIDO_PRECIO_VENTA`) — **no hardcodeado**. La sugerencia es editable: el Supervisor puede modificar cualquier `precio_venta` antes de publicar. Si el servicio de costo de reposición de Módulo H responde `404 SIN_COSTO_REPOSICION_DISPONIBLE` (`spec_modulo_H.md` sección 2.11) para un SKU, no hay sugerencia automática para ese ítem — el Supervisor debe cargar el `precio_venta` manualmente, sin bloquear la publicación del resto de la versión; `costo_reposicion_referencia` queda `null` para ese ítem y la validación de "precio por debajo del costo" (punto siguiente) no aplica, al no existir costo de referencia contra el cual comparar.
+- **Precio por debajo del costo de reposición (criterio de aceptación explícito):** si `precio_venta < costo_reposicion_referencia` para algún ítem, el servicio exige `motivo_bajo_costo` no vacío para ese ítem — `422 MOTIVO_BAJO_COSTO_REQUERIDO` si falta. El ítem se persiste con `confirmado_bajo_costo = true` y el motivo declarado, sin bloquear la publicación del resto de la versión.
+- **Versionado sin sobrescritura (criterio de aceptación explícito):** publicar una versión nunca modifica ni desactiva los ítems de una versión anterior — crea una fila `ListaPrecioVentaVersion` nueva con sus propios `ListaPrecioVentaItem`. La versión vigente en un instante dado es la de `vigente_desde` más reciente que sea `<= now()` y `is_active = true`; el historial completo de versiones queda siempre consultable.
+- **Función de resolución server-side (`lib/services/ventas/lista-precio-venta.service.ts`, `resolverPrecioVentaVigente(variante_sku_id: string): Promise<{ precio_venta: Decimal; lista_precio_version_id: string } | null>`):** consulta la versión vigente y su ítem para el SKU solicitado. Devuelve `null` si el SKU no tiene ítem en la versión vigente (ni en ninguna versión anterior activa) — el llamador (HU-B1, HU-B3, o Módulo E) es responsable de traducir ese `null` a su propio código de error de negocio (`SKU_SIN_PRECIO_VIGENTE` en HU-B1, por ejemplo). Esta función es **la única vía** por la que cualquier módulo obtiene un precio de venta — ningún módulo consumidor reimplementa esta resolución ni cachea el precio fuera de lo que ya quedó congelado en un ítem de venta/presupuesto/pedido ya confirmado.
+- **Congelamiento en el consumidor, no en esta entidad:** `ListaPrecioVenta` en sí misma no "congela" nada — el congelamiento ocurre en el momento en que HU-B1, HU-B3 o Módulo E persisten el precio resuelto dentro del ítem de su propia entidad de venta (`PedidoVentaItem.precio_unitario`, `PresupuestoItem.precio_cotizado`, el ítem de carrito/checkout de Módulo E). Una versión posterior de la lista nunca altera retroactivamente esos valores ya persistidos.
+- Ninguna `ListaPrecioVenta`, `ListaPrecioVentaVersion` ni `ListaPrecioVentaItem` se elimina físicamente — baja lógica estándar (`is_active`, `deleted_at`, `deleted_by`, `deletion_reason`), consistente con la Regla N.° 1.
+- **Evento auditado obligatorio:** toda publicación exitosa de una versión emite `precio_venta:version_publicada` (sección 4) hacia el Módulo D, después del `COMMIT`, con encadenamiento SHA-256 (evento sensible: afecta directamente el precio cobrado en todos los canales).
+
+**Respuesta `201 Created` (publicación de versión):**
+```json
+{ "data": { "version_id": "uuid", "lista_id": "uuid", "vigente_desde": "2026-10-01T00:00:00.000Z", "items_publicados": 340, "items_bajo_costo": 2 }, "error": null }
+```
+
+**Respuesta `200 OK` (consulta de precio vigente por SKU):**
+```json
+{ "data": { "variante_sku_id": "uuid", "precio_venta": 45000.00, "lista_precio_version_id": "uuid", "vigente_desde": "2026-10-01T00:00:00.000Z" }, "error": null }
+```
+
+**Respuesta `404 Not Found` (SKU sin precio vigente en ninguna versión activa):**
+```json
+{ "data": null, "error": { "code": "SKU_SIN_PRECIO_VIGENTE", "message": "La variante no tiene un precio de venta vigente" } }
+```
+
+**Respuesta `422 Unprocessable Entity` (falta motivo para ítem bajo costo):**
+```json
+{ "data": null, "error": { "code": "MOTIVO_BAJO_COSTO_REQUERIDO", "message": "El precio propuesto para la variante está por debajo del costo de reposición; debe declararse un motivo" } }
+```
+
+**Nota de relevamiento — sin pantalla propia todavía:** al igual que HU-B6 (sección 2.6, criterio ya documentado en la sección 5), esta iteración prioriza API primero, pantalla después; no se confirma en este documento el detalle de UI para la carga asistida de una versión.
+
+---
+
 ## 3. Reglas de Negocio Estrictas (Capa de Servicios)
 
 ### 3.1. Máquina de estados de `Presupuesto` y `PedidoVenta`
@@ -530,6 +648,7 @@ El Módulo B es **emisor** hacia el Módulo D (encadenamiento SHA-256) y **consu
 | `venta:comprobante_emitido` | 2.7, tras `COMMIT` | Módulo D (auditoría estándar), Módulo G (conciliación fiscal) | `{ comprobante_id, pedido_venta_id, tipo_comprobante, cae_simulado, es_simulado: true }` |
 | `venta:operacion_cuenta_corriente_registrada` | 2.5, tras `COMMIT` | Módulo G (proyección de flujo de ingresos) | `{ operacion_id, cliente_id, pedido_venta_id, monto, estado: "APROBADA" \| "RETENIDA", plan_de_pagos? }` |
 | `venta:excepcion_credito_resuelta` | 2.5 (resolución de una operación retenida), tras `COMMIT` — **evento sensible** | Módulo D (encadenamiento SHA-256) | `{ autorizacion_id, operacion_id, pedido_venta_id, cliente_id, usuario_solicitante_id, usuario_autorizante_id, decision, motivo, monto }` |
+| `precio_venta:version_publicada` | 2.9 (HU-B9, Sprint 4), tras `COMMIT` — **evento sensible** | Módulo D (encadenamiento SHA-256) | `{ version_id, lista_id, publicado_por_id, vigente_desde, items_publicados, items_bajo_costo }` |
 
 **Sin eventos nuevos en HU-B6:** la consulta de auditoría (2.6) es de solo lectura y no emite evento propio.
 
@@ -542,9 +661,9 @@ El Módulo B es **emisor** hacia el Módulo D (encadenamiento SHA-256) y **consu
 - **Integración real con AFIP (WSFEV1, CAE real, contingencia real de servicio externo):** explícitamente descartada por directiva del PO en esta misma sesión de planificación — ver nota al inicio de este documento. HU-B7 queda redefinida como emisión simulada de punta a punta. Si se retoma en un sprint futuro, debe implementarse detrás de un patrón Adapter/Gateway dedicado, sin rediseñar el resto del flujo de venta.
 - **Renombre del enum `OrigenReserva`** (`LICITACION`, `PEDIDO_INSTITUCIONAL` → posible consolidación futura en un nombre sin residuo institucional): identificado como hallazgo durante la redacción de este spec, pero el equipo decidió explícitamente no abordarlo en este sprint por el riesgo de una migración de eliminación de valores de enum a mitad de sprint. Este documento usa los valores tal como existen hoy en `schema.prisma`. Documentado como deuda técnica conocida, no bloqueante.
 - **Tablero de Comando de Módulo D (HU-D3):** el Alcance Funcional (Módulo D.1) describe este panel como consumidor de eventos de todos los módulos operativos, incluido Módulo B. Con Módulo B entrando en este sprint, el Tablero queda desbloqueado como consumidor real de los eventos de la sección 4 — pero esa integración no está priorizada en Sprint 3, así que queda para cuando se planifique.
-- **Integración con Módulo E (unificación de catálogo y precios para checkout web):** mencionada en la matriz de integración del Alcance, pero Módulo E no está en Sprint 3 — el modelo de dominio de `PedidoVenta` de este documento ya está diseñado para que una orden web futura se registre como un `PedidoVenta` más con un atributo de canal, sin requerir un circuito de venta paralelo (mismo criterio que el propio Alcance Funcional documenta para Módulo E → Módulo B).
+- **[Resuelto en Sprint 4 — ya no está fuera de alcance] Integración con Módulo E (unificación de catálogo y precios para checkout web):** hasta la Rev. 5 este punto quedaba diferido porque Módulo E no estaba en Sprint 3. Con Módulo E entrando en Sprint 4 (`spec_modulo_E.md`), la integración se concreta exactamente como se anticipaba aquí: la orden web se registra como un `PedidoVenta` más con `canal = WEB` (sin circuito de venta paralelo), y el precio se resuelve mediante la misma función `resolverPrecioVentaVigente()` de la nueva sección 2.9 (HU-B9) que ya usan HU-B1 y HU-B3 — ver `spec_modulo_E.md` HU-E1/HU-E2.
 - **Alerta a la cadena de abastecimiento por demanda no prevista (integración Módulo B → Módulo H):** mencionada en la matriz de integración del Alcance, no detallada en este documento — se especifica cuando se prioricen las HU correspondientes de Módulo H que la consuman.
-- **Entidad de configuración global para el umbral de arqueo ciego (HU-B2) y para los porcentajes máximos de descuento por perfil (HU-B4):** ambos valores deben ser parametrizables por Dirección, no hardcodeados en el servicio — si el Módulo D no expone aún una entidad de configuración global equivalente a la ya señalada como faltante en `spec_modulo_H.md` sección 5, es una dependencia a resolver con su owner antes de cerrar la implementación de estas dos HU.
+- **[Parcialmente resuelto en Sprint 4] Entidad de configuración global para el umbral de arqueo ciego (HU-B2) y para los porcentajes máximos de descuento por perfil (HU-B4):** ambos valores deben ser parametrizables por Dirección, no hardcodeados en el servicio. Módulo D ya expone la entidad de configuración global (`ConfiguracionSistema`, `spec_modulo_D.md` sección 6, agregada en Sprint 4 para necesidades de HU-B9/HU-E1/HU-E12/HU-E13) — pero las claves para el umbral de arqueo ciego y los porcentajes de descuento por perfil de HU-B4 **no están entre las claves sembradas documentadas en esa sección** (que cubre solo `ECOMMERCE_DEPOSITO_CANAL_WEB_ID`, `ECOMMERCE_CHECKOUT_TTL_HORAS`, `ECOMMERCE_PLAZO_RETIRO_DIAS` y `VENTAS_MARGEN_SUGERIDO_PRECIO_VENTA`). Sigue siendo una dependencia a resolver con el owner de Módulo D antes de cerrar la implementación de esas dos HU: agregar las claves faltantes a `ConfiguracionSistema`, no crear un mecanismo de configuración propio de Módulo B.
 - **Exportación de reportes de ventas y comisiones:** la matriz RBAC del Alcance Funcional habilita esta acción para Supervisor de Ventas y Auditor, pero este documento no define ningún endpoint ni contrato para ella — se asume resuelta por el Tablero de Comando de Módulo D u otro mecanismo de reporting centralizado, a confirmar con su owner antes de implementar. Fuera de alcance también de HU-B6.
 - **Anulación de Pedido de Venta (§2.8):** sin código todavía — el valor real de `AuditLog.accion` para esa transición sigue sin confirmarse (`ANULACION_PEDIDO` es un placeholder usado por el filtro de HU-B6, sección 2.6).
 - **Pantalla propia para HU-B6:** no implementada en esta iteración (API primero, pantalla después — mismo criterio incremental que HU-B4/HU-B5). No se pudo confirmar contra el Backlog si se exige, porque `Product Backlog - SWAT Indumentarias.xlsx` no está en el repositorio.
