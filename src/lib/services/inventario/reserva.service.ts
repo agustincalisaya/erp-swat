@@ -360,13 +360,10 @@ export async function confirmarReservaPorVenta(
  * explícito con el que se congeló). Aprovecha el índice compuesto
  * `@@index([is_active, fecha_fin_reserva, fecha_expiracion])`.
  *
- * Por cada reserva vencida, dentro de su propia `prisma.$transaction`:
- *  1. Incrementa `StockDeposito.cantidad` (reversión del congelamiento).
- *  2. Setea `Reserva.fecha_fin_reserva = now()` (soft-close condicionado,
- *     no DELETE físico).
- *  3. Inserta un `MovimientoStock` COMPENSATORIO de tipo `INGRESO`
- *     (⚠️ no `AJUSTE`) — `estado_origen = "RESERVADO"`,
- *     `estado_destino = "DISPONIBLE"`.
+ * Por cada reserva vencida, dentro de su propia `prisma.$transaction`, aplica
+ * el núcleo `liberarReservaVencidaTx()` (ver abajo): cierre condicionado de la
+ * reserva, reincremento de `StockDeposito.cantidad` y `MovimientoStock`
+ * compensatorio `INGRESO` RESERVADO→DISPONIBLE.
  *
  * Una transacción fallida no aborta el resto: se loguea y se continúa.
  * El evento `stock:reserva_liberada` se emite después, para las que
@@ -399,53 +396,16 @@ export async function liberarReservasVencidas(
   for (const reserva of vencidas) {
     try {
       await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-        const incremento = await tx.stockDeposito.updateMany({
-          where: {
-            variante_sku_id: reserva.variante_sku_id,
-            deposito_id: reserva.deposito_id,
-            is_active: true,
-            deleted_at: null,
-          },
-          data: { cantidad: { increment: reserva.cantidad } },
-        });
-        if (incremento.count === 0) {
-          throw new ServiceError(
-            "STOCK_DEPOSITO_NO_ENCONTRADO",
-            `StockDeposito no encontrado para variante=${reserva.variante_sku_id} / deposito=${reserva.deposito_id}`,
-          );
-        }
-
-        const cierre = await tx.reserva.updateMany({
-          where: { id: reserva.id, is_active: true, deleted_at: null, fecha_fin_reserva: null },
-          data: { fecha_fin_reserva: ahora },
-        });
-        if (cierre.count === 0) {
+        // HU-E1: núcleo compartido con `liberarReservasVencidasTx()`. Si otro
+        // proceso ya la cerró, el núcleo no toca nada y acá se sigue tratando
+        // como antes (RESERVA_NO_ACTIVA → log y se continúa con la siguiente).
+        const liberada = await liberarReservaVencidaTx(tx, reserva, ahora);
+        if (!liberada) {
           throw new ServiceError(
             "RESERVA_NO_ACTIVA",
             `La reserva ${reserva.id} ya fue liberada por otro proceso`,
           );
         }
-
-        // HU-A11 (multi-ítem): mismo patrón cabecera + 1 ítem que en
-        // `confirmarReservaPorVenta()` — ver comentario ahí.
-        await tx.movimientoStock.create({
-          data: {
-            deposito_origen_id: reserva.deposito_id,
-            tipo_movimiento: "INGRESO",
-            comprobante_referencia: `CRON-LIBERACION-RESERVA-${reserva.id}`,
-            // El cron actúa como agente del sistema: se conserva el ID del
-            // registrador original para no romper la cadena de trazabilidad.
-            registrado_por_id: reserva.registrado_por_id,
-            items: {
-              create: {
-                variante_sku_id: reserva.variante_sku_id,
-                cantidad: reserva.cantidad,
-                estado_origen: "RESERVADO",
-                estado_destino: "DISPONIBLE",
-              },
-            },
-          },
-        });
       });
 
       liberadas.push({
@@ -473,4 +433,150 @@ export async function liberarReservasVencidas(
     liberadas,
     umbral: umbral.toISOString(),
   };
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// 4.4 — HU-E1 (D4.2): liberación de vencidas dentro de la transacción de otro
+// módulo (checkout web), acotada por depósito y SKU.
+// ──────────────────────────────────────────────────────────────────────────────
+
+/** Reserva vencida seleccionada para liberar (shape de los dos `findMany`). */
+interface ReservaVencidaSeleccionada {
+  id: string;
+  variante_sku_id: string;
+  deposito_id: string;
+  cantidad: number;
+  registrado_por_id: string;
+}
+
+/**
+ * Núcleo de la transición RESERVADO → DISPONIBLE por TTL, sobre el `tx` del
+ * llamador (lo usan `liberarReservasVencidas()` y `liberarReservasVencidasTx()`).
+ *
+ *  1. Cierre condicionado (`updateMany` con `fecha_fin_reserva: null`): toma el
+ *     lock de la fila. Si otra transacción la cerró antes, PostgreSQL reevalúa
+ *     el `where` al liberarse el lock → `count === 0` → devuelve `false` SIN
+ *     reincrementar stock (nunca se devuelve dos veces la misma unidad).
+ *  2. Reincremento de `StockDeposito.cantidad`.
+ *  3. `MovimientoStock` COMPENSATORIO de tipo `INGRESO` (⚠️ no `AJUSTE`),
+ *     `estado_origen = "RESERVADO"`, `estado_destino = "DISPONIBLE"`.
+ *
+ * @returns `true` si la liberó esta llamada, `false` si ya estaba cerrada.
+ * @throws {ServiceError} STOCK_DEPOSITO_NO_ENCONTRADO
+ */
+async function liberarReservaVencidaTx(
+  tx: Prisma.TransactionClient,
+  reserva: ReservaVencidaSeleccionada,
+  ahora: Date,
+): Promise<boolean> {
+  const cierre = await tx.reserva.updateMany({
+    where: { id: reserva.id, is_active: true, deleted_at: null, fecha_fin_reserva: null },
+    data: { fecha_fin_reserva: ahora },
+  });
+  if (cierre.count === 0) return false;
+
+  const incremento = await tx.stockDeposito.updateMany({
+    where: {
+      variante_sku_id: reserva.variante_sku_id,
+      deposito_id: reserva.deposito_id,
+      is_active: true,
+      deleted_at: null,
+    },
+    data: { cantidad: { increment: reserva.cantidad } },
+  });
+  if (incremento.count === 0) {
+    throw new ServiceError(
+      "STOCK_DEPOSITO_NO_ENCONTRADO",
+      `StockDeposito no encontrado para variante=${reserva.variante_sku_id} / deposito=${reserva.deposito_id}`,
+    );
+  }
+
+  // HU-A11 (multi-ítem): mismo patrón cabecera + 1 ítem que en
+  // `confirmarReservaPorVenta()` — ver comentario ahí.
+  await tx.movimientoStock.create({
+    data: {
+      deposito_origen_id: reserva.deposito_id,
+      tipo_movimiento: "INGRESO",
+      comprobante_referencia: `CRON-LIBERACION-RESERVA-${reserva.id}`,
+      // Se conserva el ID del registrador original para no romper la cadena
+      // de trazabilidad (el job/checkout actúa como agente del sistema).
+      registrado_por_id: reserva.registrado_por_id,
+      items: {
+        create: {
+          variante_sku_id: reserva.variante_sku_id,
+          cantidad: reserva.cantidad,
+          estado_origen: "RESERVADO",
+          estado_destino: "DISPONIBLE",
+        },
+      },
+    },
+  });
+  return true;
+}
+
+export interface FiltroLiberacionVencidas {
+  depositoId: string;
+  skuIds: readonly string[];
+}
+
+/**
+ * HU-E1 (D4.2) — Libera, dentro del `tx` del llamador, las reservas vencidas
+ * (`fecha_expiracion <= ahora`, sin cierre) de los SKU indicados en un
+ * depósito. El checkout web la invoca ANTES de reservar, para que una reserva
+ * vencida que el job todavía no procesó no le reste stock a una compra nueva
+ * (no depende del timing del job). Mismo patrón que `crearReservaTx()`: no abre
+ * transacción ni emite eventos; el llamador emite con
+ * `emitirReservasLiberadasTtl()` después del commit. Si la transacción del
+ * llamador se revierte, la liberación también (el job la hará luego).
+ */
+export async function liberarReservasVencidasTx(
+  tx: Prisma.TransactionClient,
+  filtro: FiltroLiberacionVencidas,
+  ahora: Date = new Date(),
+): Promise<ReservaLiberadaTtl[]> {
+  if (filtro.skuIds.length === 0) return [];
+
+  const vencidas = await tx.reserva.findMany({
+    where: {
+      is_active: true,
+      deleted_at: null,
+      fecha_fin_reserva: null,
+      fecha_expiracion: { lte: ahora },
+      deposito_id: filtro.depositoId,
+      variante_sku_id: { in: [...filtro.skuIds] },
+    },
+    select: {
+      id: true,
+      variante_sku_id: true,
+      deposito_id: true,
+      cantidad: true,
+      registrado_por_id: true,
+    },
+    orderBy: { fecha_expiracion: "asc" },
+  });
+
+  const liberadas: ReservaLiberadaTtl[] = [];
+  for (const reserva of vencidas) {
+    if (await liberarReservaVencidaTx(tx, reserva, ahora)) {
+      liberadas.push({
+        reserva_id: reserva.id,
+        variante_sku_id: reserva.variante_sku_id,
+        cantidad: reserva.cantidad,
+      });
+    }
+  }
+  return liberadas;
+}
+
+/** Emite `stock:reserva_liberada` (TTL_VENCIDO) por cada reserva liberada con
+ * `liberarReservasVencidasTx()`. SIEMPRE fuera de la transacción (spec §4). */
+export function emitirReservasLiberadasTtl(liberadas: readonly ReservaLiberadaTtl[]): void {
+  for (const reserva of liberadas) {
+    domainEventBus.emit("stock:reserva_liberada", {
+      reserva_id: reserva.reserva_id,
+      motivo_liberacion: "TTL_VENCIDO",
+      variante_sku_id: reserva.variante_sku_id,
+      cantidad: reserva.cantidad,
+    });
+  }
 }

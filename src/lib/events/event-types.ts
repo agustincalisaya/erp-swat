@@ -946,6 +946,38 @@ export interface CarritoArticuloNoDisponiblePayload {
   cliente_web_cuenta_id: string | null;
 }
 
+/** HU-E1 (CA7) — fusión del carrito de visitante en el de la cuenta, al iniciar sesión. */
+export interface CarritoFusionadoPayload {
+  carrito_origen_id: string;
+  carrito_destino_id: string;
+  cliente_web_cuenta_id: string;
+  items_fusionados: number;
+}
+
+/**
+ * HU-E1 (D1/D10) — checkout parcial confirmado: reservas congeladas,
+ * `PedidoVenta` RESERVADO + `PedidoVentaEcommerce` PAGO_PENDIENTE. Sin precios
+ * ni PII (convención de spec E §4).
+ */
+export interface CheckoutIniciadoPayload {
+  pedido_venta_id: string;
+  pedido_venta_ecommerce_id: string;
+  numero_venta: string;
+  cliente_web_cuenta_id: string;
+  carrito_id: string;
+  reserva_ids: string[];
+  ttl_expiracion: string;
+}
+
+/** HU-E1 (D10) — baja lógica del carrito convertido en pedido (mismo commit del checkout). */
+export interface CarritoConvertidoEnPedidoPayload {
+  carrito_id: string;
+  pedido_venta_id: string;
+  cliente_web_cuenta_id: string;
+  deleted_at: string;
+  deletion_reason: string;
+}
+
 /** Mapa evento → payload, usado por `domain-event-bus.ts` para tipar `emit`/`on`. */
 export interface DomainEventMap {
   /** HU-A1: se emite tras el alta de un ProductoMaestro. */
@@ -1053,6 +1085,12 @@ export interface DomainEventMap {
   "venta:registrada": VentaRegistradaPayload;
   /** HU-E1: se emite por cada ítem de carrito que bloquea el checkout por estar desactivado (CA4). */
   "ecommerce:carrito_articulo_no_disponible": CarritoArticuloNoDisponiblePayload;
+  /** HU-E1: se emite tras fusionar el carrito de visitante con el de la cuenta (CA7). */
+  "ecommerce:carrito_fusionado": CarritoFusionadoPayload;
+  /** HU-E1: se emite tras el commit del checkout parcial (pedido PAGO_PENDIENTE). */
+  "ecommerce:checkout_iniciado": CheckoutIniciadoPayload;
+  /** HU-E1: se emite tras dar de baja lógica el carrito convertido en pedido. */
+  "ecommerce:carrito_convertido_en_pedido": CarritoConvertidoEnPedidoPayload;
 }
 
 export type DomainEventName = keyof DomainEventMap;
