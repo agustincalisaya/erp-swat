@@ -507,7 +507,7 @@ export interface ReservaCongeladaPayload {
   variante_sku_id: string;
   deposito_id: string;
   usuario_id: string;
-  origen_reserva: "SENIA" | "LICITACION" | "PEDIDO_INSTITUCIONAL";
+  origen_reserva: "SENIA" | "LICITACION" | "PEDIDO_INSTITUCIONAL" | "CHECKOUT_WEB";
   cantidad: number;
 }
 
@@ -917,6 +917,35 @@ export interface VentaRegistradaPayload {
   usuario_id: string;
 }
 
+/**
+ * HU-E1 (spec_modulo_E.md §2.1/§4, criterio de aceptación 4) — motivo por el
+ * que un ítem de carrito dejó de ser comprable ("desactivado", decisión D6 de
+ * `docs/tasks/HU-E1.md`). `STOCK_INSUFICIENTE` NO está acá a propósito: usa
+ * otro código de error y no notifica.
+ */
+export type MotivoArticuloNoDisponible =
+  | "SKU_INACTIVO"
+  | "PRODUCTO_INACTIVO"
+  | "NO_VISIBLE_WEB"
+  | "SIN_PRECIO_VIGENTE"
+  | "NO_PUBLICABLE";
+
+/**
+ * HU-E1 — Payload emitido por cada ítem afectado cuando el checkout se
+ * bloquea con `422 ARTICULO_NO_DISPONIBLE`. Consumidores: Módulo F (HU-F3,
+ * notificación ADVERTENCIA al dueño del carrito) y Módulo D (auditoría). Sin
+ * PII ni precios (convención de exclusión de spec E §4). `sku` es el código
+ * de la variante, para el placeholder de la plantilla (spec F §3.2).
+ */
+export interface CarritoArticuloNoDisponiblePayload {
+  carrito_id: string;
+  carrito_item_id: string;
+  variante_sku_id: string;
+  sku: string;
+  motivo: MotivoArticuloNoDisponible;
+  cliente_web_cuenta_id: string | null;
+}
+
 /** Mapa evento → payload, usado por `domain-event-bus.ts` para tipar `emit`/`on`. */
 export interface DomainEventMap {
   /** HU-A1: se emite tras el alta de un ProductoMaestro. */
@@ -1022,6 +1051,8 @@ export interface DomainEventMap {
   "venta:turno_cerrado": VentaTurnoCerradoPayload;
   /** HU-B1: se emite tras registrar una venta de mostrador con cobro multimedio. */
   "venta:registrada": VentaRegistradaPayload;
+  /** HU-E1: se emite por cada ítem de carrito que bloquea el checkout por estar desactivado (CA4). */
+  "ecommerce:carrito_articulo_no_disponible": CarritoArticuloNoDisponiblePayload;
 }
 
 export type DomainEventName = keyof DomainEventMap;

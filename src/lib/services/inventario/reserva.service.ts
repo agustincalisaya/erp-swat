@@ -26,6 +26,7 @@ import { prisma } from "@/lib/db/prisma";
 import { domainEventBus } from "@/lib/events/domain-event-bus";
 import { ServiceError } from "@/lib/errors/service-error";
 import type { CrearReservaInput } from "@/lib/schemas/inventario.schema";
+import type { ReservaCongeladaPayload } from "@/lib/events/event-types";
 
 // ──────────────────────────────────────────────────────────────────────────────
 // TTL
@@ -43,6 +44,9 @@ const TTL_POR_ORIGEN: Record<OrigenReserva, number> = {
   SENIA: TTL_RESERVA_DEFAULT_HORAS,
   LICITACION: TTL_RESERVA_DEFAULT_HORAS,
   PEDIDO_INSTITUCIONAL: TTL_RESERVA_DEFAULT_HORAS,
+  // HU-E1 (D3): el checkout web SIEMPRE manda `ttl_horas` explícito
+  // (`ECOMMERCE_CHECKOUT_TTL_HORAS`); el default solo cubre el `Record` exhaustivo.
+  CHECKOUT_WEB: TTL_RESERVA_DEFAULT_HORAS,
 };
 
 /**
@@ -90,10 +94,21 @@ export interface LiberacionTtlResultado {
 // 4.1 — Congelamiento (DISPONIBLE → RESERVADO)
 // ──────────────────────────────────────────────────────────────────────────────
 
+/** Resultado de `crearReservaTx()`: la reserva más el payload del evento que
+ * el llamador debe emitir DESPUÉS del commit (`emitirReservaCongelada()`). */
+export interface ReservaCongeladaTx extends ReservaCongelada {
+  evento: ReservaCongeladaPayload;
+}
+
 /**
- * Congela stock creando una `Reserva` activa (`fecha_fin_reserva = null`).
+ * HU-E1 (D2) — núcleo del congelamiento: recibe el `tx` del llamador en vez de
+ * abrir su propia transacción, para que un checkout de N ítems congele todo o
+ * nada dentro de una única `$transaction` (mismo patrón que
+ * `decrementarStockDepositoTx()`/`decrementarStockConAlerta()` de
+ * `stock.service.ts`). NO emite eventos: devuelve el payload en `evento` y el
+ * llamador lo emite con `emitirReservaCongelada()` fuera de la transacción.
  *
- * Dentro de `prisma.$transaction`:
+ * Dentro del `tx` recibido:
  *  1. Valida que la variante y el depósito existan y estén activos.
  *  2. Decremento atómico condicionado sobre `StockDeposito.cantidad`
  *     (`updateMany` con `cantidad: { gte }`). Si `count === 0` ⇒
@@ -113,10 +128,11 @@ export interface LiberacionTtlResultado {
  * @throws {ServiceError} VARIANTE_NO_ENCONTRADA | DEPOSITO_NO_ENCONTRADO (404)
  * @throws {ServiceError} STOCK_INSUFICIENTE (422)
  */
-export async function crearReserva(
+export async function crearReservaTx(
+  tx: Prisma.TransactionClient,
   input: CrearReservaInput,
   usuarioId: string,
-): Promise<ReservaCongelada> {
+): Promise<ReservaCongeladaTx> {
   const ttlHoras = resolverTtlHoras(input.origen_reserva, input.ttl_horas);
   const reservaId = randomUUID();
   // HU-A10 Rev. 3: el vencimiento se precomputa y persiste al congelar
@@ -125,91 +141,115 @@ export async function crearReserva(
   const fechaInicioReserva = new Date();
   const fechaExpiracion = new Date(fechaInicioReserva.getTime() + ttlHoras * 60 * 60 * 1000);
 
-  const reserva = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-    const [variante, deposito] = await Promise.all([
-      tx.varianteSKU.findFirst({
-        where: { id: input.variante_sku_id, is_active: true, deleted_at: null },
-        select: { id: true },
-      }),
-      tx.deposito.findFirst({
-        where: { id: input.deposito_id, is_active: true, deleted_at: null },
-        select: { id: true },
-      }),
-    ]);
+  const [variante, deposito] = await Promise.all([
+    tx.varianteSKU.findFirst({
+      where: { id: input.variante_sku_id, is_active: true, deleted_at: null },
+      select: { id: true },
+    }),
+    tx.deposito.findFirst({
+      where: { id: input.deposito_id, is_active: true, deleted_at: null },
+      select: { id: true },
+    }),
+  ]);
 
-    if (!variante) throw new ServiceError("VARIANTE_NO_ENCONTRADA", "La variante no existe o está inactiva");
-    if (!deposito) throw new ServiceError("DEPOSITO_NO_ENCONTRADO", "El depósito no existe o está inactivo");
+  if (!variante) throw new ServiceError("VARIANTE_NO_ENCONTRADA", "La variante no existe o está inactiva");
+  if (!deposito) throw new ServiceError("DEPOSITO_NO_ENCONTRADO", "El depósito no existe o está inactivo");
 
-    const decremento = await tx.stockDeposito.updateMany({
-      where: {
-        variante_sku_id: input.variante_sku_id,
-        deposito_id: input.deposito_id,
-        is_active: true,
-        deleted_at: null,
-        cantidad: { gte: input.cantidad },
-      },
-      data: { cantidad: { decrement: input.cantidad } },
-    });
-    if (decremento.count === 0) {
-      throw new ServiceError(
-        "STOCK_INSUFICIENTE",
-        "Stock disponible insuficiente en el depósito para congelar la reserva",
-      );
-    }
+  const decremento = await tx.stockDeposito.updateMany({
+    where: {
+      variante_sku_id: input.variante_sku_id,
+      deposito_id: input.deposito_id,
+      is_active: true,
+      deleted_at: null,
+      cantidad: { gte: input.cantidad },
+    },
+    data: { cantidad: { decrement: input.cantidad } },
+  });
+  if (decremento.count === 0) {
+    throw new ServiceError(
+      "STOCK_INSUFICIENTE",
+      "Stock disponible insuficiente en el depósito para congelar la reserva",
+    );
+  }
 
-    const creada = await tx.reserva.create({
-      data: {
-        id: reservaId,
-        variante_sku_id: input.variante_sku_id,
-        deposito_id: input.deposito_id,
-        cantidad: input.cantidad,
-        origen_reserva: input.origen_reserva,
-        motivo: input.motivo ?? null,
-        fecha_inicio_reserva: fechaInicioReserva,
-        fecha_expiracion: fechaExpiracion,
-        fecha_fin_reserva: null,
-        registrado_por_id: usuarioId,
-      },
-      select: { id: true, fecha_inicio_reserva: true },
-    });
-
-    // HU-A11 (multi-ítem): mismo patrón cabecera + 1 ítem que en
-    // `confirmarReservaPorVenta()`/`liberarReservasVencidas()`.
-    await tx.movimientoStock.create({
-      data: {
-        deposito_origen_id: input.deposito_id,
-        tipo_movimiento: "AJUSTE",
-        comprobante_referencia: `RESERVA-${creada.id}`,
-        registrado_por_id: usuarioId,
-        items: {
-          create: {
-            variante_sku_id: input.variante_sku_id,
-            cantidad: input.cantidad,
-            estado_origen: "DISPONIBLE",
-            estado_destino: "RESERVADO",
-          },
-        },
-      },
-    });
-
-    return creada;
+  const creada = await tx.reserva.create({
+    data: {
+      id: reservaId,
+      variante_sku_id: input.variante_sku_id,
+      deposito_id: input.deposito_id,
+      cantidad: input.cantidad,
+      origen_reserva: input.origen_reserva,
+      motivo: input.motivo ?? null,
+      fecha_inicio_reserva: fechaInicioReserva,
+      fecha_expiracion: fechaExpiracion,
+      fecha_fin_reserva: null,
+      registrado_por_id: usuarioId,
+    },
+    select: { id: true, fecha_inicio_reserva: true },
   });
 
-  // Regla de emisión (spec §4): SIEMPRE después de que la $transaction resuelve.
-  domainEventBus.emit("stock:reserva_congelada", {
-    reserva_id: reserva.id,
-    variante_sku_id: input.variante_sku_id,
-    deposito_id: input.deposito_id,
-    usuario_id: usuarioId,
-    origen_reserva: input.origen_reserva,
-    cantidad: input.cantidad,
+  // HU-A11 (multi-ítem): mismo patrón cabecera + 1 ítem que en
+  // `confirmarReservaPorVenta()`/`liberarReservasVencidas()`.
+  await tx.movimientoStock.create({
+    data: {
+      deposito_origen_id: input.deposito_id,
+      tipo_movimiento: "AJUSTE",
+      comprobante_referencia: `RESERVA-${creada.id}`,
+      registrado_por_id: usuarioId,
+      items: {
+        create: {
+          variante_sku_id: input.variante_sku_id,
+          cantidad: input.cantidad,
+          estado_origen: "DISPONIBLE",
+          estado_destino: "RESERVADO",
+        },
+      },
+    },
   });
 
   return {
-    reserva_id: reserva.id,
-    fecha_inicio_reserva: reserva.fecha_inicio_reserva.toISOString(),
+    reserva_id: creada.id,
+    fecha_inicio_reserva: creada.fecha_inicio_reserva.toISOString(),
     ttl_horas: ttlHoras,
+    evento: {
+      reserva_id: creada.id,
+      variante_sku_id: input.variante_sku_id,
+      deposito_id: input.deposito_id,
+      usuario_id: usuarioId,
+      origen_reserva: input.origen_reserva,
+      cantidad: input.cantidad,
+    },
   };
+}
+
+/**
+ * Congela stock creando una `Reserva` activa (`fecha_fin_reserva = null`).
+ * Wrapper transaccional de `crearReservaTx()` para llamadores sin transacción
+ * propia (HU-B1, HU-B3, Route Handler de HU-A10). Firma y comportamiento
+ * idénticos a los previos a HU-E1: abre su propia `$transaction` y emite
+ * `stock:reserva_congelada` después del commit.
+ *
+ * @throws {ServiceError} VARIANTE_NO_ENCONTRADA | DEPOSITO_NO_ENCONTRADO (404)
+ * @throws {ServiceError} STOCK_INSUFICIENTE (422)
+ */
+export async function crearReserva(
+  input: CrearReservaInput,
+  usuarioId: string,
+): Promise<ReservaCongelada> {
+  const { evento, ...reserva } = await prisma.$transaction((tx: Prisma.TransactionClient) =>
+    crearReservaTx(tx, input, usuarioId),
+  );
+
+  // Regla de emisión (spec §4): SIEMPRE después de que la $transaction resuelve.
+  emitirReservaCongelada(evento);
+
+  return reserva;
+}
+
+/** Emite `stock:reserva_congelada` para una reserva creada con
+ * `crearReservaTx()`. SIEMPRE fuera de la transacción (regla de emisión §4). */
+export function emitirReservaCongelada(evento: ReservaCongeladaPayload): void {
+  domainEventBus.emit("stock:reserva_congelada", evento);
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

@@ -13,8 +13,8 @@ const venta = "44444444-4444-4444-8444-444444444444";
 
 // ── Schemas ───────────────────────────────────────────────────────────────────
 
-test("CrearReservaSchema acepta un congelamiento válido con cada uno de los 3 orígenes", () => {
-  for (const origen_reserva of ["SENIA", "LICITACION", "PEDIDO_INSTITUCIONAL"]) {
+test("CrearReservaSchema acepta un congelamiento válido con cada uno de los 4 orígenes (incluido CHECKOUT_WEB, HU-E1)", () => {
+  for (const origen_reserva of ["SENIA", "LICITACION", "PEDIDO_INSTITUCIONAL", "CHECKOUT_WEB"]) {
     assert.equal(
       CrearReservaSchema.safeParse({
         variante_sku_id: variante,
@@ -240,14 +240,49 @@ test("B — crearReserva resuelve el TTL con resolverTtlHoras(origen, ttl_horas)
   assert.match(fuente, /ttl_horas: ttlHoras/);
 });
 
-test("C — TTL_POR_ORIGEN cubre los 3 orígenes contra la constante 72h, sin número mágico", () => {
+test("C — TTL_POR_ORIGEN cubre los 4 orígenes contra la constante 72h, sin número mágico", () => {
   const fuente = leerServicio();
   const inicio = fuente.indexOf("const TTL_POR_ORIGEN");
   const bloque = fuente.slice(inicio, fuente.indexOf("};", inicio) + 2);
   assert.match(bloque, /SENIA: TTL_RESERVA_DEFAULT_HORAS/);
   assert.match(bloque, /LICITACION: TTL_RESERVA_DEFAULT_HORAS/);
   assert.match(bloque, /PEDIDO_INSTITUCIONAL: TTL_RESERVA_DEFAULT_HORAS/);
+  assert.match(bloque, /CHECKOUT_WEB: TTL_RESERVA_DEFAULT_HORAS/);
   assert.doesNotMatch(bloque, /:\s*72\b/);
+});
+
+// HU-E1 (D2) — extracción de crearReservaTx() ─────────────────────────────────
+
+const sliceCrearReservaTx = (fuente: string) =>
+  fuente.slice(
+    fuente.indexOf("export async function crearReservaTx"),
+    fuente.indexOf("export async function crearReserva("),
+  );
+
+test("HU-E1 D2 — crearReservaTx recibe el tx del llamador: no abre $transaction ni emite eventos", () => {
+  const bloque = sliceCrearReservaTx(leerServicio());
+  assert.match(bloque, /export async function crearReservaTx\(\s*tx: Prisma\.TransactionClient,/);
+  assert.doesNotMatch(bloque, /prisma\.\$transaction/);
+  assert.doesNotMatch(bloque, /domainEventBus\.emit/);
+  // Devuelve el payload del evento para que el llamador lo emita post-commit.
+  assert.match(bloque, /evento: \{/);
+});
+
+test("HU-E1 D2 — crearReserva conserva la firma, envuelve a crearReservaTx y emite DESPUÉS del commit", () => {
+  const fuente = leerServicio();
+  const inicio = fuente.indexOf("export async function crearReserva(");
+  const bloque = fuente.slice(inicio, fuente.indexOf("export function emitirReservaCongelada"));
+  assert.match(
+    bloque,
+    /export async function crearReserva\(\s*input: CrearReservaInput,\s*usuarioId: string,\s*\): Promise<ReservaCongelada>/,
+  );
+  const tx = bloque.indexOf("await prisma.$transaction");
+  const llamada = bloque.indexOf("crearReservaTx(tx, input, usuarioId)");
+  const emision = bloque.indexOf("emitirReservaCongelada(evento)");
+  assert.ok(tx > -1 && llamada > tx && emision > llamada);
+  // El evento no se filtra en el valor devuelto (mismo shape que antes de HU-E1).
+  assert.match(bloque, /const \{ evento, \.\.\.reserva \} =/);
+  assert.match(bloque, /return reserva;/);
 });
 
 test("D — el MovimientoStock del congelamiento referencia la Reserva vía comprobante RESERVA-<id>", () => {

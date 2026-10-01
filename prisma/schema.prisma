@@ -732,13 +732,15 @@ model Reserva {
   @@map("reservas")
 }
 
-/// Origen estructurado de una Reserva (HU-A10, Sprint 2): distingue los 3
-/// orígenes válidos definidos por la HU. Campo opcional en Reserva — ver
-/// comentario en el modelo.
+/// Origen estructurado de una Reserva (HU-A10, Sprint 2). Campo opcional en
+/// Reserva — ver comentario en el modelo. `CHECKOUT_WEB` (HU-E1, Sprint 4):
+/// reserva del checkout del canal web, siempre con `ttl_horas` explícito y
+/// acotado (`ConfiguracionSistema.ECOMMERCE_CHECKOUT_TTL_HORAS`).
 enum OrigenReserva {
   SENIA
   LICITACION
   PEDIDO_INSTITUCIONAL
+  CHECKOUT_WEB
 }
 
 // ============================================================================
@@ -2083,11 +2085,21 @@ model ContraAsientoIngreso {
 /// identificado por `carrito_token` (cookie firmada, sin PII). Al iniciar
 /// sesión se fusiona con el carrito persistente de la cuenta. Los carritos
 /// abandonados se desactivan por baja lógica (nunca se eliminan).
+///
+/// HU-E1 (D5): "un único carrito ACTIVO por cuenta" NO es un `@unique` de
+/// Prisma (bloquearía el job de carritos abandonados de HU-E5, que da de baja
+/// el carrito y la cuenta necesita uno nuevo): lo garantiza el índice único
+/// PARCIAL `carritos_web_cuenta_activa_key` (`WHERE is_active = true AND
+/// deleted_at IS NULL`), creado por SQL en la migración
+/// `20261001143427_hu_e1_carrito_web`. Prisma 6 no modela índices parciales
+/// (verificado: `prisma migrate diff` contra la base migrada da vacío, no
+/// intenta borrarlo); igual, al generar migraciones futuras revisar que el SQL
+/// NO incluya un `DROP INDEX "carritos_web_cuenta_activa_key"`.
 model CarritoWeb {
   id                    String  @id @default(uuid())
   /// null una vez fusionado a una cuenta.
   carrito_token         String? @unique
-  cuenta_cliente_web_id String? @unique
+  cuenta_cliente_web_id String?
 
   // --- Soft delete estricto ---
   is_active       Boolean   @default(true)
@@ -2102,6 +2114,7 @@ model CarritoWeb {
   cuenta_cliente_web CuentaClienteWeb? @relation(fields: [cuenta_cliente_web_id], references: [id], onDelete: Restrict)
   items              CarritoWebItem[]
 
+  @@index([cuenta_cliente_web_id])
   @@map("carritos_web")
 }
 
@@ -2120,6 +2133,8 @@ model CarritoWebItem {
   deletion_reason String?
 
   created_at DateTime @default(now())
+  /// HU-E1 (D9): `cantidad` es mutable (RULES.md §1 exige `updated_at`).
+  updated_at DateTime @default(now()) @updatedAt
 
   // --- Relaciones ---
   carrito      CarritoWeb  @relation(fields: [carrito_id], references: [id], onDelete: Restrict)
@@ -2313,10 +2328,13 @@ model CuentaClienteWeb {
   deletion_reason String?
 
   created_at DateTime @default(now())
+  /// HU-E1 (D9): `token_version`/`intentos_fallidos` son mutables (RULES.md §1).
+  updated_at DateTime @default(now()) @updatedAt
 
   // --- Relaciones ---
   cliente        Cliente        @relation(fields: [cliente_id], references: [id], onDelete: Restrict)
-  carrito        CarritoWeb?
+  /// 1:N desde HU-E1 (D5): historial de carritos; solo uno activo (índice parcial).
+  carritos       CarritoWeb[]
   notificaciones Notificacion[] @relation("NotificacionClienteWebDestinatario")
 
   @@map("cuentas_cliente_web")
