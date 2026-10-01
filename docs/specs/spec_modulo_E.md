@@ -192,7 +192,7 @@ model PedidoVentaEcommerce {
 
 ### 2.3. Ciclo Click & Collect y código QR de retiro (HU-E3)
 
-**Sin endpoint propio de transición de estado:** esta HU no expone una ruta nueva — describe el **contrato de ciclo completo** que las secciones 2.2 (pago), 2.9 (Mis pedidos, visualización del QR) y 2.12 (cola de preparación, transición y validación del QR) ya implementan cada una en su propio endpoint. Esta sección documenta la relación entre ellas para que el ciclo completo quede trazable en un solo lugar.
+**Sin endpoint propio de transición de estado:** esta HU no expone una ruta nueva — describe el **contrato de ciclo completo** definido en las secciones 2.2 (pago), 2.9 (Mis pedidos, visualización del QR) y 2.12 (cola de preparación, transición y validación del QR). En particular, HU-E9 tiene implementados el servicio de lectura, los componentes y sus pruebas, pero sus endpoints y pantallas autenticadas siguen pendientes de HU-E8, como indica §2.9. Esta sección documenta la relación entre ellas para que el ciclo completo quede trazable en un solo lugar.
 
 **Comportamiento esperado:**
 - Ciclo: `Pago Confirmado` (2.2) → `En Preparación` (2.12, ingreso automático a la cola) → `Listo para Retiro` (2.12, al completar la preparación — genera `codigo_qr_retiro`) → `Entregado` (2.12, al validar QR + DNI).
@@ -457,38 +457,52 @@ model CuentaClienteWeb {
 
 ### 2.9. Historial y estado de pedidos — "Mis pedidos" (HU-E9)
 
-**Ruta (listado):** `GET /app/api/tienda/mis-pedidos/route.ts`
-**Ruta (detalle, incluye QR):** `GET /app/api/tienda/mis-pedidos/[id]/route.ts`
-**Permiso requerido:** sesión de Cliente Web (`withSesionClienteWeb()`).
+**Story Points:** 3.
+**Objetivo:** el Cliente Web consulta el historial de sus pedidos `WEB`, su estado actual y detalle, el comprobante asociado cuando está disponible y el QR de retiro únicamente si el pedido está efectivamente listo para retirar.
 
-**Comportamiento esperado:**
-- **Alcance por sesión, nunca por parámetro (criterio de aceptación explícito, no negociable):** el listado y el detalle resuelven `cliente_id`/`cuenta_cliente_web_id` exclusivamente desde la sesión — un `id` de pedido ajeno responde `404` (no `403`, para no confirmar la existencia del recurso a un tercero), validado server-side sin excepción.
-- **Estados visibles (criterio de aceptación explícito):** los nueve valores de `EstadoEcommerce` (2.2), mapeados a las etiquetas de negocio del Backlog (`PAGO_PENDIENTE` → "Pago Pendiente", etc.).
-- **Detalle:** ítems (producto, talle, color, cantidad, precio congelado), comprobante fiscal descargable (`spec_modulo_B.md` sección 2.7, HU-B7), historial de cambios de estado con fecha/hora (derivado de los eventos de la sección 4 de este documento, filtrados por `pedido_venta_id` — consulta de solo lectura contra `AuditLog`, mismo patrón forense que 2.6 pero de alcance propio del cliente, no una consola de auditoría).
-- **Código QR:** visible únicamente en `LISTO_PARA_RETIRO` (ver contrato completo en 2.3).
-- **Notificación por cada cambio de estado (criterio de aceptación explícito):** cada transición de `estado_ecommerce` dispara una notificación interna en la bandeja del cliente vía HU-F3 (`spec_modulo_F.md` sección 2.3) — nunca un canal externo.
-- Es de solo lectura: ninguna mutación de estado ocurre desde esta sección.
+**Modelo:** no se crea `PedidoWeb` ni `OrdenWeb`. Se reutiliza el `PedidoVenta` del Módulo B con `canal = WEB` y su extensión 1:1 `PedidoVentaEcommerce` para el estado y los datos propios del canal online (2.2). "Historial" significa listado de compras propias y estado actual de cada una, no una cronología persistida de transiciones: HU-E9 no crea otra tabla, campos ni enum y no consulta `AuditLog` para construir `historial_estados`.
 
-**Respuesta `200 OK` (detalle):**
+**Rutas previstas, aún no implementadas por depender de HU-E8:** `GET /app/api/tienda/mis-pedidos/route.ts` (`/api/tienda/mis-pedidos`) y `GET /app/api/tienda/mis-pedidos/[id]/route.ts` (`/api/tienda/mis-pedidos/[id]`). Las pantallas previstas son `/cuenta/pedidos` y `/cuenta/pedidos/[id]`. Ninguna se publica antes de contar con sesión autenticada de Cliente Web; el nombre `withSesionClienteWeb()` de 2.8/Convenciones generales describe el contrato previsto, no un helper ya disponible en `src`.
+
+**Comportamiento del núcleo implementado:**
+- **Identidad y mitigación IDOR:** HU-E8 debe entregar server-side `cuentaClienteWebId` y `clienteId` desde la sesión validada; jamás se toma `clienteId` ni `cuenta_cliente_web_id` de query, body o form. El servicio E9 recibe ese `clienteId` ya validado, sin reutilizar `swat_session`, `withPermission` ni el servicio administrativo `obtenerPedidoVenta(id)`. El detalle consulta en un único predicado `pedido.id = id solicitado AND pedido.cliente_id = clienteId autenticado AND pedido.canal = WEB AND extensión e-commerce existente`. Pedido ajeno e inexistente producen el mismo `PEDIDO_NO_ENCONTRADO` y, cuando exista la ruta, la misma respuesta `404`; no se confirma la existencia de pedidos de terceros.
+- **Listado y baja lógica:** "Mis pedidos" es una consulta histórica explícita, paginada server-side (1–50 por página, 20 por defecto), ordenada por fecha descendente y limitada a pedidos `WEB` propios con extensión e-commerce. Puede incluir pedidos propios `CANCELADO` y `ANULADO` aunque `PedidoVenta` o `PedidoVentaEcommerce` estén inactivos; no los reactiva, elimina ni modifica los filtros globales de baja lógica. `ENTREGADO` permanece visible.
+- **Estados actuales:** se usan los nueve valores existentes de `EstadoEcommerce` (2.2): `PAGO_PENDIENTE`, `PAGO_CONFIRMADO`, `PAGO_RECHAZADO`, `EN_PREPARACION`, `LISTO_PARA_RETIRO`, `ENTREGADO`, `ANULADO`, `CANCELADO` y `VENCIDO_SIN_RETIRO`. No se crean estados nuevos. El detalle presenta número, fecha, total, ítems (producto, SKU, talle, color, cantidad y precio congelado), estado actual y comprobante asociado; los DTO omiten logs de pago, información cifrada de facturación y datos de otros clientes.
+- **QR de retiro:** HU-E9 **no genera ni modifica el token**; lee `PedidoVentaEcommerce.codigo_qr_retiro` y genera únicamente la imagen bajo demanda mediante `qrcode`. El QR codifica solo el token opaco: no incluye DNI, nombre, email, monto ni información de Mercado Pago. No se reutiliza `ComprobanteFiscal.qr_data_url`, que es el QR fiscal. Se expone la imagen solo en `LISTO_PARA_RETIRO` con token existente y `plazo_retiro_vencimiento` nulo o `>= ahora`; se oculta en `ENTREGADO`, `CANCELADO`, `VENCIDO_SIN_RETIRO`, `PAGO_RECHAZADO` y cualquier otro estado no listo, incluso si el token permanece almacenado. Si falta el token estando listo y vigente, se informa su indisponibilidad sin inventarlo.
+- **Comprobante:** HU-E9 no lo genera. La consulta de metadatos exige simultáneamente pedido propio `WEB` y comprobante asociado; comprobante ajeno e inexistente no se distinguen. No se expone la ruta administrativa `/api/ventas/comprobantes/[id]` al Cliente Web ni se crea un PDF fiscal. La descarga web definitiva queda pendiente de la superficie autenticada de HU-E8 y del documento disponible en HU-E2/Módulo B; la UI indica "Comprobante no disponible para descarga" sin ofrecer un enlace inválido.
+
+**Responsabilidades entre HU:** HU-E9 solo lee historial y detalle, presenta el QR y los datos disponibles del comprobante; no transiciona pedidos, genera notificaciones ni emite eventos de lectura. HU-E8 autentica al Cliente Web y provee identidad de cuenta y cliente server-side. HU-E12 genera `codigo_qr_retiro` al transicionar a `LISTO_PARA_RETIRO`. HU-E3 valida el QR durante el retiro. HU-E13 implementa cancelación y vencimiento. HU-F3 consume los eventos de los productores correspondientes (E2, E12, E3, E13) para crear notificaciones internas; abrir "Mis pedidos" no las crea.
+
+**DTO de servicio actual, no respuesta HTTP implementada (ejemplo de detalle listo):**
 ```json
 {
-  "data": {
-    "pedido_venta_id": "uuid",
-    "numero_venta": "V-2026-004821",
-    "estado_ecommerce": "LISTO_PARA_RETIRO",
-    "codigo_qr_retiro": "data:image/png;base64,...",
-    "items": [ { "variante_sku_id": "uuid", "producto": "Campera táctica", "talle": "L", "color": "Verde oliva", "cantidad": 1, "precio_unitario": 87000.00 } ],
-    "comprobante_id": "uuid",
-    "historial_estados": [ { "estado": "PAGO_CONFIRMADO", "timestamp": "2026-09-28T14:02:11.000Z" }, { "estado": "EN_PREPARACION", "timestamp": "2026-09-28T14:10:00.000Z" }, { "estado": "LISTO_PARA_RETIRO", "timestamp": "2026-09-28T16:45:00.000Z" } ]
-  },
-  "error": null
+  "id": "uuid", "numero": "V-2026-004821", "fecha": "2026-09-28T14:02:11.000Z",
+  "total": 87000.00, "estado": "LISTO_PARA_RETIRO",
+  "items": [ { "id": "uuid", "producto": "Campera táctica", "sku": "SKU-EJEMPLO", "talle": "L", "color": "Verde oliva", "cantidad": 1, "precio_unitario": 87000.00 } ],
+  "plazo_retiro_vencimiento": "2026-10-02T14:02:11.000Z",
+  "qr_data_url": "data:image/png;base64,...", "qr_inconsistente": false,
+  "comprobante": null
 }
 ```
 
-**Respuesta `404 Not Found` (pedido ajeno o inexistente):**
+**Respuesta HTTP prevista `404 Not Found` (pedido ajeno o inexistente, pendiente de HU-E8):**
 ```json
 { "data": null, "error": { "code": "PEDIDO_NO_ENCONTRADO", "message": "El pedido solicitado no existe" } }
 ```
+
+**Archivos implementados:**
+- `src/lib/services/ecommerce/mis-pedidos.service.ts` — listado paginado, detalle, DTOs, QR condicional y consulta autorizada de metadatos del comprobante.
+- `src/lib/services/ecommerce/mis-pedidos.service.test.ts` — pruebas unitarias del servicio.
+- `src/lib/services/ecommerce/mis-pedidos.service.integration.test.ts` — integración del servicio con Prisma/PostgreSQL en base dedicada, fixtures propios y rollback.
+- `src/components/ecommerce/MisPedidosListado.tsx` y `src/components/ecommerce/DetallePedidoWeb.tsx` — componentes reutilizables, aún sin rutas públicas.
+- `src/components/ecommerce/mis-pedidos.test.tsx` — pruebas de componentes.
+
+**Estado de implementación:**
+- **IMPLEMENTADO:** núcleo de lectura, listado paginado, detalle, aislamiento por cliente y canal `WEB`, mitigación IDOR, DTOs acotados, QR condicional, componentes reutilizables, consulta autorizada de metadatos del comprobante y pruebas unitarias, de componentes y de integración PostgreSQL.
+- **PENDIENTE POR HU-E8:** sesión real de Cliente Web; `/api/tienda/mis-pedidos`, `/api/tienda/mis-pedidos/[id]`, `/cuenta/pedidos`, `/cuenta/pedidos/[id]` y pruebas HTTP/E2E autenticadas. Sin E8 no se publica ninguna superficie que acepte una identidad suministrada por el navegador.
+- **PENDIENTE POR OTRAS HU:** generación productiva del token en HU-E12; validación y retiro HU-E3; cancelación/vencimiento HU-E13; notificaciones HU-F3; comprobante web descargable definitivo según HU-E2/Módulo B y la superficie autenticada.
+
+**Validación ejecutada:** servicio HU-E9 13 tests aprobados, componentes 4, integración PostgreSQL 1; **18 aprobados, 0 fallidos**. `npx tsc --noEmit --incremental false`: OK; `npm run lint`: 0 errores (3 warnings preexistentes fuera de HU-E9); `npm run build`: OK.
 
 ### 2.10. Roles Administrador E-commerce y Operador de Pick & Pack (HU-E10)
 
@@ -613,7 +627,7 @@ export const PriorizarPedidoSchema = z.object({
 - **Ingreso automático a la cola (criterio de aceptación explícito):** todo pedido con `estado_ecommerce = PAGO_CONFIRMADO` ingresa automáticamente a la cola (transición a `EN_PREPARACION` disparada por el mismo listener que procesa la confirmación de pago de 2.2, o por un `PATCH` explícito de "tomar" — el criterio de aceptación distingue "ingresa a la cola" de "el Operador lo toma": ingreso automático = aparece listado y ordenado por fecha de pago; "tomar" (`estado_ecommerce` permanece `EN_PREPARACION` pero con `operador_asignado_id` seteado) es la acción explícita del Operador).
 - **Notificación al ingresar un pedido nuevo (criterio de aceptación explícito):** el rol Operador recibe notificación interna vía HU-F3 (dirigida por `rol_id`, expandida a cada usuario con ese rol activo — mismo mecanismo de expansión de destinatario de `spec_modulo_F.md` sección 2.3).
 - **Confirmación por escaneo, ítem por ítem (criterio de aceptación explícito, no negociable):** cada `PATCH /confirmar-item` valida el código de barras escaneado contra los ítems del pedido — un SKU que no corresponde bloquea la confirmación con `409 ITEM_NO_CORRESPONDE_AL_PEDIDO`, sin afectar los ítems ya confirmados.
-- **Completar preparación → QR (criterio de aceptación explícito):** al confirmar todos los ítems, `PATCH /completar` transiciona `estado_ecommerce → LISTO_PARA_RETIRO`, genera `codigo_qr_retiro` (token único, no reutilizable entre pedidos) y dispara la notificación de HU-E9/HU-F3 al cliente.
+- **Completar preparación → QR (criterio de aceptación explícito):** al confirmar todos los ítems, `PATCH /completar` transiciona `estado_ecommerce → LISTO_PARA_RETIRO`, genera `codigo_qr_retiro` (token único, no reutilizable entre pedidos) y dispara el evento que HU-F3 consume para notificar al cliente; HU-E9 solo lee y presenta el QR.
 - **Validación de retiro — QR + DNI (criterio de aceptación explícito, no negociable):** `POST /validar-retiro` exige `codigo_qr` **y** `dni_receptor`; ambos deben corresponder al mismo pedido y al titular real — un tercero no autorizado no puede retirar (el DNI del receptor se valida contra el `Cliente` propietario del pedido, resuelto vía `PedidoVenta` → `cliente_id` → Módulo C). Solo entonces `estado_ecommerce → ENTREGADO` y se emite el remito (`spec_modulo_B.md` sección 2.3, `PedidoVenta.estado → REMITO_EMITIDO` y, al ser Click & Collect de entrega única sin saldo parcial pendiente, `→ CERRADO` en el mismo commit).
 - **QR inválido, vencido o de otro pedido (criterio de aceptación explícito):** se rechaza con `422 QR_INVALIDO` y genera un evento auditado — sin excepción, incluso si el DNI es correcto pero el QR no corresponde.
 - **Segregación de datos (criterio de aceptación explícito, ver 2.10):** el Operador solo ve nombre del destinatario y contenido del pedido — ningún endpoint de esta sección expone `TransaccionPagoLog` ni el total facturado al rol Operador (el `select`/`include` de Prisma en la capa de servicios omite esos campos por completo para este rol, no se filtran del lado del cliente).
