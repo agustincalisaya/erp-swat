@@ -13,8 +13,8 @@ const venta = "44444444-4444-4444-8444-444444444444";
 
 // ── Schemas ───────────────────────────────────────────────────────────────────
 
-test("CrearReservaSchema acepta un congelamiento válido con cada uno de los 3 orígenes", () => {
-  for (const origen_reserva of ["SENIA", "LICITACION", "PEDIDO_INSTITUCIONAL"]) {
+test("CrearReservaSchema acepta un congelamiento válido con cada uno de los 4 orígenes (incluido CHECKOUT_WEB, HU-E1)", () => {
+  for (const origen_reserva of ["SENIA", "LICITACION", "PEDIDO_INSTITUCIONAL", "CHECKOUT_WEB"]) {
     assert.equal(
       CrearReservaSchema.safeParse({
         variante_sku_id: variante,
@@ -240,14 +240,49 @@ test("B — crearReserva resuelve el TTL con resolverTtlHoras(origen, ttl_horas)
   assert.match(fuente, /ttl_horas: ttlHoras/);
 });
 
-test("C — TTL_POR_ORIGEN cubre los 3 orígenes contra la constante 72h, sin número mágico", () => {
+test("C — TTL_POR_ORIGEN cubre los 4 orígenes contra la constante 72h, sin número mágico", () => {
   const fuente = leerServicio();
   const inicio = fuente.indexOf("const TTL_POR_ORIGEN");
   const bloque = fuente.slice(inicio, fuente.indexOf("};", inicio) + 2);
   assert.match(bloque, /SENIA: TTL_RESERVA_DEFAULT_HORAS/);
   assert.match(bloque, /LICITACION: TTL_RESERVA_DEFAULT_HORAS/);
   assert.match(bloque, /PEDIDO_INSTITUCIONAL: TTL_RESERVA_DEFAULT_HORAS/);
+  assert.match(bloque, /CHECKOUT_WEB: TTL_RESERVA_DEFAULT_HORAS/);
   assert.doesNotMatch(bloque, /:\s*72\b/);
+});
+
+// HU-E1 (D2) — extracción de crearReservaTx() ─────────────────────────────────
+
+const sliceCrearReservaTx = (fuente: string) =>
+  fuente.slice(
+    fuente.indexOf("export async function crearReservaTx"),
+    fuente.indexOf("export async function crearReserva("),
+  );
+
+test("HU-E1 D2 — crearReservaTx recibe el tx del llamador: no abre $transaction ni emite eventos", () => {
+  const bloque = sliceCrearReservaTx(leerServicio());
+  assert.match(bloque, /export async function crearReservaTx\(\s*tx: Prisma\.TransactionClient,/);
+  assert.doesNotMatch(bloque, /prisma\.\$transaction/);
+  assert.doesNotMatch(bloque, /domainEventBus\.emit/);
+  // Devuelve el payload del evento para que el llamador lo emita post-commit.
+  assert.match(bloque, /evento: \{/);
+});
+
+test("HU-E1 D2 — crearReserva conserva la firma, envuelve a crearReservaTx y emite DESPUÉS del commit", () => {
+  const fuente = leerServicio();
+  const inicio = fuente.indexOf("export async function crearReserva(");
+  const bloque = fuente.slice(inicio, fuente.indexOf("export function emitirReservaCongelada"));
+  assert.match(
+    bloque,
+    /export async function crearReserva\(\s*input: CrearReservaInput,\s*usuarioId: string,\s*\): Promise<ReservaCongelada>/,
+  );
+  const tx = bloque.indexOf("await prisma.$transaction");
+  const llamada = bloque.indexOf("crearReservaTx(tx, input, usuarioId)");
+  const emision = bloque.indexOf("emitirReservaCongelada(evento)");
+  assert.ok(tx > -1 && llamada > tx && emision > llamada);
+  // El evento no se filtra en el valor devuelto (mismo shape que antes de HU-E1).
+  assert.match(bloque, /const \{ evento, \.\.\.reserva \} =/);
+  assert.match(bloque, /return reserva;/);
 });
 
 test("D — el MovimientoStock del congelamiento referencia la Reserva vía comprobante RESERVA-<id>", () => {
@@ -331,9 +366,62 @@ test("K — cada $transaction del cron va dentro de un try/catch por reserva: un
   assert.match(cuerpoLoop, /console\.error\(`\[liberarReservasVencidas\] Error al liberar reserva/);
 });
 
+// HU-E1 (D4.2) — liberarReservasVencidasTx() y núcleo compartido ───────────────
+
+const sliceDesde = (fuente: string, desde: string, hasta?: string) =>
+  fuente.slice(fuente.indexOf(desde), hasta ? fuente.indexOf(hasta, fuente.indexOf(desde)) : undefined);
+
+test("HU-E1 D4.2 — liberarReservasVencidasTx recibe el tx, filtra por depósito + SKUs vencidos y no abre $transaction ni emite", () => {
+  const bloque = sliceDesde(
+    leerServicio(),
+    "export async function liberarReservasVencidasTx",
+    "export function emitirReservasLiberadasTtl",
+  );
+  assert.match(bloque, /export async function liberarReservasVencidasTx\(\s*tx: Prisma\.TransactionClient,\s*filtro: FiltroLiberacionVencidas,/);
+  assert.match(
+    bloque,
+    /tx\.reserva\.findMany\(\{\s*where: \{\s*is_active: true,\s*deleted_at: null,\s*fecha_fin_reserva: null,\s*fecha_expiracion: \{ lte: ahora \},\s*deposito_id: filtro\.depositoId,\s*variante_sku_id: \{ in: \[\.\.\.filtro\.skuIds\] \},/,
+  );
+  assert.match(bloque, /if \(filtro\.skuIds\.length === 0\) return \[\];/);
+  assert.match(bloque, /await liberarReservaVencidaTx\(tx, reserva, ahora\)/);
+  assert.doesNotMatch(bloque, /\$transaction/);
+  assert.doesNotMatch(bloque, /domainEventBus\.emit/);
+});
+
+test("HU-E1 D4.2 — el núcleo cierra la reserva (updateMany condicionado) ANTES de reincrementar stock y no reincrementa si ya estaba cerrada", () => {
+  const bloque = sliceDesde(
+    leerServicio(),
+    "async function liberarReservaVencidaTx",
+    "export interface FiltroLiberacionVencidas",
+  );
+  const cierre = bloque.indexOf("tx.reserva.updateMany");
+  const corte = bloque.indexOf("if (cierre.count === 0) return false;");
+  const incremento = bloque.indexOf("increment: reserva.cantidad");
+  assert.ok(cierre > -1 && corte > cierre && incremento > corte);
+  assert.match(bloque, /where: \{ id: reserva\.id, is_active: true, deleted_at: null, fecha_fin_reserva: null \}/);
+  assert.match(bloque, /tipo_movimiento: "INGRESO"/);
+  assert.match(bloque, /estado_origen: "RESERVADO",\s*estado_destino: "DISPONIBLE"/);
+  assert.doesNotMatch(bloque, /\$transaction|domainEventBus/);
+});
+
+test("HU-E1 D4.2 — liberarReservasVencidas conserva firma y usa el núcleo dentro de su $transaction por reserva", () => {
+  const bloque = sliceDesde(leerServicio(), "export async function liberarReservasVencidas(", "// 4.4");
+  assert.match(bloque, /export async function liberarReservasVencidas\(\s*ahora: Date = new Date\(\),\s*\): Promise<LiberacionTtlResultado>/);
+  assert.match(bloque, /await prisma\.\$transaction\(async \(tx: Prisma\.TransactionClient\) => \{\s*[\s\S]*liberarReservaVencidaTx\(tx, reserva, ahora\)/);
+  // Ya cerrada por otro proceso → mismo RESERVA_NO_ACTIVA de antes (log + continúa).
+  assert.match(bloque, /if \(!liberada\) \{\s*throw new ServiceError\(\s*"RESERVA_NO_ACTIVA"/);
+});
+
+test("HU-E1 D4.2 — emitirReservasLiberadasTtl emite stock:reserva_liberada TTL_VENCIDO por cada liberada", () => {
+  const bloque = sliceDesde(leerServicio(), "export function emitirReservasLiberadasTtl");
+  assert.match(bloque, /for \(const reserva of liberadas\)/);
+  assert.match(bloque, /domainEventBus\.emit\("stock:reserva_liberada", \{/);
+  assert.match(bloque, /motivo_liberacion: "TTL_VENCIDO"/);
+});
+
 // Schemas Zod ─────────────────────────────────────────────────────────────────
 
-test("L — CrearReservaSchema rechaza UUIDs inválidos y la ausencia de origen_reserva", () => {
+test("L —CrearReservaSchema rechaza UUIDs inválidos y la ausencia de origen_reserva", () => {
   assert.equal(
     CrearReservaSchema.safeParse({
       variante_sku_id: "no-es-uuid",

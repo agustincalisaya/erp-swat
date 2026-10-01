@@ -379,3 +379,86 @@ export async function listarSupervisoresVentas(): Promise<SupervisorParaSelector
 
   return usuarios;
 }
+
+// ──────────────────────────────────────────────────────────────────────────────
+// HU-E1 (spec_modulo_E.md §2.2 paso 4) — alta de un `PedidoVenta` RESERVADO
+// dentro de la transacción del llamador. Módulo E NO crea `PedidoVenta` por su
+// cuenta: invoca esta función de Módulo B (spec E §2.2: "Módulo E no
+// reimplementa la creación de PedidoVenta").
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * `numero_venta` (`V-<año>-<secuencia 6 díg.>`). Misma regla que los helpers
+ * privados de `presupuesto.service.ts` y `venta-mostrador.service.ts` (no se
+ * tocaron: ver deuda en docs/tasks/HU-E1.md). El `@unique` de schema es la
+ * defensa final: ante colisión por concurrencia (`P2002`) el llamador reintenta.
+ */
+export async function generarNumeroVentaTx(tx: Prisma.TransactionClient): Promise<string> {
+  const anio = new Date().getFullYear();
+  const prefijo = `V-${anio}-`;
+  const emitidosEsteAnio = await tx.pedidoVenta.count({
+    where: { numero_venta: { startsWith: prefijo } },
+  });
+  return `${prefijo}${String(emitidosEsteAnio + 1).padStart(6, "0")}`;
+}
+
+export interface CrearPedidoVentaReservadoItem {
+  variante_sku_id: string;
+  cantidad: number;
+  /** Precio ya resuelto server-side (HU-B9) y congelado en el ítem. */
+  precio_unitario: Prisma.Decimal;
+  /** Reserva de Módulo A ya congelada para este ítem (`@unique`). */
+  reserva_id: string;
+}
+
+export interface CrearPedidoVentaReservadoInput {
+  canal: "MOSTRADOR" | "WEB";
+  cliente_id: string;
+  registrado_por_id: string;
+  items: readonly CrearPedidoVentaReservadoItem[];
+}
+
+export interface PedidoVentaReservadoCreado {
+  pedido_venta_id: string;
+  numero_venta: string;
+  total: Prisma.Decimal;
+}
+
+/**
+ * Crea un `PedidoVenta` en `RESERVADO` (estado inicial de la máquina de
+ * spec B §3.1) con sus ítems al precio congelado, cada uno con su reserva.
+ * No toca stock ni emite eventos: el llamador ya congeló las reservas en la
+ * misma transacción y emite sus eventos post-commit.
+ */
+export async function crearPedidoVentaReservadoTx(
+  tx: Prisma.TransactionClient,
+  input: CrearPedidoVentaReservadoInput,
+): Promise<PedidoVentaReservadoCreado> {
+  const total = input.items.reduce(
+    (acumulado, item) => acumulado.add(item.precio_unitario.mul(item.cantidad)),
+    new Prisma.Decimal(0),
+  );
+  const numeroVenta = await generarNumeroVentaTx(tx);
+
+  const pedido = await tx.pedidoVenta.create({
+    data: {
+      numero_venta: numeroVenta,
+      cliente_id: input.cliente_id,
+      canal: input.canal,
+      estado: "RESERVADO",
+      total,
+      registrado_por_id: input.registrado_por_id,
+      items: {
+        create: input.items.map((item) => ({
+          variante_sku_id: item.variante_sku_id,
+          cantidad: item.cantidad,
+          precio_unitario: item.precio_unitario,
+          reserva_id: item.reserva_id,
+        })),
+      },
+    },
+    select: { id: true, numero_venta: true, total: true },
+  });
+
+  return { pedido_venta_id: pedido.id, numero_venta: pedido.numero_venta, total: pedido.total };
+}

@@ -551,6 +551,36 @@ const STOCK_CT3_SHOWROOM_ID = "676e1f19-bc5f-4fec-bbb5-5108365f94df";
 const STOCK_B2_SHOWROOM_ID = "fe533994-5e90-43dd-8c07-eebbaf691c6f";
 const STOCK_GORRA_SHOWROOM_ID = "d5f5e76e-6d21-42b4-ad87-f16f219d19bd";
 
+// HU-E1 (docs/tasks/HU-E1.md §9) — fixtures del catálogo, carrito y checkout.
+// UUID aleatorios verificados contra todo seed.ts (sin namespace numerado).
+// SKU inactivo: baja lógica de la variante, CON precio y stock — la única
+// razón de bloqueo es la desactivación (CA4, motivo SKU_INACTIVO).
+const VARIANTE_CAMISA_TACTICA_INACTIVA_ID = "9f8b39ba-97af-42fc-9915-2f46a5fe67f9";
+const STOCK_CT_INACTIVA_SHOWROOM_ID = "e66ce974-9448-4cb3-a9ea-5ee3f7a90bd5";
+// Producto Maestro inactivo con variante activa, precio, stock y contenido
+// web visible (motivo PRODUCTO_INACTIVO).
+const PRODUCTO_CHALECO_TACTICO_ID = "db63470e-1617-443a-8555-6e1c44a96c05";
+const VARIANTE_CHALECO_TACTICO_ID = "c0870f28-b4c6-4da6-861f-cee8e52092ae";
+const STOCK_CHALECO_SHOWROOM_ID = "b0649afd-ed4f-4afb-bb43-b9e7869034c5";
+const CONTENIDO_WEB_CHALECO_ID = "37de6c03-7014-41b0-81e4-ee667721642d";
+const FOTO_WEB_CHALECO_ID = "4f67e568-71b7-4976-9f7b-56e39e61421a";
+// Versión de la Lista de Precios de Venta con `vigente_desde` FUTURA (CA3).
+const LISTA_PRECIO_VENTA_VERSION_FUTURA_ID = "d59ba4b5-1ed3-4be2-b5ae-8a19c8c71612";
+// Cliente Web de prueba exclusivo de HU-E1 (D11): Juan Pérez no se toca.
+const CLIENTE_CARLOS_RUIZ_ID = "cb682046-4e8c-484d-9cd1-dfad11a7d16d";
+const CONSENTIMIENTO_CARLOS_RUIZ_ID = "b1dc1505-5bd4-4ae0-9aee-2bd8320fc011";
+const CUENTA_WEB_CARLOS_RUIZ_ID = "f14aeb05-43e6-419e-aad0-61b096ecf13e";
+const CARRITO_WEB_CARLOS_RUIZ_ID = "9694caaa-2f5b-4cb7-b848-7c005bdca884";
+const CARRITO_ITEM_CARLOS_CT2_ID = "c29cea90-76fc-4e05-9a7b-9ba264d4bdda";
+const CARRITO_ITEM_CARLOS_INACTIVA_ID = "edf2919c-4f48-4bc3-9fb8-6e2ca0809b56";
+// Carrito de visitante (sin cuenta) para probar la fusión al iniciar sesión (CA7).
+const CARRITO_WEB_VISITANTE_ID = "1fa6fdec-4aef-4c79-8174-9b41983b8147";
+const CARRITO_ITEM_VISITANTE_CT3_ID = "6e08eb73-6768-4ab5-83ce-e6e3841166c4";
+const CARRITO_ITEM_VISITANTE_CT2_ID = "e984b52c-1fb2-417e-9c71-93cceeeb408a";
+// Valor crudo de `carrito_token` (la cookie lleva además la firma HMAC, HU-E1
+// fase 2). Fijo para poder reproducir la fusión a mano.
+const CARRITO_VISITANTE_TOKEN_SEED = "0b61c7bf18671e7ed1a096da1a17d9ea94c81004ed50d22a";
+
 // HU-E4 — cupones y aplicaciones.
 const CUPON_VIGENTE_ID = "1634c3e2-60fd-425a-8677-c0b180507d9a";
 const CUPON_VENCIDO_ID = "d0eabb60-ec2c-422b-9f1e-c012013923ad";
@@ -3924,6 +3954,260 @@ async function main() {
     });
   }
 
+  // ── HU-E1 — Fixtures de catálogo, carrito y checkout (task HU-E1 §9) ────────
+  // Los `update` RE-AFIRMAN el estado del fixture (no `{}`): re-correr el seed
+  // deja los casos listos para volver a probar a mano (la fusión da de baja el
+  // carrito visitante; el checkout puede tocar el carrito de Carlos). Nunca se
+  // borra nada: lo que sobra se da de baja lógica.
+  const BAJA_FIXTURE_E1 = {
+    is_active: false,
+    deleted_by: usuarioAdminEcommerce.id,
+  };
+
+  // (1) SKU inactivo — Camisa Táctica XL/Verde/HOMBRE/Manga Larga.
+  const skuCamisaInactiva = generarSku({
+    codigoProducto: productoCamisaTactica.codigo_producto,
+    modelo: "Manga Larga",
+    talle: "XL",
+    codigoColor: "Verde",
+    genero: "HOMBRE",
+  });
+  await prisma.varianteSKU.upsert({
+    where: { id: VARIANTE_CAMISA_TACTICA_INACTIVA_ID },
+    update: { ...BAJA_FIXTURE_E1, deletion_reason: "Discontinuado — fixture HU-E1" },
+    create: {
+      id: VARIANTE_CAMISA_TACTICA_INACTIVA_ID,
+      producto_maestro_id: productoCamisaTactica.id,
+      proveedor_id: proveedorHomologado.id,
+      sku: skuCamisaInactiva,
+      ean_qr: "7791234500109",
+      talle: "XL",
+      color: "Verde",
+      genero: "HOMBRE",
+      modelo: "Manga Larga",
+      ...BAJA_FIXTURE_E1,
+      deleted_at: diasAtras(1),
+      deletion_reason: "Discontinuado — fixture HU-E1",
+    },
+  });
+
+  // (2) Producto Maestro inactivo con variante ACTIVA — Chaleco Táctico.
+  const productoChaleco = await prisma.productoMaestro.upsert({
+    where: { id: PRODUCTO_CHALECO_TACTICO_ID },
+    update: { ...BAJA_FIXTURE_E1, deletion_reason: "Producto discontinuado — fixture HU-E1" },
+    create: {
+      id: PRODUCTO_CHALECO_TACTICO_ID,
+      codigo_producto: "CHATAC",
+      nombre: "Chaleco Táctico",
+      rubro: "Indumentaria",
+      categoria: "Chalecos",
+      unidad_medida: "UNIDAD",
+      descripcion: "Chaleco táctico — datos de prueba (HU-E1, Producto Maestro inactivo)",
+      costo_estandar_referencia: 30000.0,
+      ...BAJA_FIXTURE_E1,
+      deleted_at: diasAtras(1),
+      deletion_reason: "Producto discontinuado — fixture HU-E1",
+    },
+  });
+  await prisma.varianteSKU.upsert({
+    where: { id: VARIANTE_CHALECO_TACTICO_ID },
+    update: {},
+    create: {
+      id: VARIANTE_CHALECO_TACTICO_ID,
+      producto_maestro_id: productoChaleco.id,
+      proveedor_id: proveedorHomologado.id,
+      sku: generarSku({
+        codigoProducto: productoChaleco.codigo_producto,
+        modelo: "Operativo",
+        talle: "L",
+        codigoColor: "Negro",
+        genero: "UNISEX",
+      }),
+      ean_qr: "7791234500116",
+      talle: "L",
+      color: "Negro",
+      genero: "UNISEX",
+      modelo: "Operativo",
+      is_active: true,
+    },
+  });
+  const contenidoChaleco = await prisma.productoWebContenido.upsert({
+    where: { producto_maestro_id: productoChaleco.id },
+    update: {},
+    create: {
+      id: CONTENIDO_WEB_CHALECO_ID,
+      producto_maestro_id: productoChaleco.id,
+      titulo_comercial: "Chaleco Táctico Operativo",
+      descripcion: "Chaleco táctico. Datos de prueba — Producto Maestro dado de baja (HU-E1).",
+      visibilidad_web: true,
+    },
+  });
+  await prisma.productoWebFoto.upsert({
+    where: { id: FOTO_WEB_CHALECO_ID },
+    update: {},
+    create: {
+      id: FOTO_WEB_CHALECO_ID,
+      producto_web_contenido_id: contenidoChaleco.id,
+      url: "https://placehold.co/800x800?text=Chaleco+Tactico",
+      es_principal: true,
+      orden: 0,
+    },
+  });
+
+  // Precio manual en la versión 1 (sin ListaPrecio de proveedor, igual que la
+  // Gorra) y stock en el depósito del canal web, para los dos casos de arriba.
+  for (const [variante_sku_id, precio_venta] of [
+    [VARIANTE_CAMISA_TACTICA_INACTIVA_ID, 22800.0],
+    [VARIANTE_CHALECO_TACTICO_ID, 40500.0],
+  ] as const) {
+    await prisma.listaPrecioVentaItem.upsert({
+      where: { version_id_variante_sku_id: { version_id: listaPrecioVentaVersion1.id, variante_sku_id } },
+      update: {},
+      create: { version_id: listaPrecioVentaVersion1.id, variante_sku_id, precio_venta, costo_reposicion_referencia: null },
+    });
+  }
+  for (const s of [
+    { id: STOCK_CT_INACTIVA_SHOWROOM_ID, vid: VARIANTE_CAMISA_TACTICA_INACTIVA_ID, qty: 5 },
+    { id: STOCK_CHALECO_SHOWROOM_ID, vid: VARIANTE_CHALECO_TACTICO_ID, qty: 4 },
+  ]) {
+    await prisma.stockDeposito.upsert({
+      where: { variante_sku_id_deposito_id: { variante_sku_id: s.vid, deposito_id: depositoShowroom.id } },
+      update: {},
+      create: { id: s.id, variante_sku_id: s.vid, deposito_id: depositoShowroom.id, cantidad: s.qty, is_active: true },
+    });
+  }
+
+  // (3) Versión FUTURA de la Lista de Precios de Venta (CA3): la Gorra cuesta
+  // 9500 en la versión 1 vigente y 9900 en esta, que NO debe aplicarse antes
+  // de tiempo. `vigente_desde` se refresca en cada corrida (mismo criterio que
+  // la reserva PAGO_PENDIENTE) para que el fixture no "envejezca" y se vuelva
+  // vigente sola.
+  const vigenteDesdeFutura = diasAtras(-30);
+  const listaPrecioVentaVersionFutura = await prisma.listaPrecioVentaVersion.upsert({
+    where: { id: LISTA_PRECIO_VENTA_VERSION_FUTURA_ID },
+    update: { vigente_desde: vigenteDesdeFutura },
+    create: {
+      id: LISTA_PRECIO_VENTA_VERSION_FUTURA_ID,
+      lista_id: listaPrecioVentaGeneral.id,
+      vigente_desde: vigenteDesdeFutura,
+      publicado_por_id: usuarioSupervisorVentas.id,
+    },
+  });
+  await prisma.listaPrecioVentaItem.upsert({
+    where: {
+      version_id_variante_sku_id: {
+        version_id: listaPrecioVentaVersionFutura.id,
+        variante_sku_id: VARIANTE_GORRA_TACTICA_ID,
+      },
+    },
+    update: {},
+    create: {
+      version_id: listaPrecioVentaVersionFutura.id,
+      variante_sku_id: VARIANTE_GORRA_TACTICA_ID,
+      precio_venta: 9900.0,
+      costo_reposicion_referencia: null,
+    },
+  });
+
+  // (4) Cliente Web de prueba exclusivo de HU-E1 (D11) — operativo, sin
+  // pedidos web previos (Juan Pérez ya tiene un PAGO_PENDIENTE sembrado).
+  const clienteCarlosRuiz = await prisma.cliente.upsert({
+    where: { id: CLIENTE_CARLOS_RUIZ_ID },
+    update: {},
+    create: {
+      id: CLIENTE_CARLOS_RUIZ_ID,
+      dni: "33444555",
+      nombre: "Carlos Ruiz",
+      telefono: "3874005555",
+      email: "carlos.ruiz@example.com",
+      canal_preferido: "EMAIL",
+      segmento: "MINORISTA",
+      is_active: true,
+    },
+  });
+  await prisma.consentimientoCliente.upsert({
+    where: { id: CONSENTIMIENTO_CARLOS_RUIZ_ID },
+    update: {},
+    create: {
+      id: CONSENTIMIENTO_CARLOS_RUIZ_ID,
+      cliente_id: clienteCarlosRuiz.id,
+      alcance: "AMBOS",
+      finalidad: "Venta online y comunicaciones comerciales",
+      fecha_consentimiento: diasAtras(3),
+      is_active: true,
+    },
+  });
+  const cuentaWebCarlosRuiz = await prisma.cuentaClienteWeb.upsert({
+    where: { cliente_id: clienteCarlosRuiz.id },
+    update: {},
+    create: {
+      id: CUENTA_WEB_CARLOS_RUIZ_ID,
+      cliente_id: clienteCarlosRuiz.id,
+      email: "carlos.ruiz@example.com",
+      password_hash: passwordSeed.hash,
+    },
+  });
+
+  // (5) Carrito persistente de Carlos: CT2 ×1 + SKU inactivo ×1 (CA4 directo
+  // y CA7 desde otro navegador). Re-afirmado en cada corrida: cualquier otro
+  // carrito activo de la cuenta o ítem extra queda de baja lógica (índice
+  // único parcial — un solo carrito activo por cuenta, D5).
+  const reseedE1 = { deleted_at: new Date(), deleted_by: usuarioAdminEcommerce.id };
+  await prisma.carritoWeb.updateMany({
+    where: { cuenta_cliente_web_id: cuentaWebCarlosRuiz.id, id: { not: CARRITO_WEB_CARLOS_RUIZ_ID }, is_active: true },
+    data: { is_active: false, ...reseedE1, deletion_reason: "RESEED_FIXTURE_HU_E1" },
+  });
+  const ACTIVO_E1 = { is_active: true, deleted_at: null, deleted_by: null, deletion_reason: null };
+  await prisma.carritoWeb.upsert({
+    where: { id: CARRITO_WEB_CARLOS_RUIZ_ID },
+    update: { ...ACTIVO_E1, cuenta_cliente_web_id: cuentaWebCarlosRuiz.id, carrito_token: null },
+    create: { id: CARRITO_WEB_CARLOS_RUIZ_ID, cuenta_cliente_web_id: cuentaWebCarlosRuiz.id },
+  });
+
+  // (6) Carrito de VISITANTE (sin cuenta), token fijo: CT3 ×2 + CT2 ×1 — CT2
+  // repetido con el de Carlos para probar la suma en la fusión (CA7).
+  await prisma.carritoWeb.upsert({
+    where: { id: CARRITO_WEB_VISITANTE_ID },
+    update: { ...ACTIVO_E1, carrito_token: CARRITO_VISITANTE_TOKEN_SEED, cuenta_cliente_web_id: null },
+    create: { id: CARRITO_WEB_VISITANTE_ID, carrito_token: CARRITO_VISITANTE_TOKEN_SEED },
+  });
+
+  const itemsFixtureE1 = [
+    { id: CARRITO_ITEM_CARLOS_CT2_ID, carrito_id: CARRITO_WEB_CARLOS_RUIZ_ID, variante_sku_id: VARIANTE_CAMISA_TACTICA_2_ID, cantidad: 1 },
+    { id: CARRITO_ITEM_CARLOS_INACTIVA_ID, carrito_id: CARRITO_WEB_CARLOS_RUIZ_ID, variante_sku_id: VARIANTE_CAMISA_TACTICA_INACTIVA_ID, cantidad: 1 },
+    { id: CARRITO_ITEM_VISITANTE_CT3_ID, carrito_id: CARRITO_WEB_VISITANTE_ID, variante_sku_id: VARIANTE_CAMISA_TACTICA_3_ID, cantidad: 2 },
+    { id: CARRITO_ITEM_VISITANTE_CT2_ID, carrito_id: CARRITO_WEB_VISITANTE_ID, variante_sku_id: VARIANTE_CAMISA_TACTICA_2_ID, cantidad: 1 },
+  ];
+  await prisma.carritoWebItem.updateMany({
+    where: {
+      carrito_id: { in: [CARRITO_WEB_CARLOS_RUIZ_ID, CARRITO_WEB_VISITANTE_ID] },
+      id: { notIn: itemsFixtureE1.map((i) => i.id) },
+      is_active: true,
+    },
+    data: { is_active: false, ...reseedE1, deletion_reason: "RESEED_FIXTURE_HU_E1" },
+  });
+  for (const item of itemsFixtureE1) {
+    await prisma.carritoWebItem.upsert({
+      where: { id: item.id },
+      update: { ...ACTIVO_E1, cantidad: item.cantidad },
+      create: item,
+    });
+  }
+
+  // (7) Plantilla del evento de CA4 (spec_modulo_F.md §3.3: ADVERTENCIA,
+  // Cliente Web dueño del carrito). `{{sku}}` viaja en el payload del evento.
+  await prisma.plantillaNotificacion.upsert({
+    where: { tipo_evento: "ecommerce:carrito_articulo_no_disponible" },
+    update: {},
+    create: {
+      tipo_evento: "ecommerce:carrito_articulo_no_disponible",
+      asunto: "Un artículo de tu carrito ya no está disponible",
+      cuerpo:
+        "El artículo {{sku}} de tu carrito ya no está disponible y bloqueó la confirmación de tu compra. Quitalo del carrito para continuar.",
+      prioridad_default: "ADVERTENCIA",
+    },
+  });
+
   // ── HU-E4 — Cupones ─────────────────────────────────────────────────────────
   const cuponVigente = await prisma.cuponDescuento.upsert({
     where: { codigo: "SWAT10" },
@@ -4344,9 +4628,10 @@ async function main() {
   //     (se agregan al implementar HU-E12/HU-E13).
   // Sin plantilla, a propósito: `usuario:suspendido_automaticamente` (ejercita
   // el texto por defecto — F §2.2 lo usa de ejemplo). No se siembran los tres
-  // "a confirmar" de F §3.3. Tampoco `ecommerce:pedido_pago_confirmado`,
-  // `ecommerce:carrito_articulo_no_disponible` ni
-  // `ecommerce:plazo_retiro_por_vencer`: sus nombres ya quedaron alineados
+  // "a confirmar" de F §3.3. Tampoco `ecommerce:pedido_pago_confirmado` ni
+  // `ecommerce:plazo_retiro_por_vencer` (la de
+  // `ecommerce:carrito_articulo_no_disponible` la siembra el bloque HU-E1,
+  // más arriba, porque HU-E1 ya emite ese evento): sus nombres ya quedaron alineados
   // entre F §3.3 y E §4, pero se dejan sin plantilla para no ampliar este
   // fixture (el Motor cae al texto por defecto).
   // Placeholders: solo campos que el payload del evento trae (F §3.2).
@@ -4594,6 +4879,10 @@ async function main() {
     conector_pago_sandbox: hayClaveCifrado ? CONECTOR_PAGO_SANDBOX_ID : "OMITIDO (sin ENCRYPTION_KEY_PROVEEDORES)",
     cupones: "SWAT10 (vigente) · INVIERNO5000 (vencido) · LANZAMIENTO15 (agotado)",
     producto_web_no_visible: productoGorraTactica.nombre,
+    hu_e1_cuenta_web: `${cuentaWebCarlosRuiz.email}  (password: "${PASSWORD_SEED}")`,
+    hu_e1_sku_inactivo: skuCamisaInactiva,
+    hu_e1_producto_maestro_inactivo: productoChaleco.nombre,
+    hu_e1_carrito_visitante_token: CARRITO_VISITANTE_TOKEN_SEED,
     ...Object.fromEntries(
       [...pedidoWebPorEstado.entries()].map(([clave, pedido]) => [
         `pedido_web_${clave.split(":")[0].toLowerCase()}_${pedido.numero_venta.slice(-2)}`,
