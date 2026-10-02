@@ -182,7 +182,15 @@ test(
     }
 
     async function esperarAuditLog() {
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      // Los listeners de auditoría son fire-and-forget; esperamos hasta que la
+      // cantidad de registros se estabilice, no solo un timeout fijo.
+      let anterior = -1;
+      for (let i = 0; i < 30; i++) {
+        const actual = await prisma.auditLog.count();
+        if (actual === anterior) return;
+        anterior = actual;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
     }
 
     await fixtureBase();
@@ -335,6 +343,7 @@ test(
         escaneos: 1,
       });
       await tomarPedido(pedidoId, operador1Id);
+      await esperarAuditLog();
       await completarPreparacion(pedidoId, operador1Id);
       await esperarAuditLog();
 
