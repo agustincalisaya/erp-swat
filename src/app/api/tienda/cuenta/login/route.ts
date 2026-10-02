@@ -20,6 +20,7 @@ import {
 } from "@/lib/auth/sesion-cliente-web";
 import { ServiceError } from "@/lib/errors/service-error";
 import { fusionarCarritoVisitante } from "@/lib/services/ecommerce/carrito.service";
+import { ErrorConfiguracionCuentaWeb, MENSAJE_ERROR_INTERNO_CUENTA_WEB } from "@/lib/services/ecommerce/cuenta-cliente-web.service";
 import { CARRITO_COOKIE_NAME, leerCookieCarrito } from "@/lib/services/ecommerce/carrito-token";
 import { borrarCookieCarrito } from "@/lib/services/ecommerce/contexto-tienda";
 
@@ -47,7 +48,7 @@ export async function POST(req: NextRequest) {
     const tokenVisitante = leerCookieCarrito(req.cookies.get(CARRITO_COOKIE_NAME)?.value);
     let carritoFusionado = false;
     let fusionFallida = false;
-    if (tokenVisitante) {
+    if (tokenVisitante && !sesion.vinculacionPendiente) {
       try {
         carritoFusionado = (await fusionarCarritoVisitante(tokenVisitante, sesion.cuentaId)) !== null;
       } catch (error) {
@@ -69,9 +70,13 @@ export async function POST(req: NextRequest) {
       { status: 200 },
     );
     aplicarCookieSesionClienteWeb(response, jwt);
-    if (tokenVisitante && !fusionFallida) borrarCookieCarrito(response);
+    if (tokenVisitante && !fusionFallida && !sesion.vinculacionPendiente) borrarCookieCarrito(response);
     return response;
   } catch (err) {
+    if (err instanceof ErrorConfiguracionCuentaWeb) {
+      console.error("[POST /api/tienda/cuenta/login] Configuración inválida:", err);
+      return NextResponse.json({ data: null, error: { code: "INTERNAL_ERROR", message: MENSAJE_ERROR_INTERNO_CUENTA_WEB } }, { status: 500 });
+    }
     if (err instanceof ServiceError) {
       const status = err.code === "CUENTA_BLOQUEADA" ? 423 : 401;
       return NextResponse.json({ data: null, error: { code: err.code, message: err.message } }, { status });

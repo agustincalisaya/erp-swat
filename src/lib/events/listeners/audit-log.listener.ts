@@ -824,6 +824,31 @@ export function iniciarAuditLogListener(): void {
     });
   });
 
+  domainEventBus.on("ecommerce:cuenta_web_registrada", (payload) => {
+    const { cuenta_id, actor_id, actor_tipo, ocurrido_en, ...datos } = payload;
+    void registrarAuditLog({ usuario_id: null, accion: "ecommerce:cuenta_web_registrada", tabla_afectada: "cuentas_cliente_web", registro_id: cuenta_id, ip: "internal-event", valor_anterior: null, valor_nuevo: { ...datos, actor_id, actor_tipo, ocurrido_en } });
+  });
+  domainEventBus.on("ecommerce:cuenta_web_bloqueada", (payload) => {
+    const { cuenta_id, actor_id, actor_tipo, ocurrido_en, ...datos } = payload;
+    void registrarAuditLog({ usuario_id: null, accion: "ecommerce:cuenta_web_bloqueada", tabla_afectada: "cuentas_cliente_web", registro_id: cuenta_id, ip: "internal-event", valor_anterior: null, valor_nuevo: { ...datos, actor_id, actor_tipo, ocurrido_en } });
+  });
+  domainEventBus.on("ecommerce:cuenta_web_vinculada", (payload) => {
+    const { cuenta_id, actor_id, actor_tipo, ocurrido_en, ...datos } = payload;
+    void registrarAuditLog({ usuario_id: actor_id, accion: "ecommerce:cuenta_web_vinculada", tabla_afectada: "cuentas_cliente_web", registro_id: cuenta_id, ip: "internal-event", valor_anterior: { vinculacion_pendiente: true }, valor_nuevo: { ...datos, actor_tipo, ocurrido_en, vinculacion_pendiente: false } });
+  });
+  domainEventBus.on("ecommerce:cuenta_web_recuperacion_habilitada", (payload) => {
+    const { cuenta_id, actor_id, actor_tipo, ocurrido_en, ...datos } = payload;
+    void registrarAuditLog({ usuario_id: actor_id, accion: "ecommerce:cuenta_web_recuperacion_habilitada", tabla_afectada: "cuentas_cliente_web", registro_id: cuenta_id, ip: "internal-event", valor_anterior: null, valor_nuevo: { ...datos, actor_tipo, ocurrido_en } });
+  });
+  domainEventBus.on("ecommerce:cuenta_web_password_redefinida", (payload) => {
+    const { cuenta_id, actor_id, actor_tipo, ocurrido_en, ...datos } = payload;
+    void registrarAuditLog({ usuario_id: null, accion: "ecommerce:cuenta_web_password_redefinida", tabla_afectada: "cuentas_cliente_web", registro_id: cuenta_id, ip: "internal-event", valor_anterior: null, valor_nuevo: { ...datos, actor_id, actor_tipo, ocurrido_en } });
+  });
+  domainEventBus.on("ecommerce:cuenta_web_baja", (payload) => {
+    const { cuenta_id, actor_id, actor_tipo, ocurrido_en, ...datos } = payload;
+    void registrarAuditLog({ usuario_id: null, accion: "ecommerce:cuenta_web_baja", tabla_afectada: "cuentas_cliente_web", registro_id: cuenta_id, ip: "internal-event", valor_anterior: { is_active: true }, valor_nuevo: { ...datos, actor_id, actor_tipo, ocurrido_en, is_active: false } });
+  });
+
   // ── HU-E2 (Módulo E) — pago web por webhook de Mercado Pago. El actor es
   // Mercado Pago (sin `Usuario` del ERP): `usuario_id` null, mismo criterio que
   // los eventos de E1. Sin datos de tarjeta ni payload crudo de MP (spec E §4).

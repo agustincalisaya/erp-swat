@@ -278,6 +278,9 @@ const PERMISO_AUDITORIA_LEER_HISTORICO_ID =
 // No reutiliza auditoria:leer_historico porque ese permiso también abre Proveedores.
 const PERMISO_CLIENTES_LEER_AUDITORIA_ID =
   "1a2b3c4d-1111-4a1a-8a1a-000000000043";
+// HU-E8: siguiente UUID libre del namespace `1111`; máximo remoto verificado: ...043.
+const PERMISO_VALIDAR_IDENTIDAD_CLIENTE_WEB_ID =
+  "1a2b3c4d-1111-4a1a-8a1a-000000000044";
 const PERMISO_PROVEEDORES_PUBLICAR_LISTA_ID =
   "1a2b3c4d-1111-4a1a-8a1a-000000000029";
 const PERMISO_PROVEEDORES_PUBLICAR_LISTA_CRITICA_ID =
@@ -1673,6 +1676,17 @@ async function main() {
     },
   });
 
+  const permisoValidarIdentidadClienteWeb = await prisma.permiso.upsert({
+    where: { id: PERMISO_VALIDAR_IDENTIDAD_CLIENTE_WEB_ID },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: {
+      id: PERMISO_VALIDAR_IDENTIDAD_CLIENTE_WEB_ID,
+      codigo: "ventas:validar_identidad_cliente_web",
+      descripcion: "Validar identidad y habilitar recuperación presencial de cuentas web",
+      modulo: "MODULO_E",
+    },
+  });
+
   // ── HU-C1 — Roles VENDEDOR y ADMINISTRADOR_CRM ─────────────────────────────
   // Reparto de los 6 permisos `clientes:*` de esta sección (task-chiki.md, prerrequisito de
   // roles):
@@ -1711,6 +1725,7 @@ async function main() {
     PERMISO_CLIENTES_GESTIONAR_SEGMENTO_ID,
     PERMISO_CLIENTES_LEER_ID,
   ];
+  permisosVendedor.push(permisoValidarIdentidadClienteWeb.id);
   for (const permisoId of permisosVendedor) {
     await prisma.rolPermiso.upsert({
       where: { rol_id_permiso_id: { rol_id: rolVendedor.id, permiso_id: permisoId } },
@@ -3397,8 +3412,7 @@ async function main() {
   });
 
   // ── HU-E10 — permisos `ecommerce:*` (matriz de spec_modulo_E.md §2.10) ──────
-  // `ventas:validar_identidad_cliente_web` (§2.8) NO se siembra: su nombre es
-  // provisional y la spec pide confirmarlo con el owner de RBAC antes.
+  // `ventas:validar_identidad_cliente_web` (§2.8) se siembra para el rol VENDEDOR.
   await Promise.all(
     (
       [
@@ -3535,6 +3549,8 @@ async function main() {
   for (const [clave, valor, descripcion, modulo] of [
     ["ECOMMERCE_DEPOSITO_CANAL_WEB_ID", depositoShowroom.id, "Depósito cuyo stock se publica en el canal web (HU-E1) y donde se ubica físicamente la preparación (HU-E12)", "E"],
     ["ECOMMERCE_CHECKOUT_TTL_HORAS", "1", "TTL en horas de la reserva de stock del checkout web (HU-E1 → ttl_horas de HU-A10)", "E"],
+    ["ECOMMERCE_CUENTA_WEB_MAX_INTENTOS", "5", "Intentos fallidos antes de bloquear temporalmente una cuenta web (HU-E8)", "E"],
+    ["ECOMMERCE_CUENTA_WEB_BLOQUEO_MINUTOS", "15", "Duración en minutos del bloqueo temporal de una cuenta web (HU-E8)", "E"],
     ["ECOMMERCE_PLAZO_RETIRO_DIAS", "10", "Días desde LISTO_PARA_RETIRO hasta VENCIDO_SIN_RETIRO (HU-E13)", "E"],
     ["VENTAS_MARGEN_SUGERIDO_PRECIO_VENTA", "0.35", "Margen para el precio sugerido: costo de reposición × (1 + margen) (HU-B9)", "B"],
   ] as const) {
@@ -3634,7 +3650,7 @@ async function main() {
   //     Cliente) no se siembran: su granularidad de permisos está "a definir".
   //   - configuracion:leer            → SIN ASIGNAR: D §6.3 no nombra rol para el
   //     Route Handler HTTP (los consumidores internos no pasan por este permiso).
-  // `ventas:validar_identidad_cliente_web` (E §2.8) NO se siembra: nombre provisional.
+  // `ventas:validar_identidad_cliente_web` (E §2.8) se asigna al rol VENDEDOR.
   await Promise.all(
     (
       [

@@ -19,6 +19,8 @@ import { ServiceError } from "@/lib/errors/service-error";
 /** Claves sembradas para Sprint 4 (spec_modulo_D.md §6.2). */
 export const CLAVE_ECOMMERCE_DEPOSITO_CANAL_WEB_ID = "ECOMMERCE_DEPOSITO_CANAL_WEB_ID";
 export const CLAVE_ECOMMERCE_CHECKOUT_TTL_HORAS = "ECOMMERCE_CHECKOUT_TTL_HORAS";
+export const CLAVE_ECOMMERCE_CUENTA_WEB_MAX_INTENTOS = "ECOMMERCE_CUENTA_WEB_MAX_INTENTOS";
+export const CLAVE_ECOMMERCE_CUENTA_WEB_BLOQUEO_MINUTOS = "ECOMMERCE_CUENTA_WEB_BLOQUEO_MINUTOS";
 
 export interface ConfiguracionValor {
   clave: string;
@@ -73,14 +75,23 @@ export async function obtenerDepositoCanalWebId(): Promise<string> {
  *
  * @throws {ServiceError} CONFIGURACION_NO_ENCONTRADA | CONFIGURACION_INVALIDA
  */
-export async function obtenerTtlCheckoutHoras(): Promise<number> {
-  const { valor } = await obtenerConfiguracion(CLAVE_ECOMMERCE_CHECKOUT_TTL_HORAS);
-  const horas = Number(valor);
-  if (!Number.isInteger(horas) || horas <= 0) {
-    throw new ServiceError(
-      "CONFIGURACION_INVALIDA",
-      `${CLAVE_ECOMMERCE_CHECKOUT_TTL_HORAS} debe ser un entero positivo (valor actual: "${valor}")`,
-    );
+async function obtenerEnteroPositivo(clave: string): Promise<number> {
+  const { valor } = await obtenerConfiguracion(clave);
+  const numero = Number(valor);
+  if (!Number.isInteger(numero) || numero <= 0) {
+    throw new ServiceError("CONFIGURACION_INVALIDA", `${clave} debe ser un entero positivo (valor actual: "${valor}")`);
   }
-  return horas;
+  return numero;
+}
+
+export async function obtenerTtlCheckoutHoras(): Promise<number> {
+  return obtenerEnteroPositivo(CLAVE_ECOMMERCE_CHECKOUT_TTL_HORAS);
+}
+
+export async function obtenerMaxIntentosCuentaWeb(): Promise<number> {
+  return obtenerEnteroPositivo(CLAVE_ECOMMERCE_CUENTA_WEB_MAX_INTENTOS);
+}
+
+export async function obtenerBloqueoMinutosCuentaWeb(): Promise<number> {
+  return obtenerEnteroPositivo(CLAVE_ECOMMERCE_CUENTA_WEB_BLOQUEO_MINUTOS);
 }

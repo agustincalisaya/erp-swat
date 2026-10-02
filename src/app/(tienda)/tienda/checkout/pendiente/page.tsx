@@ -22,7 +22,7 @@ import { redirect } from "next/navigation";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { buttonVariants } from "@/components/ui/button";
 import { formatearPrecio } from "@/components/tienda/formato";
-import { getSesionClienteWeb } from "@/lib/auth/sesion-cliente-web";
+import { getSesionClienteWeb, getSesionClienteWebVinculada } from "@/lib/auth/sesion-cliente-web";
 import { obtenerPedidoWebPendiente } from "@/lib/services/ecommerce/checkout.service";
 import { obtenerOCrearPreferencia, obtenerResultadoPago } from "@/lib/services/ecommerce/pago-web.service";
 import { z } from "zod";
@@ -62,7 +62,9 @@ export default async function CheckoutPendienteTiendaPage({
   const { pedido: pedidoParam } = await searchParams;
   const pedidoId = PedidoIdSchema.safeParse(pedidoParam);
 
-  const sesion = await getSesionClienteWeb();
+  const sesionActual = await getSesionClienteWeb();
+  if (sesionActual?.vinculacionPendiente) redirect("/tienda/cuenta");
+  const sesion = await getSesionClienteWebVinculada();
   if (!sesion) {
     const volver = pedidoId.success ? `/tienda/checkout/pendiente?pedido=${pedidoId.data}` : "/tienda/carrito";
     redirect(`/tienda/ingresar?redirect=${encodeURIComponent(volver)}`);
