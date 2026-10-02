@@ -84,6 +84,7 @@ model Usuario {
   configuraciones_actualizadas   ConfiguracionSistema[]    @relation("ConfiguracionActualizadaPor")
   listas_precio_venta_publicadas ListaPrecioVentaVersion[] @relation("ListaPrecioVentaPublicadaPor")
   pedidos_ecommerce_asignados    PedidoVentaEcommerce[]    @relation("PedidoEcommerceOperadorAsignado")
+  escaneos_preparacion           PedidoPreparacionEscaneo[] @relation("EscaneoPreparacionOperador")
   notificaciones_recibidas       Notificacion[]            @relation("NotificacionUsuarioDestinatario")
 
   @@map("usuarios")
@@ -1734,6 +1735,7 @@ model PedidoVentaItem {
   variante_sku   VarianteSKU @relation(fields: [variante_sku_id], references: [id], onDelete: Restrict)
   reserva        Reserva?    @relation("PedidoVentaItemReserva", fields: [reserva_id], references: [id], onDelete: Restrict)
   autorizado_por Usuario?    @relation("PedidoVentaItemAutorizadoPor", fields: [autorizado_por_id], references: [id], onDelete: Restrict)
+  escaneos_preparacion PedidoPreparacionEscaneo[] @relation("EscaneoPreparacionItem")
 
   @@index([pedido_venta_id])
   @@map("pedido_venta_items")
@@ -2158,6 +2160,7 @@ model PedidoVentaEcommerce {
   plazo_retiro_vencimiento DateTime?
   operador_asignado_id     String?
   prioridad_manual         Int?
+  fecha_pago_confirmado    DateTime?
 
   // --- Soft delete estricto ---
   is_active       Boolean   @default(true)
@@ -2175,6 +2178,33 @@ model PedidoVentaEcommerce {
   transacciones     TransaccionPagoLog[]
 
   @@map("pedidos_venta_ecommerce")
+}
+
+/// Persistencia de cada unidad confirmada durante la preparación Pick&Pack (HU-E12).
+/// Cada fila activa representa una unidad cuantitativa escaneada; no se agrega
+/// `cantidad_confirmada` a `PedidoVentaItem`.
+model PedidoPreparacionEscaneo {
+  id                   String  @id @default(uuid())
+  pedido_venta_item_id String
+  operador_id          String
+  scan_id              String  @unique
+  codigo_escaneado     String
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  pedido_venta_item PedidoVentaItem @relation("EscaneoPreparacionItem", fields: [pedido_venta_item_id], references: [id], onDelete: Restrict)
+  operador          Usuario         @relation("EscaneoPreparacionOperador", fields: [operador_id], references: [id], onDelete: Restrict)
+
+  @@index([pedido_venta_item_id, is_active, deleted_at])
+  @@map("pedido_preparacion_escaneos")
 }
 
 /// Cupón de descuento (HU-E4, §2.4). Único por pedido, no acumulable; el

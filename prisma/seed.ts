@@ -490,6 +490,7 @@ const PERMISO_ECOMMERCE_VALIDAR_RETIRO_QR_ID = "8549117c-fca7-47b9-8f73-d4f3f85e
 const PERMISO_ECOMMERCE_LEER_HISTORIAL_ORDENES_ID = "1a68c39a-f427-47c8-8923-56413c22a177";
 const PERMISO_ECOMMERCE_EXPORTAR_METRICAS_ID = "c603f9c6-2bf4-4d95-b06c-e339f09ae303";
 const PERMISO_ECOMMERCE_SOLICITAR_ACCESO_LOG_PAGOS_ID = "fe71b5b4-09ba-407a-bff0-1aa64656f656";
+const PERMISO_ECOMMERCE_PRIORIZAR_COLA_ID = "97d6bcc9-d867-416c-9ae2-7063d3e23e7f";
 
 // HU-E10 — roles y un usuario de prueba por rol (criterio "seed idempotente").
 const ROL_ADMINISTRADOR_ECOMMERCE_ID = "5a4b283b-fdaf-4253-ab3e-be13c118d74d";
@@ -3376,9 +3377,10 @@ async function main() {
         [PERMISO_ECOMMERCE_GESTIONAR_CUPONES_ID, "ecommerce:gestionar_cupones", "Alta, edición y baja de cupones de descuento — exclusivo Administrador E-commerce (HU-E4)"],
         [PERMISO_ECOMMERCE_ANULAR_ORDEN_NO_ABONADA_ID, "ecommerce:anular_orden_no_abonada", "Anular manualmente una orden web no abonada — exclusivo Administrador E-commerce (HU-E7)"],
         [PERMISO_ECOMMERCE_CANCELAR_PEDIDO_PAGADO_ID, "ecommerce:cancelar_pedido_pagado", "Cancelar un pedido web pagado antes de su entrega — exclusivo Administrador E-commerce (HU-E13)"],
-        [PERMISO_ECOMMERCE_LEER_COLA_PREPARACION_ID, "ecommerce:leer_cola_preparacion", "Consultar la cola de preparación Click & Collect (Administrador: consulta + prioriza; Operador: consulta + toma) (HU-E12)"],
+        [PERMISO_ECOMMERCE_LEER_COLA_PREPARACION_ID, "ecommerce:leer_cola_preparacion", "Consultar la cola de preparación Click & Collect (Administrador y Operador) (HU-E12)"],
         [PERMISO_ECOMMERCE_PREPARAR_PEDIDO_ID, "ecommerce:preparar_pedido", "Tomar, confirmar ítems por escaneo y completar la preparación de un pedido — exclusivo Operador de Pick & Pack (HU-E12)"],
         [PERMISO_ECOMMERCE_VALIDAR_RETIRO_QR_ID, "ecommerce:validar_retiro_qr", "Validar el retiro Click & Collect por QR + DNI — exclusivo Operador de Pick & Pack (HU-E12)"],
+        [PERMISO_ECOMMERCE_PRIORIZAR_COLA_ID, "ecommerce:priorizar_cola", "Priorizar manualmente el orden de la cola de preparación Click & Collect — exclusivo Administrador E-commerce (HU-E12)"],
         [PERMISO_ECOMMERCE_LEER_HISTORIAL_ORDENES_ID, "ecommerce:leer_historial_ordenes", "Consultar el historial de órdenes web de todos los clientes — exclusivo Administrador E-commerce (HU-E10)"],
         [PERMISO_ECOMMERCE_EXPORTAR_METRICAS_ID, "ecommerce:exportar_metricas", "Exportar métricas del canal web — exclusivo Administrador E-commerce (HU-E10; endpoint sin contrato todavía, spec §5)"],
         [PERMISO_ECOMMERCE_SOLICITAR_ACCESO_LOG_PAGOS_ID, "ecommerce:solicitar_acceso_log_pagos", "Solicitar acceso al log de pagos, sujeto a aprobación — Administrador E-commerce (HU-E6; mecanismo de aprobación sin definir, spec §2.6)"],
@@ -3422,6 +3424,7 @@ async function main() {
         PERMISO_ECOMMERCE_ANULAR_ORDEN_NO_ABONADA_ID,
         PERMISO_ECOMMERCE_CANCELAR_PEDIDO_PAGADO_ID,
         PERMISO_ECOMMERCE_LEER_COLA_PREPARACION_ID,
+        PERMISO_ECOMMERCE_PRIORIZAR_COLA_ID,
         PERMISO_ECOMMERCE_LEER_HISTORIAL_ORDENES_ID,
         PERMISO_ECOMMERCE_EXPORTAR_METRICAS_ID,
         PERMISO_ECOMMERCE_SOLICITAR_ACCESO_LOG_PAGOS_ID,
@@ -4245,6 +4248,7 @@ async function main() {
           : null,
         operador_asignado_id: p.operador?.id ?? null,
         prioridad_manual: p.operador?.prioridad_manual ?? null,
+        fecha_pago_confirmado: pagoAprobado ? fechaPago : null,
         created_at: p.fecha_checkout,
         ...baja,
       },
