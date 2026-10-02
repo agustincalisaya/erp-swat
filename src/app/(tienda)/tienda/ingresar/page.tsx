@@ -5,6 +5,7 @@
  * carrito armado como visitante se fusiona con el de la cuenta.
  * TODO(HU-E8): sin registro ni recuperación (la recuperación es presencial).
  */
+import Link from "next/link";
 import { FormularioIngresoTienda } from "@/components/tienda/FormularioIngresoTienda";
 
 export default async function IngresarTiendaPage({
@@ -21,6 +22,7 @@ export default async function IngresarTiendaPage({
       <h1 className="text-2xl font-semibold">Ingresar</h1>
       <p className="text-sm text-slate-600">Ingresá con tu cuenta de la tienda para completar tu compra.</p>
       <FormularioIngresoTienda destino={destino} />
+      <div className="flex justify-between text-sm"><Link href="/tienda/registrarse">Crear cuenta</Link><Link href="/tienda/recuperar">Recuperar acceso</Link></div>
     </div>
   );
 }

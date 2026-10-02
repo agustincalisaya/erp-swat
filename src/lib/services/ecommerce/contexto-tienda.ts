@@ -33,7 +33,7 @@ export async function resolverContextoTienda(): Promise<ContextoTienda> {
   const token = leerCookieCarrito(almacen.get(CARRITO_COOKIE_NAME)?.value);
   return {
     sesion,
-    carrito: sesion ? { cuentaId: sesion.cuentaId } : { carritoToken: token },
+    carrito: sesion && !sesion.vinculacionPendiente ? { cuentaId: sesion.cuentaId } : { carritoToken: token },
     carritoTokenVisitante: token,
   };
 }

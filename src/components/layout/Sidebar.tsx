@@ -229,6 +229,12 @@ const SECCIONES: SeccionConfig[] = [
         icon: UserPlus,
         permiso: "clientes:crear",
       },
+      {
+        label: "Cuentas web",
+        href: "/ecommerce/cuentas-web",
+        icon: Store,
+        permiso: "ventas:validar_identidad_cliente_web",
+      },
     ],
   },
   {

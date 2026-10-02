@@ -1052,6 +1052,24 @@ export interface PagoAnomaloPayload {
   monto_esperado: number | null;
 }
 
+export interface CuentaWebEventoBase {
+  cuenta_id: string;
+  cliente_id: string;
+  actor_tipo: "cuenta" | "usuario";
+  actor_id: string;
+  ocurrido_en: string;
+}
+export interface CuentaWebRegistradaPayload extends CuentaWebEventoBase {
+  vinculacion_pendiente: boolean;
+  acepta_tratamiento: true;
+  acepta_comunicaciones: boolean;
+}
+export interface CuentaWebBloqueadaPayload extends CuentaWebEventoBase { intentos: number; bloqueada_hasta: string }
+export interface CuentaWebVinculadaPayload extends CuentaWebEventoBase { acceso_reasignado: boolean }
+export interface CuentaWebRecuperacionHabilitadaPayload extends CuentaWebEventoBase { expira_en: string }
+export type CuentaWebPasswordRedefinidaPayload = CuentaWebEventoBase;
+export interface CuentaWebBajaPayload extends CuentaWebEventoBase { motivo: string }
+
 /** Mapa evento → payload, usado por `domain-event-bus.ts` para tipar `emit`/`on`. */
 export interface DomainEventMap {
   /** HU-A1: se emite tras el alta de un ProductoMaestro. */
@@ -1171,6 +1189,12 @@ export interface DomainEventMap {
   "ecommerce:pago_rechazado": PagoRechazadoPayload;
   /** HU-E2: pago de MP no aplicado (o cupón excedido al confirmar). */
   "ecommerce:pago_anomalo": PagoAnomaloPayload;
+  "ecommerce:cuenta_web_registrada": CuentaWebRegistradaPayload;
+  "ecommerce:cuenta_web_bloqueada": CuentaWebBloqueadaPayload;
+  "ecommerce:cuenta_web_vinculada": CuentaWebVinculadaPayload;
+  "ecommerce:cuenta_web_recuperacion_habilitada": CuentaWebRecuperacionHabilitadaPayload;
+  "ecommerce:cuenta_web_password_redefinida": CuentaWebPasswordRedefinidaPayload;
+  "ecommerce:cuenta_web_baja": CuentaWebBajaPayload;
 }
 
 export type DomainEventName = keyof DomainEventMap;

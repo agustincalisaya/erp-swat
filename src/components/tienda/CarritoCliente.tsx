@@ -23,7 +23,7 @@ import { formatearPrecio, type ErrorApiTienda } from "@/components/tienda/format
 import { ETIQUETA_MOTIVO } from "@/lib/services/ecommerce/comprabilidad";
 import type { CarritoVista } from "@/lib/services/ecommerce/carrito.service";
 
-export function CarritoCliente({ carrito, conSesion }: { carrito: CarritoVista; conSesion: boolean }) {
+export function CarritoCliente({ carrito, conSesion, compraBloqueada = false }: { carrito: CarritoVista; conSesion: boolean; compraBloqueada?: boolean }) {
   const router = useRouter();
   const [pendiente, startTransition] = useTransition();
   const [error, setError] = useState<ErrorApiTienda | null>(null);
@@ -185,9 +185,11 @@ export function CarritoCliente({ carrito, conSesion }: { carrito: CarritoVista; 
                 onChange={(e) => setCuponCodigo(e.target.value.toUpperCase())}
               />
             )}
-            <Button className="w-full" disabled={pendiente} onClick={iniciarCompra}>
-              {conSesion ? "Iniciar compra" : "Ingresar para comprar"}
-            </Button>
+            {!compraBloqueada && (
+              <Button className="w-full" disabled={pendiente} onClick={iniciarCompra}>
+                {conSesion ? "Iniciar compra" : "Ingresar para comprar"}
+              </Button>
+            )}
           </CardContent>
         </Card>
 
