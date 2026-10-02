@@ -13,5 +13,9 @@ export function formatearPrecio(monto: number): string {
 export interface ErrorApiTienda {
   code: string;
   message: string;
-  details?: { items?: { item_id?: string; variante_sku_id: string; sku: string; motivo?: string; disponible?: number; solicitado?: number }[] };
+  details?: {
+    items?: { item_id?: string; variante_sku_id: string; sku: string; motivo?: string; disponible?: number; solicitado?: number }[];
+    /** HU-E2: el pedido quedó Pago Pendiente aunque falló la pasarela. */
+    pedido_venta_id?: string;
+  };
 }

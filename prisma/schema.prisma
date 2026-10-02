@@ -2164,15 +2164,23 @@ enum EstadoEcommerce {
 /// spec_modulo_E.md §3.1. La validez del QR se resuelve siempre contra
 /// `estado_ecommerce`, nunca contra una expiración propia del QR (§2.3).
 model PedidoVentaEcommerce {
-  id                       String          @id @default(uuid())
-  pedido_venta_id          String          @unique
-  estado_ecommerce         EstadoEcommerce @default(PAGO_PENDIENTE)
-  mercadopago_payment_id   String?
-  cupon_aplicacion_id      String?         @unique
-  codigo_qr_retiro         String?         @unique
-  plazo_retiro_vencimiento DateTime?
-  operador_asignado_id     String?
-  prioridad_manual         Int?
+  id                        String          @id @default(uuid())
+  pedido_venta_id           String          @unique
+  estado_ecommerce          EstadoEcommerce @default(PAGO_PENDIENTE)
+  /// HU-E2 (task §3.1/E1 §14.1): `@unique` — un pago de Mercado Pago se imputa
+  /// a un único pedido. Nullable: PostgreSQL admite varios NULL en un único.
+  mercadopago_payment_id    String?         @unique
+  /// HU-E2 — preferencia de Checkout Pro, UNA por pedido (`external_reference`
+  /// = `PedidoVentaEcommerce.id`). Reintentar el pago reutiliza esta.
+  mercadopago_preference_id String?         @unique
+  /// HU-E2 — `init_point` de la preferencia: se devuelve al reintentar el pago
+  /// del mismo pedido sin volver a llamar a Mercado Pago.
+  mercadopago_checkout_url  String?
+  cupon_aplicacion_id       String?         @unique
+  codigo_qr_retiro          String?         @unique
+  plazo_retiro_vencimiento  DateTime?
+  operador_asignado_id      String?
+  prioridad_manual          Int?
 
   // --- Soft delete estricto ---
   is_active       Boolean   @default(true)
@@ -2446,20 +2454,31 @@ model InvocacionConectorPago {
   @@map("invocaciones_conector_pago")
 }
 
-/// Deduplicación de webhooks entrantes de Mercado Pago (HU-F1, spec §2.1.3):
-/// el `payment_id` + `topic` se persiste ANTES de despachar
-/// `pago:webhook_confirmado`; un reintento de Mercado Pago choca contra el
-/// `@@unique` (P2002 → no-op, `duplicado: true`). Append-only: sin bloque de
-/// soft delete. Modelo no incluido en spec_modulo_F.md; agregado con
+/// Traza append-only de las notificaciones de Mercado Pago con firma válida
+/// (HU-F1, spec §2.1.3). Sin bloque de soft delete, mismo criterio que
+/// `AuditLog`. Modelo no incluido en spec_modulo_F.md; agregado con
 /// confirmación del equipo (Sprint 4).
+///
+/// PROVISORIO HU-E2 — completar en HU-F1 (owner: Rama). HU-E2 quitó la clave
+/// única `(mercadopago_payment_id, topic)`: con ella, la notificación
+/// "approved" posterior a una "pending" del mismo pago se descartaba, y un
+/// reintento de MP tras un fallo de procesamiento no se reprocesaba. La
+/// idempotencia de negocio vive en la transición condicionada de
+/// `PedidoVentaEcommerce` + `mercadopago_payment_id @unique`
+/// (docs/tasks/HU-E2.md §3.4).
 model WebhookPagoLog {
-  id                     String @id @default(uuid())
+  id                     String  @id @default(uuid())
   mercadopago_payment_id String
   topic                  String
+  /// Header `x-request-id` de la notificación (null en filas previas a HU-E2).
+  request_id             String?
+  /// CONFIRMADO | RECHAZADO | PENDIENTE | SIN_EFECTO | ANOMALIA | ERROR.
+  /// `RECIBIDO` para las filas previas a HU-E2.
+  resultado              String  @default("RECIBIDO")
 
   created_at DateTime @default(now())
 
-  @@unique([mercadopago_payment_id, topic])
+  @@index([mercadopago_payment_id])
   @@map("log_webhooks_pago")
 }
 

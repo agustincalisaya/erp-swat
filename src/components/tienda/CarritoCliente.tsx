@@ -43,13 +43,27 @@ export function CarritoCliente({ carrito, conSesion }: { carrito: CarritoVista; 
       router.refresh();
     });
 
+  const [cuponCodigo, setCuponCodigo] = useState("");
+
   const iniciarCompra = () =>
     startTransition(async () => {
       setError(null);
-      const res = await fetch("/api/tienda/checkout", { method: "POST" });
+      // HU-E2: solo viaja el código del cupón; el importe lo calcula el servidor (CA5).
+      const cupon = cuponCodigo.trim();
+      const res = await fetch("/api/tienda/checkout", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(cupon ? { cupon_codigo: cupon } : {}),
+      });
       const cuerpo = (await res.json()) as { data: { pedido_venta_id: string } | null; error: ErrorApiTienda | null };
       if (res.status === 401) {
         router.push("/tienda/ingresar?redirect=/tienda/carrito");
+        return;
+      }
+      // HU-E2: el pedido se reservó pero Mercado Pago no respondió: la pantalla
+      // del pedido reintenta generar el pago.
+      if (cuerpo.error?.details?.pedido_venta_id) {
+        router.push(`/tienda/checkout/pendiente?pedido=${cuerpo.error.details.pedido_venta_id}`);
         return;
       }
       if (cuerpo.error || !cuerpo.data) {
@@ -161,6 +175,16 @@ export function CarritoCliente({ carrito, conSesion }: { carrito: CarritoVista; 
             <p className="text-xs text-slate-600">
               Al iniciar la compra reservamos el stock por un tiempo limitado mientras completás el pago.
             </p>
+            {conSesion && (
+              <Input
+                placeholder="Código de cupón (opcional)"
+                aria-label="Código de cupón"
+                value={cuponCodigo}
+                maxLength={50}
+                disabled={pendiente}
+                onChange={(e) => setCuponCodigo(e.target.value.toUpperCase())}
+              />
+            )}
             <Button className="w-full" disabled={pendiente} onClick={iniciarCompra}>
               {conSesion ? "Iniciar compra" : "Ingresar para comprar"}
             </Button>

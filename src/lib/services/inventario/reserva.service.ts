@@ -11,6 +11,11 @@
  *  - Liberación por venta ... `confirmarReservaPorVenta()` — RESERVADO → VENDIDO.
  *  - Liberación por TTL ..... `liberarReservasVencidas()` — RESERVADO → DISPONIBLE
  *                             (job/cron `check-pruebas-vencidas`).
+ *  - Liberación inmediata ... `liberarReservasTx()` — RESERVADO → DISPONIBLE
+ *                             por rechazo del pago web (HU-E2).
+ *
+ * Las variantes `…Tx()` reciben el `tx` del llamador (checkout/pago web, que
+ * confirman todo en una sola transacción) y NO emiten eventos.
  *
  * Patrón obligatorio (spec §3.4): toda escritura multi-tabla vive dentro de
  * `prisma.$transaction`; el decremento de `StockDeposito` usa `updateMany`
@@ -26,7 +31,7 @@ import { prisma } from "@/lib/db/prisma";
 import { domainEventBus } from "@/lib/events/domain-event-bus";
 import { ServiceError } from "@/lib/errors/service-error";
 import type { CrearReservaInput } from "@/lib/schemas/inventario.schema";
-import type { ReservaCongeladaPayload } from "@/lib/events/event-types";
+import type { ReservaCongeladaPayload, ReservaLiberadaPayload } from "@/lib/events/event-types";
 
 // ──────────────────────────────────────────────────────────────────────────────
 // TTL
@@ -280,69 +285,88 @@ export async function confirmarReservaPorVenta(
   ventaId: string,
   usuarioId: string,
 ): Promise<ReservaConfirmada> {
-  const fechaFin = new Date();
+  const confirmada = await prisma.$transaction((tx: Prisma.TransactionClient) =>
+    confirmarReservaPorVentaTx(tx, reservaId, ventaId, usuarioId),
+  );
+  domainEventBus.emit("stock:reserva_liberada", confirmada.evento);
+  return confirmada.resultado;
+}
 
-  const reserva = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-    const actual = await tx.reserva.findFirst({
-      where: { id: reservaId },
-      select: {
-        id: true,
-        is_active: true,
-        deleted_at: true,
-        fecha_fin_reserva: true,
-        variante_sku_id: true,
-        deposito_id: true,
-        cantidad: true,
-      },
-    });
-    if (!actual) throw new ServiceError("RESERVA_NO_ENCONTRADA", "La reserva no existe");
-    if (!actual.is_active || actual.deleted_at) {
-      throw new ServiceError("RESERVA_INACTIVA", "La reserva fue dada de baja");
-    }
+/** Resultado de `confirmarReservaPorVentaTx()`: la confirmación más el payload
+ * que el llamador emite DESPUÉS del commit (`stock:reserva_liberada`, VENTA). */
+export interface ReservaConfirmadaTx {
+  resultado: ReservaConfirmada;
+  evento: ReservaLiberadaPayload;
+}
 
-    const cambio = await tx.reserva.updateMany({
-      where: { id: reservaId, is_active: true, deleted_at: null, fecha_fin_reserva: null },
-      data: { fecha_fin_reserva: fechaFin },
-    });
-    if (cambio.count === 0) {
-      throw new ServiceError("RESERVA_NO_ACTIVA", "La reserva ya fue liberada o confirmada");
-    }
+/**
+ * HU-E2 — núcleo de `confirmarReservaPorVenta()` sobre el `tx` del llamador
+ * (mismo patrón que `crearReservaTx()`): el pago web confirma stock, factura y
+ * comprobante en UNA transacción. No abre transacción ni emite eventos.
+ *
+ * @throws {ServiceError} RESERVA_NO_ENCONTRADA | RESERVA_INACTIVA | RESERVA_NO_ACTIVA
+ */
+export async function confirmarReservaPorVentaTx(
+  tx: Prisma.TransactionClient,
+  reservaId: string,
+  ventaId: string,
+  usuarioId: string,
+  fechaFin: Date = new Date(),
+): Promise<ReservaConfirmadaTx> {
+  const actual = await tx.reserva.findFirst({
+    where: { id: reservaId },
+    select: {
+      id: true,
+      is_active: true,
+      deleted_at: true,
+      fecha_fin_reserva: true,
+      variante_sku_id: true,
+      deposito_id: true,
+      cantidad: true,
+    },
+  });
+  if (!actual) throw new ServiceError("RESERVA_NO_ENCONTRADA", "La reserva no existe");
+  if (!actual.is_active || actual.deleted_at) {
+    throw new ServiceError("RESERVA_INACTIVA", "La reserva fue dada de baja");
+  }
 
-    // HU-A11 (multi-ítem): MovimientoStock es cabecera pura desde acá —
-    // variante_sku_id/cantidad/estado_* migraron a un MovimientoStockItem
-    // hijo (siempre uno solo, esta reserva es de una única variante).
-    await tx.movimientoStock.create({
-      data: {
-        deposito_origen_id: actual.deposito_id,
-        tipo_movimiento: "EGRESO",
-        comprobante_referencia: `RESERVA-CONFIRMADA-${actual.id}`,
-        venta_id: ventaId,
-        registrado_por_id: usuarioId,
-        items: {
-          create: {
-            variante_sku_id: actual.variante_sku_id,
-            cantidad: actual.cantidad,
-            estado_origen: "RESERVADO",
-            estado_destino: "VENDIDO",
-          },
+  const cambio = await tx.reserva.updateMany({
+    where: { id: reservaId, is_active: true, deleted_at: null, fecha_fin_reserva: null },
+    data: { fecha_fin_reserva: fechaFin },
+  });
+  if (cambio.count === 0) {
+    throw new ServiceError("RESERVA_NO_ACTIVA", "La reserva ya fue liberada o confirmada");
+  }
+
+  // HU-A11 (multi-ítem): MovimientoStock es cabecera pura desde acá —
+  // variante_sku_id/cantidad/estado_* migraron a un MovimientoStockItem
+  // hijo (siempre uno solo, esta reserva es de una única variante).
+  await tx.movimientoStock.create({
+    data: {
+      deposito_origen_id: actual.deposito_id,
+      tipo_movimiento: "EGRESO",
+      comprobante_referencia: `RESERVA-CONFIRMADA-${actual.id}`,
+      venta_id: ventaId,
+      registrado_por_id: usuarioId,
+      items: {
+        create: {
+          variante_sku_id: actual.variante_sku_id,
+          cantidad: actual.cantidad,
+          estado_origen: "RESERVADO",
+          estado_destino: "VENDIDO",
         },
       },
-    });
-
-    return actual;
-  });
-
-  domainEventBus.emit("stock:reserva_liberada", {
-    reserva_id: reserva.id,
-    motivo_liberacion: "VENTA",
-    variante_sku_id: reserva.variante_sku_id,
-    cantidad: reserva.cantidad,
+    },
   });
 
   return {
-    reserva_id: reserva.id,
-    fecha_fin_reserva: fechaFin.toISOString(),
-    estado: "VENDIDO",
+    resultado: { reserva_id: actual.id, fecha_fin_reserva: fechaFin.toISOString(), estado: "VENDIDO" },
+    evento: {
+      reserva_id: actual.id,
+      motivo_liberacion: "VENTA",
+      variante_sku_id: actual.variante_sku_id,
+      cantidad: actual.cantidad,
+    },
   };
 }
 
@@ -461,6 +485,9 @@ interface ReservaVencidaSeleccionada {
  *  3. `MovimientoStock` COMPENSATORIO de tipo `INGRESO` (⚠️ no `AJUSTE`),
  *     `estado_origen = "RESERVADO"`, `estado_destino = "DISPONIBLE"`.
  *
+ * HU-E2: también lo usa `liberarReservasTx()` (rechazo del pago web), que
+ * pasa su propio prefijo de `comprobante_referencia`.
+ *
  * @returns `true` si la liberó esta llamada, `false` si ya estaba cerrada.
  * @throws {ServiceError} STOCK_DEPOSITO_NO_ENCONTRADO
  */
@@ -468,6 +495,7 @@ async function liberarReservaVencidaTx(
   tx: Prisma.TransactionClient,
   reserva: ReservaVencidaSeleccionada,
   ahora: Date,
+  prefijoReferencia = "CRON-LIBERACION-RESERVA",
 ): Promise<boolean> {
   const cierre = await tx.reserva.updateMany({
     where: { id: reserva.id, is_active: true, deleted_at: null, fecha_fin_reserva: null },
@@ -497,7 +525,7 @@ async function liberarReservaVencidaTx(
     data: {
       deposito_origen_id: reserva.deposito_id,
       tipo_movimiento: "INGRESO",
-      comprobante_referencia: `CRON-LIBERACION-RESERVA-${reserva.id}`,
+      comprobante_referencia: `${prefijoReferencia}-${reserva.id}`,
       // Se conserva el ID del registrador original para no romper la cadena
       // de trazabilidad (el job/checkout actúa como agente del sistema).
       registrado_por_id: reserva.registrado_por_id,
@@ -575,6 +603,60 @@ export function emitirReservasLiberadasTtl(liberadas: readonly ReservaLiberadaTt
     domainEventBus.emit("stock:reserva_liberada", {
       reserva_id: reserva.reserva_id,
       motivo_liberacion: "TTL_VENCIDO",
+      variante_sku_id: reserva.variante_sku_id,
+      cantidad: reserva.cantidad,
+    });
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// 4.5 — HU-E2: liberación inmediata por rechazo del pago web
+// ──────────────────────────────────────────────────────────────────────────────
+
+/** Motivos de liberación inmediata (no TTL) que acepta `liberarReservasTx()`. */
+export type MotivoLiberacionInmediata = "PAGO_RECHAZADO";
+
+/**
+ * HU-E2 (CA7) — Libera YA, dentro del `tx` del llamador, las reservas indicadas
+ * (RESERVADO → DISPONIBLE), sin mirar `fecha_expiracion`. Mismo núcleo que la
+ * liberación por TTL: cierre condicionado + reincremento + `MovimientoStock`
+ * INGRESO compensatorio. Las reservas ya cerradas (por el job, D4.2 o una
+ * confirmación) se saltean sin error. No emite: el llamador usa
+ * `emitirReservasLiberadas()` después del commit.
+ */
+export async function liberarReservasTx(
+  tx: Prisma.TransactionClient,
+  reservaIds: readonly string[],
+  motivo: MotivoLiberacionInmediata,
+  ahora: Date = new Date(),
+): Promise<ReservaLiberadaTtl[]> {
+  if (reservaIds.length === 0) return [];
+
+  const activas = await tx.reserva.findMany({
+    where: { id: { in: [...reservaIds] }, is_active: true, deleted_at: null, fecha_fin_reserva: null },
+    select: { id: true, variante_sku_id: true, deposito_id: true, cantidad: true, registrado_por_id: true },
+    orderBy: { id: "asc" },
+  });
+
+  const liberadas: ReservaLiberadaTtl[] = [];
+  for (const reserva of activas) {
+    if (await liberarReservaVencidaTx(tx, reserva, ahora, `LIBERACION-${motivo}`)) {
+      liberadas.push({ reserva_id: reserva.id, variante_sku_id: reserva.variante_sku_id, cantidad: reserva.cantidad });
+    }
+  }
+  return liberadas;
+}
+
+/** Emite `stock:reserva_liberada` por cada reserva liberada, con su motivo.
+ * SIEMPRE fuera de la transacción (spec §4). */
+export function emitirReservasLiberadas(
+  liberadas: readonly ReservaLiberadaTtl[],
+  motivo: ReservaLiberadaPayload["motivo_liberacion"],
+): void {
+  for (const reserva of liberadas) {
+    domainEventBus.emit("stock:reserva_liberada", {
+      reserva_id: reserva.reserva_id,
+      motivo_liberacion: motivo,
       variante_sku_id: reserva.variante_sku_id,
       cantidad: reserva.cantidad,
     });

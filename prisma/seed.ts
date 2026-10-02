@@ -3721,25 +3721,43 @@ async function main() {
   // cifradas igual que en la app: un par ciphertext/IV por secreto. SANDBOX
   // puede activarse sin health-check (F §2.1.1), por eso
   // `ultimo_health_check_exitoso_at` queda null.
+  //
+  // HU-E2 (task §3.2, P3): si están definidas MP_SANDBOX_ACCESS_TOKEN,
+  // MP_SANDBOX_PUBLIC_KEY y MP_SANDBOX_WEBHOOK_SECRET (credenciales de PRUEBA de
+  // una cuenta real de Mercado Pago), se cifran ESAS; si falta alguna, quedan
+  // las ficticias (sirven con MP_MODO=simulado). `update` reescribe las tres
+  // para que cargar las variables y re-sembrar las aplique. Nunca se imprimen.
+  const credencialesMpReales = Boolean(
+    process.env.MP_SANDBOX_ACCESS_TOKEN && process.env.MP_SANDBOX_PUBLIC_KEY && process.env.MP_SANDBOX_WEBHOOK_SECRET,
+  );
   if (hayClaveCifrado) {
-    const accessToken = encrypt("TEST-0000000000000000-SEED-ACCESS-TOKEN-FICTICIO");
-    const publicKey = encrypt("TEST-SEED-PUBLIC-KEY-FICTICIA");
-    const webhookSecret = encrypt("seed-webhook-secret-ficticio");
+    if (!credencialesMpReales) {
+      console.warn(
+        "[seed] MP_SANDBOX_* incompletas: el Conector SANDBOX queda con credenciales FICTICIAS " +
+          "(usar MP_MODO=simulado para probar HU-E2 sin Mercado Pago).",
+      );
+    }
+    const accessToken = encrypt(process.env.MP_SANDBOX_ACCESS_TOKEN || "TEST-0000000000000000-SEED-ACCESS-TOKEN-FICTICIO");
+    const publicKey = encrypt(process.env.MP_SANDBOX_PUBLIC_KEY || "TEST-SEED-PUBLIC-KEY-FICTICIA");
+    const webhookSecret = encrypt(process.env.MP_SANDBOX_WEBHOOK_SECRET || "seed-webhook-secret-ficticio");
+    const credencialesCifradas = {
+      access_token_cifrado: accessToken.ciphertext,
+      access_token_iv: accessToken.iv,
+      public_key_cifrada: publicKey.ciphertext,
+      public_key_iv: publicKey.iv,
+      webhook_secret_cifrado: webhookSecret.ciphertext,
+      webhook_secret_iv: webhookSecret.iv,
+    };
 
     const conectorSandbox = await prisma.conectorPago.upsert({
       where: { id: CONECTOR_PAGO_SANDBOX_ID },
-      update: {},
+      update: { ...credencialesCifradas, estado: "ACTIVO", is_active: true, deleted_at: null },
       create: {
         id: CONECTOR_PAGO_SANDBOX_ID,
         nombre: "Mercado Pago — Sandbox (seed)",
         entorno: "SANDBOX",
         estado: "ACTIVO",
-        access_token_cifrado: accessToken.ciphertext,
-        access_token_iv: accessToken.iv,
-        public_key_cifrada: publicKey.ciphertext,
-        public_key_iv: publicKey.iv,
-        webhook_secret_cifrado: webhookSecret.ciphertext,
-        webhook_secret_iv: webhookSecret.iv,
+        ...credencialesCifradas,
       },
     });
 
@@ -4534,23 +4552,34 @@ async function main() {
       },
     });
 
+    // HU-E2: mientras el fixture PAGO_PENDIENTE siga pendiente, re-sembrar le
+    // quita la preferencia de Mercado Pago (la reserva se refrescó arriba y la
+    // preferencia vieja ya venció): el próximo checkout/pago crea una nueva.
+    if (reservaVigente) {
+      await prisma.pedidoVentaEcommerce.updateMany({
+        where: { id: p.ids.ecommerce, estado_ecommerce: "PAGO_PENDIENTE" },
+        data: { mercadopago_preference_id: null, mercadopago_checkout_url: null },
+      });
+    }
+
     if (!p.pago) continue;
 
-    // F §2.1.3: el webhook se deduplica antes de despachar el evento.
-    await prisma.webhookPagoLog.upsert({
-      where: {
-        mercadopago_payment_id_topic: {
+    // Traza de la notificación (append-only desde HU-E2: sin clave única,
+    // idempotente por `payment_id` acá con findFirst + create).
+    const trazaWebhook = await prisma.webhookPagoLog.findFirst({
+      where: { mercadopago_payment_id: p.pago.mercadopago_payment_id },
+      select: { id: true },
+    });
+    if (!trazaWebhook) {
+      await prisma.webhookPagoLog.create({
+        data: {
           mercadopago_payment_id: p.pago.mercadopago_payment_id,
           topic: "payment",
+          resultado: "SEED",
+          created_at: fechaPago,
         },
-      },
-      update: {},
-      create: {
-        mercadopago_payment_id: p.pago.mercadopago_payment_id,
-        topic: "payment",
-        created_at: fechaPago,
-      },
-    });
+      });
+    }
 
     if (hayClaveCifrado && p.ids.transaccion) {
       const datosFacturacion = encrypt(datosFacturacionJuanPerez);
@@ -4654,6 +4683,13 @@ async function main() {
       "Tu pedido venció sin ser retirado",
       "El plazo para retirar tu pedido {{numero_venta}} venció.",
       "CRITICA",
+    ],
+    [
+      // HU-E2 (task §3.2, P10): consumidor de F3 para el Cliente Web.
+      "ecommerce:pedido_pago_confirmado",
+      "Recibimos tu pago",
+      "Tu pedido {{numero_venta}} está confirmado. Te avisamos cuando esté listo para retirar en Sucursal Salta.",
+      "INFORMATIVA",
     ],
   ] as const) {
     const plantilla = await prisma.plantillaNotificacion.upsert({
@@ -4876,7 +4912,10 @@ async function main() {
     ecommerce_deposito_canal_web_id: depositoShowroom.id,
     cuenta_web_juan_perez: `${cuentaWebJuanPerez.email}  (password: "${PASSWORD_SEED}")`,
     cuenta_web_maria_gomez_pendiente: `${cuentaWebMariaGomez.email}  (vinculacion_pendiente)`,
-    conector_pago_sandbox: hayClaveCifrado ? CONECTOR_PAGO_SANDBOX_ID : "OMITIDO (sin ENCRYPTION_KEY_PROVEEDORES)",
+    conector_pago_sandbox: hayClaveCifrado
+      ? `${CONECTOR_PAGO_SANDBOX_ID}  (credenciales ${credencialesMpReales ? "MP_SANDBOX_* del entorno" : "FICTICIAS"})`
+      : "OMITIDO (sin ENCRYPTION_KEY_PROVEEDORES)",
+    hu_e2_pedido_pendiente_external_reference: `${PEDIDO_WEB_PAGO_PENDIENTE_IDS.ecommerce}  (V-2026-000004, Juan Pérez)`,
     cupones: "SWAT10 (vigente) · INVIERNO5000 (vencido) · LANZAMIENTO15 (agotado)",
     producto_web_no_visible: productoGorraTactica.nombre,
     hu_e1_cuenta_web: `${cuentaWebCarlosRuiz.email}  (password: "${PASSWORD_SEED}")`,

@@ -162,9 +162,12 @@ DATABASE_URL=$TEST_DB npx prisma migrate deploy && DATABASE_URL=$TEST_DB npx pri
 HU_E1_INTEGRATION_DATABASE_URL=$TEST_DB npm run test:integration:e1
 
 # Nivel 2 — HTTP: un servidor APARTE apuntando a la base de test (no el `next dev` de desarrollo).
-# `next build` escribe en .next y `next dev` en .next/dev: pueden convivir (Next 16).
-DATABASE_URL=$TEST_DB npx next build
-DATABASE_URL=$TEST_DB npx next start -p 3101        # en otra terminal
+# Desde HU-E2 el checkout crea la preferencia de Mercado Pago: el servidor necesita
+# MP_MODO=simulado (sin red) y APP_PUBLIC_URL. El simulador está PROHIBIDO con
+# NODE_ENV=production, así que el servidor de test es `next dev` (no `next start`).
+# Si la base de test se sembró con otra ENCRYPTION_KEY_PROVEEDORES que la del .env,
+# pasar la misma clave (el webhook descifra el Conector con ella).
+DATABASE_URL=$TEST_DB MP_MODO=simulado APP_PUBLIC_URL=http://localhost:3101 npx next dev -p 3101   # en otra terminal
 HU_E1_INTEGRATION_BASE_URL=http://localhost:3101 HU_E1_INTEGRATION_DATABASE_URL=$TEST_DB npm run test:integration:e1-http
 ```
 

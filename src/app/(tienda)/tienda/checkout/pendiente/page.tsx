@@ -12,7 +12,10 @@
  *    escribir en la base: el pedido sigue PAGO_PENDIENTE hasta que HU-E7 lo
  *    anule (coordinación pendiente, docs/tasks/HU-E1.md).
  *
- * El pago (Mercado Pago) llega con HU-E2.
+ * HU-E2: con la reserva vigente muestra "Pagar con Mercado Pago" (Checkout
+ * Pro, redirect al `checkout_url`). Si el pedido todavía no tiene preferencia
+ * (Mercado Pago falló al iniciar la compra) la crea acá; si vuelve a fallar,
+ * se ofrece reintentar recargando.
  */
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -21,7 +24,19 @@ import { buttonVariants } from "@/components/ui/button";
 import { formatearPrecio } from "@/components/tienda/formato";
 import { getSesionClienteWeb } from "@/lib/auth/sesion-cliente-web";
 import { obtenerPedidoWebPendiente } from "@/lib/services/ecommerce/checkout.service";
+import { obtenerOCrearPreferencia, obtenerResultadoPago } from "@/lib/services/ecommerce/pago-web.service";
 import { z } from "zod";
+
+/** HU-E2: `checkout_url` del pedido, creándolo si falta. `null` si MP no respondió. */
+async function urlDePago(pedidoVentaEcommerceId: string, guardada: string | null): Promise<string | null> {
+  if (guardada) return guardada;
+  try {
+    return await obtenerOCrearPreferencia(pedidoVentaEcommerceId);
+  } catch (error) {
+    console.error("[tienda/checkout/pendiente] No se pudo crear la preferencia de pago:", error);
+    return null;
+  }
+}
 
 const formatoHora = new Intl.DateTimeFormat("es-AR", {
   timeZone: "America/Argentina/Salta",
@@ -55,6 +70,11 @@ export default async function CheckoutPendienteTiendaPage({
 
   const pedido = pedidoId.success ? await obtenerPedidoWebPendiente(pedidoId.data, sesion.clienteId) : null;
 
+  // HU-E2: si el pedido ya se pagó o se rechazó, su estado está en la página de resultado.
+  if (!pedido && pedidoId.success && (await obtenerResultadoPago(pedidoId.data, sesion.clienteId))) {
+    redirect(`/tienda/checkout/resultado?pedido=${pedidoId.data}`);
+  }
+
   if (!pedido) {
     return (
       <div className="mx-auto max-w-lg space-y-4">
@@ -85,6 +105,8 @@ export default async function CheckoutPendienteTiendaPage({
     );
   }
 
+  const checkoutUrl = await urlDePago(pedido.pedido_venta_ecommerce_id, pedido.checkout_url);
+
   return (
     <div className="mx-auto max-w-lg space-y-4">
       <h1 className="text-2xl font-semibold">Reservamos tu compra</h1>
@@ -95,8 +117,25 @@ export default async function CheckoutPendienteTiendaPage({
           Si el pago no se confirma antes, la reserva vence y el stock vuelve a estar disponible.
         </AlertDescription>
       </Alert>
-      {/* HU-E2: acá se integra el botón de pago de Mercado Pago (`checkout_url`). */}
-      <p className="text-sm text-slate-600">El pago online estará disponible próximamente.</p>
+      {checkoutUrl ? (
+        <>
+          {/* Checkout Pro: la tarjeta se carga en Mercado Pago, nunca en SWAT (CA1). */}
+          <a href={checkoutUrl} className={buttonVariants({ className: "w-full" })}>
+            Pagar con Mercado Pago
+          </a>
+          <p className="text-xs text-slate-600">
+            Vas a pagar en el sitio de Mercado Pago. Tus datos de tarjeta nunca pasan por SWAT Indumentarias.
+          </p>
+        </>
+      ) : (
+        <Alert variant="destructive">
+          <AlertTitle>No pudimos conectar con Mercado Pago</AlertTitle>
+          <AlertDescription>
+            Tu reserva sigue vigente. <Link href={`/tienda/checkout/pendiente?pedido=${pedido.pedido_venta_id}`}>Reintentá</Link>{" "}
+            en unos segundos.
+          </AlertDescription>
+        </Alert>
+      )}
     </div>
   );
 }

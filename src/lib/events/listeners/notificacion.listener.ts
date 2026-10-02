@@ -38,4 +38,23 @@ export function iniciarNotificacionListener(): void {
       );
     });
   });
+
+  // PROVISORIO HU-E2 — completar en HU-F3 (owner: Cali):
+  // solo el Cliente Web dueño del pedido (spec F §3.3). La notificación al rol
+  // Operador de Pick & Pack (expansión por rol) queda para HU-E12 (owner: Emir).
+  domainEventBus.on("ecommerce:pedido_pago_confirmado", (payload) => {
+    void generarNotificacionClienteWeb({
+      tipo_evento: "ecommerce:pedido_pago_confirmado",
+      // Por pedido: un webhook repetido nunca notifica dos veces.
+      registro_id: payload.pedido_venta_id,
+      cuenta_cliente_web_id: payload.cliente_web_cuenta_id,
+      prioridad_default: "INFORMATIVA",
+      variables: { numero_venta: payload.numero_venta },
+    }).catch((error: unknown) => {
+      console.error(
+        "[notificacion.listener] No se pudo generar la notificación de ecommerce:pedido_pago_confirmado:",
+        error,
+      );
+    });
+  });
 }
