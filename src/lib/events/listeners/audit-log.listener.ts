@@ -753,6 +753,147 @@ export function iniciarAuditLogListener(): void {
   // resto del proyecto). `tabla_afectada` usa el `@@map` en minúsculas
   // (`reservas`); `ip: "internal-event"` — mismo sentinel que los listeners
   // que emiten post-COMMIT desde un service sin request HTTP directo.
+  // ── HU-E1 (Módulo E) — auditoría estándar de carrito/checkout (D8). El
+  // actor es un Cliente Web, que NO es un `Usuario` del ERP: `usuario_id`
+  // queda null y la cuenta viaja en `valor_nuevo` (mismo criterio que los
+  // eventos disparados por el cron). Las mutaciones anónimas de ítems no se
+  // auditan (D8, aprobada).
+  domainEventBus.on("ecommerce:carrito_articulo_no_disponible", (payload) => {
+    void registrarAuditLog({
+      usuario_id: null,
+      accion: "CHECKOUT_BLOQUEADO",
+      tabla_afectada: "items_carrito_web",
+      registro_id: payload.carrito_item_id,
+      ip: "internal-event",
+      valor_anterior: null,
+      valor_nuevo: {
+        carrito_id: payload.carrito_id,
+        variante_sku_id: payload.variante_sku_id,
+        motivo: payload.motivo,
+        cliente_web_cuenta_id: payload.cliente_web_cuenta_id,
+      },
+    });
+  });
+
+  domainEventBus.on("ecommerce:carrito_fusionado", (payload) => {
+    void registrarAuditLog({
+      usuario_id: null,
+      accion: "CARRITO_FUSIONADO",
+      tabla_afectada: "carritos_web",
+      registro_id: payload.carrito_origen_id,
+      ip: "internal-event",
+      valor_anterior: { is_active: true },
+      valor_nuevo: {
+        is_active: false,
+        deletion_reason: "FUSIONADO",
+        carrito_destino_id: payload.carrito_destino_id,
+        cliente_web_cuenta_id: payload.cliente_web_cuenta_id,
+        items_fusionados: payload.items_fusionados,
+      },
+    });
+  });
+
+  domainEventBus.on("ecommerce:checkout_iniciado", (payload) => {
+    void registrarAuditLog({
+      usuario_id: null,
+      accion: "CREATE",
+      tabla_afectada: "pedidos_venta_ecommerce",
+      registro_id: payload.pedido_venta_ecommerce_id,
+      ip: "internal-event",
+      valor_anterior: null,
+      valor_nuevo: {
+        pedido_venta_id: payload.pedido_venta_id,
+        numero_venta: payload.numero_venta,
+        estado_ecommerce: "PAGO_PENDIENTE",
+        cliente_web_cuenta_id: payload.cliente_web_cuenta_id,
+        carrito_id: payload.carrito_id,
+        reserva_ids: payload.reserva_ids,
+        ttl_expiracion: payload.ttl_expiracion,
+      },
+    });
+  });
+
+  domainEventBus.on("ecommerce:carrito_convertido_en_pedido", (payload) => {
+    void registrarAuditLog({
+      usuario_id: null,
+      accion: "DELETE_LOGICO",
+      tabla_afectada: "carritos_web",
+      registro_id: payload.carrito_id,
+      ip: "internal-event",
+      valor_anterior: { is_active: true },
+      valor_nuevo: {
+        is_active: false,
+        deleted_at: payload.deleted_at,
+        deleted_by: payload.cliente_web_cuenta_id,
+        deletion_reason: payload.deletion_reason,
+        pedido_venta_id: payload.pedido_venta_id,
+      },
+    });
+  });
+
+  // ── HU-E2 (Módulo E) — pago web por webhook de Mercado Pago. El actor es
+  // Mercado Pago (sin `Usuario` del ERP): `usuario_id` null, mismo criterio que
+  // los eventos de E1. Sin datos de tarjeta ni payload crudo de MP (spec E §4).
+  domainEventBus.on("ecommerce:pedido_pago_confirmado", (payload) => {
+    void registrarAuditLog({
+      usuario_id: null,
+      accion: "PAGO_CONFIRMADO",
+      tabla_afectada: "pedidos_venta_ecommerce",
+      registro_id: payload.pedido_venta_ecommerce_id,
+      ip: "internal-event",
+      valor_anterior: { estado_ecommerce: "PAGO_PENDIENTE" },
+      valor_nuevo: {
+        estado_ecommerce: "PAGO_CONFIRMADO",
+        pedido_venta_id: payload.pedido_venta_id,
+        numero_venta: payload.numero_venta,
+        estado_venta: "FACTURADO",
+        mercadopago_payment_id: payload.mercadopago_payment_id,
+        monto: payload.monto,
+        moneda: payload.moneda,
+        fecha_aprobacion: payload.fecha_aprobacion,
+        comprobante_id: payload.comprobante_id,
+        cupon_aplicacion_id: payload.cupon_aplicacion_id,
+        cliente_web_cuenta_id: payload.cliente_web_cuenta_id,
+      },
+    });
+  });
+
+  domainEventBus.on("ecommerce:pago_rechazado", (payload) => {
+    void registrarAuditLog({
+      usuario_id: null,
+      accion: "PAGO_RECHAZADO",
+      tabla_afectada: "pedidos_venta_ecommerce",
+      registro_id: payload.pedido_venta_ecommerce_id,
+      ip: "internal-event",
+      valor_anterior: { estado_ecommerce: "PAGO_PENDIENTE" },
+      valor_nuevo: {
+        estado_ecommerce: "PAGO_RECHAZADO",
+        pedido_venta_id: payload.pedido_venta_id,
+        numero_venta: payload.numero_venta,
+        estado_venta: "ANULADO",
+        mercadopago_payment_id: payload.mercadopago_payment_id,
+        monto: payload.monto,
+        moneda: payload.moneda,
+        motivo_rechazo: payload.motivo_rechazo,
+        reserva_ids: payload.reserva_ids,
+        carrito_id: payload.carrito_id,
+        cliente_web_cuenta_id: payload.cliente_web_cuenta_id,
+      },
+    });
+  });
+
+  domainEventBus.on("ecommerce:pago_anomalo", (payload) => {
+    void registrarAuditLog({
+      usuario_id: null,
+      accion: "PAGO_ANOMALO",
+      tabla_afectada: "pedidos_venta_ecommerce",
+      registro_id: payload.pedido_venta_ecommerce_id,
+      ip: "internal-event",
+      valor_anterior: null,
+      valor_nuevo: { ...payload },
+    });
+  });
+
   domainEventBus.on("stock:reserva_congelada", (payload) => {
     void registrarAuditLog({
       usuario_id: payload.usuario_id,

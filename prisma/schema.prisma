@@ -81,11 +81,11 @@ model Usuario {
   operaciones_cc_autorizadas     CuentaCorrienteOperacion[] @relation("CuentaCorrienteOperacionAutorizadaPor")
 
   // --- Relaciones Sprint 4 (Módulos D / B / E / F) ---
-  configuraciones_actualizadas   ConfiguracionSistema[]    @relation("ConfiguracionActualizadaPor")
-  listas_precio_venta_publicadas ListaPrecioVentaVersion[] @relation("ListaPrecioVentaPublicadaPor")
-  pedidos_ecommerce_asignados    PedidoVentaEcommerce[]    @relation("PedidoEcommerceOperadorAsignado")
+  configuraciones_actualizadas   ConfiguracionSistema[]     @relation("ConfiguracionActualizadaPor")
+  listas_precio_venta_publicadas ListaPrecioVentaVersion[]  @relation("ListaPrecioVentaPublicadaPor")
+  pedidos_ecommerce_asignados    PedidoVentaEcommerce[]     @relation("PedidoEcommerceOperadorAsignado")
   escaneos_preparacion           PedidoPreparacionEscaneo[] @relation("EscaneoPreparacionOperador")
-  notificaciones_recibidas       Notificacion[]            @relation("NotificacionUsuarioDestinatario")
+  notificaciones_recibidas       Notificacion[]             @relation("NotificacionUsuarioDestinatario")
 
   @@map("usuarios")
 }
@@ -733,13 +733,15 @@ model Reserva {
   @@map("reservas")
 }
 
-/// Origen estructurado de una Reserva (HU-A10, Sprint 2): distingue los 3
-/// orígenes válidos definidos por la HU. Campo opcional en Reserva — ver
-/// comentario en el modelo.
+/// Origen estructurado de una Reserva (HU-A10, Sprint 2). Campo opcional en
+/// Reserva — ver comentario en el modelo. `CHECKOUT_WEB` (HU-E1, Sprint 4):
+/// reserva del checkout del canal web, siempre con `ttl_horas` explícito y
+/// acotado (`ConfiguracionSistema.ECOMMERCE_CHECKOUT_TTL_HORAS`).
 enum OrigenReserva {
   SENIA
   LICITACION
   PEDIDO_INSTITUCIONAL
+  CHECKOUT_WEB
 }
 
 // ============================================================================
@@ -1731,10 +1733,10 @@ model PedidoVentaItem {
   updated_at DateTime @updatedAt
 
   // --- Relaciones ---
-  pedido_venta   PedidoVenta @relation(fields: [pedido_venta_id], references: [id], onDelete: Restrict)
-  variante_sku   VarianteSKU @relation(fields: [variante_sku_id], references: [id], onDelete: Restrict)
-  reserva        Reserva?    @relation("PedidoVentaItemReserva", fields: [reserva_id], references: [id], onDelete: Restrict)
-  autorizado_por Usuario?    @relation("PedidoVentaItemAutorizadoPor", fields: [autorizado_por_id], references: [id], onDelete: Restrict)
+  pedido_venta         PedidoVenta                @relation(fields: [pedido_venta_id], references: [id], onDelete: Restrict)
+  variante_sku         VarianteSKU                @relation(fields: [variante_sku_id], references: [id], onDelete: Restrict)
+  reserva              Reserva?                   @relation("PedidoVentaItemReserva", fields: [reserva_id], references: [id], onDelete: Restrict)
+  autorizado_por       Usuario?                   @relation("PedidoVentaItemAutorizadoPor", fields: [autorizado_por_id], references: [id], onDelete: Restrict)
   escaneos_preparacion PedidoPreparacionEscaneo[] @relation("EscaneoPreparacionItem")
 
   @@index([pedido_venta_id])
@@ -2085,11 +2087,21 @@ model ContraAsientoIngreso {
 /// identificado por `carrito_token` (cookie firmada, sin PII). Al iniciar
 /// sesión se fusiona con el carrito persistente de la cuenta. Los carritos
 /// abandonados se desactivan por baja lógica (nunca se eliminan).
+///
+/// HU-E1 (D5): "un único carrito ACTIVO por cuenta" NO es un `@unique` de
+/// Prisma (bloquearía el job de carritos abandonados de HU-E5, que da de baja
+/// el carrito y la cuenta necesita uno nuevo): lo garantiza el índice único
+/// PARCIAL `carritos_web_cuenta_activa_key` (`WHERE is_active = true AND
+/// deleted_at IS NULL`), creado por SQL en la migración
+/// `20261001143427_hu_e1_carrito_web`. Prisma 6 no modela índices parciales
+/// (verificado: `prisma migrate diff` contra la base migrada da vacío, no
+/// intenta borrarlo); igual, al generar migraciones futuras revisar que el SQL
+/// NO incluya un `DROP INDEX "carritos_web_cuenta_activa_key"`.
 model CarritoWeb {
   id                    String  @id @default(uuid())
   /// null una vez fusionado a una cuenta.
   carrito_token         String? @unique
-  cuenta_cliente_web_id String? @unique
+  cuenta_cliente_web_id String?
 
   // --- Soft delete estricto ---
   is_active       Boolean   @default(true)
@@ -2104,6 +2116,7 @@ model CarritoWeb {
   cuenta_cliente_web CuentaClienteWeb? @relation(fields: [cuenta_cliente_web_id], references: [id], onDelete: Restrict)
   items              CarritoWebItem[]
 
+  @@index([cuenta_cliente_web_id])
   @@map("carritos_web")
 }
 
@@ -2122,6 +2135,8 @@ model CarritoWebItem {
   deletion_reason String?
 
   created_at DateTime @default(now())
+  /// HU-E1 (D9): `cantidad` es mutable (RULES.md §1 exige `updated_at`).
+  updated_at DateTime @default(now()) @updatedAt
 
   // --- Relaciones ---
   carrito      CarritoWeb  @relation(fields: [carrito_id], references: [id], onDelete: Restrict)
@@ -2151,16 +2166,24 @@ enum EstadoEcommerce {
 /// spec_modulo_E.md §3.1. La validez del QR se resuelve siempre contra
 /// `estado_ecommerce`, nunca contra una expiración propia del QR (§2.3).
 model PedidoVentaEcommerce {
-  id                       String          @id @default(uuid())
-  pedido_venta_id          String          @unique
-  estado_ecommerce         EstadoEcommerce @default(PAGO_PENDIENTE)
-  mercadopago_payment_id   String?
-  cupon_aplicacion_id      String?         @unique
-  codigo_qr_retiro         String?         @unique
-  plazo_retiro_vencimiento DateTime?
-  operador_asignado_id     String?
-  prioridad_manual         Int?
-  fecha_pago_confirmado    DateTime?
+  id                        String          @id @default(uuid())
+  pedido_venta_id           String          @unique
+  estado_ecommerce          EstadoEcommerce @default(PAGO_PENDIENTE)
+  /// HU-E2 (task §3.1/E1 §14.1): `@unique` — un pago de Mercado Pago se imputa
+  /// a un único pedido. Nullable: PostgreSQL admite varios NULL en un único.
+  mercadopago_payment_id    String?         @unique
+  /// HU-E2 — preferencia de Checkout Pro, UNA por pedido (`external_reference`
+  /// = `PedidoVentaEcommerce.id`). Reintentar el pago reutiliza esta.
+  mercadopago_preference_id String?         @unique
+  /// HU-E2 — `init_point` de la preferencia: se devuelve al reintentar el pago
+  /// del mismo pedido sin volver a llamar a Mercado Pago.
+  mercadopago_checkout_url  String?
+  cupon_aplicacion_id       String?         @unique
+  codigo_qr_retiro          String?         @unique
+  plazo_retiro_vencimiento  DateTime?
+  operador_asignado_id      String?
+  prioridad_manual          Int?
+  fecha_pago_confirmado     DateTime?
 
   // --- Soft delete estricto ---
   is_active       Boolean   @default(true)
@@ -2184,10 +2207,10 @@ model PedidoVentaEcommerce {
 /// Cada fila activa representa una unidad cuantitativa escaneada; no se agrega
 /// `cantidad_confirmada` a `PedidoVentaItem`.
 model PedidoPreparacionEscaneo {
-  id                   String  @id @default(uuid())
+  id                   String @id @default(uuid())
   pedido_venta_item_id String
   operador_id          String
-  scan_id              String  @unique
+  scan_id              String @unique
   codigo_escaneado     String
 
   // --- Soft delete estricto ---
@@ -2343,10 +2366,13 @@ model CuentaClienteWeb {
   deletion_reason String?
 
   created_at DateTime @default(now())
+  /// HU-E1 (D9): `token_version`/`intentos_fallidos` son mutables (RULES.md §1).
+  updated_at DateTime @default(now()) @updatedAt
 
   // --- Relaciones ---
   cliente        Cliente        @relation(fields: [cliente_id], references: [id], onDelete: Restrict)
-  carrito        CarritoWeb?
+  /// 1:N desde HU-E1 (D5): historial de carritos; solo uno activo (índice parcial).
+  carritos       CarritoWeb[]
   notificaciones Notificacion[] @relation("NotificacionClienteWebDestinatario")
 
   @@map("cuentas_cliente_web")
@@ -2458,20 +2484,31 @@ model InvocacionConectorPago {
   @@map("invocaciones_conector_pago")
 }
 
-/// Deduplicación de webhooks entrantes de Mercado Pago (HU-F1, spec §2.1.3):
-/// el `payment_id` + `topic` se persiste ANTES de despachar
-/// `pago:webhook_confirmado`; un reintento de Mercado Pago choca contra el
-/// `@@unique` (P2002 → no-op, `duplicado: true`). Append-only: sin bloque de
-/// soft delete. Modelo no incluido en spec_modulo_F.md; agregado con
+/// Traza append-only de las notificaciones de Mercado Pago con firma válida
+/// (HU-F1, spec §2.1.3). Sin bloque de soft delete, mismo criterio que
+/// `AuditLog`. Modelo no incluido en spec_modulo_F.md; agregado con
 /// confirmación del equipo (Sprint 4).
+///
+/// PROVISORIO HU-E2 — completar en HU-F1 (owner: Rama). HU-E2 quitó la clave
+/// única `(mercadopago_payment_id, topic)`: con ella, la notificación
+/// "approved" posterior a una "pending" del mismo pago se descartaba, y un
+/// reintento de MP tras un fallo de procesamiento no se reprocesaba. La
+/// idempotencia de negocio vive en la transición condicionada de
+/// `PedidoVentaEcommerce` + `mercadopago_payment_id @unique`
+/// (docs/tasks/HU-E2.md §3.4).
 model WebhookPagoLog {
-  id                     String @id @default(uuid())
+  id                     String  @id @default(uuid())
   mercadopago_payment_id String
   topic                  String
+  /// Header `x-request-id` de la notificación (null en filas previas a HU-E2).
+  request_id             String?
+  /// CONFIRMADO | RECHAZADO | PENDIENTE | SIN_EFECTO | ANOMALIA | ERROR.
+  /// `RECIBIDO` para las filas previas a HU-E2.
+  resultado              String  @default("RECIBIDO")
 
   created_at DateTime @default(now())
 
-  @@unique([mercadopago_payment_id, topic])
+  @@index([mercadopago_payment_id])
   @@map("log_webhooks_pago")
 }
 

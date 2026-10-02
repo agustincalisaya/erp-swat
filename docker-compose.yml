@@ -19,5 +19,29 @@ services:
       timeout: 5s
       retries: 5
 
+  # HU-A10 / HU-E1 (D4) — Disparador del job de liberación de Reservas vencidas.
+  # Opcional: solo arranca con `docker compose --profile jobs up -d cron-reservas`.
+  # Llama cada 60 s al cron HTTP de la app (que corre en el host con `npm run dev`
+  # o `npm start`). Alternativa sin Docker: `npm run job:reservas:watch`.
+  # CRON_SECRET se toma del entorno/.env del host — nunca hardcodeado (RULES §3).
+  cron-reservas:
+    image: curlimages/curl:8.10.1
+    container_name: swat_erp_cron_reservas
+    profiles: ["jobs"]
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      CRON_SECRET: ${CRON_SECRET:-}
+      CRON_URL: ${CRON_URL:-http://host.docker.internal:3000/api/cron/check-pruebas-vencidas}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >
+        while true; do
+          curl -s -X POST -H "Authorization: Bearer $$CRON_SECRET" "$$CRON_URL" || echo "[cron-reservas] app no disponible";
+          echo;
+          sleep 60;
+        done
+
 volumes:
   swat_erp_db_data:

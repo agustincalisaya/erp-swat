@@ -120,6 +120,35 @@ export async function obtenerStockDisponible(varianteSkuId: string, depositoId: 
   return stock?.cantidad ?? 0;
 }
 
+/**
+ * HU-E1 — versión por lote de `obtenerStockDisponible()` para N variantes en un
+ * mismo depósito (catálogo/carrito web, sin N+1). MISMO `where` que la versión
+ * unitaria: `StockDeposito.cantidad` ya es el neto disponible (las reservas lo
+ * decrementan al congelar). Las variantes sin fila, o cuya variante/depósito
+ * está inactivo, quedan con 0. Lectura pura, sin cache: tiempo real (CA1/CA2).
+ */
+export async function obtenerStockDisponiblePorVariantes(
+  varianteSkuIds: readonly string[],
+  depositoId: string,
+): Promise<Map<string, number>> {
+  const disponible = new Map<string, number>(varianteSkuIds.map((id) => [id, 0]));
+  if (varianteSkuIds.length === 0) return disponible;
+
+  const filas = await prisma.stockDeposito.findMany({
+    where: {
+      variante_sku_id: { in: [...new Set(varianteSkuIds)] },
+      deposito_id: depositoId,
+      is_active: true,
+      deleted_at: null,
+      variante_sku: { is_active: true, deleted_at: null },
+      deposito: { is_active: true, deleted_at: null },
+    },
+    select: { variante_sku_id: true, cantidad: true },
+  });
+  for (const fila of filas) disponible.set(fila.variante_sku_id, fila.cantidad);
+  return disponible;
+}
+
 /** Fila de `obtenerStockPorVarianteYDepositos()` — un depósito activo y su disponible. */
 export interface StockPorDeposito {
   deposito_id: string;

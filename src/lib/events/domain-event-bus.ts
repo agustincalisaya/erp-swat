@@ -47,3 +47,10 @@ void import("@/lib/events/listeners/audit-log.listener").then(({ iniciarAuditLog
 void import("@/lib/events/listeners/cuenta-por-pagar.listener").then(({ iniciarCuentaPorPagarListener }) => {
   iniciarCuentaPorPagarListener();
 });
+
+// HU-F3 (mínimo introducido por HU-E1) — Motor de Notificaciones internas.
+// Va después de `audit-log.listener`: el asiento de auditoría del evento se
+// encola antes de generar la notificación (mismo criterio de orden que arriba).
+void import("@/lib/events/listeners/notificacion.listener").then(({ iniciarNotificacionListener }) => {
+  iniciarNotificacionListener();
+});

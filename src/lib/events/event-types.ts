@@ -507,7 +507,7 @@ export interface ReservaCongeladaPayload {
   variante_sku_id: string;
   deposito_id: string;
   usuario_id: string;
-  origen_reserva: "SENIA" | "LICITACION" | "PEDIDO_INSTITUCIONAL";
+  origen_reserva: "SENIA" | "LICITACION" | "PEDIDO_INSTITUCIONAL" | "CHECKOUT_WEB";
   cantidad: number;
 }
 
@@ -518,10 +518,13 @@ export interface ReservaCongeladaPayload {
  * Emisión post-`$transaction` (§4). No incluye `usuario_id`: la vía TTL la
  * dispara el cron (agente del sistema, sin usuario humano); el listener
  * registra la auditoría con `usuario_id: null`.
+ *
+ * HU-E2: `PAGO_RECHAZADO` = liberación inmediata por rechazo del pago web
+ * (`liberarReservasTx()`), RESERVADO → DISPONIBLE como la de TTL.
  */
 export interface ReservaLiberadaPayload {
   reserva_id: string;
-  motivo_liberacion: "VENTA" | "TTL_VENCIDO";
+  motivo_liberacion: "VENTA" | "TTL_VENCIDO" | "PAGO_RECHAZADO";
   variante_sku_id: string;
   cantidad: number;
 }
@@ -980,6 +983,138 @@ export interface EcommercePedidoListoParaRetiroPayload {
   timestamp: string;
 }
 
+/**
+ * HU-E1 (spec_modulo_E.md §2.1/§4, criterio de aceptación 4) — motivo por el
+ * que un ítem de carrito dejó de ser comprable ("desactivado", decisión D6 de
+ * `docs/tasks/HU-E1.md`). `STOCK_INSUFICIENTE` NO está acá a propósito: usa
+ * otro código de error y no notifica.
+ */
+export type MotivoArticuloNoDisponible =
+  | "SKU_INACTIVO"
+  | "PRODUCTO_INACTIVO"
+  | "NO_VISIBLE_WEB"
+  | "SIN_PRECIO_VIGENTE"
+  | "NO_PUBLICABLE";
+
+/**
+ * HU-E1 — Payload emitido por cada ítem afectado cuando el checkout se
+ * bloquea con `422 ARTICULO_NO_DISPONIBLE`. Consumidores: Módulo F (HU-F3,
+ * notificación ADVERTENCIA al dueño del carrito) y Módulo D (auditoría). Sin
+ * PII ni precios (convención de exclusión de spec E §4). `sku` es el código
+ * de la variante, para el placeholder de la plantilla (spec F §3.2).
+ */
+export interface CarritoArticuloNoDisponiblePayload {
+  carrito_id: string;
+  carrito_item_id: string;
+  variante_sku_id: string;
+  sku: string;
+  motivo: MotivoArticuloNoDisponible;
+  cliente_web_cuenta_id: string | null;
+}
+
+/** HU-E1 (CA7) — fusión del carrito de visitante en el de la cuenta, al iniciar sesión. */
+export interface CarritoFusionadoPayload {
+  carrito_origen_id: string;
+  carrito_destino_id: string;
+  cliente_web_cuenta_id: string;
+  items_fusionados: number;
+}
+
+/**
+ * HU-E1 (D1/D10) — checkout parcial confirmado: reservas congeladas,
+ * `PedidoVenta` RESERVADO + `PedidoVentaEcommerce` PAGO_PENDIENTE. Sin precios
+ * ni PII (convención de spec E §4).
+ */
+export interface CheckoutIniciadoPayload {
+  pedido_venta_id: string;
+  pedido_venta_ecommerce_id: string;
+  numero_venta: string;
+  cliente_web_cuenta_id: string;
+  carrito_id: string;
+  reserva_ids: string[];
+  ttl_expiracion: string;
+}
+
+/** HU-E1 (D10) — baja lógica del carrito convertido en pedido (mismo commit del checkout). */
+export interface CarritoConvertidoEnPedidoPayload {
+  carrito_id: string;
+  pedido_venta_id: string;
+  cliente_web_cuenta_id: string;
+  deleted_at: string;
+  deletion_reason: string;
+}
+
+/**
+ * HU-E2 (CA6) — pago web aprobado y aplicado: stock VENDIDO, `PedidoVenta`
+ * FACTURADO con su Factura B y `PedidoVentaEcommerce` PAGO_CONFIRMADO, en un
+ * solo commit. Contrato documentado en docs/tasks/HU-E2.md §3.3. Consumidores:
+ * Módulo D (auditoría), F3 (notificación al Cliente Web), HU-E6 y HU-G11
+ * (owner: Rama) y HU-E12 (owner: Emir). Se emite post-commit y sin outbox:
+ * los consumidores DEBEN ser idempotentes por `mercadopago_payment_id`.
+ */
+export interface PedidoPagoConfirmadoPayload {
+  pedido_venta_id: string;
+  pedido_venta_ecommerce_id: string;
+  numero_venta: string;
+  cliente_id: string;
+  cliente_web_cuenta_id: string;
+  mercadopago_payment_id: string;
+  /** `PedidoVenta.total` (neto de cupón). */
+  monto: number;
+  moneda: "ARS";
+  /** ISO-8601 — `date_approved` informado por Mercado Pago. */
+  fecha_aprobacion: string;
+  comprobante_id: string;
+  cupon_aplicacion_id: string | null;
+}
+
+/**
+ * HU-E2 (CA7) — pago web rechazado: reservas liberadas (PAGO_RECHAZADO),
+ * `PedidoVenta` ANULADO, `PedidoVentaEcommerce` PAGO_RECHAZADO (activo) y el
+ * carrito del cliente reconstruido. Contrato en docs/tasks/HU-E2.md §3.3.
+ */
+export interface PagoRechazadoPayload {
+  pedido_venta_id: string;
+  pedido_venta_ecommerce_id: string;
+  numero_venta: string;
+  cliente_id: string;
+  cliente_web_cuenta_id: string;
+  mercadopago_payment_id: string;
+  monto: number;
+  moneda: "ARS";
+  fecha_rechazo: string;
+  /** `status_detail` de Mercado Pago. */
+  motivo_rechazo: string;
+  reserva_ids: string[];
+  carrito_id: string;
+}
+
+/** HU-E2 — motivos de un pago que no se aplica (o se aplica con alerta). */
+export type MotivoPagoAnomalo =
+  | "MONTO_DISCREPANTE"
+  | "PAGO_TARDIO"
+  | "PAGO_DUPLICADO"
+  | "PAGO_HUERFANO"
+  /** Único motivo emitido con el pago SÍ confirmado (task §3.2, Q3). */
+  | "CUPON_LIMITE_EXCEDIDO";
+
+/**
+ * HU-E2 — pago informado por Mercado Pago que no se aplicó tal cual (monto
+ * distinto, tardío, duplicado, huérfano) o cupón que superó su límite al
+ * confirmar. Evento auditado; reembolso manual fuera de E2.
+ */
+export interface PagoAnomaloPayload {
+  motivo: MotivoPagoAnomalo;
+  mercadopago_payment_id: string;
+  /** `status` de Mercado Pago (ej. "approved"). */
+  estado_pago_mp: string;
+  pedido_venta_ecommerce_id: string | null;
+  pedido_venta_id: string | null;
+  monto_informado: number;
+  moneda_informada: string;
+  monto_esperado: number | null;
+}
+
 /** Mapa evento → payload, usado por `domain-event-bus.ts` para tipar `emit`/`on`. */
 export interface DomainEventMap {
   /** HU-A1: se emite tras el alta de un ProductoMaestro. */
@@ -1095,6 +1230,20 @@ export interface DomainEventMap {
   "ecommerce:unidad_preparacion_confirmada": EcommerceUnidadPreparacionConfirmadaPayload;
   /** HU-E12: pedido completamente preparado, listo para retiro. */
   "ecommerce:pedido_listo_para_retiro": EcommercePedidoListoParaRetiroPayload;
+  /** HU-E1: se emite por cada ítem de carrito que bloquea el checkout por estar desactivado (CA4). */
+  "ecommerce:carrito_articulo_no_disponible": CarritoArticuloNoDisponiblePayload;
+  /** HU-E1: se emite tras fusionar el carrito de visitante con el de la cuenta (CA7). */
+  "ecommerce:carrito_fusionado": CarritoFusionadoPayload;
+  /** HU-E1: se emite tras el commit del checkout parcial (pedido PAGO_PENDIENTE). */
+  "ecommerce:checkout_iniciado": CheckoutIniciadoPayload;
+  /** HU-E1: se emite tras dar de baja lógica el carrito convertido en pedido. */
+  "ecommerce:carrito_convertido_en_pedido": CarritoConvertidoEnPedidoPayload;
+  /** HU-E2: se emite tras el commit de la confirmación de un pago aprobado. */
+  "ecommerce:pedido_pago_confirmado": PedidoPagoConfirmadoPayload;
+  /** HU-E2: se emite tras el commit del rechazo de un pago (CA7, rechazo auditado). */
+  "ecommerce:pago_rechazado": PagoRechazadoPayload;
+  /** HU-E2: pago de MP no aplicado (o cupón excedido al confirmar). */
+  "ecommerce:pago_anomalo": PagoAnomaloPayload;
 }
 
 export type DomainEventName = keyof DomainEventMap;
