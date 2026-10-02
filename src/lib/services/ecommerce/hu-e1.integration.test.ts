@@ -47,6 +47,9 @@ test(
   { skip: !DATABASE_URL, timeout: 180_000 },
   async (t) => {
     process.env.DATABASE_URL = DATABASE_URL;
+    // HU-E2: el checkout crea la preferencia de Mercado Pago; en tests, sin red.
+    process.env.MP_MODO = "simulado";
+    process.env.APP_PUBLIC_URL ??= "http://localhost:3000";
 
     const [
       { prisma },
@@ -292,7 +295,8 @@ test(
         assert.equal(resultado.reutilizado, false);
         assert.equal(resultado.estado_ecommerce, "PAGO_PENDIENTE");
         assert.equal(resultado.total, 30000);
-        assert.equal(resultado.checkout_url, null);
+        // HU-E2: el checkout ya devuelve la URL de Checkout Pro (simulador en tests).
+        assert.ok(resultado.checkout_url);
         assert.equal(await stockShowroom(a.varianteId), 2);
 
         const [reserva] = await reservasDelPedido(resultado.pedido_venta_id);

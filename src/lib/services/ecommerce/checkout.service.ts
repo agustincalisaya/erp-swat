@@ -1,7 +1,15 @@
 /**
  * HU-E1 — Checkout parcial (docs/tasks/HU-E1.md, D1 aprobada; spec_modulo_E.md
  * §2.2 pasos 1, 3 y 4). Valida, reserva y deja el pedido en Pago Pendiente.
- * SIN cupón (HU-E4) ni Mercado Pago (HU-E2): `checkout_url` sale en `null`.
+ *
+ * HU-E2 completa los pasos 2 y 5 (docs/tasks/HU-E2.md §9.4):
+ *  - Paso 2: cupón opcional (`cupon_codigo`) aplicado DENTRO de la transacción
+ *    sobre el total congelado (HU-B9); `PedidoVenta.total` queda NETO (Q1). El
+ *    importe nunca viene del navegador (CA5).
+ *  - Paso 5: preferencia de Checkout Pro creada DESPUÉS del commit (sin red
+ *    dentro de la transacción) → `checkout_url`. Si Mercado Pago falla, el
+ *    pedido queda Pago Pendiente sin preferencia y el reintento (D10 caso 2)
+ *    la crea.
  *
  * Estados SOLO del enum existente: `PedidoVenta.estado = RESERVADO` (spec B
  * §3.1) y `PedidoVentaEcommerce.estado_ecommerce = PAGO_PENDIENTE` (spec E §3.1).
@@ -55,7 +63,11 @@ import {
   type ReservaLiberadaTtl,
 } from "@/lib/services/inventario/reserva.service";
 import { obtenerDepositoCanalWebId, obtenerTtlCheckoutHoras } from "@/lib/services/sistema/configuracion.service";
-import { crearPedidoVentaReservadoTx } from "@/lib/services/ventas/pedido-venta.service";
+import { aplicarDescuentoPedidoVentaTx, crearPedidoVentaReservadoTx } from "@/lib/services/ventas/pedido-venta.service";
+import type { IniciarCheckoutInput } from "@/lib/schemas/ecommerce.schema";
+import { aplicarCuponTx } from "@/lib/services/ecommerce/cupon.service";
+import { obtenerOCrearPreferencia } from "@/lib/services/ecommerce/pago-web.service";
+import { NOMBRE_USUARIO_CANAL_WEB, obtenerUsuarioCanalWebId } from "@/lib/services/ecommerce/usuario-canal-web";
 
 /** `deletion_reason` del carrito convertido en pedido (D10). */
 export const MOTIVO_CARRITO_CONVERTIDO = "convertido en pedido";
@@ -68,7 +80,7 @@ export const MOTIVO_CARRITO_CONVERTIDO = "convertido en pedido";
  */
 export const motivoReservaCheckout = (carritoId: string) => `Checkout web — carrito ${carritoId}`;
 /** Usuario de sistema registrante de los PedidoVenta de canal WEB (spec E §2.2, seed). */
-export const NOMBRE_USUARIO_CANAL_WEB = "canal.web.sistema";
+export { NOMBRE_USUARIO_CANAL_WEB };
 
 const REINTENTOS_NUMERO_VENTA = 3;
 const TIMEOUT_TRANSACCION_MS = 15_000;
@@ -81,13 +93,16 @@ export interface SesionCheckout {
 
 export interface CheckoutIniciado {
   pedido_venta_id: string;
+  /** HU-E2: `external_reference` de la preferencia de Mercado Pago. */
+  pedido_venta_ecommerce_id: string;
   numero_venta: string;
   estado_ecommerce: "PAGO_PENDIENTE";
+  /** Total NETO (precios congelados HU-B9 menos cupón HU-E4): lo que cobra MP. */
   total: number;
   /** Vencimiento de la reserva (ventana de pago, `ECOMMERCE_CHECKOUT_TTL_HORAS`). */
   ttl_expiracion: string;
-  /** HU-E2 completa la preferencia de Mercado Pago; en E1 siempre `null`. */
-  checkout_url: null;
+  /** HU-E2: `init_point` de Checkout Pro (redirect a Mercado Pago). */
+  checkout_url: string | null;
   /** `true` si se devolvió un pedido Pago Pendiente vigente ya existente (D10). */
   reutilizado: boolean;
 }
@@ -137,6 +152,8 @@ export async function buscarPedidoPendienteVigente(
     },
     orderBy: { created_at: "desc" },
     select: {
+      id: true,
+      mercadopago_checkout_url: true,
       pedido_venta: {
         select: {
           id: true,
@@ -155,17 +172,23 @@ export async function buscarPedidoPendienteVigente(
 
   return {
     pedido_venta_id: pendiente.pedido_venta.id,
+    pedido_venta_ecommerce_id: pendiente.id,
     numero_venta: pendiente.pedido_venta.numero_venta,
     estado_ecommerce: "PAGO_PENDIENTE",
     total: pendiente.pedido_venta.total.toNumber(),
     ttl_expiracion: new Date(Math.min(...vencimientos)).toISOString(),
-    checkout_url: null,
+    // HU-E2: la preferencia ya creada (una por pedido); `iniciarCheckout` la crea si falta.
+    checkout_url: pendiente.mercadopago_checkout_url,
     reutilizado: true,
   };
 }
 
 export interface PedidoWebPendienteVista {
   pedido_venta_id: string;
+  /** HU-E2: `external_reference` de la preferencia de Mercado Pago. */
+  pedido_venta_ecommerce_id: string;
+  /** HU-E2: preferencia ya creada (`null` si todavía no hay). */
+  checkout_url: string | null;
   numero_venta: string;
   total: number;
   ttl_expiracion: string;
@@ -193,6 +216,8 @@ export async function obtenerPedidoWebPendiente(
       pedido_venta: { id: pedidoVentaId, cliente_id: clienteId, canal: "WEB", is_active: true, deleted_at: null },
     },
     select: {
+      id: true,
+      mercadopago_checkout_url: true,
       pedido_venta: {
         select: {
           id: true,
@@ -213,6 +238,8 @@ export async function obtenerPedidoWebPendiente(
 
   return {
     pedido_venta_id: pendiente.pedido_venta.id,
+    pedido_venta_ecommerce_id: pendiente.id,
+    checkout_url: pendiente.mercadopago_checkout_url,
     numero_venta: pendiente.pedido_venta.numero_venta,
     total: pendiente.pedido_venta.total.toNumber(),
     ttl_expiracion: ttl.toISOString(),
@@ -247,8 +274,31 @@ const CHECKOUT_CONCURRENTE = "CHECKOUT_CONCURRENTE";
  * @throws {ServiceError} STOCK_INSUFICIENTE (422, `details.items[]`) — no notifica (D6)
  * @throws {ServiceError} CHECKOUT_EN_CURSO (409) — carrera sin pedido vigente que devolver
  * @throws {ServiceError} CONFIGURACION_NO_ENCONTRADA | CANAL_WEB_NO_CONFIGURADO | CANAL_WEB_SIN_USUARIO_SISTEMA
+ * @throws {ServiceError} CUPON_* (422) — HU-E2/E4, cupón inválido (rollback total)
+ * @throws {ServiceError} PASARELA_* | CONECTOR_NO_CONFIGURADO | APP_PUBLIC_URL_NO_CONFIGURADA —
+ *         HU-E2: el pedido YA quedó Pago Pendiente; `details.pedido_venta_id` lo
+ *         identifica y reintentar el checkout crea la preferencia que falta.
  */
-export async function iniciarCheckout(sesion: SesionCheckout): Promise<CheckoutIniciado> {
+export async function iniciarCheckout(
+  sesion: SesionCheckout,
+  input: IniciarCheckoutInput = {},
+): Promise<CheckoutIniciado> {
+  const checkout = await reservarPedidoCheckout(sesion, input);
+  if (checkout.checkout_url) return checkout;
+
+  // HU-E2 paso 5 — fuera de toda transacción (D-E2-3).
+  try {
+    const checkoutUrl = await obtenerOCrearPreferencia(checkout.pedido_venta_ecommerce_id);
+    return { ...checkout, checkout_url: checkoutUrl };
+  } catch (error) {
+    if (error instanceof ServiceError) {
+      throw new ServiceError(error.code, error.message, { pedido_venta_id: checkout.pedido_venta_id });
+    }
+    throw error;
+  }
+}
+
+async function reservarPedidoCheckout(sesion: SesionCheckout, input: IniciarCheckoutInput): Promise<CheckoutIniciado> {
   if (sesion.vinculacionPendiente) {
     throw new ServiceError(
       "CUENTA_VINCULACION_PENDIENTE",
@@ -273,25 +323,23 @@ export async function iniciarCheckout(sesion: SesionCheckout): Promise<CheckoutI
     throw new ServiceError("CARRITO_VACIO", "Tu carrito está vacío");
   }
 
-  const [depositoId, ttlHoras, usuarioCanalWeb] = await Promise.all([
+  const [depositoId, ttlHoras, usuarioCanalWebId] = await Promise.all([
     obtenerDepositoCanalWebId(),
     obtenerTtlCheckoutHoras(),
-    prisma.usuario.findFirst({
-      where: { nombre_usuario: NOMBRE_USUARIO_CANAL_WEB, is_active: true, deleted_at: null },
-      select: { id: true },
-    }),
+    obtenerUsuarioCanalWebId(),
   ]);
-  if (!usuarioCanalWeb) {
-    throw new ServiceError(
-      "CANAL_WEB_SIN_USUARIO_SISTEMA",
-      `No existe el usuario de sistema ${NOMBRE_USUARIO_CANAL_WEB} (registrante de los pedidos web)`,
-    );
-  }
 
   let resultado: ResultadoTransaccion | null = null;
   for (let intento = 1; resultado === null; intento++) {
     try {
-      resultado = await ejecutarTransaccionCheckout(sesion, carrito.id, depositoId, ttlHoras, usuarioCanalWeb.id);
+      resultado = await ejecutarTransaccionCheckout(
+        sesion,
+        carrito.id,
+        depositoId,
+        ttlHoras,
+        usuarioCanalWebId,
+        input.cupon_codigo,
+      );
     } catch (error) {
       if (error instanceof ServiceError && error.code === "ARTICULO_NO_DISPONIBLE") {
         // CA4: la transacción se revirtió (el carrito sigue intacto); se avisa
@@ -352,6 +400,7 @@ async function ejecutarTransaccionCheckout(
   depositoId: string,
   ttlHoras: number,
   usuarioCanalWebId: string,
+  cuponCodigo?: string,
 ): Promise<ResultadoTransaccion> {
   const carrito = { id: carritoId };
 
@@ -464,8 +513,29 @@ async function ejecutarTransaccionCheckout(
         registrado_por_id: usuarioCanalWebId,
         items: itemsPedido,
       });
+
+      // (7) HU-E2 paso 2 — cupón (HU-E4) sobre el total congelado; un cupón
+      // inválido revierte TODO el checkout (422 CUPON_*). El total queda neto.
+      let total = pedido.total;
+      let cuponAplicacionId: string | null = null;
+      if (cuponCodigo) {
+        const cupon = await aplicarCuponTx(tx, {
+          codigo: cuponCodigo,
+          cliente_id: sesion.clienteId,
+          pedido_venta_id: pedido.pedido_venta_id,
+          subtotal: pedido.total,
+          ahora,
+        });
+        total = await aplicarDescuentoPedidoVentaTx(tx, pedido.pedido_venta_id, cupon.monto_descontado);
+        cuponAplicacionId = cupon.cupon_aplicacion_id;
+      }
+
       const ecommerce = await tx.pedidoVentaEcommerce.create({
-        data: { pedido_venta_id: pedido.pedido_venta_id, estado_ecommerce: "PAGO_PENDIENTE" },
+        data: {
+          pedido_venta_id: pedido.pedido_venta_id,
+          estado_ecommerce: "PAGO_PENDIENTE",
+          cupon_aplicacion_id: cuponAplicacionId,
+        },
         select: { id: true },
       });
 
@@ -474,9 +544,10 @@ async function ejecutarTransaccionCheckout(
       return {
         respuesta: {
           pedido_venta_id: pedido.pedido_venta_id,
+          pedido_venta_ecommerce_id: ecommerce.id,
           numero_venta: pedido.numero_venta,
           estado_ecommerce: "PAGO_PENDIENTE",
-          total: pedido.total.toNumber(),
+          total: total.toNumber(),
           ttl_expiracion: ttlExpiracion.toISOString(),
           checkout_url: null,
           reutilizado: false,

@@ -390,3 +390,47 @@ export async function fusionarCarritoVisitante(
   }
   return resultado;
 }
+
+// ──────────────────────────────────────────────────────────────────────────────
+// HU-E2 (P5) — reconstrucción del carrito tras un pago rechazado
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Vuelve a poner en el carrito ACTIVO de la cuenta los artículos de un pedido
+ * cuyo pago se rechazó, para que "reintentar" sea un checkout nuevo (re-valida,
+ * re-reserva y re-congela precios). Solo variante + cantidad: nada de reservas
+ * ni precios. Si la cuenta ya armó otro carrito, se SUMA a ese (índice único
+ * parcial de D5: un solo carrito activo por cuenta); un SKU quitado antes se
+ * reactiva. Corre dentro del `tx` del rechazo; no valida stock (lo hace el
+ * checkout, mismo criterio que la fusión, spec §2.1).
+ */
+export async function reconstruirCarritoDesdePedidoTx(
+  tx: Prisma.TransactionClient,
+  cuentaId: string,
+  items: readonly { variante_sku_id: string; cantidad: number }[],
+): Promise<{ carrito_id: string }> {
+  const carrito =
+    (await buscarCarritoActivo(tx, { cuentaId })) ??
+    (await tx.carritoWeb.create({ data: { cuenta_cliente_web_id: cuentaId }, select: { id: true } }));
+
+  for (const item of items) {
+    const existente = await tx.carritoWebItem.findUnique({
+      where: { carrito_id_variante_sku_id: { carrito_id: carrito.id, variante_sku_id: item.variante_sku_id } },
+      select: { cantidad: true, is_active: true },
+    });
+    const cantidadPrevia = existente?.is_active ? existente.cantidad : 0;
+    await tx.carritoWebItem.upsert({
+      where: { carrito_id_variante_sku_id: { carrito_id: carrito.id, variante_sku_id: item.variante_sku_id } },
+      create: { carrito_id: carrito.id, variante_sku_id: item.variante_sku_id, cantidad: item.cantidad },
+      update: {
+        cantidad: cantidadPrevia + item.cantidad,
+        is_active: true,
+        deleted_at: null,
+        deleted_by: null,
+        deletion_reason: null,
+      },
+    });
+  }
+  await tx.carritoWeb.update({ where: { id: carrito.id }, data: { updated_at: new Date() } });
+  return { carrito_id: carrito.id };
+}

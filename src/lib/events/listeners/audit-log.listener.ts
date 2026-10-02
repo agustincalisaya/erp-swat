@@ -824,6 +824,69 @@ export function iniciarAuditLogListener(): void {
     });
   });
 
+  // ── HU-E2 (Módulo E) — pago web por webhook de Mercado Pago. El actor es
+  // Mercado Pago (sin `Usuario` del ERP): `usuario_id` null, mismo criterio que
+  // los eventos de E1. Sin datos de tarjeta ni payload crudo de MP (spec E §4).
+  domainEventBus.on("ecommerce:pedido_pago_confirmado", (payload) => {
+    void registrarAuditLog({
+      usuario_id: null,
+      accion: "PAGO_CONFIRMADO",
+      tabla_afectada: "pedidos_venta_ecommerce",
+      registro_id: payload.pedido_venta_ecommerce_id,
+      ip: "internal-event",
+      valor_anterior: { estado_ecommerce: "PAGO_PENDIENTE" },
+      valor_nuevo: {
+        estado_ecommerce: "PAGO_CONFIRMADO",
+        pedido_venta_id: payload.pedido_venta_id,
+        numero_venta: payload.numero_venta,
+        estado_venta: "FACTURADO",
+        mercadopago_payment_id: payload.mercadopago_payment_id,
+        monto: payload.monto,
+        moneda: payload.moneda,
+        fecha_aprobacion: payload.fecha_aprobacion,
+        comprobante_id: payload.comprobante_id,
+        cupon_aplicacion_id: payload.cupon_aplicacion_id,
+        cliente_web_cuenta_id: payload.cliente_web_cuenta_id,
+      },
+    });
+  });
+
+  domainEventBus.on("ecommerce:pago_rechazado", (payload) => {
+    void registrarAuditLog({
+      usuario_id: null,
+      accion: "PAGO_RECHAZADO",
+      tabla_afectada: "pedidos_venta_ecommerce",
+      registro_id: payload.pedido_venta_ecommerce_id,
+      ip: "internal-event",
+      valor_anterior: { estado_ecommerce: "PAGO_PENDIENTE" },
+      valor_nuevo: {
+        estado_ecommerce: "PAGO_RECHAZADO",
+        pedido_venta_id: payload.pedido_venta_id,
+        numero_venta: payload.numero_venta,
+        estado_venta: "ANULADO",
+        mercadopago_payment_id: payload.mercadopago_payment_id,
+        monto: payload.monto,
+        moneda: payload.moneda,
+        motivo_rechazo: payload.motivo_rechazo,
+        reserva_ids: payload.reserva_ids,
+        carrito_id: payload.carrito_id,
+        cliente_web_cuenta_id: payload.cliente_web_cuenta_id,
+      },
+    });
+  });
+
+  domainEventBus.on("ecommerce:pago_anomalo", (payload) => {
+    void registrarAuditLog({
+      usuario_id: null,
+      accion: "PAGO_ANOMALO",
+      tabla_afectada: "pedidos_venta_ecommerce",
+      registro_id: payload.pedido_venta_ecommerce_id,
+      ip: "internal-event",
+      valor_anterior: null,
+      valor_nuevo: { ...payload },
+    });
+  });
+
   domainEventBus.on("stock:reserva_congelada", (payload) => {
     void registrarAuditLog({
       usuario_id: payload.usuario_id,

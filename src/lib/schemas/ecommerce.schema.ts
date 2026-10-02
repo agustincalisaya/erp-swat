@@ -44,3 +44,19 @@ export const ListarCatalogoQuerySchema = z.object({
   page_size: z.coerce.number().int().positive().max(48).default(12),
 });
 export type ListarCatalogoQuery = z.infer<typeof ListarCatalogoQuerySchema>;
+
+// ──────────────────────────────────────────────────────────────────────────────
+// HU-E2 §2.2 — checkout con pago online
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * spec_modulo_E.md §2.2. Un único cupón por pedido (HU-E4, no acumulable). El
+ * importe NO se acepta del navegador: se calcula siempre en el servidor (CA5);
+ * `.strict()` rechaza cualquier campo extra (ej. `total`, `monto`).
+ */
+export const IniciarCheckoutSchema = z
+  .object({
+    cupon_codigo: z.string().trim().min(3).max(50).toUpperCase().optional(),
+  })
+  .strict();
+export type IniciarCheckoutInput = z.infer<typeof IniciarCheckoutSchema>;

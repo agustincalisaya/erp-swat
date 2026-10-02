@@ -462,3 +462,104 @@ export async function crearPedidoVentaReservadoTx(
 
   return { pedido_venta_id: pedido.id, numero_venta: pedido.numero_venta, total: pedido.total };
 }
+
+// ──────────────────────────────────────────────────────────────────────────────
+// HU-E2 — transiciones del PedidoVenta web sobre el `tx` del llamador (pago
+// online). Funciones NUEVAS: ninguna firma existente de Módulo B cambia. No
+// emiten eventos; el llamador (Módulo E) emite los suyos post-commit.
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * HU-E2 (Q1) — Descuenta un monto (cupón HU-E4) del `total` de un pedido
+ * `RESERVADO`, sin dejarlo negativo (spec E §2.4). El total queda NETO, igual
+ * que el que se cobra y se factura.
+ *
+ * @throws {ServiceError} TRANSICION_INVALIDA si el pedido no está RESERVADO y activo.
+ */
+export async function aplicarDescuentoPedidoVentaTx(
+  tx: Prisma.TransactionClient,
+  pedidoVentaId: string,
+  montoDescuento: Prisma.Decimal,
+): Promise<Prisma.Decimal> {
+  const pedido = await tx.pedidoVenta.findFirst({
+    where: { id: pedidoVentaId, estado: "RESERVADO", is_active: true, deleted_at: null },
+    select: { total: true },
+  });
+  if (!pedido) {
+    throw new ServiceError("TRANSICION_INVALIDA", "Solo un pedido RESERVADO admite descuento");
+  }
+  const neto = Prisma.Decimal.max(new Prisma.Decimal(0), pedido.total.sub(montoDescuento));
+  await tx.pedidoVenta.update({ where: { id: pedidoVentaId }, data: { total: neto } });
+  return neto;
+}
+
+export interface FacturarPedidoVentaInput {
+  pedido_venta_id: string;
+  fecha_facturacion: Date;
+  medio_pago: { medio: "MERCADO_PAGO"; importe: Prisma.Decimal; referencia: string };
+}
+
+/**
+ * HU-E2 (P8) — `RESERVADO → FACTURADO` por el total (spec B §3.1): setea
+ * `fecha_facturacion`, `cantidad_facturada = cantidad` de cada ítem activo y
+ * registra el cobro en `VentaMedioPago`. Transición condicionada: si otro
+ * proceso ya cambió el estado, `count = 0` → `TRANSICION_INVALIDA`. El
+ * comprobante fiscal lo emite el llamador con `emitirComprobanteFiscal()` en
+ * el mismo `tx`.
+ */
+export async function facturarPedidoVentaTx(
+  tx: Prisma.TransactionClient,
+  input: FacturarPedidoVentaInput,
+): Promise<void> {
+  const cambio = await tx.pedidoVenta.updateMany({
+    where: { id: input.pedido_venta_id, estado: "RESERVADO", is_active: true, deleted_at: null },
+    data: { estado: "FACTURADO", fecha_facturacion: input.fecha_facturacion },
+  });
+  if (cambio.count === 0) {
+    throw new ServiceError("TRANSICION_INVALIDA", "Solo un pedido RESERVADO puede facturarse");
+  }
+
+  const items = await tx.pedidoVentaItem.findMany({
+    where: { pedido_venta_id: input.pedido_venta_id, is_active: true, deleted_at: null },
+    select: { id: true, cantidad: true },
+  });
+  for (const item of items) {
+    await tx.pedidoVentaItem.update({ where: { id: item.id }, data: { cantidad_facturada: item.cantidad } });
+  }
+
+  await tx.ventaMedioPago.create({
+    data: {
+      pedido_venta_id: input.pedido_venta_id,
+      medio: input.medio_pago.medio,
+      importe: input.medio_pago.importe,
+      referencia: input.medio_pago.referencia,
+    },
+  });
+}
+
+/**
+ * HU-E2 (P4, corregido por el owner) — `RESERVADO → ANULADO` con baja lógica
+ * (spec B §3.1: "ANULADO (baja lógica)"). La usa el rechazo del pago web, que
+ * ya liberó las reservas en el mismo `tx`: el pedido no queda RESERVADO sin
+ * stock reservado. Nunca borra nada.
+ *
+ * @throws {ServiceError} TRANSICION_INVALIDA si el pedido no está RESERVADO y activo.
+ */
+export async function anularPedidoVentaTx(
+  tx: Prisma.TransactionClient,
+  input: { pedido_venta_id: string; deleted_by: string; deletion_reason: string; ahora?: Date },
+): Promise<void> {
+  const cambio = await tx.pedidoVenta.updateMany({
+    where: { id: input.pedido_venta_id, estado: "RESERVADO", is_active: true, deleted_at: null },
+    data: {
+      estado: "ANULADO",
+      is_active: false,
+      deleted_at: input.ahora ?? new Date(),
+      deleted_by: input.deleted_by,
+      deletion_reason: input.deletion_reason,
+    },
+  });
+  if (cambio.count === 0) {
+    throw new ServiceError("TRANSICION_INVALIDA", "Solo un pedido RESERVADO puede anularse");
+  }
+}
