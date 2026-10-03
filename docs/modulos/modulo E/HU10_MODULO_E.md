@@ -47,6 +47,9 @@
 | `ecommerce:leer_historial_ordenes` | `1a68c39a-f427-47c8-8923-56413c22a177` | ✓ | — |
 | `ecommerce:exportar_metricas` | `c603f9c6-2bf4-4d95-b06c-e339f09ae303` | ✓ | — |
 | `ecommerce:solicitar_acceso_log_pagos` | `fe71b5b4-09ba-407a-bff0-1aa64656f656` | ✓ | — |
+| `ecommerce:priorizar_cola` | `6481fbee-c5d3-4c40-ad62-261588c1d0cf` | ✓ | — |
+
+`ecommerce:priorizar_cola` se agregó después del cierre de la HU, al resolver el Punto abierto 1 (§6).
 
 ### 3.2. Roles, usuarios y asignaciones (`seed.ts:494-501` y `3395-3478`)
 
@@ -75,11 +78,11 @@ Todos los upsert usan `REACTIVAR_REFERENCIA_RBAC` o `update: {}`: re-correr el s
 
 Incluido en `npm test`. 6 tests:
 
-1. Los 10 códigos `ecommerce:*` están declarados con su UUID y se siembran con `modulo: "MODULO_E"`.
+1. Los 11 códigos `ecommerce:*` están declarados con su UUID y se siembran con `modulo: "MODULO_E"`.
 2. Roles, usuarios y UsuarioRol declarados con sus UUID y vinculados entre sí.
-3. `ADMINISTRADOR_ECOMMERCE` = exactamente los 8 de la matriz, sin `preparar_pedido` ni `validar_retiro_qr`.
-4. `OPERADOR_PICK_PACK` = exactamente 3, sin gestión de catálogo/cupones, cancelación, historial, métricas ni log de pagos.
-5. Unicidad de UUID (**acotada**, ver nota).
+3. `ADMINISTRADOR_ECOMMERCE` = exactamente los 9 de la matriz (incluido `priorizar_cola`), sin `preparar_pedido` ni `validar_retiro_qr`.
+4. `OPERADOR_PICK_PACK` = exactamente 3, sin gestión de catálogo/cupones, cancelación, historial, métricas, log de pagos ni `priorizar_cola`.
+5. Unicidad de UUID (**acotada** a los 17 UUID de HU-E10, ver nota).
 6. Grep negativo: ningún archivo de aplicación de `src/` (se excluyen `*.test.ts`, que nombran los roles solo para verificar el payload de login) contiene `ADMINISTRADOR_ECOMMERCE` ni `OPERADOR_PICK_PACK`.
 
 > **Nota — desvío deliberado respecto de la letra de la task (§8, Nivel 1).** La task pide extraer *todos* los `const <NOMBRE>_ID = "<uuid>"` de `seed.ts` y verificar que no haya valores repetidos. Ese criterio global **falla hoy en `develop` por una deuda preexistente ajena a esta HU**: `MOVIMIENTO_DEVUELTO_SEED_ID` (`seed.ts:83`, HU-A9) y `LISTA_PRECIO_HOMOLOGADO_ID` (`seed.ts:199`, HU-H2) comparten `1a2b3c4d-bbbb-4a1a-8a1a-000000000001` (ver §6, hallazgo 6). Como esta HU no modifica `seed.ts`, la verificación quedó acotada — con aprobación explícita del owner — a: los 16 UUID de HU-E10 (10 permisos, 2 roles, 2 usuarios, 2 UsuarioRol) son distintos entre sí y **ninguna otra constante de `seed.ts` reutiliza ninguno de ellos**. Esto cubre el riesgo concreto de HU-B8 (una constante nueva cayendo sobre un ID ya tomado). Cuando se corrija la colisión `bbbb`, el test puede ampliarse al criterio global.
@@ -138,7 +141,7 @@ TOTAL usuario_roles          | 13        | 13
 Consultas de la task §8 ejecutadas con `psql` sobre `swat_erp_db` local:
 
 ```
--- 1) Matriz efectiva (esperado: 11 filas)
+-- 1) Matriz efectiva (esperado: 12 filas)
  ADMINISTRADOR_ECOMMERCE | ecommerce:anular_orden_no_abonada
  ADMINISTRADOR_ECOMMERCE | ecommerce:cancelar_pedido_pagado
  ADMINISTRADOR_ECOMMERCE | ecommerce:exportar_metricas
@@ -146,13 +149,14 @@ Consultas de la task §8 ejecutadas con `psql` sobre `swat_erp_db` local:
  ADMINISTRADOR_ECOMMERCE | ecommerce:gestionar_cupones
  ADMINISTRADOR_ECOMMERCE | ecommerce:leer_cola_preparacion
  ADMINISTRADOR_ECOMMERCE | ecommerce:leer_historial_ordenes
+ ADMINISTRADOR_ECOMMERCE | ecommerce:priorizar_cola
  ADMINISTRADOR_ECOMMERCE | ecommerce:solicitar_acceso_log_pagos
  OPERADOR_PICK_PACK      | ecommerce:leer_cola_preparacion
  OPERADOR_PICK_PACK      | ecommerce:preparar_pedido
  OPERADOR_PICK_PACK      | ecommerce:validar_retiro_qr
-(11 rows)
+(12 rows)
 
--- 2) Catálogo de permisos (esperado: 10 filas, MODULO_E)
+-- 2) Catálogo de permisos (esperado: 11 filas, MODULO_E)
  ecommerce:anular_orden_no_abonada    | MODULO_E | t
  ecommerce:cancelar_pedido_pagado     | MODULO_E | t
  ecommerce:exportar_metricas          | MODULO_E | t
@@ -161,9 +165,10 @@ Consultas de la task §8 ejecutadas con `psql` sobre `swat_erp_db` local:
  ecommerce:leer_cola_preparacion      | MODULO_E | t
  ecommerce:leer_historial_ordenes     | MODULO_E | t
  ecommerce:preparar_pedido            | MODULO_E | t
+ ecommerce:priorizar_cola             | MODULO_E | t
  ecommerce:solicitar_acceso_log_pagos | MODULO_E | t
  ecommerce:validar_retiro_qr          | MODULO_E | t
-(10 rows)
+(11 rows)
 
 -- 3) Usuarios de prueba (esperado: 2 filas)
  admin.ecommerce.seed   | ACTIVO | ADMINISTRADOR_ECOMMERCE
@@ -173,6 +178,8 @@ Consultas de la task §8 ejecutadas con `psql` sobre `swat_erp_db` local:
 -- 4) Otros roles con ecommerce:* (esperado: 0 filas)
 (0 rows)
 ```
+
+**Re-verificación tras el Punto abierto 1 (03/10/2026):** las consultas 1, 2 y 4 se volvieron a correr sobre una base descartable (`swat_erp_qa_b9`, migrada y sembrada con el seed actual) y dieron exactamente lo de arriba: 12 filas, 11 filas y 0 filas. Un tercer `prisma db seed` sobre la misma base no cambió ningún conteo (permisos `ecommerce:*` 11, `rol_permisos` `ecommerce:*` activos 12, total de permisos 71, total de `rol_permisos` 105): sigue siendo idempotente. Los resultados de §5.2 son los del cierre original (10 permisos, 20 aserciones). Re-corrida con el permiso nuevo, `next dev` sobre `swat_erp_qa_b9`: `test:integration:e10` **9/9** (caso 3: 11 permisos × 2 usuarios = 22 aserciones) y regresión `test:integration:b8` **8/8**.
 
 ### 5.4. QA visual — `/auditoria/roles`
 
@@ -185,10 +192,10 @@ Sin edición de roles (no se ejercitó `rol:permisos_actualizados`). **Capturas 
 
 ---
 
-## 6. Puntos abiertos, hallazgos e inconsistencias (no implementados en esta HU)
+## 6. Puntos abiertos, hallazgos e inconsistencias (no implementados en esta HU; 1 y 2 resueltos después del cierre)
 
-1. **DECISIÓN PENDIENTE — permiso para "priorizar la cola" (Cali + PO; afecta a HU-E12).** Spec E §2.12 resuelve "priorizar" con `ecommerce:leer_cola_preparacion` + "rol Administrador". Como el Operador también tiene ese permiso, distinguirlos exigiría mirar el nombre del rol, lo que contradice CA5. Opción natural: `ecommerce:priorizar_cola` exclusivo de ADMINISTRADOR_ECOMMERCE, con corrección de spec §2.10/§2.12 y seed. No bloquea HU-E10; sí el endpoint de priorización de HU-E12.
-2. **INCONSISTENCIA Alcance vs spec/seed (Cali + PO).** El Alcance Funcional Módulo E §5 da ✓ al **Auditor** en "Consultar historial completo de órdenes" y "Exportar métricas de conversión y ventas web". Spec E §2.10 no incluye al Auditor y el seed no le asigna `ecommerce:leer_historial_ordenes` ni `ecommerce:exportar_metricas` (Nivel 3 consulta 4 = 0 filas lo confirma).
+1. **RESUELTO (Cali + PO, 03/10/2026) — permiso para "priorizar la cola".** Era: spec E §2.12 resolvía "priorizar" con `ecommerce:leer_cola_preparacion` + "rol Administrador"; como el Operador también tiene ese permiso, distinguirlos exigía mirar el nombre del rol, contra CA5. **Decisión:** permiso nuevo `ecommerce:priorizar_cola` (UUID `6481fbee-c5d3-4c40-ad62-261588c1d0cf`, verificado sin colisión contra todo `seed.ts`), `modulo: "MODULO_E"`, asignado **solo** al Administrador E-commerce vía `RolPermiso` (mismo `upsert` + `REACTIVAR_REFERENCIA_RBAC`). Spec E §2.10 (fila nueva en la matriz) y §2.12 (permiso de `PATCH .../prioridad`) corregidos; `roles-hu-e10.test.ts` y `rbac-hu-e10.integration.test.ts` actualizados (11 permisos, 9 del Administrador, 17 UUID). El endpoint de priorización de HU-E12 queda desbloqueado y debe gatear con `withPermission("ecommerce:priorizar_cola")`.
+2. **RESUELTO (Cali + PO, 03/10/2026) — Auditor en historial de órdenes y métricas: manda el spec técnico.** Era: el Alcance Funcional Módulo E §5 da ✓ al **Auditor** en "Consultar historial completo de órdenes" y "Exportar métricas de conversión y ventas web", pero spec E §2.10 no incluye al Auditor y el seed no le asigna `ecommerce:leer_historial_ordenes` ni `ecommerce:exportar_metricas` (Nivel 3 consulta 4 = 0 filas). **Decisión:** el spec técnico (§2.10, ya implementado y testeado) es la fuente de verdad. No se agregan permisos al Auditor ni se toca el seed. El Alcance Funcional queda **desactualizado en este punto puntual** (su matriz §5 del Módulo E, filas de historial y métricas para el Auditor); el documento no vive en el repo, así que la corrección ahí queda a cargo de quien lo mantiene.
 3. **Hallazgo para HU-E6.** La leyenda de la matriz del Alcance Módulo E §5 define el "△ solicita" como "sujeta a aprobación del **Auditor**": aporta el aprobador que spec E §2.6 deja sin definir. Duración y expiración del acceso siguen sin definirse. Pasar al dueño de HU-E6.
 4. **Permiso sin consumidor:** `ecommerce:exportar_metricas` sin endpoint (spec E §5, diferido a Tablero de Comando de Módulo D). Conocido.
 5. **Conocidos, fuera de esta HU:** `ventas:validar_identidad_cliente_web` (provisional, no sembrado, HU-E8); roles DevOps y Marketing de Módulo F no sembrados.
