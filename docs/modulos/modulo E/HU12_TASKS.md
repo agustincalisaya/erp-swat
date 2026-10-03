@@ -725,3 +725,28 @@ Cada task se considera Done cuando:
 1. **T07 y servicios T04–T06:** T05/T06 deben devolver metadata de evento pendiente o depender de un mecanismo post-commit común; T07 solo tipa y conecta. Recomendable definir en T04 una convención clara de "retorno de evento pendiente" para mantener la separación transaccional.
 2. **T09 y `CameraBarcodeScanner`:** si se modifica el componente reutilizable, debe hacerse de forma que no altere el comportamiento por defecto de otros módulos.
 3. **T10 y documentación:** `docs/specs/spec_modulo_E.md` pertenece a otras HU/Epics; su edición requiere coordinación con sus owners.
+
+---
+
+## 10. Estado final de ejecución (T10)
+
+| Task | Descripción | Estado final |
+|---|---|---|
+| T01 | Modelo y migración (`fecha_pago_confirmado`, `PedidoPreparacionEscaneo`) | ✅ Aprobada — migración `20261001212437_hu_e12_pick_pack` aplica en base limpia |
+| T02 | RBAC (`ecommerce:priorizar_cola` + matriz/seed/tests) | ✅ Aprobada |
+| T03 | Schemas Zod y DTO | ✅ Aprobada |
+| T04 | Núcleo de cola, admisión y asignación | ✅ Aprobada |
+| T05 | Escaneo e idempotencia `scan_id` | ✅ Aprobada |
+| T06 | Completar, QR (randomBytes 32 base64url) y plazo | ✅ Aprobada |
+| T07 | Eventos y auditoría | ✅ Aprobada |
+| T07.1 | Ajuste de aislamiento de emisiones post-commit (listener fallido no revierte commit) | ✅ Aprobada — ajuste surgido en ejecución |
+| T07.5 | Integración productiva E2→E12 (`admitirPedidoPagoConfirmado` última mutación del tx de `confirmarPago`, jerarquía de locks `PedidoVenta → PedidoVentaEcommerce → PedidoVentaItem(s)`, `fecha_pago_confirmado` desde `date_approved`) | ✅ Aprobada — ajuste surgido en ejecución |
+| T08 | Route Handlers (`/api/ecommerce/preparacion/**`) + suite HTTP | ✅ Aprobada — paths fijados por instrucción T08 (desviación documentada en HU12 §10.2); incluye remoción no funcional de `"use server"` en `pick-pack.service.ts` |
+| T09 | Frontend `/ecommerce/preparacion` (cola, prioridad, toma, scanner, manual, completar) | ✅ Aprobada |
+| T10 | Verificación integral y documentación | ✅ Completada — esta sección, HU12 §10, `docs/manuales/MANUAL_HU-E12.md` |
+
+**Suite final:** 192 pass / 0 fail / 0 skip (conteo TAP con wrappers) — suites E2, E2→E12, E12 dominio, eventos, auditoría, HTTP, frontend y fecha-negocio, sobre PostgreSQL 16 aislado con ejecución serial.
+
+**Incumplimientos de SPEC:** ninguno. Desviación aprobada y documentada: paths HTTP de T08 (`/api/ecommerce/preparacion/**`) vs. rutas previstas de la SPEC §5.
+
+**Deuda transversal registrada (fuera de E12):** serialización in-process del ledger AuditLog multiproceso; event bus sin entrega durable; `spec_modulo_E.md` §2.12 pendiente de alineación con su owner.

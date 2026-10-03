@@ -191,3 +191,104 @@ HU-E12 **NO está Done**. Solo podrá considerarse Done tras aprobación de esta
 | `src/app/(dashboard)/ecommerce/pick-pack/**` y componentes/tests | Previsto; no existente. |
 | `src/lib/events/event-types.ts`, listener de auditoría, matriz/seed HU-E10 | Integración futura en archivos compartidos; sin modificar. |
 | `docs/modulos/modulo E/HU12_MODULO_E.md` | Solo especificación previa, sin implementación. |
+
+---
+
+## 10. Evidencia de implementación y verificación (T10)
+
+Sección agregada al cierre de HU-E12. La SPEC contractual de las secciones 1–9 se mantiene intacta; esta sección documenta qué se construyó, cómo se verificó y qué limitaciones quedan registradas. No modifica requisitos.
+
+### 10.1. Arquitectura final implementada
+
+| Capa | Implementación | Archivos |
+|---|---|---|
+| Modelo | `PedidoVentaEcommerce.fecha_pago_confirmado DateTime?`, `PedidoPreparacionEscaneo` (`scan_id @unique`, FK `Restrict`, baja lógica) | `prisma/migrations/20261001212437_hu_e12_pick_pack/` |
+| RBAC | `ecommerce:leer_cola_preparacion` (Admin + Operador), `ecommerce:preparar_pedido` (Operador), `ecommerce:priorizar_cola` (Admin) | `prisma/seed.ts`, `roles-hu-e10.test.ts` |
+| Schemas/DTO | Zod estrictos de cola, path UUID, prioridad, scan, bodies vacíos; DTOs sin QR/PII/pagos | `src/lib/schemas/pick-pack.schema.ts`, `src/lib/services/ecommerce/pick-pack.types.ts` |
+| Dominio | `admitirPedidoPagoConfirmado`, `listarColaPreparacion`, `tomarPedido`, `actualizarPrioridad`, `confirmarItem`, `completarPreparacion` | `src/lib/services/ecommerce/pick-pack.service.ts` |
+| Integración E2 | `confirmarPago` invoca la admisión como última mutación de dominio dentro del mismo `TransactionClient`, con locks `PedidoVenta → PedidoVentaEcommerce → PedidoVentaItem(s)` | `src/lib/services/ecommerce/pago-web.service.ts` |
+| HTTP | Route Handlers finos con `withPermission`, Zod y mapper de errores | `src/app/api/ecommerce/preparacion/**` |
+| Frontend | Consola mobile-first con cola, prioridad, toma, detalle, cámara (`CameraBarcodeScanner` existente) y entrada manual | `src/app/(dashboard)/ecommerce/preparacion/`, `src/components/ecommerce/` |
+
+### 10.2. Desviación documentada respecto a §5
+
+La tabla de rutas de §5 era **prevista** (`/api/ecommerce/pick-pack/cola`, `PATCH tomar`, `POST confirmar-item`, `PATCH completar`). La instrucción de implementación T08 aprobó y fijó los paths productivos distintos:
+
+| SPEC §5 (previsto) | Implementado (aprobado en T08) |
+|---|---|
+| `GET /api/ecommerce/pick-pack/cola` | `GET /api/ecommerce/preparacion` |
+| `PATCH .../tomar` | `POST /api/ecommerce/preparacion/[id]/tomar` |
+| `POST .../confirmar-item` | `POST /api/ecommerce/preparacion/[id]/scan` |
+| `PATCH .../prioridad` | `PATCH /api/ecommerce/preparacion/[id]/prioridad` |
+| `PATCH .../completar` | `POST /api/ecommerce/preparacion/[id]/completar` |
+
+La semántica contractual se conserva íntegra (permisos, entradas, idempotencia, códigos de error); solo cambian path y verbo de `tomar`/`completar`/`confirmar-item`. La corrección de `spec_modulo_E.md` §2.12 queda pendiente de coordinación con su owner (ver §8).
+
+### 10.3. Matriz SPEC → implementación → test → estado
+
+| Requisito / AC | Implementación | Test | Estado |
+|---|---|---|---|
+| CA1 admisión en tx de E2 | `admitirPedidoPagoConfirmado(tx)` última mutación de `confirmarPago` | `pick-pack.admision` (8), `hu-e2-e12` (11) | CUMPLE |
+| CA2 cola ordenada | `listarColaPreparacion` con orden `prioridad DESC NULLS LAST, fecha ASC NULLS LAST, id ASC` | `pick-pack.integration` cola | CUMPLE |
+| CA3 prioridad 1..100/null | `actualizarPrioridad`, solo libre `EN_PREPARACION` | dominio + HTTP + UI | CUMPLE |
+| CA4 toma exclusiva | `updateMany` condicionado + lock agregado | concurrencia 2 operadores | CUMPLE |
+| CA5 una lectura = una unidad | fila por escaneo, conteo de activos | SKU/EAN, SKU repetido | CUMPLE |
+| CA6 scan_id idempotente | `@unique` + verificación pedido/actor/código/ítem | retry, conflicto, carrera | CUMPLE |
+| CA7 control de acceso | actor = sesión; asignación revalidada bajo lock | 403 actor distinto | CUMPLE |
+| CA8 finalización una vez | tx con token+plazo+estado; retry conserva | doble completar, carrera | CUMPLE |
+| CA9 configuración plazo | `ECOMMERCE_PLAZO_RETIRO_DIAS` entero > 0, rollback si inválida | config 0/neg/decimal/ausente | CUMPLE |
+| CA10 trazabilidad | eventos post-commit + `AuditLog`, token nunca viaja | `pick-pack.audit` (9) | CUMPLE |
+| CA11 permisos | `withPermission`, actor por sesión | 401/403/404/409 HTTP | CUMPLE |
+| Legacy fecha null | DTO `null`, orden `NULLS LAST`, texto UI | HTTP + frontend | CUMPLE |
+| QR 32B base64url único | `randomBytes(32)`, `@unique`, solo persistido | token 32B, sin exposición | CUMPLE |
+| Fecha pago `date_approved` | E2 persiste una vez; sin fallbacks | fallback controlado, retry | CUMPLE |
+| Plazo días calendario AR | `fecha-negocio` + instante de transición | medianoche, retry conserva | CUMPLE |
+| Eventos post-commit | 5 eventos E12 + relación con `pedido_pago_confirmado` | `pick-pack.eventos` (23 TAP) | CUMPLE |
+| Concurrencia último cupo | locks agregado+líneas + `scan_id @unique` | carreras A–G §10.6 | CUMPLE |
+| Frontend operativo | consola RBAC, scanner, progreso, completar | 22 tests UI/helpers | CUMPLE |
+
+### 10.4. Endpoints productivos
+
+`GET /api/ecommerce/preparacion` (`ecommerce:leer_cola_preparacion`) · `POST .../tomar` · `PATCH .../prioridad` (`ecommerce:priorizar_cola`) · `POST .../scan` · `POST .../completar` (`ecommerce:preparar_pedido`). Mapeo: `400` validación Zod · `401` sin sesión · `403` RBAC/`OPERADOR_NO_AUTORIZADO` · `404` `PEDIDO_NO_OPERABLE` · `409` conflictos de dominio · `500` configuración/inconsistencia/error interno. Ningún endpoint devuelve `codigo_qr_retiro`, MP ids, PII ni `codigo_escaneado`.
+
+### 10.5. Eventos emitidos (post-commit, payload mínimo, sin token)
+
+`ecommerce:pedido_admitido_cola` (devuelto a E2 como `evento_pendiente`), `ecommerce:pedido_tomado`, `ecommerce:prioridad_preparacion_cambiada`, `ecommerce:unidad_preparacion_confirmada`, `ecommerce:pedido_listo_para_retiro`. Relación E2: `pedido_pago_confirmado` precede a `pedido_admitido_cola`. Toda emisión post-commit está aislada con try/catch: un listener fallido no revierte el commit ni impide el siguiente evento.
+
+### 10.6. Concurrencia verificada en PostgreSQL real
+
+(A) dos operadores tomando → exactamente uno asigna · (B) dos scans por último cupo → exactamente uno inserta · (C) mismo `scan_id` concurrente → una sola fila · (D) último scan vs completar → transición coherente · (E) doble completar → un token/plazo/evento · (F) dos callbacks MP → una confirmación y una admisión · (G) E2 y E12 concurrentes sobre el mismo agregado → sin deadlock, misma jerarquía de locks.
+
+### 10.7. Resultados de tests (convención: conteo TAP incluyendo wrappers)
+
+| Suite | Pass |
+|---|---|
+| `pick-pack.test.ts` + `fecha-negocio.test.ts` | 33 |
+| `pick-pack.admision.integration.test.ts` | 8 |
+| `pick-pack.integration.test.ts` | 51 |
+| `pick-pack.eventos.test.ts` | 23 |
+| `pick-pack.audit.integration.test.ts` | 9 |
+| `hu-e2-e12.integration.test.ts` | 11 |
+| `hu-e2.integration.test.ts` | 11 |
+| `hu-e12.http.integration.test.ts` | 24 |
+| Frontend `pick-pack.client.test.ts` + `ConsolaPickPack.test.tsx` | 22 |
+| **Total** | **192 pass / 0 fail** |
+
+Ejecutado con `--test-concurrency=1` sobre PostgreSQL 16 aislado (`swat_erp_test_e12`). Checks estáticos: `prisma format --check` ✓, `prisma validate` ✓, `tsc --noEmit` ✓, `lint` 0 errores, `next build` ✓, `git diff --check` limpio, sin marcadores de merge.
+
+### 10.8. Limitaciones y deuda técnica registrada
+
+1. **Ledger `AuditLog` in-process:** la serialización de la cadena de hash es por proceso; múltiples procesos/instancias no tienen exclusión global demostrada y el ledger puede bifurcar. Riesgo transversal del proyecto, no específico de E12. No se corrige en esta HU.
+2. **Event bus in-process:** `EventEmitter` sin outbox, sin entrega durable, sin reintento automático ni exactly-once. E12/E2 aíslan errores de listeners para no convertir commits válidos en falsos errores. Una emisión perdida entre commit y listener no se recupera por sí sola — deuda transversal documentada en §6.
+3. **`fecha-negocio` con offset fijo UTC-3:** Argentina se resuelve con offset fijo en lugar de IANA dinámico; observación técnica, convención vigente del proyecto.
+4. **Rutas previstas vs implementadas:** ver §10.2 — cambio aprobado en T08; queda alinear `spec_modulo_E.md` §2.12 con su owner.
+5. **`"use server"` removido de `pick-pack.service.ts` (T08):** Next.js interpreta un archivo con esa directiva como Server Actions y exige que todo export sea `async`; `calcularProgreso` es síncrono y su importación desde Route Handlers devolvía 500. Se conserva `import "server-only"`. Si T09/otro módulo requiere Server Actions de este dominio, crear un wrapper `actions.ts` con la directiva.
+
+### 10.9. Dependencias restantes (fuera de alcance E12)
+
+- **E9:** historial/estado del pedido para el Cliente Web y representación visual del QR bajo demanda (E12 solo genera el token; no hay imagen ni endpoint de QR).
+- **E3:** validación QR + DNI en el punto de retiro y transición `LISTO_PARA_RETIRO → ENTREGADO` (`ecommerce:validar_retiro_qr` reservado).
+- **E13:** cancelación, vencimiento por `plazo_retiro_vencimiento` y reembolso/reversión coordinada.
+- **F3:** consumo de los eventos para notificaciones internas/cliente; el bus actual no garantiza entrega durable.
+
+**Veredicto:** HU-E12 implementada y verificada — lista para entrega/merge.
