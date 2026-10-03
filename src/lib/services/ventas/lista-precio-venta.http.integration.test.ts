@@ -147,6 +147,7 @@ test(
       assert.equal(r.body.data.vigente_desde, vigenteDesde);
       assert.equal(r.body.data.items_publicados, 1);
       assert.equal(r.body.data.items_bajo_costo, 0);
+      assert.equal("version_anterior_id" in r.body.data, false, "solo viaja en el evento, no en la respuesta");
       versionCaso5 = r.body.data.version_id;
     });
 
@@ -185,10 +186,12 @@ test(
       versionCaso8 = r.body.data.version_id;
     });
 
+    let versionCaso9 = "";
     await t.test("9 — vigencia futura +7 días [CT3 → 30000] → 201; vigente CT3 sigue en 21500", async () => {
       const futura = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
       const r = await publicar({ vigente_desde: futura, items: [{ variante_sku_id: CT3, precio_venta: 30000 }] });
       assert.equal(r.status, 201, JSON.stringify(r.body));
+      versionCaso9 = r.body.data.version_id;
       const ct3 = await vigente(CT3);
       assert.equal(ct3.body.data.precio_venta, 21500);
       assert.equal(ct3.body.data.lista_precio_version_id, VERSION_1_ID);
@@ -319,8 +322,23 @@ test(
       for (const f of filas) {
         assert.equal(f.accion, "PUBLICAR_VERSION_LISTA_PRECIO_VENTA");
         assert.equal(f.usuario_id, USUARIO_SUPERVISOR_VENTAS_SEED_ID);
-        assert.equal(f.valor_anterior, null);
         assert.ok(f.hash_anterior && f.hash_actual);
+      }
+      // Punto abierto 3 (resuelto): `valor_anterior` = versión activa que rige
+      // cuando empieza a regir la nueva (vigente_desde <= el de la nueva). Las
+      // versiones programadas a futuro no cuentan: ni la +30 días del seed
+      // (caso 5 → v1) ni la del caso 9 (caso 10 → 8, no → 9).
+      const anteriorDe = (id: string) =>
+        (filas.find((f) => f.registro_id === id)!.valor_anterior as { version_anterior_id: string | null }).version_anterior_id;
+      assert.equal(anteriorDe(versionCaso5), VERSION_1_ID);
+      assert.equal(anteriorDe(versionCaso8), versionCaso5);
+      assert.equal(anteriorDe(versionCaso9), versionCaso8);
+      assert.equal(anteriorDe(versionCaso10), versionCaso8);
+      for (const f of filas) {
+        assert.deepEqual(
+          (f.valor_nuevo as { version_anterior_id: string | null }).version_anterior_id,
+          (f.valor_anterior as { version_anterior_id: string | null }).version_anterior_id,
+        );
       }
       const f8 = filas.find((f) => f.registro_id === versionCaso8)!;
       assert.equal((f8.valor_nuevo as { items_bajo_costo: number }).items_bajo_costo, 1);

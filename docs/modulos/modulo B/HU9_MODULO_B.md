@@ -33,7 +33,7 @@ Evidencia: `lista-precio-venta.integration.test.ts` (servicio contra PostgreSQL,
 | CA07 | SKU sin precio vigente no se vende en el POS ni aparece como comprable en la web | **Parcial** | Web sí: el resolver devuelve `null` (servicio "…Camisa de Policía → null"; HTTP 4 → 404 `SKU_SIN_PRECIO_VIGENTE`) y E1 lo trata como no comprable. **POS: pendiente** (Punto abierto 2) |
 | CA08 | Descuentos (B4) y cupones (E4) se aplican sobre el precio de esta lista | **Parcial / no verificado en esta HU** | Cupones E4: `checkout.service.ts` aplica el cupón sobre los precios congelados de B9 (leído en el código, **sin test propio de B9**). Descuentos B4: se aplican sobre el precio enviado por el cliente (Punto abierto 2) |
 | CA09 | Baja lógica de listas, versiones e ítems (`is_active`, `deleted_at`, `deleted_by`, `deletion_reason`) | **Parcial** | Las 4 columnas existen en los 3 modelos (schema). El resolver filtra `is_active`/`deleted_at` en ítem, versión y lista (unitario "resolver: filtra vigente_desde lte, is_active en ítem/versión/lista…"). Sin `DELETE` en el código. **Sin endpoint de baja** (Punto abierto 5) |
-| CA10 | Cada publicación genera un evento auditado con cadena SHA-256, con usuario, fecha y hora, y **valores anterior y nuevo** | **Parcial** | HTTP: "BD — AuditLog: un asiento PUBLICAR_VERSION_LISTA_PRECIO_VENTA por versión, usuario = supervisor" y "Cadena SHA-256 íntegra: … → integra: true". Unitario: "publicar: emite precio_venta:version_publicada DESPUÉS de la $transaction…". **`valor_anterior: null`**: divergencia documentada (Punto abierto 3, Opción A) |
+| CA10 | Cada publicación genera un evento auditado con cadena SHA-256, con usuario, fecha y hora, y **valores anterior y nuevo** | **Cumplido** | HTTP: "BD — AuditLog: un asiento PUBLICAR_VERSION_LISTA_PRECIO_VENTA por versión, usuario = supervisor" (ahora también verifica la cadena de `version_anterior_id` 5 → v1, 8 → 5, 9 → 8, 10 → 8) y "Cadena SHA-256 íntegra: … → integra: true". Servicio: "version_anterior_id: la segunda publicación apunta a la primera…" y "version_anterior_id: null en la primera versión…". Unitario: "publicar: version_anterior_id se lee dentro de la $transaction ANTES del create…". **`valor_anterior: { version_anterior_id }`** (Punto abierto 3, resuelto) |
 
 ## 3. Decisiones de producto y técnicas
 
@@ -43,7 +43,7 @@ Evidencia: `lista-precio-venta.integration.test.ts` (servicio contra PostgreSQL,
 |---|---|---|---|
 | Paso 0 · ítem 3 | `lista-precio-venta.service.ts` ya existía (lo creó HU-E1 con `resolverPrecioVentaVigente` y `resolverPreciosVentaVigentes`) | **Se extendió, no se recreó.** La consulta de `resolverPreciosVentaVigentes` pasó a un helper privado compartido, con la misma firma y el mismo resultado | El catálogo de E1 depende de esa función. Su criterio coincidía con el de la task. Recrearla duplicaba "la única vía" de resolución que exige el spec. Se verificó con `hu-e1.integration.test.ts`: 21/21 antes y después (sección 11) |
 | PA 1 | ¿Existe `obtenerConfiguracion()`? | Sí, existe y lanza `CONFIGURACION_NO_ENCONTRADA`. Margen sin valor por defecto | Spec D §6.3 prohíbe defaults implícitos |
-| PA 3 | Evento sin "valores anterior y nuevo" (CA vs. spec) | **Opción A:** payload literal del spec y `valor_anterior: null`. La divergencia queda documentada en el listener | El spec manda sobre el Backlog. Ampliar el payload queda pendiente de que lo decidan Cali (dueño del spec B) y el PO |
+| PA 3 | Evento sin "valores anterior y nuevo" (CA vs. spec) | **Resuelto (Cali + PO):** se agregó `version_anterior_id` (UUID de la versión que regía cuando empieza la nueva, o `null` si no hay ninguna) al payload, y el `AuditLog` registra `valor_anterior: { version_anterior_id }`. Spec B §4 actualizado | Cierra el hueco de auditoría sin tocar la inmutabilidad: la versión anterior solo se lee (dentro de la misma `$transaction`, antes del `create`). Reemplaza la Opción A original (`valor_anterior: null`) |
 | PA 6 | Desempate cuando dos versiones tienen el mismo `vigente_desde` | `created_at desc` | Determinismo. Servicio: "dos versiones con el MISMO vigente_desde: gana la de created_at más reciente" |
 | PA 7 | Forma de la sugerencia y caso sin costo | `{ variante_sku_id, costo_reposicion_referencia, margen, precio_sugerido }`. Sin costo: `200` con `null`. SKU inexistente o inactivo: `422 VARIANTE_NO_ENCONTRADA` | Distinguir "sin costo" (dato válido) de "SKU inválido" (error) |
 | PA 8 | Redondeo del precio sugerido | Sin redondeo comercial: 2 decimales exactos. El seed redondea a la centena solo como fixture | Spec B §2.9 no pide redondeo; evitar artefactos de punto flotante |
@@ -137,7 +137,9 @@ Los tres `route.ts` exportan solo su método HTTP y usan `withPermission("ventas
 
 `precio_venta:version_publicada`, **evento sensible**, emitido con `domainEventBus.emit()` **después del COMMIT**. El servicio nunca escribe el `AuditLog` directamente (unitario "el servicio nunca escribe AuditLog directo"); `audit-log.listener.ts` es la única vía. Tipo en `src/lib/events/event-types.ts`.
 
-Payload (literal del spec): `{ version_id, lista_id, publicado_por_id, vigente_desde (ISO), items_publicados, items_bajo_costo }`.
+Payload (literal del spec): `{ version_id, version_anterior_id, lista_id, publicado_por_id, vigente_desde (ISO), items_publicados, items_bajo_costo }`.
+
+`version_anterior_id` es la versión activa de la lista que rige en el instante en que empieza a regir la nueva (`is_active`, sin `deleted_at`, `vigente_desde <=` el de la nueva, orden `vigente_desde DESC, created_at DESC`), leída dentro de la `$transaction` antes del `create`; `null` si no hay ninguna. Las versiones programadas a futuro no cuentan como anteriores: la +30 días del seed no le gana a la v1 (caso 5 → v1) y la del caso 9 no le gana a la 8 (caso 10 → 8). La consulta del prompt original no filtraba por fecha; el filtro `<=` se agregó con el OK de Cali al ver que el seed ya tiene una versión futura. Solo viaja en el evento; la respuesta `201` no cambia.
 
 | Campo del `AuditLog` | Valor |
 |---|---|
@@ -145,10 +147,10 @@ Payload (literal del spec): `{ version_id, lista_id, publicado_por_id, vigente_d
 | `accion` | `PUBLICAR_VERSION_LISTA_PRECIO_VENTA` |
 | `tabla_afectada` | `versiones_lista_precio_venta` |
 | `registro_id` | `version_id` |
-| `valor_anterior` | `null` |
+| `valor_anterior` | `{ version_anterior_id }` (`null` adentro si no había versión que rigiera antes) |
 | `valor_nuevo` | El payload completo |
 
-**Divergencia con el CA (Punto abierto 3, Opción A):** el Backlog pide "valores anterior y nuevo"; el spec define un payload sin valor anterior. Se implementó el spec y la divergencia queda documentada en el comentario del listener. Ampliar el payload es decisión pendiente de spec B (Cali) y el PO. La cadena SHA-256 quedó íntegra (HTTP "Cadena SHA-256 íntegra…").
+**Punto abierto 3, resuelto:** la implementación original registraba `valor_anterior: null` (Opción A: el payload del spec no traía ningún campo anterior). Cali y el PO decidieron ampliar el payload con `version_anterior_id`, y spec B §4 quedó actualizado. La cadena SHA-256 sigue íntegra (HTTP "Cadena SHA-256 íntegra…").
 
 El evento **no** figura todavía en el enum `tipo_evento` de la consola de HU-B6 (sección 10.3).
 
@@ -223,7 +225,9 @@ Resultados (03/10/2026):
 | `tsc --noEmit` · `eslint` | 0 errores |
 | `next build` | OK |
 
-Los conteos incluyen el test contenedor que cuenta el runner (b9: 10 casos; b9-http: 22 casos). Los 5 salteados de b6 son preexistentes: dependen de un usuario "master" que el seed no crea; no tienen relación con esta HU.
+Los conteos incluyen el test contenedor que cuenta el runner (b9: 10 casos; b9-http: 22 casos).
+
+**Re-corrida tras resolver el PA 3 (03/10/2026, base descartable `swat_erp_qa_b9`):** `npm test` 621/621 · `test:integration:b9` **13/13** (12 casos + contenedor: se sumaron los dos de `version_anterior_id`) · `tsc --noEmit` 0 errores. `test:integration:b9-http` **23/23** (servidor `next dev` sobre la misma base; incluye la cadena `version_anterior_id` y la cadena SHA-256 íntegra). Los 5 salteados de b6 son preexistentes: dependen de un usuario "master" que el seed no crea; no tienen relación con esta HU.
 
 ## 10. Limitación conocida, fuera de alcance y deuda
 
@@ -245,7 +249,6 @@ Consumo en E1/E2/E4/E11 (sus dueños), la tarea técnica de `ConfiguracionSistem
 | `.refine((d) => true, {})` (PA 14) | No-op copiado textual del spec; aviso de ESLint preexistente |
 | Vigencia por instante UTC (H2) | Task transversal sugerida con el dueño de E1 |
 | `b4-http` sin base propia (H3) | Agregar `HU_B4_HTTP_INTEGRATION_DATABASE_URL` |
-| `valor_anterior` del evento (PA 3) | Decisión pendiente de spec B y PO |
 
 ## 11. Lecciones de proceso
 
