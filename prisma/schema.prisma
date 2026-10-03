@@ -81,11 +81,12 @@ model Usuario {
   operaciones_cc_autorizadas     CuentaCorrienteOperacion[] @relation("CuentaCorrienteOperacionAutorizadaPor")
 
   // --- Relaciones Sprint 4 (Módulos D / B / E / F) ---
-  configuraciones_actualizadas   ConfiguracionSistema[]    @relation("ConfiguracionActualizadaPor")
-  listas_precio_venta_publicadas ListaPrecioVentaVersion[] @relation("ListaPrecioVentaPublicadaPor")
-  pedidos_ecommerce_asignados    PedidoVentaEcommerce[]    @relation("PedidoEcommerceOperadorAsignado")
-  notificaciones_recibidas       Notificacion[]            @relation("NotificacionUsuarioDestinatario")
-  recuperaciones_cuenta_web      CuentaClienteWeb[]        @relation("RecuperacionCuentaWebEmitidaPor")
+  configuraciones_actualizadas   ConfiguracionSistema[]     @relation("ConfiguracionActualizadaPor")
+  listas_precio_venta_publicadas ListaPrecioVentaVersion[]  @relation("ListaPrecioVentaPublicadaPor")
+  pedidos_ecommerce_asignados    PedidoVentaEcommerce[]     @relation("PedidoEcommerceOperadorAsignado")
+  escaneos_preparacion           PedidoPreparacionEscaneo[] @relation("EscaneoPreparacionOperador")
+  notificaciones_recibidas       Notificacion[]             @relation("NotificacionUsuarioDestinatario")
+  recuperaciones_cuenta_web      CuentaClienteWeb[]         @relation("RecuperacionCuentaWebEmitidaPor")
 
   @@map("usuarios")
 }
@@ -1733,10 +1734,11 @@ model PedidoVentaItem {
   updated_at DateTime @updatedAt
 
   // --- Relaciones ---
-  pedido_venta   PedidoVenta @relation(fields: [pedido_venta_id], references: [id], onDelete: Restrict)
-  variante_sku   VarianteSKU @relation(fields: [variante_sku_id], references: [id], onDelete: Restrict)
-  reserva        Reserva?    @relation("PedidoVentaItemReserva", fields: [reserva_id], references: [id], onDelete: Restrict)
-  autorizado_por Usuario?    @relation("PedidoVentaItemAutorizadoPor", fields: [autorizado_por_id], references: [id], onDelete: Restrict)
+  pedido_venta         PedidoVenta                @relation(fields: [pedido_venta_id], references: [id], onDelete: Restrict)
+  variante_sku         VarianteSKU                @relation(fields: [variante_sku_id], references: [id], onDelete: Restrict)
+  reserva              Reserva?                   @relation("PedidoVentaItemReserva", fields: [reserva_id], references: [id], onDelete: Restrict)
+  autorizado_por       Usuario?                   @relation("PedidoVentaItemAutorizadoPor", fields: [autorizado_por_id], references: [id], onDelete: Restrict)
+  escaneos_preparacion PedidoPreparacionEscaneo[] @relation("EscaneoPreparacionItem")
 
   @@index([pedido_venta_id])
   @@map("pedido_venta_items")
@@ -2182,6 +2184,7 @@ model PedidoVentaEcommerce {
   plazo_retiro_vencimiento  DateTime?
   operador_asignado_id      String?
   prioridad_manual          Int?
+  fecha_pago_confirmado     DateTime?
 
   // --- Soft delete estricto ---
   is_active       Boolean   @default(true)
@@ -2199,6 +2202,33 @@ model PedidoVentaEcommerce {
   transacciones     TransaccionPagoLog[]
 
   @@map("pedidos_venta_ecommerce")
+}
+
+/// Persistencia de cada unidad confirmada durante la preparación Pick&Pack (HU-E12).
+/// Cada fila activa representa una unidad cuantitativa escaneada; no se agrega
+/// `cantidad_confirmada` a `PedidoVentaItem`.
+model PedidoPreparacionEscaneo {
+  id                   String @id @default(uuid())
+  pedido_venta_item_id String
+  operador_id          String
+  scan_id              String @unique
+  codigo_escaneado     String
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  pedido_venta_item PedidoVentaItem @relation("EscaneoPreparacionItem", fields: [pedido_venta_item_id], references: [id], onDelete: Restrict)
+  operador          Usuario         @relation("EscaneoPreparacionOperador", fields: [operador_id], references: [id], onDelete: Restrict)
+
+  @@index([pedido_venta_item_id, is_active, deleted_at])
+  @@map("pedido_preparacion_escaneos")
 }
 
 /// Cupón de descuento (HU-E4, §2.4). Único por pedido, no acumulable; el
@@ -2319,19 +2349,19 @@ model ProductoWebFoto {
 /// lógica/blanqueo e invalida toda sesión emitida antes. `cliente_id @unique`
 /// = un DNI, una única cuenta web.
 model CuentaClienteWeb {
-  id                    String    @id @default(uuid())
-  cliente_id            String    @unique
-  email                 String    @unique
-  password_hash         String
-  token_version         Int       @default(0)
-  intentos_fallidos     Int       @default(0)
-  bloqueada_hasta       DateTime?
+  id                          String    @id @default(uuid())
+  cliente_id                  String    @unique
+  email                       String    @unique
+  password_hash               String
+  token_version               Int       @default(0)
+  intentos_fallidos           Int       @default(0)
+  bloqueada_hasta             DateTime?
   /// true si el DNI ya existía como Cliente de mostrador sin validar —
   /// la cuenta queda inhabilitada para checkout hasta la validación presencial.
-  vinculacion_pendiente          Boolean   @default(false)
-  recuperacion_codigo_digest     String?   @unique
-  recuperacion_expira_en         DateTime?
-  recuperacion_emitida_por_id    String?
+  vinculacion_pendiente       Boolean   @default(false)
+  recuperacion_codigo_digest  String?   @unique
+  recuperacion_expira_en      DateTime?
+  recuperacion_emitida_por_id String?
 
   // --- Soft delete estricto ---
   is_active       Boolean   @default(true)
@@ -2344,11 +2374,11 @@ model CuentaClienteWeb {
   updated_at DateTime @default(now()) @updatedAt
 
   // --- Relaciones ---
-  cliente        Cliente        @relation(fields: [cliente_id], references: [id], onDelete: Restrict)
+  cliente                  Cliente        @relation(fields: [cliente_id], references: [id], onDelete: Restrict)
   /// 1:N desde HU-E1 (D5): historial de carritos; solo uno activo (índice parcial).
-  carritos       CarritoWeb[]
-  notificaciones              Notificacion[] @relation("NotificacionClienteWebDestinatario")
-  recuperacion_emitida_por    Usuario?       @relation("RecuperacionCuentaWebEmitidaPor", fields: [recuperacion_emitida_por_id], references: [id], onDelete: Restrict)
+  carritos                 CarritoWeb[]
+  notificaciones           Notificacion[] @relation("NotificacionClienteWebDestinatario")
+  recuperacion_emitida_por Usuario?       @relation("RecuperacionCuentaWebEmitidaPor", fields: [recuperacion_emitida_por_id], references: [id], onDelete: Restrict)
 
   @@map("cuentas_cliente_web")
 }

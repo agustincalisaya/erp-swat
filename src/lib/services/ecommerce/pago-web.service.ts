@@ -20,7 +20,13 @@ import "server-only";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { domainEventBus } from "@/lib/events/domain-event-bus";
-import type { MotivoPagoAnomalo, PagoAnomaloPayload, ReservaLiberadaPayload } from "@/lib/events/event-types";
+import type {
+  DomainEventMap,
+  MotivoPagoAnomalo,
+  PagoAnomaloPayload,
+  PedidoPagoConfirmadoPayload,
+  ReservaLiberadaPayload,
+} from "@/lib/events/event-types";
 import { ServiceError } from "@/lib/errors/service-error";
 import { cerrarCobro, consultarPago, iniciarCobro } from "@/lib/integraciones/mercadopago/adapter";
 import type { PagoConsultado } from "@/lib/integraciones/mercadopago/tipos";
@@ -29,6 +35,7 @@ import {
   confirmarAplicacionCuponTx,
   darDeBajaAplicacionCuponTx,
 } from "@/lib/services/ecommerce/cupon.service";
+import { admitirPedidoPagoConfirmado } from "@/lib/services/ecommerce/pick-pack.service";
 import {
   clasificarAprobadoSobreResuelto,
   esReferenciaValida,
@@ -47,6 +54,50 @@ import { emitirComprobanteFiscal } from "@/lib/services/ventas/comprobante-fisca
 import { anularPedidoVentaTx, facturarPedidoVentaTx } from "@/lib/services/ventas/pedido-venta.service";
 
 const TIMEOUT_TRANSACCION_MS = 15_000;
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Emisión post-COMMIT segura
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Publica un evento de dominio después de que el commit ya ocurrió. Si un
+ * listener síncrono lanza, la excepción se captura y se loguea, pero NO se
+ * propaga al servicio que emitió. No modifica `domain-event-bus.ts` y no
+ * agrega outbox ni reentrega. El log solo incluye metadata técnica segura.
+ */
+function emitirEventoPostCommitSeguroE2<K extends keyof DomainEventMap>(
+  eventName: K,
+  payload: DomainEventMap[K],
+  contexto: { pedido_venta_id?: string | null; mercadopago_payment_id?: string },
+): void {
+  try {
+    domainEventBus.emit(eventName, payload);
+  } catch (error) {
+    console.error(`[HU-E2] Falló la publicación post-commit de ${String(eventName)}:`, {
+      pedido_venta_id: contexto.pedido_venta_id ?? null,
+      mercadopago_payment_id: contexto.mercadopago_payment_id ?? null,
+      error: error instanceof Error ? error.message : "error desconocido",
+    });
+  }
+}
+
+/**
+ * Adquiere el lock FOR UPDATE de PedidoVenta para alinear la jerarquía con
+ * HU-E12: PedidoVenta → PedidoVentaEcommerce → PedidoVentaItem(s).
+ */
+async function bloquearPedidoVentaParaPago(
+  tx: Prisma.TransactionClient,
+  pedidoVentaId: string,
+): Promise<void> {
+  await tx.$queryRaw`
+    SELECT id
+    FROM pedidos_venta
+    WHERE id = ${pedidoVentaId}
+      AND is_active = true
+      AND deleted_at IS NULL
+    FOR UPDATE
+  `;
+}
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Preferencia de Checkout Pro
@@ -164,7 +215,10 @@ function emitirAnomalo(
     moneda_informada: pago.moneda,
     monto_esperado: pedido.monto_esperado,
   };
-  domainEventBus.emit("ecommerce:pago_anomalo", payload);
+  emitirEventoPostCommitSeguroE2("ecommerce:pago_anomalo", payload, {
+    pedido_venta_id: pedido.venta_id,
+    mercadopago_payment_id: pago.payment_id,
+  });
   return { resultado: "ANOMALIA", motivo, pedido_venta_id: pedido.venta_id ?? undefined };
 }
 
@@ -228,10 +282,18 @@ async function confirmarPago(
       async (tx) => {
         const ahora = new Date();
 
-        // (1) Transición condicionada PRIMERO: lock de la fila + idempotencia.
+        // (0) Lock de PedidoVenta PRIMERO para alinear jerarquía con HU-E12:
+        // PedidoVenta → PedidoVentaEcommerce → PedidoVentaItem(s).
+        await bloquearPedidoVentaParaPago(tx, pedidoVentaId);
+
+        // (1) Transición condicionada: lock de la fila + idempotencia E2.
         const transicion = await tx.pedidoVentaEcommerce.updateMany({
           where: { id: ecommerceId, estado_ecommerce: "PAGO_PENDIENTE", is_active: true, deleted_at: null },
-          data: { estado_ecommerce: "PAGO_CONFIRMADO", mercadopago_payment_id: pago.payment_id },
+          data: {
+            estado_ecommerce: "PAGO_CONFIRMADO",
+            mercadopago_payment_id: pago.payment_id,
+            fecha_pago_confirmado: fechaAprobacion,
+          },
         });
         if (transicion.count === 0) throw new AbortoPago("NO_PENDIENTE");
 
@@ -305,6 +367,11 @@ async function confirmarPago(
           ? await tx.cuentaClienteWeb.findUnique({ where: { cliente_id: venta.cliente_id }, select: { id: true } })
           : null;
 
+        // (7) Última mutación de dominio: admisión a Pick&Pack (HU-E12).
+        // Debe ejecutarse después de todas las operaciones E2 para que ambos
+        // módulos compartan un único commit atómico.
+        const admision = await admitirPedidoPagoConfirmado(tx, venta.id);
+
         return {
           venta,
           total,
@@ -313,6 +380,7 @@ async function confirmarPago(
           cuponExcedido: cupon.limite_excedido,
           cuentaId: cuenta?.id ?? "",
           eventosReserva,
+          eventoAdmision: admision.evento_pendiente,
         };
       },
       { timeout: TIMEOUT_TRANSACCION_MS },
@@ -333,8 +401,19 @@ async function confirmarPago(
   }
 
   // Post-commit (regla de emisión, spec §4).
-  emitirReservasLiberadas(confirmado.eventosReserva, "VENTA");
-  domainEventBus.emit("ecommerce:pedido_pago_confirmado", {
+  // Las emisiones se intentan de forma aislada: un listener que lanza no
+  // convierte el pago ya confirmado en un error del servicio.
+  try {
+    emitirReservasLiberadas(confirmado.eventosReserva, "VENTA");
+  } catch (error) {
+    console.error("[HU-E2] Falló la publicación post-commit de stock:reserva_liberada:", {
+      pedido_venta_id: confirmado.venta.id,
+      mercadopago_payment_id: pago.payment_id,
+      error: error instanceof Error ? error.message : "error desconocido",
+    });
+  }
+
+  const payloadPagoConfirmado: PedidoPagoConfirmadoPayload = {
     pedido_venta_id: confirmado.venta.id,
     pedido_venta_ecommerce_id: ecommerceId,
     numero_venta: confirmado.venta.numero_venta,
@@ -346,7 +425,21 @@ async function confirmarPago(
     fecha_aprobacion: fechaAprobacion.toISOString(),
     comprobante_id: confirmado.comprobanteId,
     cupon_aplicacion_id: confirmado.cuponAplicacionId,
+  };
+  emitirEventoPostCommitSeguroE2("ecommerce:pedido_pago_confirmado", payloadPagoConfirmado, {
+    pedido_venta_id: confirmado.venta.id,
+    mercadopago_payment_id: pago.payment_id,
   });
+
+  // Admisión a Pick&Pack (HU-E12): hecho operativo separado del pago.
+  if (confirmado.eventoAdmision) {
+    emitirEventoPostCommitSeguroE2(
+      confirmado.eventoAdmision.tipo,
+      confirmado.eventoAdmision.payload,
+      { pedido_venta_id: confirmado.venta.id, mercadopago_payment_id: pago.payment_id },
+    );
+  }
+
   if (confirmado.cuponExcedido) {
     emitirAnomalo("CUPON_LIMITE_EXCEDIDO", pago, {
       ecommerce_id: ecommerceId,
@@ -471,8 +564,16 @@ async function rechazarPago(
   }
 
   // Post-commit.
-  emitirReservasLiberadas(rechazado.liberadas, "PAGO_RECHAZADO");
-  domainEventBus.emit("ecommerce:pago_rechazado", {
+  try {
+    emitirReservasLiberadas(rechazado.liberadas, "PAGO_RECHAZADO");
+  } catch (error) {
+    console.error("[HU-E2] Falló la publicación post-commit de stock:reserva_liberada (rechazo):", {
+      pedido_venta_id: rechazado.venta.id,
+      mercadopago_payment_id: pago.payment_id,
+      error: error instanceof Error ? error.message : "error desconocido",
+    });
+  }
+  emitirEventoPostCommitSeguroE2("ecommerce:pago_rechazado", {
     pedido_venta_id: rechazado.venta.id,
     pedido_venta_ecommerce_id: ecommerceId,
     numero_venta: rechazado.venta.numero_venta,
@@ -485,6 +586,9 @@ async function rechazarPago(
     motivo_rechazo: pago.status_detail || pago.status_mp,
     reserva_ids: rechazado.liberadas.map((r) => r.reserva_id),
     carrito_id: rechazado.carritoId,
+  }, {
+    pedido_venta_id: rechazado.venta.id,
+    mercadopago_payment_id: pago.payment_id,
   });
 
   // Q2: la preferencia no debe admitir otro intento. Best-effort: si falla,

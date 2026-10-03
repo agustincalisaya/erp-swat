@@ -218,6 +218,21 @@ const SECCIONES: SeccionConfig[] = [
     ],
   },
   {
+    label: "E-commerce",
+    icon: Store,
+    items: [
+      // HU-E12 T09 — consola Pick & Pack. Gate por `ecommerce:leer_cola_preparacion`
+      // (Admin Ecommerce y Operador Pick&Pack); la página también bloquea por URL
+      // y las acciones internas se gatean por sus permisos granulares.
+      {
+        label: "Preparación de pedidos",
+        href: "/ecommerce/preparacion",
+        icon: PackageCheck,
+        permiso: "ecommerce:leer_cola_preparacion",
+      },
+    ],
+  },
+  {
     label: "Clientes",
     icon: UserPlus,
     items: [

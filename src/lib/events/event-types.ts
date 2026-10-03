@@ -939,6 +939,69 @@ export interface VentaRegistradaPayload {
   usuario_id: string;
 }
 
+// ──────────────────────────────────────────────────────────────────────────────
+// HU-E12 — Pick & Pack / Click & Collect
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * HU-E12 — Admisión de un pedido PAGO_CONFIRMADO a la cola de preparación.
+ * Se emite post-COMMIT por el caller E2; `admitirPedidoPagoConfirmado` solo
+ * devuelve la metadata del evento pendiente porque no controla el commit.
+ */
+export interface EcommercePedidoAdmitidoColaPayload {
+  evento_id: string;
+  pedido_venta_id: string;
+  pedido_venta_ecommerce_id: string;
+  actor_id: string | null;
+  estado_nuevo: "EN_PREPARACION";
+  timestamp: string;
+}
+
+/** HU-E12 — Un operador tomó un pedido libre de la cola. */
+export interface EcommercePedidoTomadoPayload {
+  evento_id: string;
+  pedido_venta_id: string;
+  pedido_venta_ecommerce_id: string;
+  actor_id: string;
+  estado: "EN_PREPARACION";
+  timestamp: string;
+}
+
+/** HU-E12 — Cambio manual de prioridad en la cola de preparación. */
+export interface EcommercePrioridadPreparacionCambiadaPayload {
+  evento_id: string;
+  pedido_venta_id: string;
+  pedido_venta_ecommerce_id: string;
+  actor_id: string;
+  prioridad_anterior: number | null;
+  prioridad_nueva: number | null;
+  timestamp: string;
+}
+
+/** HU-E12 — Confirmación de una unidad preparada por escaneo. */
+export interface EcommerceUnidadPreparacionConfirmadaPayload {
+  evento_id: string;
+  pedido_venta_id: string;
+  pedido_venta_item_id: string;
+  variante_sku_id: string;
+  actor_id: string;
+  cantidad_confirmada_anterior: number;
+  cantidad_confirmada_nueva: number;
+  timestamp: string;
+}
+
+/** HU-E12 — Pedido completamente preparado y listo para retiro. */
+export interface EcommercePedidoListoParaRetiroPayload {
+  evento_id: string;
+  pedido_venta_id: string;
+  pedido_venta_ecommerce_id: string;
+  actor_id: string;
+  estado_anterior: "EN_PREPARACION";
+  estado_nuevo: "LISTO_PARA_RETIRO";
+  plazo_retiro_vencimiento: string;
+  timestamp: string;
+}
+
 /**
  * HU-E1 (spec_modulo_E.md §2.1/§4, criterio de aceptación 4) — motivo por el
  * que un ítem de carrito dejó de ser comprable ("desactivado", decisión D6 de
@@ -1242,6 +1305,16 @@ export interface DomainEventMap {
   "venta:turno_cerrado": VentaTurnoCerradoPayload;
   /** HU-B1: se emite tras registrar una venta de mostrador con cobro multimedio. */
   "venta:registrada": VentaRegistradaPayload;
+  /** HU-E12: admisión a cola Pick&Pack (evento pendiente producido por E2). */
+  "ecommerce:pedido_admitido_cola": EcommercePedidoAdmitidoColaPayload;
+  /** HU-E12: un operador tomó un pedido de la cola. */
+  "ecommerce:pedido_tomado": EcommercePedidoTomadoPayload;
+  /** HU-E12: cambio manual de prioridad de preparación. */
+  "ecommerce:prioridad_preparacion_cambiada": EcommercePrioridadPreparacionCambiadaPayload;
+  /** HU-E12: confirmación de una unidad preparada por escaneo. */
+  "ecommerce:unidad_preparacion_confirmada": EcommerceUnidadPreparacionConfirmadaPayload;
+  /** HU-E12: pedido completamente preparado, listo para retiro. */
+  "ecommerce:pedido_listo_para_retiro": EcommercePedidoListoParaRetiroPayload;
   /** HU-E1: se emite por cada ítem de carrito que bloquea el checkout por estar desactivado (CA4). */
   "ecommerce:carrito_articulo_no_disponible": CarritoArticuloNoDisponiblePayload;
   /** HU-E1: se emite tras fusionar el carrito de visitante con el de la cuenta (CA7). */
@@ -1338,6 +1411,11 @@ export const TIPOS_EVENTO_DOMINIO = [
   "venta:turno_abierto",
   "venta:turno_cerrado",
   "venta:registrada",
+  "ecommerce:pedido_admitido_cola",
+  "ecommerce:pedido_tomado",
+  "ecommerce:prioridad_preparacion_cambiada",
+  "ecommerce:unidad_preparacion_confirmada",
+  "ecommerce:pedido_listo_para_retiro",
   "ecommerce:carrito_articulo_no_disponible",
   "ecommerce:carrito_fusionado",
   "ecommerce:checkout_iniciado",

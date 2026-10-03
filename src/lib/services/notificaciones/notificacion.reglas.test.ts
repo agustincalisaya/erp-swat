@@ -137,6 +137,21 @@ test("motor: sin plantilla → DEFAULT_NOTIFICATION_TEXT, plantilla_id null y pr
   }
 });
 
+test("motor: OPERADOR_PICK_PACK se expande como grupo destinatario sin duplicados", async () => {
+  const f = fake({ porRol: { OPERADOR_PICK_PACK: ["operador-1", "operador-1"] } });
+  await ejecutarMotorNotificaciones(
+    {
+      tipo_evento: "ecommerce:pedido_admitido_cola",
+      clave_origen: "evento-admision-1",
+      variables: { pedido_venta_id: "pedido-1" },
+      prioridad_default: "INFORMATIVA",
+      destinatarios: { roles: ["OPERADOR_PICK_PACK"] },
+    },
+    f.puertos,
+  );
+  assert.deepEqual(f.creadas.map((n) => n.usuario_destinatario_id), ["operador-1"]);
+});
+
 test("motor: expansión de rol sin duplicados (usuario explícito que además tiene el rol)", async () => {
   const f = fake({ porRol: { ADMINISTRADOR: ["admin-1", "u-1"], AUDITOR: ["admin-1"] } });
   await ejecutarMotorNotificaciones(

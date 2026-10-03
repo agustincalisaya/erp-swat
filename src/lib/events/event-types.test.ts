@@ -38,12 +38,14 @@ test("los 4 eventos de HU-F2 están registrados", () => {
   }
 });
 
-test("los eventos ecommerce:* de HU-E12/E13 NO están en el mapa real (viven en TIPOS_EVENTO_DECLARADOS_SPRINT_4)", () => {
+test("los 5 eventos de HU-E12 están registrados", () => {
   for (const evento of [
+    "ecommerce:pedido_admitido_cola",
+    "ecommerce:pedido_tomado",
+    "ecommerce:prioridad_preparacion_cambiada",
+    "ecommerce:unidad_preparacion_confirmada",
     "ecommerce:pedido_listo_para_retiro",
-    "ecommerce:pedido_vencido_sin_retiro",
-    "ecommerce:plazo_retiro_por_vencer",
   ]) {
-    assert.equal((TIPOS_EVENTO_DOMINIO as readonly string[]).includes(evento), false, evento);
+    assert.ok((TIPOS_EVENTO_DOMINIO as readonly string[]).includes(evento), evento);
   }
 });

@@ -53,10 +53,10 @@ const PERMISOS_ADMINISTRADOR_ECOMMERCE = [
   "PERMISO_ECOMMERCE_ANULAR_ORDEN_NO_ABONADA_ID",
   "PERMISO_ECOMMERCE_CANCELAR_PEDIDO_PAGADO_ID",
   "PERMISO_ECOMMERCE_LEER_COLA_PREPARACION_ID",
+  "PERMISO_ECOMMERCE_PRIORIZAR_COLA_ID",
   "PERMISO_ECOMMERCE_LEER_HISTORIAL_ORDENES_ID",
   "PERMISO_ECOMMERCE_EXPORTAR_METRICAS_ID",
   "PERMISO_ECOMMERCE_SOLICITAR_ACCESO_LOG_PAGOS_ID",
-  "PERMISO_ECOMMERCE_PRIORIZAR_COLA_ID",
 ];
 
 const PERMISOS_OPERADOR_PICK_PACK = [
@@ -149,10 +149,11 @@ test("los 17 UUID de HU-E10 son distintos entre sí y no los reutiliza ninguna o
   }
 });
 
-// Excluye `*.test.ts`: los tests de integración sí nombran los roles para
-// verificar el payload de login, no para autorizar.
-test("ningún archivo de aplicación en src/ referencia los nombres de rol de HU-E10 (autorización siempre por permiso)", () => {
+// Excluye `*.test.ts` y el listener declarativo de notificaciones: ambos nombran
+// roles para verificar/rutear destinatarios, nunca para autorizar.
+test("ningún archivo de aplicación usa nombres de rol HU-E10 para autorización", () => {
   const raizSrc = fileURLToPath(new URL("../../../", import.meta.url));
+  const listenerNotificaciones = fileURLToPath(new URL("../../events/listeners/notificacion.listener.ts", import.meta.url));
   const hallazgos: string[] = [];
 
   const recorrer = (dir: string) => {
@@ -160,7 +161,7 @@ test("ningún archivo de aplicación en src/ referencia los nombres de rol de HU
       const ruta = join(dir, entrada);
       if (statSync(ruta).isDirectory()) {
         recorrer(ruta);
-      } else if (/\.(ts|tsx)$/.test(entrada) && !/\.test\.tsx?$/.test(entrada)) {
+      } else if (/\.(ts|tsx)$/.test(entrada) && !/\.test\.tsx?$/.test(entrada) && ruta !== listenerNotificaciones) {
         if (/ADMINISTRADOR_ECOMMERCE|OPERADOR_PICK_PACK/.test(readFileSync(ruta, "utf8"))) hallazgos.push(ruta);
       }
     }

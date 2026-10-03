@@ -3426,10 +3426,10 @@ async function main() {
         [PERMISO_ECOMMERCE_LEER_COLA_PREPARACION_ID, "ecommerce:leer_cola_preparacion", "Consultar la cola de preparación Click & Collect — Administrador E-commerce y Operador de Pick & Pack (HU-E12; priorizar es ecommerce:priorizar_cola)"],
         [PERMISO_ECOMMERCE_PREPARAR_PEDIDO_ID, "ecommerce:preparar_pedido", "Tomar, confirmar ítems por escaneo y completar la preparación de un pedido — exclusivo Operador de Pick & Pack (HU-E12)"],
         [PERMISO_ECOMMERCE_VALIDAR_RETIRO_QR_ID, "ecommerce:validar_retiro_qr", "Validar el retiro Click & Collect por QR + DNI — exclusivo Operador de Pick & Pack (HU-E12)"],
+        [PERMISO_ECOMMERCE_PRIORIZAR_COLA_ID, "ecommerce:priorizar_cola", "Priorizar manualmente el orden de la cola de preparación Click & Collect — exclusivo Administrador E-commerce (HU-E12)"],
         [PERMISO_ECOMMERCE_LEER_HISTORIAL_ORDENES_ID, "ecommerce:leer_historial_ordenes", "Consultar el historial de órdenes web de todos los clientes — exclusivo Administrador E-commerce (HU-E10)"],
         [PERMISO_ECOMMERCE_EXPORTAR_METRICAS_ID, "ecommerce:exportar_metricas", "Exportar métricas del canal web — exclusivo Administrador E-commerce (HU-E10; endpoint sin contrato todavía, spec §5)"],
         [PERMISO_ECOMMERCE_SOLICITAR_ACCESO_LOG_PAGOS_ID, "ecommerce:solicitar_acceso_log_pagos", "Solicitar acceso al log de pagos, sujeto a aprobación — Administrador E-commerce (HU-E6; mecanismo de aprobación sin definir, spec §2.6)"],
-        [PERMISO_ECOMMERCE_PRIORIZAR_COLA_ID, "ecommerce:priorizar_cola", "Priorizar pedidos en la cola de preparación Click & Collect — exclusivo Administrador E-commerce (HU-E12)"],
       ] as const
     ).map(([id, codigo, descripcion]) =>
       prisma.permiso.upsert({
@@ -3470,10 +3470,10 @@ async function main() {
         PERMISO_ECOMMERCE_ANULAR_ORDEN_NO_ABONADA_ID,
         PERMISO_ECOMMERCE_CANCELAR_PEDIDO_PAGADO_ID,
         PERMISO_ECOMMERCE_LEER_COLA_PREPARACION_ID,
+        PERMISO_ECOMMERCE_PRIORIZAR_COLA_ID,
         PERMISO_ECOMMERCE_LEER_HISTORIAL_ORDENES_ID,
         PERMISO_ECOMMERCE_EXPORTAR_METRICAS_ID,
         PERMISO_ECOMMERCE_SOLICITAR_ACCESO_LOG_PAGOS_ID,
-        PERMISO_ECOMMERCE_PRIORIZAR_COLA_ID,
       ],
     ],
     [
@@ -4568,6 +4568,7 @@ async function main() {
           : null,
         operador_asignado_id: p.operador?.id ?? null,
         prioridad_manual: p.operador?.prioridad_manual ?? null,
+        fecha_pago_confirmado: pagoAprobado ? fechaPago : null,
         created_at: p.fecha_checkout,
         ...baja,
       },

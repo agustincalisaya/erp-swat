@@ -22,8 +22,7 @@
  *    pendiente de aprobación (H → Rol SUPERVISOR_COMPRAS; no existe el estado).
  *  - Pendientes de su dueño (agregan su fila al declarar el evento):
  *    `ecommerce:pedido_listo_para_retiro` (E12), `ecommerce:plazo_retiro_por_vencer`
- *    y `ecommerce:pedido_vencido_sin_retiro` (E13), y el rol Operador de Pick & Pack
- *    de `ecommerce:pedido_pago_confirmado` (E12).
+ *    y `ecommerce:pedido_vencido_sin_retiro` (E13).
  */
 import { domainEventBus } from "@/lib/events/domain-event-bus";
 import type { DomainEventMap } from "@/lib/events/event-types";
@@ -87,7 +86,7 @@ export const SUSCRIPCIONES_NOTIFICACION = [
         : null,
   }),
   // Módulo E (HU-E2) → Cliente Web dueño del pedido. Por pedido: un webhook
-  // repetido nunca notifica dos veces. El rol Operador de Pick & Pack lo agrega E12.
+  // repetido nunca notifica dos veces.
   suscripcion({
     evento: "ecommerce:pedido_pago_confirmado",
     prioridad_default: "INFORMATIVA",
@@ -95,6 +94,15 @@ export const SUSCRIPCIONES_NOTIFICACION = [
       clave_origen: p.pedido_venta_id,
       variables: { numero_venta: p.numero_venta },
       destinatarios: { cuenta_cliente_web_ids: [p.cliente_web_cuenta_id] },
+    }),
+  }),
+  suscripcion({
+    evento: "ecommerce:pedido_admitido_cola",
+    prioridad_default: "INFORMATIVA",
+    armar: (p) => ({
+      clave_origen: p.evento_id,
+      variables: { pedido_venta_id: p.pedido_venta_id },
+      destinatarios: { roles: ["OPERADOR_PICK_PACK"] },
     }),
   }),
 ];

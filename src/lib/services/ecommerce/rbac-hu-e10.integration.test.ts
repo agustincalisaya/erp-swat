@@ -37,10 +37,10 @@ const MATRIZ_ECOMMERCE: Array<[string, boolean, boolean]> = [
   ["ecommerce:leer_cola_preparacion", true, true],
   ["ecommerce:preparar_pedido", false, true],
   ["ecommerce:validar_retiro_qr", false, true],
+  ["ecommerce:priorizar_cola", true, false],
   ["ecommerce:leer_historial_ordenes", true, false],
   ["ecommerce:exportar_metricas", true, false],
   ["ecommerce:solicitar_acceso_log_pagos", true, false],
-  ["ecommerce:priorizar_cola", true, false],
 ];
 
 const PERMISOS_AJENOS = ["auditoria:leer_forense", "ventas:leer", "roles:administrar"];
