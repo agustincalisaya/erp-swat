@@ -1088,6 +1088,52 @@ export interface CuentaWebRecuperacionHabilitadaPayload extends CuentaWebEventoB
 export type CuentaWebPasswordRedefinidaPayload = CuentaWebEventoBase;
 export interface CuentaWebBajaPayload extends CuentaWebEventoBase { motivo: string }
 
+/**
+ * HU-F2 (spec_modulo_F.md §4) — redacción auditable de una
+ * `PlantillaNotificacion`. Claves en orden estable (spec D §4.2, nota de
+ * `JSON.stringify`).
+ */
+export interface PlantillaNotificacionRedaccion {
+  asunto: string;
+  cuerpo: string;
+  prioridad_default: "CRITICA" | "ADVERTENCIA" | "INFORMATIVA";
+}
+
+/** HU-F2 — Payload emitido tras el alta de una `PlantillaNotificacion`. */
+export interface NotificacionPlantillaCreadaPayload {
+  plantilla_id: string;
+  tipo_evento: string;
+  usuario_id: string;
+  valor_nuevo: PlantillaNotificacionRedaccion;
+}
+
+/** HU-F2 — Payload emitido tras editar la redacción de una `PlantillaNotificacion`. */
+export interface NotificacionPlantillaActualizadaPayload {
+  plantilla_id: string;
+  tipo_evento: string;
+  usuario_id: string;
+  valor_anterior: PlantillaNotificacionRedaccion;
+  valor_nuevo: PlantillaNotificacionRedaccion;
+}
+
+/** HU-F2 — Payload emitido tras la baja lógica de una `PlantillaNotificacion`. */
+export interface NotificacionPlantillaBajaLogicaPayload {
+  plantilla_id: string;
+  tipo_evento: string;
+  usuario_id: string;
+  valor_anterior: { is_active: true };
+  valor_nuevo: { is_active: false; deletion_reason: string };
+}
+
+/** HU-F2 (task §4.1-bis) — Payload emitido tras reactivar una `PlantillaNotificacion`. */
+export interface NotificacionPlantillaReactivadaPayload {
+  plantilla_id: string;
+  tipo_evento: string;
+  usuario_id: string;
+  valor_anterior: { is_active: false };
+  valor_nuevo: { is_active: true };
+}
+
 /** Mapa evento → payload, usado por `domain-event-bus.ts` para tipar `emit`/`on`. */
 export interface DomainEventMap {
   /** HU-A1: se emite tras el alta de un ProductoMaestro. */
@@ -1215,6 +1261,101 @@ export interface DomainEventMap {
   "ecommerce:cuenta_web_recuperacion_habilitada": CuentaWebRecuperacionHabilitadaPayload;
   "ecommerce:cuenta_web_password_redefinida": CuentaWebPasswordRedefinidaPayload;
   "ecommerce:cuenta_web_baja": CuentaWebBajaPayload;
+  /** HU-F2: se emite tras el alta de una PlantillaNotificacion. */
+  "notificacion_plantilla:creada": NotificacionPlantillaCreadaPayload;
+  /** HU-F2: se emite tras editar la redacción de una PlantillaNotificacion. */
+  "notificacion_plantilla:actualizada": NotificacionPlantillaActualizadaPayload;
+  /** HU-F2: se emite tras la baja lógica de una PlantillaNotificacion (nunca DELETE físico). */
+  "notificacion_plantilla:baja_logica": NotificacionPlantillaBajaLogicaPayload;
+  /** HU-F2 (task §4.1-bis): se emite tras reactivar una PlantillaNotificacion dada de baja. */
+  "notificacion_plantilla:reactivada": NotificacionPlantillaReactivadaPayload;
 }
 
 export type DomainEventName = keyof DomainEventMap;
+
+/**
+ * HU-F2 (spec_modulo_F.md §2.2) — registro RUNTIME de los nombres de evento
+ * de `DomainEventMap`, para validar `PlantillaNotificacion.tipo_evento` en la
+ * capa de servicios (el mapa es solo un tipo y no existe en runtime).
+ *
+ * Al agregar un evento al mapa hay que agregarlo acá: `satisfies` impide
+ * nombres que no estén en el mapa, `_registroCompleto` rompe el typecheck si
+ * falta alguno, y `event-types.test.ts` lo verifica contra la fuente.
+ */
+export const TIPOS_EVENTO_DOMINIO = [
+  "producto_maestro:creado",
+  "variantes:generadas",
+  "producto_maestro:desactivado",
+  "stock:umbrales_configurados",
+  "stock:umbral_critico_alcanzado",
+  "inventario:ingreso_stock_registrado",
+  "stock:transferencia_iniciada",
+  "stock:transferencia_recepcion_confirmada",
+  "stock:transferencia_baja_logica",
+  "inventario:variante_baja_logica",
+  "usuario:creado",
+  "usuario:baja_logica",
+  "usuario:suspendido_automaticamente",
+  "usuario:sesion_iniciada",
+  "usuario:sesion_cerrada",
+  "usuario:estado_cambiado",
+  "usuario:reactivado",
+  "rol:creado",
+  "rol:permisos_actualizados",
+  "orden_compra:creada",
+  "orden_compra:estado_cambiado",
+  "orden_compra:items_editados",
+  "recepcion:registrada",
+  "proveedor:estado_cambiado",
+  "cuenta_por_pagar:estado_cambiado",
+  "comprobante_proveedor:registrado",
+  "comprobante_proveedor:anulado",
+  "proveedor:baja_logica",
+  "proveedor:legajo_editado",
+  "proveedor:variacion_precio_critica",
+  "proveedor:lista_precio_aprobada",
+  "stock:reserva_congelada",
+  "stock:reserva_liberada",
+  "stock:reclasificacion_devuelto",
+  "stock:reclasificacion_solicitud_creada",
+  "stock:reclasificacion_solicitud_aprobada",
+  "stock:reclasificacion_solicitud_rechazada",
+  "producto_maestro:actualizado",
+  "inventario:variante_actualizada",
+  "venta:presupuesto_emitido",
+  "venta:presupuesto_vencido",
+  "venta:presupuesto_aceptado",
+  "venta:descuento_fuera_margen",
+  "venta:cambio_precio_manual",
+  "venta:operacion_cuenta_corriente_registrada",
+  "venta:excepcion_credito_resuelta",
+  "precio_venta:version_publicada",
+  "cliente:creado",
+  "consentimiento:decision_registrada",
+  "cliente:actualizado",
+  "cliente:baja_logica",
+  "venta:turno_abierto",
+  "venta:turno_cerrado",
+  "venta:registrada",
+  "ecommerce:carrito_articulo_no_disponible",
+  "ecommerce:carrito_fusionado",
+  "ecommerce:checkout_iniciado",
+  "ecommerce:carrito_convertido_en_pedido",
+  "ecommerce:pedido_pago_confirmado",
+  "ecommerce:pago_rechazado",
+  "ecommerce:pago_anomalo",
+  "ecommerce:cuenta_web_registrada",
+  "ecommerce:cuenta_web_bloqueada",
+  "ecommerce:cuenta_web_vinculada",
+  "ecommerce:cuenta_web_recuperacion_habilitada",
+  "ecommerce:cuenta_web_password_redefinida",
+  "ecommerce:cuenta_web_baja",
+  "notificacion_plantilla:creada",
+  "notificacion_plantilla:actualizada",
+  "notificacion_plantilla:baja_logica",
+  "notificacion_plantilla:reactivada",
+] as const satisfies readonly DomainEventName[];
+
+/** Falla el typecheck si `TIPOS_EVENTO_DOMINIO` no cubre todas las claves de `DomainEventMap`. */
+type EventosFaltantes = Exclude<DomainEventName, (typeof TIPOS_EVENTO_DOMINIO)[number]>;
+export const _registroCompleto: [EventosFaltantes] extends [never] ? true : never = true;

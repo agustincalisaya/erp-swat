@@ -1344,4 +1344,58 @@ export function iniciarAuditLogListener(): void {
       },
     });
   });
+
+  // HU-F2 (Módulo F) — plantillas de notificación (spec_modulo_F.md §2.2/§4).
+  // `plantilla-notificacion.service.ts` nunca llama `registrarAuditLog()`
+  // directo: emite post-COMMIT y este listener reacciona. `tabla_afectada`
+  // usa el `@@map` (`plantillas_notificacion`); `ip: "internal-event"` —
+  // mismo sentinel que el resto de los eventos emitidos desde services.
+  domainEventBus.on("notificacion_plantilla:creada", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "CREATE",
+      tabla_afectada: "plantillas_notificacion",
+      registro_id: payload.plantilla_id,
+      ip: "internal-event",
+      valor_anterior: null,
+      valor_nuevo: { tipo_evento: payload.tipo_evento, ...payload.valor_nuevo },
+    });
+  });
+
+  domainEventBus.on("notificacion_plantilla:actualizada", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "UPDATE",
+      tabla_afectada: "plantillas_notificacion",
+      registro_id: payload.plantilla_id,
+      ip: "internal-event",
+      valor_anterior: payload.valor_anterior,
+      valor_nuevo: payload.valor_nuevo,
+    });
+  });
+
+  domainEventBus.on("notificacion_plantilla:baja_logica", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "DELETE_LOGICO",
+      tabla_afectada: "plantillas_notificacion",
+      registro_id: payload.plantilla_id,
+      ip: "internal-event",
+      valor_anterior: payload.valor_anterior,
+      valor_nuevo: payload.valor_nuevo,
+    });
+  });
+
+  // Task HU-F2 §4.1-bis — misma `accion` que `usuario:reactivado`.
+  domainEventBus.on("notificacion_plantilla:reactivada", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "REACTIVACION",
+      tabla_afectada: "plantillas_notificacion",
+      registro_id: payload.plantilla_id,
+      ip: "internal-event",
+      valor_anterior: payload.valor_anterior,
+      valor_nuevo: payload.valor_nuevo,
+    });
+  });
 }

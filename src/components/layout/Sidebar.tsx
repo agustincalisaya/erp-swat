@@ -32,7 +32,7 @@
  */
 import type { LucideIcon } from "lucide-react";
 // 1. Agregamos el ícono "Layers" a la importación
-import { ScrollText, ShieldCheck, Users, Package, Warehouse, ScanBarcode, Layers, FileSearch, ShoppingCart, ClipboardList, Store, PackageCheck, Undo2, Wallet, Banknote, Receipt, FileText, UserPlus, Tags } from "lucide-react";
+import { ScrollText, ShieldCheck, Users, Package, Warehouse, ScanBarcode, Layers, FileSearch, ShoppingCart, ClipboardList, Store, PackageCheck, Undo2, Wallet, Banknote, Receipt, FileText, UserPlus, Tags, Settings, BellRing } from "lucide-react";
 import { getServerSession } from "@/lib/auth/session";
 import { usuarioTienePermiso } from "@/lib/auth/with-permission";
 import { SidebarNav, type SidebarNavSection } from "@/components/layout/SidebarNav";
@@ -258,6 +258,22 @@ const SECCIONES: SeccionConfig[] = [
         href: "/tesoreria/cuentas-por-pagar",
         icon: Banknote,
         permiso: "cuentas_por_pagar:leer",
+      },
+    ],
+  },
+  {
+    // HU-F2 (Módulo F) — formularios de gestión de los roles de plataforma
+    // (spec_modulo_F.md §1). Gate por `notificaciones:administrar_plantillas`
+    // (exclusivo Administrador de Plataforma); sin el permiso la sección
+    // queda vacía y no se muestra.
+    label: "Administración",
+    icon: Settings,
+    items: [
+      {
+        label: "Plantillas de notificación",
+        href: "/administracion/notificaciones/plantillas",
+        icon: BellRing,
+        permiso: "notificaciones:administrar_plantillas",
       },
     ],
   },
