@@ -150,15 +150,82 @@ test(
       assert.equal(filas.length, 1);
       assert.equal(filas[0].accion, "PUBLICAR_VERSION_LISTA_PRECIO_VENTA");
       assert.equal(filas[0].usuario_id, USUARIO_SUPERVISOR_VENTAS_SEED_ID);
-      assert.equal(filas[0].valor_anterior, null);
+      // Punto abierto 3 (resuelto): la versión reemplazada es la v1 del seed.
+      assert.deepEqual(filas[0].valor_anterior, { version_anterior_id: VERSION_1_ID });
       assert.deepEqual(filas[0].valor_nuevo, {
         version_id: r.version_id,
+        version_anterior_id: VERSION_1_ID,
         lista_id: LISTA_PRECIO_VENTA_GENERAL_ID,
         publicado_por_id: USUARIO_SUPERVISOR_VENTAS_SEED_ID,
         vigente_desde: r.vigente_desde.toISOString(),
         items_publicados: 1,
         items_bajo_costo: 0,
       });
+    });
+
+    await t.test("version_anterior_id: la segunda publicación apunta a la primera (sin tocar la anterior)", async () => {
+      const previa = versionesCreadas[versionesCreadas.length - 1];
+      const antesPrevia = await prisma.listaPrecioVentaVersion.findUniqueOrThrow({ where: { id: previa } });
+      const r = await servicio.publicarVersionListaPrecioVenta(
+        { vigente_desde: new Date(), items: [{ variante_sku_id: CT1, precio_venta: 23500 }] },
+        USUARIO_SUPERVISOR_VENTAS_SEED_ID,
+      );
+      // Se da de baja enseguida para no alterar los supuestos del caso siguiente.
+      await prisma.listaPrecioVentaVersion.updateMany({
+        where: { id: r.version_id },
+        data: { is_active: false, deleted_at: new Date(), deletion_reason: "cleanup test HU-B9" },
+      });
+      assert.equal("version_anterior_id" in r, false, "no viaja en el valor de retorno");
+
+      let filas: Awaited<ReturnType<typeof prisma.auditLog.findMany>> = [];
+      for (let i = 0; i < 40 && filas.length === 0; i++) {
+        await new Promise((res) => setTimeout(res, 50));
+        filas = await prisma.auditLog.findMany({
+          where: { tabla_afectada: "versiones_lista_precio_venta", registro_id: r.version_id },
+        });
+      }
+      assert.equal(filas.length, 1);
+      assert.deepEqual(filas[0].valor_anterior, { version_anterior_id: previa });
+      // Inmutabilidad: la versión reemplazada queda exactamente igual.
+      assert.deepEqual(await prisma.listaPrecioVentaVersion.findUniqueOrThrow({ where: { id: previa } }), antesPrevia);
+    });
+
+    await t.test("version_anterior_id: null en la primera versión de una lista sin versiones previas", async () => {
+      // Única lista activa = una nueva sin versiones: se baja lógicamente la
+      // General (UPDATE, nunca DELETE) y se restaura en el finally.
+      const general = await prisma.listaPrecioVenta.findUniqueOrThrow({ where: { id: LISTA_PRECIO_VENTA_GENERAL_ID } });
+      await prisma.listaPrecioVenta.update({
+        where: { id: general.id },
+        data: { is_active: false, deleted_at: new Date(), deletion_reason: "test HU-B9 (temporal)" },
+      });
+      const nueva = await prisma.listaPrecioVenta.create({ data: { nombre: "Lista sin versiones test HU-B9" } });
+      try {
+        const r = await servicio.publicarVersionListaPrecioVenta(
+          { vigente_desde: new Date(), items: [{ variante_sku_id: CT1, precio_venta: 23000 }] },
+          USUARIO_SUPERVISOR_VENTAS_SEED_ID,
+        );
+        versionesCreadas.push(r.version_id);
+        assert.equal(r.lista_id, nueva.id);
+
+        let filas: Awaited<ReturnType<typeof prisma.auditLog.findMany>> = [];
+        for (let i = 0; i < 40 && filas.length === 0; i++) {
+          await new Promise((res) => setTimeout(res, 50));
+          filas = await prisma.auditLog.findMany({
+            where: { tabla_afectada: "versiones_lista_precio_venta", registro_id: r.version_id },
+          });
+        }
+        assert.equal(filas.length, 1);
+        assert.deepEqual(filas[0].valor_anterior, { version_anterior_id: null });
+      } finally {
+        await prisma.listaPrecioVenta.update({
+          where: { id: nueva.id },
+          data: { is_active: false, deleted_at: new Date(), deletion_reason: "cleanup test HU-B9" },
+        });
+        await prisma.listaPrecioVenta.update({
+          where: { id: general.id },
+          data: { is_active: general.is_active, deleted_at: general.deleted_at, deletion_reason: general.deletion_reason },
+        });
+      }
     });
 
     await t.test("dos versiones con el MISMO vigente_desde: gana la de created_at más reciente (desempate)", async () => {

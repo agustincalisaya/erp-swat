@@ -790,13 +790,14 @@ export interface ExcepcionCreditoResueltaPayload {
  * HU-B9 (Módulo B) — Payload emitido tras publicar una `ListaPrecioVentaVersion`
  * (`publicarVersionListaPrecioVenta()`, spec_modulo_B.md §2.9/§4). Evento
  * SENSIBLE (encadenamiento SHA-256: afecta el precio de todos los canales).
- * Payload LITERAL de spec §4 — decisión Punto abierto 3, opción A: NO trae
- * "valores anterior y nuevo" que pide el CA del Backlog (divergencia
- * documentada como hallazgo, no se amplía sin decisión del dueño del spec).
+ * Payload literal de spec §4. Punto abierto 3 resuelto: `version_anterior_id`
+ * es la versión activa que rige cuando empieza a regir la nueva (`null` si
+ * no hay ninguna; las programadas a futuro no cuentan), y alimenta `valor_anterior` del AuditLog.
  * `vigente_desde` viaja como ISO 8601. Emisión post-`COMMIT`.
  */
 export interface PrecioVentaVersionPublicadaPayload {
   version_id: string;
+  version_anterior_id: string | null;
   lista_id: string;
   publicado_por_id: string;
   vigente_desde: string;

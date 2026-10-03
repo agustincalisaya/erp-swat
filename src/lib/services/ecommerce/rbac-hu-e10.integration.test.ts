@@ -40,6 +40,7 @@ const MATRIZ_ECOMMERCE: Array<[string, boolean, boolean]> = [
   ["ecommerce:leer_historial_ordenes", true, false],
   ["ecommerce:exportar_metricas", true, false],
   ["ecommerce:solicitar_acceso_log_pagos", true, false],
+  ["ecommerce:priorizar_cola", true, false],
 ];
 
 const PERMISOS_AJENOS = ["auditoria:leer_forense", "ventas:leer", "roles:administrar"];
@@ -109,7 +110,7 @@ test(
     ]);
     t.after(() => prisma.$disconnect());
 
-    await t.test("3. matriz efectiva: 10 permisos × 2 usuarios = spec_modulo_E.md §2.10", async () => {
+    await t.test("3. matriz efectiva: 11 permisos × 2 usuarios = spec_modulo_E.md §2.10", async () => {
       let aserciones = 0;
       for (const [codigo, admin, operador] of MATRIZ_ECOMMERCE) {
         assert.equal(
@@ -124,7 +125,7 @@ test(
         );
         aserciones += 2;
       }
-      assert.equal(aserciones, 20);
+      assert.equal(aserciones, 22);
     });
 
     await t.test("4. ninguno de los dos usuarios tiene permisos ajenos (auditoria:leer_forense, ventas:leer, roles:administrar)", async () => {

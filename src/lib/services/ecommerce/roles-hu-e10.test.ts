@@ -11,10 +11,11 @@ import { fileURLToPath } from "node:url";
  * (`npm run test:integration:e10`), que verifica contra una base real.
  *
  * Cubre la matriz de spec_modulo_E.md §2.10 (docs/tasks/HU-E10.md §3.1):
- * ADMINISTRADOR_ECOMMERCE agrupa 8 permisos `ecommerce:*`, OPERADOR_PICK_PACK
+ * ADMINISTRADOR_ECOMMERCE agrupa 9 permisos `ecommerce:*` (incluido
+ * `ecommerce:priorizar_cola`, Punto abierto 1 resuelto), OPERADOR_PICK_PACK
  * agrupa 3.
  *
- * Unicidad de UUID: acotada a los 16 UUID de HU-E10 contra el resto de
+ * Unicidad de UUID: acotada a los 17 UUID de HU-E10 contra el resto de
  * seed.ts, no a todas las constantes del archivo — `seed.ts` ya arrastra una
  * colisión preexistente (`MOVIMIENTO_DEVUELTO_SEED_ID` /
  * `LISTA_PRECIO_HOMOLOGADO_ID`, deuda técnica reportada desde HU-B4) que no es
@@ -34,6 +35,7 @@ const PERMISOS_ECOMMERCE: Record<string, [codigo: string, uuid: string]> = {
   PERMISO_ECOMMERCE_LEER_HISTORIAL_ORDENES_ID: ["ecommerce:leer_historial_ordenes", "1a68c39a-f427-47c8-8923-56413c22a177"],
   PERMISO_ECOMMERCE_EXPORTAR_METRICAS_ID: ["ecommerce:exportar_metricas", "c603f9c6-2bf4-4d95-b06c-e339f09ae303"],
   PERMISO_ECOMMERCE_SOLICITAR_ACCESO_LOG_PAGOS_ID: ["ecommerce:solicitar_acceso_log_pagos", "fe71b5b4-09ba-407a-bff0-1aa64656f656"],
+  PERMISO_ECOMMERCE_PRIORIZAR_COLA_ID: ["ecommerce:priorizar_cola", "6481fbee-c5d3-4c40-ad62-261588c1d0cf"],
 };
 
 const RBAC_ECOMMERCE: Record<string, string> = {
@@ -54,6 +56,7 @@ const PERMISOS_ADMINISTRADOR_ECOMMERCE = [
   "PERMISO_ECOMMERCE_LEER_HISTORIAL_ORDENES_ID",
   "PERMISO_ECOMMERCE_EXPORTAR_METRICAS_ID",
   "PERMISO_ECOMMERCE_SOLICITAR_ACCESO_LOG_PAGOS_ID",
+  "PERMISO_ECOMMERCE_PRIORIZAR_COLA_ID",
 ];
 
 const PERMISOS_OPERADOR_PICK_PACK = [
@@ -73,7 +76,8 @@ function permisosDelRol(variableRol: string): string[] {
   return bloque.match(/PERMISO_[A-Z0-9_]+_ID/g) ?? [];
 }
 
-test("el seed declara los 10 permisos ecommerce:* con su UUID y modulo MODULO_E", () => {
+test("el seed declara los 11 permisos ecommerce:* con su UUID y modulo MODULO_E", () => {
+  assert.equal(Object.keys(PERMISOS_ECOMMERCE).length, 11);
   for (const [constante, [codigo, uuid]] of Object.entries(PERMISOS_ECOMMERCE)) {
     assert.match(seed, new RegExp(`const ${constante} = "${uuid}";`), `${constante} debería valer ${uuid}`);
     assert.match(
@@ -106,14 +110,15 @@ test("el seed define los roles ADMINISTRADOR_ECOMMERCE y OPERADOR_PICK_PACK y lo
   );
 });
 
-test("ADMINISTRADOR_ECOMMERCE agrupa exactamente los 8 permisos de la matriz, sin preparar_pedido ni validar_retiro_qr", () => {
+test("ADMINISTRADOR_ECOMMERCE agrupa exactamente los 9 permisos de la matriz (con priorizar_cola), sin preparar_pedido ni validar_retiro_qr", () => {
   const permisos = permisosDelRol("rolAdministradorEcommerce");
   assert.deepEqual([...permisos].sort(), [...PERMISOS_ADMINISTRADOR_ECOMMERCE].sort());
   assert.ok(!permisos.includes("PERMISO_ECOMMERCE_PREPARAR_PEDIDO_ID"));
   assert.ok(!permisos.includes("PERMISO_ECOMMERCE_VALIDAR_RETIRO_QR_ID"));
+  assert.ok(permisos.includes("PERMISO_ECOMMERCE_PRIORIZAR_COLA_ID"));
 });
 
-test("OPERADOR_PICK_PACK agrupa exactamente 3 permisos, sin ninguno de gestión, historial, métricas ni log de pagos", () => {
+test("OPERADOR_PICK_PACK agrupa exactamente 3 permisos, sin ninguno de gestión, historial, métricas, log de pagos ni priorización", () => {
   const permisos = permisosDelRol("rolOperadorPickPack");
   assert.deepEqual([...permisos].sort(), [...PERMISOS_OPERADOR_PICK_PACK].sort());
   for (const excluido of [
@@ -123,19 +128,20 @@ test("OPERADOR_PICK_PACK agrupa exactamente 3 permisos, sin ninguno de gestión,
     "PERMISO_ECOMMERCE_LEER_HISTORIAL_ORDENES_ID",
     "PERMISO_ECOMMERCE_EXPORTAR_METRICAS_ID",
     "PERMISO_ECOMMERCE_SOLICITAR_ACCESO_LOG_PAGOS_ID",
+    "PERMISO_ECOMMERCE_PRIORIZAR_COLA_ID",
   ]) {
     assert.ok(!permisos.includes(excluido), `OPERADOR_PICK_PACK NO debería incluir ${excluido}`);
   }
 });
 
-test("los 16 UUID de HU-E10 son distintos entre sí y no los reutiliza ninguna otra constante de seed.ts", () => {
+test("los 17 UUID de HU-E10 son distintos entre sí y no los reutiliza ninguna otra constante de seed.ts", () => {
   const uuidsE10 = [...Object.values(PERMISOS_ECOMMERCE).map(([, uuid]) => uuid), ...Object.values(RBAC_ECOMMERCE)];
-  assert.equal(uuidsE10.length, 16);
-  assert.equal(new Set(uuidsE10).size, 16, "hay UUID repetidos dentro del bloque HU-E10");
+  assert.equal(uuidsE10.length, 17);
+  assert.equal(new Set(uuidsE10).size, 17, "hay UUID repetidos dentro del bloque HU-E10");
 
   const constantesE10 = new Set([...Object.keys(PERMISOS_ECOMMERCE), ...Object.keys(RBAC_ECOMMERCE)]);
   const declaraciones = [...seed.matchAll(/const ([A-Z0-9_]+_ID) =\s*"([0-9a-f-]{36})"/g)];
-  assert.ok(declaraciones.length > 16, "el regex de declaraciones no encontró las constantes de seed.ts");
+  assert.ok(declaraciones.length > 17, "el regex de declaraciones no encontró las constantes de seed.ts");
 
   for (const [, nombre, uuid] of declaraciones) {
     if (constantesE10.has(nombre!)) continue;
