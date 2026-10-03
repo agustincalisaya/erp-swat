@@ -1,0 +1,2 @@
+import { FormularioRecuperacionTienda } from "@/components/tienda/FormularioRecuperacionTienda";
+export default function RecuperarPage() { return <div className="mx-auto max-w-lg space-y-5"><h1 className="text-2xl font-semibold">Recuperar acceso</h1><p className="text-sm text-slate-600">El código te lo entrega un vendedor en la sucursal y vence a los 15 minutos.</p><FormularioRecuperacionTienda /></div>; }

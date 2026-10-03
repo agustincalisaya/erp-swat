@@ -25,12 +25,12 @@ export function FormularioIngresoTienda({ destino }: { destino: string }) {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ email: formData.get("email"), password: formData.get("password") }),
       });
-      const cuerpo = (await res.json()) as { error: { message: string } | null };
+      const cuerpo = (await res.json()) as { data?: { vinculacion_pendiente?: boolean }; error: { message: string } | null };
       if (!res.ok || cuerpo.error) {
         setError(cuerpo.error?.message ?? "No se pudo ingresar");
         return;
       }
-      router.push(destino);
+      router.push(cuerpo.data?.vinculacion_pendiente ? "/tienda/cuenta" : destino);
       router.refresh();
     });
 

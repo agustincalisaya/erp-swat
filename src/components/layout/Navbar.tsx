@@ -5,14 +5,14 @@
  * identidad (nombre, roles) del usuario autenticado; delega el logout —
  * única parte interactiva — a `LogoutButton` (Client Component).
  *
- * El espacio de notificaciones queda contemplado en el diseño (icono
- * deshabilitado) aunque ningún módulo emite notificaciones todavía —
- * ver task_cali_layout_dashboard.md §1.
+ * La campana de notificaciones (HU-F3) es un Client Component propio con
+ * polling del contador de no leídas — `CampanaNotificaciones`.
  */
-import { Bell, UserCircle2 } from "lucide-react";
+import { UserCircle2 } from "lucide-react";
 import { getServerSession } from "@/lib/auth/session";
 import { obtenerIdentidadUsuario } from "@/lib/services/auditoria/usuario.service";
 import { LogoutButton } from "@/components/layout/LogoutButton";
+import { CampanaNotificaciones } from "@/components/notificaciones/CampanaNotificaciones";
 import { Badge } from "@/components/ui/badge";
 
 export async function Navbar() {
@@ -28,16 +28,7 @@ export async function Navbar() {
       <div className="flex-1" />
 
       <div className="flex items-center gap-3">
-        {/* Espacio reservado para notificaciones — sin fuente de datos hoy. */}
-        <button
-          type="button"
-          disabled
-          className="p-2 rounded-lg text-gray-300 cursor-not-allowed"
-          aria-label="Notificaciones (sin novedades)"
-          title="Sin notificaciones configuradas todavía"
-        >
-          <Bell className="size-4.5" aria-hidden="true" />
-        </button>
+        <CampanaNotificaciones />
 
         <div className="hidden sm:flex items-center gap-2 pl-1 border-l border-border">
           <UserCircle2 className="size-6 text-gray-400 ml-2" aria-hidden="true" />

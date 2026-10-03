@@ -787,6 +787,24 @@ export interface ExcepcionCreditoResueltaPayload {
 }
 
 /**
+ * HU-B9 (Módulo B) — Payload emitido tras publicar una `ListaPrecioVentaVersion`
+ * (`publicarVersionListaPrecioVenta()`, spec_modulo_B.md §2.9/§4). Evento
+ * SENSIBLE (encadenamiento SHA-256: afecta el precio de todos los canales).
+ * Payload LITERAL de spec §4 — decisión Punto abierto 3, opción A: NO trae
+ * "valores anterior y nuevo" que pide el CA del Backlog (divergencia
+ * documentada como hallazgo, no se amplía sin decisión del dueño del spec).
+ * `vigente_desde` viaja como ISO 8601. Emisión post-`COMMIT`.
+ */
+export interface PrecioVentaVersionPublicadaPayload {
+  version_id: string;
+  lista_id: string;
+  publicado_por_id: string;
+  vigente_desde: string;
+  items_publicados: number;
+  items_bajo_costo: number;
+}
+
+/**
  * HU-C1 (Módulo C) — Payload emitido tras el alta NUEVA de un `Cliente`
  * (`crearCliente()`, spec_modulo_C.md §2.1/§4). Se emite SOLO cuando
  * `es_nuevo === true` — recuperar un `Cliente` existente por DNI (§3.1: "no
@@ -1115,6 +1133,70 @@ export interface PagoAnomaloPayload {
   monto_esperado: number | null;
 }
 
+export interface CuentaWebEventoBase {
+  cuenta_id: string;
+  cliente_id: string;
+  actor_tipo: "cuenta" | "usuario";
+  actor_id: string;
+  ocurrido_en: string;
+}
+export interface CuentaWebRegistradaPayload extends CuentaWebEventoBase {
+  vinculacion_pendiente: boolean;
+  acepta_tratamiento: true;
+  acepta_comunicaciones: boolean;
+}
+export interface CuentaWebBloqueadaPayload extends CuentaWebEventoBase { intentos: number; bloqueada_hasta: string }
+export interface CuentaWebVinculadaPayload extends CuentaWebEventoBase { acceso_reasignado: boolean }
+export interface CuentaWebRecuperacionHabilitadaPayload extends CuentaWebEventoBase { expira_en: string }
+export type CuentaWebPasswordRedefinidaPayload = CuentaWebEventoBase;
+export interface CuentaWebBajaPayload extends CuentaWebEventoBase { motivo: string }
+
+/**
+ * HU-F2 (spec_modulo_F.md §4) — redacción auditable de una
+ * `PlantillaNotificacion`. Claves en orden estable (spec D §4.2, nota de
+ * `JSON.stringify`).
+ */
+export interface PlantillaNotificacionRedaccion {
+  asunto: string;
+  cuerpo: string;
+  prioridad_default: "CRITICA" | "ADVERTENCIA" | "INFORMATIVA";
+}
+
+/** HU-F2 — Payload emitido tras el alta de una `PlantillaNotificacion`. */
+export interface NotificacionPlantillaCreadaPayload {
+  plantilla_id: string;
+  tipo_evento: string;
+  usuario_id: string;
+  valor_nuevo: PlantillaNotificacionRedaccion;
+}
+
+/** HU-F2 — Payload emitido tras editar la redacción de una `PlantillaNotificacion`. */
+export interface NotificacionPlantillaActualizadaPayload {
+  plantilla_id: string;
+  tipo_evento: string;
+  usuario_id: string;
+  valor_anterior: PlantillaNotificacionRedaccion;
+  valor_nuevo: PlantillaNotificacionRedaccion;
+}
+
+/** HU-F2 — Payload emitido tras la baja lógica de una `PlantillaNotificacion`. */
+export interface NotificacionPlantillaBajaLogicaPayload {
+  plantilla_id: string;
+  tipo_evento: string;
+  usuario_id: string;
+  valor_anterior: { is_active: true };
+  valor_nuevo: { is_active: false; deletion_reason: string };
+}
+
+/** HU-F2 (task §4.1-bis) — Payload emitido tras reactivar una `PlantillaNotificacion`. */
+export interface NotificacionPlantillaReactivadaPayload {
+  plantilla_id: string;
+  tipo_evento: string;
+  usuario_id: string;
+  valor_anterior: { is_active: false };
+  valor_nuevo: { is_active: true };
+}
+
 /** Mapa evento → payload, usado por `domain-event-bus.ts` para tipar `emit`/`on`. */
 export interface DomainEventMap {
   /** HU-A1: se emite tras el alta de un ProductoMaestro. */
@@ -1206,6 +1288,8 @@ export interface DomainEventMap {
   "venta:operacion_cuenta_corriente_registrada": OperacionCuentaCorrienteRegistradaPayload;
   /** HU-B5: se emite tras aprobar/rechazar una operación de cuenta corriente RETENIDA (evento sensible). */
   "venta:excepcion_credito_resuelta": ExcepcionCreditoResueltaPayload;
+  /** HU-B9: se emite tras publicar una versión de la Lista de Precios de Venta (evento sensible). */
+  "precio_venta:version_publicada": PrecioVentaVersionPublicadaPayload;
   /** HU-C1: se emite tras el alta NUEVA de un Cliente (nunca al recuperar uno existente por DNI). */
   "cliente:creado": ClienteCreadoPayload;
   /** HU-C4: un evento histórico confirmado durante regularización o desde la ficha. */
@@ -1244,6 +1328,112 @@ export interface DomainEventMap {
   "ecommerce:pago_rechazado": PagoRechazadoPayload;
   /** HU-E2: pago de MP no aplicado (o cupón excedido al confirmar). */
   "ecommerce:pago_anomalo": PagoAnomaloPayload;
+  "ecommerce:cuenta_web_registrada": CuentaWebRegistradaPayload;
+  "ecommerce:cuenta_web_bloqueada": CuentaWebBloqueadaPayload;
+  "ecommerce:cuenta_web_vinculada": CuentaWebVinculadaPayload;
+  "ecommerce:cuenta_web_recuperacion_habilitada": CuentaWebRecuperacionHabilitadaPayload;
+  "ecommerce:cuenta_web_password_redefinida": CuentaWebPasswordRedefinidaPayload;
+  "ecommerce:cuenta_web_baja": CuentaWebBajaPayload;
+  /** HU-F2: se emite tras el alta de una PlantillaNotificacion. */
+  "notificacion_plantilla:creada": NotificacionPlantillaCreadaPayload;
+  /** HU-F2: se emite tras editar la redacción de una PlantillaNotificacion. */
+  "notificacion_plantilla:actualizada": NotificacionPlantillaActualizadaPayload;
+  /** HU-F2: se emite tras la baja lógica de una PlantillaNotificacion (nunca DELETE físico). */
+  "notificacion_plantilla:baja_logica": NotificacionPlantillaBajaLogicaPayload;
+  /** HU-F2 (task §4.1-bis): se emite tras reactivar una PlantillaNotificacion dada de baja. */
+  "notificacion_plantilla:reactivada": NotificacionPlantillaReactivadaPayload;
 }
 
 export type DomainEventName = keyof DomainEventMap;
+
+/**
+ * HU-F2 (spec_modulo_F.md §2.2) — registro RUNTIME de los nombres de evento
+ * de `DomainEventMap`, para validar `PlantillaNotificacion.tipo_evento` en la
+ * capa de servicios (el mapa es solo un tipo y no existe en runtime).
+ *
+ * Al agregar un evento al mapa hay que agregarlo acá: `satisfies` impide
+ * nombres que no estén en el mapa, `_registroCompleto` rompe el typecheck si
+ * falta alguno, y `event-types.test.ts` lo verifica contra la fuente.
+ */
+export const TIPOS_EVENTO_DOMINIO = [
+  "producto_maestro:creado",
+  "variantes:generadas",
+  "producto_maestro:desactivado",
+  "stock:umbrales_configurados",
+  "stock:umbral_critico_alcanzado",
+  "inventario:ingreso_stock_registrado",
+  "stock:transferencia_iniciada",
+  "stock:transferencia_recepcion_confirmada",
+  "stock:transferencia_baja_logica",
+  "inventario:variante_baja_logica",
+  "usuario:creado",
+  "usuario:baja_logica",
+  "usuario:suspendido_automaticamente",
+  "usuario:sesion_iniciada",
+  "usuario:sesion_cerrada",
+  "usuario:estado_cambiado",
+  "usuario:reactivado",
+  "rol:creado",
+  "rol:permisos_actualizados",
+  "orden_compra:creada",
+  "orden_compra:estado_cambiado",
+  "orden_compra:items_editados",
+  "recepcion:registrada",
+  "proveedor:estado_cambiado",
+  "cuenta_por_pagar:estado_cambiado",
+  "comprobante_proveedor:registrado",
+  "comprobante_proveedor:anulado",
+  "proveedor:baja_logica",
+  "proveedor:legajo_editado",
+  "proveedor:variacion_precio_critica",
+  "proveedor:lista_precio_aprobada",
+  "stock:reserva_congelada",
+  "stock:reserva_liberada",
+  "stock:reclasificacion_devuelto",
+  "stock:reclasificacion_solicitud_creada",
+  "stock:reclasificacion_solicitud_aprobada",
+  "stock:reclasificacion_solicitud_rechazada",
+  "producto_maestro:actualizado",
+  "inventario:variante_actualizada",
+  "venta:presupuesto_emitido",
+  "venta:presupuesto_vencido",
+  "venta:presupuesto_aceptado",
+  "venta:descuento_fuera_margen",
+  "venta:cambio_precio_manual",
+  "venta:operacion_cuenta_corriente_registrada",
+  "venta:excepcion_credito_resuelta",
+  "precio_venta:version_publicada",
+  "cliente:creado",
+  "consentimiento:decision_registrada",
+  "cliente:actualizado",
+  "cliente:baja_logica",
+  "venta:turno_abierto",
+  "venta:turno_cerrado",
+  "venta:registrada",
+  "ecommerce:pedido_admitido_cola",
+  "ecommerce:pedido_tomado",
+  "ecommerce:prioridad_preparacion_cambiada",
+  "ecommerce:unidad_preparacion_confirmada",
+  "ecommerce:pedido_listo_para_retiro",
+  "ecommerce:carrito_articulo_no_disponible",
+  "ecommerce:carrito_fusionado",
+  "ecommerce:checkout_iniciado",
+  "ecommerce:carrito_convertido_en_pedido",
+  "ecommerce:pedido_pago_confirmado",
+  "ecommerce:pago_rechazado",
+  "ecommerce:pago_anomalo",
+  "ecommerce:cuenta_web_registrada",
+  "ecommerce:cuenta_web_bloqueada",
+  "ecommerce:cuenta_web_vinculada",
+  "ecommerce:cuenta_web_recuperacion_habilitada",
+  "ecommerce:cuenta_web_password_redefinida",
+  "ecommerce:cuenta_web_baja",
+  "notificacion_plantilla:creada",
+  "notificacion_plantilla:actualizada",
+  "notificacion_plantilla:baja_logica",
+  "notificacion_plantilla:reactivada",
+] as const satisfies readonly DomainEventName[];
+
+/** Falla el typecheck si `TIPOS_EVENTO_DOMINIO` no cubre todas las claves de `DomainEventMap`. */
+type EventosFaltantes = Exclude<DomainEventName, (typeof TIPOS_EVENTO_DOMINIO)[number]>;
+export const _registroCompleto: [EventosFaltantes] extends [never] ? true : never = true;

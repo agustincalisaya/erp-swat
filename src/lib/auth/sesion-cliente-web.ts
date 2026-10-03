@@ -27,8 +27,7 @@ import { cookies } from "next/headers";
 import { jwtVerify, SignJWT } from "jose";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
-import { verifyPassword } from "@/lib/auth/password";
-import { ServiceError } from "@/lib/errors/service-error";
+import { autenticarCuentaClienteWeb } from "@/lib/services/ecommerce/cuenta-cliente-web.service";
 
 export const SESION_CLIENTE_WEB_COOKIE_NAME = "swat_tienda_session";
 
@@ -117,32 +116,16 @@ export interface LoginClienteWebResultado {
  * @throws {ServiceError} CREDENCIALES_INVALIDAS | CUENTA_BLOQUEADA
  */
 export async function iniciarSesionClienteWeb(email: string, password: string): Promise<LoginClienteWebResultado> {
-  const encontrada = await prisma.cuentaClienteWeb.findUnique({
-    where: { email: email.trim().toLowerCase() },
-    select: { id: true },
-  });
-  const cuenta = encontrada ? await cargarCuentaActiva(encontrada.id) : null;
-
-  if (!cuenta || !(await verifyPassword(password, cuenta.password_hash))) {
-    // TODO(HU-E8): incrementar `intentos_fallidos` y bloquear al llegar al umbral.
-    throw new ServiceError("CREDENCIALES_INVALIDAS", "Email o contraseña incorrectos");
-  }
-  if (cuenta.bloqueada_hasta && cuenta.bloqueada_hasta > new Date()) {
-    throw new ServiceError(
-      "CUENTA_BLOQUEADA",
-      "La cuenta está bloqueada temporalmente por intentos fallidos; la recuperación es presencial en sucursal",
-    );
-  }
-
+  const cuenta = await autenticarCuentaClienteWeb(email, password);
   const expiraEn = new Date(Date.now() + DURACION_SESION_CLIENTE_WEB_HORAS * 60 * 60 * 1000);
   return {
     sesion: {
-      cuentaId: cuenta.id,
-      clienteId: cuenta.cliente_id,
+      cuentaId: cuenta.cuentaId,
+      clienteId: cuenta.clienteId,
       email: cuenta.email,
-      vinculacionPendiente: cuenta.vinculacion_pendiente,
+      vinculacionPendiente: cuenta.vinculacionPendiente,
     },
-    jwt: await firmarJwt(cuenta.id, cuenta.token_version, expiraEn),
+    jwt: await firmarJwt(cuenta.cuentaId, cuenta.tokenVersion, expiraEn),
     expiraEn,
   };
 }
@@ -169,6 +152,11 @@ export async function getSesionClienteWeb(): Promise<SesionClienteWeb | null> {
   };
 }
 
+export async function getSesionClienteWebVinculada(): Promise<SesionClienteWeb | null> {
+  const sesion = await getSesionClienteWeb();
+  return sesion?.vinculacionPendiente ? null : sesion;
+}
+
 type HandlerConSesionClienteWeb<C> = (
   req: NextRequest,
   sesion: SesionClienteWeb,
@@ -180,19 +168,22 @@ type HandlerConSesionClienteWeb<C> = (
  * (spec E, convenciones generales). NO es `withPermission` del RBAC interno.
  * Sin sesión válida responde `401 SESION_CLIENTE_WEB_REQUERIDA`.
  */
-export function withSesionClienteWeb<C = unknown>(handler: HandlerConSesionClienteWeb<C>) {
+export function withSesionClienteWeb<C = unknown>(
+  handler: HandlerConSesionClienteWeb<C>,
+  options: { permitirPendiente?: boolean; mensajeSinSesion?: string } = {},
+) {
   return async (req: NextRequest, ctx: C): Promise<NextResponse> => {
     const sesion = await getSesionClienteWeb();
     if (!sesion) {
       return NextResponse.json(
-        {
-          data: null,
-          error: {
-            code: "SESION_CLIENTE_WEB_REQUERIDA",
-            message: "Debe iniciar sesión para completar la compra",
-          },
-        },
+        { data: null, error: { code: "SESION_CLIENTE_WEB_REQUERIDA", message: options.mensajeSinSesion ?? "Debe iniciar sesión para continuar" } },
         { status: 401 },
+      );
+    }
+    if (sesion.vinculacionPendiente && !options.permitirPendiente) {
+      return NextResponse.json(
+        { data: null, error: { code: "CUENTA_VINCULACION_PENDIENTE", message: "Tu cuenta está pendiente de validación de identidad en sucursal" } },
+        { status: 403 },
       );
     }
     return handler(req, sesion, ctx);

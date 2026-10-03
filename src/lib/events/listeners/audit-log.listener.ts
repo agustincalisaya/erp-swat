@@ -831,6 +831,31 @@ export function iniciarAuditLogListener(): void {
     });
   });
 
+  domainEventBus.on("ecommerce:cuenta_web_registrada", (payload) => {
+    const { cuenta_id, actor_id, actor_tipo, ocurrido_en, ...datos } = payload;
+    void registrarAuditLog({ usuario_id: null, accion: "ecommerce:cuenta_web_registrada", tabla_afectada: "cuentas_cliente_web", registro_id: cuenta_id, ip: "internal-event", valor_anterior: null, valor_nuevo: { ...datos, actor_id, actor_tipo, ocurrido_en } });
+  });
+  domainEventBus.on("ecommerce:cuenta_web_bloqueada", (payload) => {
+    const { cuenta_id, actor_id, actor_tipo, ocurrido_en, ...datos } = payload;
+    void registrarAuditLog({ usuario_id: null, accion: "ecommerce:cuenta_web_bloqueada", tabla_afectada: "cuentas_cliente_web", registro_id: cuenta_id, ip: "internal-event", valor_anterior: null, valor_nuevo: { ...datos, actor_id, actor_tipo, ocurrido_en } });
+  });
+  domainEventBus.on("ecommerce:cuenta_web_vinculada", (payload) => {
+    const { cuenta_id, actor_id, actor_tipo, ocurrido_en, ...datos } = payload;
+    void registrarAuditLog({ usuario_id: actor_id, accion: "ecommerce:cuenta_web_vinculada", tabla_afectada: "cuentas_cliente_web", registro_id: cuenta_id, ip: "internal-event", valor_anterior: { vinculacion_pendiente: true }, valor_nuevo: { ...datos, actor_tipo, ocurrido_en, vinculacion_pendiente: false } });
+  });
+  domainEventBus.on("ecommerce:cuenta_web_recuperacion_habilitada", (payload) => {
+    const { cuenta_id, actor_id, actor_tipo, ocurrido_en, ...datos } = payload;
+    void registrarAuditLog({ usuario_id: actor_id, accion: "ecommerce:cuenta_web_recuperacion_habilitada", tabla_afectada: "cuentas_cliente_web", registro_id: cuenta_id, ip: "internal-event", valor_anterior: null, valor_nuevo: { ...datos, actor_tipo, ocurrido_en } });
+  });
+  domainEventBus.on("ecommerce:cuenta_web_password_redefinida", (payload) => {
+    const { cuenta_id, actor_id, actor_tipo, ocurrido_en, ...datos } = payload;
+    void registrarAuditLog({ usuario_id: null, accion: "ecommerce:cuenta_web_password_redefinida", tabla_afectada: "cuentas_cliente_web", registro_id: cuenta_id, ip: "internal-event", valor_anterior: null, valor_nuevo: { ...datos, actor_id, actor_tipo, ocurrido_en } });
+  });
+  domainEventBus.on("ecommerce:cuenta_web_baja", (payload) => {
+    const { cuenta_id, actor_id, actor_tipo, ocurrido_en, ...datos } = payload;
+    void registrarAuditLog({ usuario_id: null, accion: "ecommerce:cuenta_web_baja", tabla_afectada: "cuentas_cliente_web", registro_id: cuenta_id, ip: "internal-event", valor_anterior: { is_active: true }, valor_nuevo: { ...datos, actor_id, actor_tipo, ocurrido_en, is_active: false } });
+  });
+
   // ── HU-E2 (Módulo E) — pago web por webhook de Mercado Pago. El actor es
   // Mercado Pago (sin `Usuario` del ERP): `usuario_id` null, mismo criterio que
   // los eventos de E1. Sin datos de tarjeta ni payload crudo de MP (spec E §4).
@@ -1161,6 +1186,24 @@ export function iniciarAuditLogListener(): void {
     });
   });
 
+  // HU-B9 (Módulo B) — publicación de una versión de la Lista de Precios de
+  // Venta (spec_modulo_B.md §2.9/§4). Evento SENSIBLE. `lista-precio-venta.service.ts`
+  // nunca llama `registrarAuditLog()` directo: emite post-COMMIT y este listener
+  // reacciona. `accion` = PUBLICAR_VERSION_LISTA_PRECIO_VENTA (Punto abierto 12).
+  // `valor_anterior: null` y `valor_nuevo` = payload literal del spec (Punto
+  // abierto 3, opción A — el CA pide anterior/nuevo; divergencia documentada).
+  domainEventBus.on("precio_venta:version_publicada", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.publicado_por_id,
+      accion: "PUBLICAR_VERSION_LISTA_PRECIO_VENTA",
+      tabla_afectada: "versiones_lista_precio_venta",
+      registro_id: payload.version_id,
+      ip: "internal-event",
+      valor_anterior: null,
+      valor_nuevo: { ...payload },
+    });
+  });
+
   // HU-C1 (Módulo C) — alta NUEVA de un Cliente. `cliente.service.ts` nunca
   // se emite al recuperar un DNI ya existente (spec §3.1: "no hay transición
   // nueva"), así que este listener solo ve altas reales. Sin `ip` en el
@@ -1401,5 +1444,59 @@ export function iniciarAuditLogListener(): void {
         qr_generado: true,
       },
     );
+  });
+
+  // HU-F2 (Módulo F) — plantillas de notificación (spec_modulo_F.md §2.2/§4).
+  // `plantilla-notificacion.service.ts` nunca llama `registrarAuditLog()`
+  // directo: emite post-COMMIT y este listener reacciona. `tabla_afectada`
+  // usa el `@@map` (`plantillas_notificacion`); `ip: "internal-event"` —
+  // mismo sentinel que el resto de los eventos emitidos desde services.
+  domainEventBus.on("notificacion_plantilla:creada", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "CREATE",
+      tabla_afectada: "plantillas_notificacion",
+      registro_id: payload.plantilla_id,
+      ip: "internal-event",
+      valor_anterior: null,
+      valor_nuevo: { tipo_evento: payload.tipo_evento, ...payload.valor_nuevo },
+    });
+  });
+
+  domainEventBus.on("notificacion_plantilla:actualizada", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "UPDATE",
+      tabla_afectada: "plantillas_notificacion",
+      registro_id: payload.plantilla_id,
+      ip: "internal-event",
+      valor_anterior: payload.valor_anterior,
+      valor_nuevo: payload.valor_nuevo,
+    });
+  });
+
+  domainEventBus.on("notificacion_plantilla:baja_logica", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "DELETE_LOGICO",
+      tabla_afectada: "plantillas_notificacion",
+      registro_id: payload.plantilla_id,
+      ip: "internal-event",
+      valor_anterior: payload.valor_anterior,
+      valor_nuevo: payload.valor_nuevo,
+    });
+  });
+
+  // Task HU-F2 §4.1-bis — misma `accion` que `usuario:reactivado`.
+  domainEventBus.on("notificacion_plantilla:reactivada", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "REACTIVACION",
+      tabla_afectada: "plantillas_notificacion",
+      registro_id: payload.plantilla_id,
+      ip: "internal-event",
+      valor_anterior: payload.valor_anterior,
+      valor_nuevo: payload.valor_nuevo,
+    });
   });
 }

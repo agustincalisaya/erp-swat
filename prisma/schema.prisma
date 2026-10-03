@@ -86,6 +86,7 @@ model Usuario {
   pedidos_ecommerce_asignados    PedidoVentaEcommerce[]     @relation("PedidoEcommerceOperadorAsignado")
   escaneos_preparacion           PedidoPreparacionEscaneo[] @relation("EscaneoPreparacionOperador")
   notificaciones_recibidas       Notificacion[]             @relation("NotificacionUsuarioDestinatario")
+  recuperaciones_cuenta_web      CuentaClienteWeb[]         @relation("RecuperacionCuentaWebEmitidaPor")
 
   @@map("usuarios")
 }
@@ -2348,16 +2349,19 @@ model ProductoWebFoto {
 /// lógica/blanqueo e invalida toda sesión emitida antes. `cliente_id @unique`
 /// = un DNI, una única cuenta web.
 model CuentaClienteWeb {
-  id                    String    @id @default(uuid())
-  cliente_id            String    @unique
-  email                 String    @unique
-  password_hash         String
-  token_version         Int       @default(0)
-  intentos_fallidos     Int       @default(0)
-  bloqueada_hasta       DateTime?
+  id                          String    @id @default(uuid())
+  cliente_id                  String    @unique
+  email                       String    @unique
+  password_hash               String
+  token_version               Int       @default(0)
+  intentos_fallidos           Int       @default(0)
+  bloqueada_hasta             DateTime?
   /// true si el DNI ya existía como Cliente de mostrador sin validar —
   /// la cuenta queda inhabilitada para checkout hasta la validación presencial.
-  vinculacion_pendiente Boolean   @default(false)
+  vinculacion_pendiente       Boolean   @default(false)
+  recuperacion_codigo_digest  String?   @unique
+  recuperacion_expira_en      DateTime?
+  recuperacion_emitida_por_id String?
 
   // --- Soft delete estricto ---
   is_active       Boolean   @default(true)
@@ -2370,10 +2374,11 @@ model CuentaClienteWeb {
   updated_at DateTime @default(now()) @updatedAt
 
   // --- Relaciones ---
-  cliente        Cliente        @relation(fields: [cliente_id], references: [id], onDelete: Restrict)
+  cliente                  Cliente        @relation(fields: [cliente_id], references: [id], onDelete: Restrict)
   /// 1:N desde HU-E1 (D5): historial de carritos; solo uno activo (índice parcial).
-  carritos       CarritoWeb[]
-  notificaciones Notificacion[] @relation("NotificacionClienteWebDestinatario")
+  carritos                 CarritoWeb[]
+  notificaciones           Notificacion[] @relation("NotificacionClienteWebDestinatario")
+  recuperacion_emitida_por Usuario?       @relation("RecuperacionCuentaWebEmitidaPor", fields: [recuperacion_emitida_por_id], references: [id], onDelete: Restrict)
 
   @@map("cuentas_cliente_web")
 }
