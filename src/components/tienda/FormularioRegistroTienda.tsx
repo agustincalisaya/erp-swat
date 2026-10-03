@@ -19,6 +19,6 @@ export function FormularioRegistroTienda() {
     {[["nombre","Nombre","text"],["dni","DNI","text"],["telefono","Teléfono","tel"],["email","Email","email"],["password","Contraseña","password"]].map(([name,label,type]) => <div key={name}><Label htmlFor={name}>{label}</Label><Input id={name} name={name} type={type} required /></div>)}
     <label className="flex gap-2 text-sm"><input name="acepta_tratamiento" type="checkbox" required />Acepto el tratamiento de mis datos personales (Ley 25.326) para gestionar mi cuenta y mis compras en la tienda web de SWAT Indumentarias.</label>
     <label className="flex gap-2 text-sm"><input name="acepta_comunicaciones" type="checkbox" />Acepto recibir comunicaciones comerciales.</label>
-    {mensaje && <p className="text-sm">{mensaje}</p>}<Button className="w-full">Crear cuenta</Button>
+    {mensaje && <p className="text-sm">{mensaje}</p>}<Button type="submit" className="w-full">Crear cuenta</Button>
   </form>;
 }

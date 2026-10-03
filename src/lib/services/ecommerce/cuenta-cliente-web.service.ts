@@ -102,7 +102,7 @@ export async function registrarCuentaClienteWeb(input: RegistroCuentaWebInput) {
   }
 }
 
-async function registrarFallo(cuentaId: string, passwordValida: boolean, tokenVersion: number) {
+async function resolverIntentoLoginCuentaWeb(cuentaId: string, passwordValida: boolean, tokenVersion: number) {
   const [maxIntentos, bloqueoMinutos] = await obtenerConfiguracionBloqueo();
   const resultado = await prisma.$transaction(async (tx) => {
     const filas = await tx.$queryRaw<Array<{ id: string; cliente_id: string; intentos_fallidos: number; bloqueada_hasta: Date | null; token_version: number; vinculacion_pendiente: boolean; email: string }>>`
@@ -115,14 +115,14 @@ async function registrarFallo(cuentaId: string, passwordValida: boolean, tokenVe
     const vencido = cuenta.bloqueada_hasta && cuenta.bloqueada_hasta <= ahora;
     if (passwordValida) {
       await tx.cuentaClienteWeb.update({ where: { id: cuenta.id }, data: { intentos_fallidos: 0, bloqueada_hasta: null } });
-      return { cuenta, bloqueada: false, bloqueadaHasta: null };
+      return { cuenta, recienBloqueada: false, bloqueadaHasta: null };
     }
     const intentos = (vencido ? 0 : cuenta.intentos_fallidos) + 1;
     const bloqueadaHasta = intentos >= maxIntentos ? new Date(ahora.getTime() + bloqueoMinutos * 60_000) : null;
     await tx.cuentaClienteWeb.update({ where: { id: cuenta.id }, data: { intentos_fallidos: intentos, bloqueada_hasta: bloqueadaHasta } });
-    return { cuenta: { ...cuenta, intentos_fallidos: intentos }, bloqueada: !!bloqueadaHasta, bloqueadaHasta };
+    return { cuenta: { ...cuenta, intentos_fallidos: intentos }, recienBloqueada: !!bloqueadaHasta, bloqueadaHasta };
   });
-  if (resultado.bloqueada && resultado.bloqueadaHasta) {
+  if (resultado.recienBloqueada && resultado.bloqueadaHasta) {
     domainEventBus.emit("ecommerce:cuenta_web_bloqueada", {
       ...baseEvento(resultado.cuenta.id, resultado.cuenta.cliente_id, "cuenta", resultado.cuenta.id),
       intentos: resultado.cuenta.intentos_fallidos,
@@ -142,8 +142,8 @@ export async function autenticarCuentaClienteWeb(email: string, password: string
   if (!cuenta || !cuenta.is_active || cuenta.deleted_at || !cuenta.cliente.is_active || cuenta.cliente.deleted_at) throw credencialesInvalidas();
   if (cuenta.bloqueada_hasta && cuenta.bloqueada_hasta > new Date()) throw cuentaBloqueada();
   const valida = await verifyPassword(password, cuenta.password_hash);
-  const bloqueada = await registrarFallo(cuenta.id, valida, cuenta.token_version);
-  return { cuentaId: bloqueada.id, clienteId: bloqueada.cliente_id, email: bloqueada.email, tokenVersion: bloqueada.token_version, vinculacionPendiente: bloqueada.vinculacion_pendiente };
+  const cuentaAutenticada = await resolverIntentoLoginCuentaWeb(cuenta.id, valida, cuenta.token_version);
+  return { cuentaId: cuentaAutenticada.id, clienteId: cuentaAutenticada.cliente_id, email: cuentaAutenticada.email, tokenVersion: cuentaAutenticada.token_version, vinculacionPendiente: cuentaAutenticada.vinculacion_pendiente };
 }
 
 async function emitirRecuperacionTx(tx: Prisma.TransactionClient, cuenta: { id: string; cliente_id: string }, actorUsuarioId: string) {
@@ -194,16 +194,21 @@ export async function validarVinculacionCuentaWeb(cuentaId: string, actorUsuario
 }
 
 export async function redefinirPasswordCuentaWeb(input: RedefinirPasswordInput) {
-  const cuenta = await prisma.cuentaClienteWeb.findUnique({ where: { email: input.email }, select: { id: true, cliente_id: true, bloqueada_hasta: true, token_version: true, is_active: true, vinculacion_pendiente: true } });
-  if (cuenta?.bloqueada_hasta && cuenta.bloqueada_hasta > new Date()) throw cuentaBloqueada();
   const { hash } = await hashPassword(input.password);
+  const ahora = new Date();
   const actualizado = await prisma.cuentaClienteWeb.updateMany({
-    where: { email: input.email, is_active: true, deleted_at: null, vinculacion_pendiente: false, recuperacion_codigo_digest: digestCodigo(input.codigo), recuperacion_expira_en: { gt: new Date() } },
+    where: {
+      email: input.email, is_active: true, deleted_at: null, vinculacion_pendiente: false,
+      recuperacion_codigo_digest: digestCodigo(input.codigo), recuperacion_expira_en: { gt: ahora },
+      OR: [{ bloqueada_hasta: null }, { bloqueada_hasta: { lte: ahora } }],
+    },
     data: { password_hash: hash, recuperacion_codigo_digest: null, recuperacion_expira_en: null, recuperacion_emitida_por_id: null, intentos_fallidos: 0, bloqueada_hasta: null, token_version: { increment: 1 } },
   });
+  const cuenta = await prisma.cuentaClienteWeb.findUnique({ where: { email: input.email }, select: { id: true, cliente_id: true, bloqueada_hasta: true, token_version: true, is_active: true } });
   if (actualizado.count !== 1 || !cuenta) {
+    if (cuenta?.bloqueada_hasta && cuenta.bloqueada_hasta > new Date()) throw cuentaBloqueada();
     if (cuenta?.is_active) {
-      try { await registrarFallo(cuenta.id, false, cuenta.token_version); }
+      try { await resolverIntentoLoginCuentaWeb(cuenta.id, false, cuenta.token_version); }
       catch (error) { if (!(error instanceof ServiceError) || error.code !== "CREDENCIALES_INVALIDAS") throw error; }
     }
     throw new ServiceError("CODIGO_RECUPERACION_INVALIDO", "El código no es válido o venció");

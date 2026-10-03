@@ -139,6 +139,9 @@ test("HU-E8 HTTP — rutas, permisos, cookies y aislamiento", { skip: !BASE_URL 
     const sinSesion = await llamar(new Jar(), "/api/tienda/checkout", { method: "POST", body: "{}" });
     assert.equal(sinSesion.status, 401);
     assert.deepEqual(sinSesion.body.error, { code: "SESION_CLIENTE_WEB_REQUERIDA", message: "Debe iniciar sesión para completar la compra" });
+    const bajaSinSesion = await llamar(new Jar(), "/api/tienda/cuenta/baja", { method: "PATCH", body: "{}" });
+    assert.equal(bajaSinSesion.status, 401);
+    assert.deepEqual(bajaSinSesion.body.error, { code: "SESION_CLIENTE_WEB_REQUERIDA", message: "Debe iniciar sesión para continuar" });
   });
 
   await t.test("§4.3 — configuración ECOMMERCE_CUENTA_WEB_* inválida o ausente: 500 genérico sin nombre de clave", async () => {

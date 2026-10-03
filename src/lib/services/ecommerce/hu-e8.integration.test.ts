@@ -157,6 +157,20 @@ test("HU-E8 — matriz de servicio contra PostgreSQL", { skip: !DATABASE_URL, ti
     await assert.rejects(() => servicio.habilitarRecuperacionCuentaWeb(pendiente.cuenta_id, vendedor.id), errorConCodigo("CUENTA_VINCULACION_PENDIENTE"));
   });
 
+  await t.test("D2 — código válido sobre cuenta bloqueada responde 423 sin redefinir; con bloqueo vencido redefine", async () => {
+    const alta = await registrar("rec-bloqueada"); const cuenta = await prisma.cuentaClienteWeb.findUniqueOrThrow({ where: { id: alta.cuenta_id } });
+    const { codigo } = await servicio.habilitarRecuperacionCuentaWeb(cuenta.id, vendedor.id);
+    await prisma.cuentaClienteWeb.update({ where: { id: cuenta.id }, data: { bloqueada_hasta: new Date(Date.now() + 15 * 60_000) } });
+    await assert.rejects(() => servicio.redefinirPasswordCuentaWeb({ email: cuenta.email, codigo, password: "password-nueva", confirmacion: "password-nueva" }), errorConCodigo("CUENTA_BLOQUEADA"));
+    const bloqueada = await prisma.cuentaClienteWeb.findUniqueOrThrow({ where: { id: cuenta.id } });
+    assert.equal(bloqueada.password_hash, cuenta.password_hash); assert.equal(bloqueada.token_version, 0); assert.ok(bloqueada.recuperacion_codigo_digest);
+    await prisma.cuentaClienteWeb.update({ where: { id: cuenta.id }, data: { bloqueada_hasta: new Date(Date.now() - 1000) } });
+    await servicio.redefinirPasswordCuentaWeb({ email: cuenta.email, codigo, password: "password-nueva", confirmacion: "password-nueva" });
+    const redefinida = await prisma.cuentaClienteWeb.findUniqueOrThrow({ where: { id: cuenta.id } });
+    assert.notEqual(redefinida.password_hash, cuenta.password_hash); assert.equal(redefinida.token_version, 1);
+    assert.equal(redefinida.bloqueada_hasta, null); assert.equal(redefinida.recuperacion_codigo_digest, null);
+  });
+
   await t.test("CA10 — baja lógica revoca acceso y conserva Cliente/consentimientos/pedidos", async () => {
     const alta = await registrar("baja"); const cuentaAntes = await prisma.cuentaClienteWeb.findUniqueOrThrow({ where: { id: alta.cuenta_id } });
     await servicio.habilitarRecuperacionCuentaWeb(cuentaAntes.id, vendedor.id);
