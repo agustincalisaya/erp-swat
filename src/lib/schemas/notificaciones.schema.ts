@@ -71,3 +71,27 @@ export function errorEdicion(error: z.ZodError): {
     message: error.issues[0]?.message ?? "Datos inválidos",
   };
 }
+
+// ── HU-F3 — Bandeja de notificaciones ────────────────────────────────────────
+
+/** `id` de una Notificacion recibido por path param (HU-F3). */
+export const NotificacionIdSchema = z
+  .string()
+  .uuid("El identificador de la notificación debe ser un UUID válido");
+
+/**
+ * Textual — spec_modulo_F.md §2.3 (HU-F3 task §4.1).
+ *
+ * HALLAZGO (task §8, Punto abierto 6 — decidido: se copia textual):
+ * `z.coerce.boolean()` aplica `Boolean("false") === true`, así que
+ * `?solo_no_leidas=false` se interpreta como `true` (mismo defecto corregido en
+ * HU-B6, spec B Rev. 5). Mientras el spec no se corrija, los clientes omiten el
+ * parámetro en lugar de enviar `false` (la campana nunca lo envía).
+ */
+export const ListarNotificacionesQuerySchema = z.object({
+  solo_no_leidas: z.coerce.boolean().default(false),
+  prioridad: z.enum(["CRITICA", "ADVERTENCIA", "INFORMATIVA"]).optional(),
+  page: z.coerce.number().int().positive().default(1),
+  page_size: z.coerce.number().int().positive().max(50).default(20),
+});
+export type ListarNotificacionesQuery = z.infer<typeof ListarNotificacionesQuerySchema>;
