@@ -246,3 +246,39 @@ export const ComprobanteFiscalIdSchema = z
   .string()
   .uuid("El identificador del comprobante debe ser un UUID válido");
 export type RegistrarVentaMostradorInput = z.infer<typeof RegistrarVentaMostradorSchema>;
+
+/**
+ * Schemas Zod de HU-B9 — Lista de Precios de Venta versionada
+ * (spec_modulo_B.md §2.9; docs/tasks/HU-B9.md §4).
+ */
+
+/**
+ * Copiado textual de spec §2.9. El `.refine((d) => true, {})` es un no-op
+ * (hallazgo 14 de la task: convierte el schema en `ZodEffects`); se conserva
+ * tal cual hasta que se limpie en una revisión del spec.
+ */
+export const ItemListaPrecioVentaSchema = z.object({
+  variante_sku_id: z.string().uuid(),
+  precio_venta: z.number().positive(),
+  motivo_bajo_costo: z.string().min(1).optional(),
+}).refine(
+  (d) => true, // la comparación contra costo_reposicion_referencia ocurre en la capa de servicios, no en el schema — el schema no tiene acceso al costo vigente
+  {}
+);
+
+export const CrearVersionListaPrecioVentaSchema = z.object({
+  vigente_desde: z.coerce.date(),
+  items: z.array(ItemListaPrecioVentaSchema).min(1, "La versión debe incluir al menos un ítem"),
+});
+export type CrearVersionListaPrecioVentaInput = z.infer<typeof CrearVersionListaPrecioVentaSchema>;
+
+/** PROPUESTA (no está en el spec, aprobada): query de `GET /api/ventas/lista-precios/vigente`. */
+export const PrecioVigenteQuerySchema = z.object({
+  variante_sku_id: z.string().uuid(),
+});
+export type PrecioVigenteQuery = z.infer<typeof PrecioVigenteQuerySchema>;
+
+/** `variante_sku_id` recibido por path param (`/sugerencia/[variante_sku_id]`). */
+export const VarianteSkuIdSchema = z
+  .string()
+  .uuid("El identificador de la variante debe ser un UUID válido");

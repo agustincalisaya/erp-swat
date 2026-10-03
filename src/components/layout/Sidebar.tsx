@@ -206,6 +206,15 @@ const SECCIONES: SeccionConfig[] = [
         icon: Banknote,
         permiso: "ventas:gestionar_turno_caja",
       },
+      // HU-B9 (spec_modulo_B.md §2.9) — gate por `ventas:gestionar_lista_precios`,
+      // exclusivo Supervisor de Ventas. Publicación de versiones de la Lista
+      // de Precios de Venta única (mostrador + e-commerce).
+      {
+        label: "Lista de precios de venta",
+        href: "/ventas/lista-precios",
+        icon: Tags,
+        permiso: "ventas:gestionar_lista_precios",
+      },
     ],
   },
   {

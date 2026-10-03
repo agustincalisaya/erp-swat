@@ -1179,6 +1179,24 @@ export function iniciarAuditLogListener(): void {
     });
   });
 
+  // HU-B9 (Módulo B) — publicación de una versión de la Lista de Precios de
+  // Venta (spec_modulo_B.md §2.9/§4). Evento SENSIBLE. `lista-precio-venta.service.ts`
+  // nunca llama `registrarAuditLog()` directo: emite post-COMMIT y este listener
+  // reacciona. `accion` = PUBLICAR_VERSION_LISTA_PRECIO_VENTA (Punto abierto 12).
+  // `valor_anterior: null` y `valor_nuevo` = payload literal del spec (Punto
+  // abierto 3, opción A — el CA pide anterior/nuevo; divergencia documentada).
+  domainEventBus.on("precio_venta:version_publicada", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.publicado_por_id,
+      accion: "PUBLICAR_VERSION_LISTA_PRECIO_VENTA",
+      tabla_afectada: "versiones_lista_precio_venta",
+      registro_id: payload.version_id,
+      ip: "internal-event",
+      valor_anterior: null,
+      valor_nuevo: { ...payload },
+    });
+  });
+
   // HU-C1 (Módulo C) — alta NUEVA de un Cliente. `cliente.service.ts` nunca
   // se emite al recuperar un DNI ya existente (spec §3.1: "no hay transición
   // nueva"), así que este listener solo ve altas reales. Sin `ip` en el
