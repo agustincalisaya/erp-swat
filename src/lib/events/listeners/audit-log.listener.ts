@@ -1190,8 +1190,9 @@ export function iniciarAuditLogListener(): void {
   // Venta (spec_modulo_B.md §2.9/§4). Evento SENSIBLE. `lista-precio-venta.service.ts`
   // nunca llama `registrarAuditLog()` directo: emite post-COMMIT y este listener
   // reacciona. `accion` = PUBLICAR_VERSION_LISTA_PRECIO_VENTA (Punto abierto 12).
-  // `valor_anterior: null` y `valor_nuevo` = payload literal del spec (Punto
-  // abierto 3, opción A — el CA pide anterior/nuevo; divergencia documentada).
+  // `valor_anterior` = la versión reemplazada (`version_anterior_id`, `null` si
+  // es la primera de la lista — Punto abierto 3, resuelto) y `valor_nuevo` =
+  // payload literal del spec.
   domainEventBus.on("precio_venta:version_publicada", (payload) => {
     void registrarAuditLog({
       usuario_id: payload.publicado_por_id,
@@ -1199,7 +1200,7 @@ export function iniciarAuditLogListener(): void {
       tabla_afectada: "versiones_lista_precio_venta",
       registro_id: payload.version_id,
       ip: "internal-event",
-      valor_anterior: null,
+      valor_anterior: { version_anterior_id: payload.version_anterior_id },
       valor_nuevo: { ...payload },
     });
   });

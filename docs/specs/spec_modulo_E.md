@@ -677,12 +677,15 @@ Cada diferencia entre el borrador de la Rev.2 y el código de `fix/HU-E8-deuda` 
 | `ecommerce:gestionar_cupones` | ✓ | — |
 | `ecommerce:anular_orden_no_abonada` | ✓ | — |
 | `ecommerce:cancelar_pedido_pagado` | ✓ | — |
-| `ecommerce:leer_cola_preparacion` | ✓ (consulta + prioriza) | ✓ (consulta + toma) |
+| `ecommerce:leer_cola_preparacion` | ✓ (consulta) | ✓ (consulta + toma) |
+| `ecommerce:priorizar_cola` | ✓ (prioridad manual de la cola, ver 2.12) | — |
 | `ecommerce:preparar_pedido` | — | ✓ |
 | `ecommerce:validar_retiro_qr` | — | ✓ |
 | `ecommerce:leer_historial_ordenes` | ✓ (todos los clientes) | — |
 | `ecommerce:exportar_metricas` | ✓ | — |
 | `ecommerce:solicitar_acceso_log_pagos` | ✓ (con aprobación, ver 2.6) | — |
+
+**`ecommerce:priorizar_cola` (Punto abierto 1 de HU-E10, resuelto por Cali + PO):** permiso propio, exclusivo del Administrador E-commerce. Antes "priorizar" se resolvía con `ecommerce:leer_cola_preparacion` + rol Administrador, pero ese permiso lo tienen los dos roles, así que solo se podía distinguirlos comparando el nombre del rol (contra el criterio de "autorización siempre por permiso" de abajo). Sembrado en `seed.ts` con UUID `6481fbee-c5d3-4c40-ad62-261588c1d0cf`.
 
 **Comportamiento esperado:**
 - **Segregación de funciones (criterio de aceptación explícito):** el Operador de Pick & Pack **no** tiene acceso a datos de facturación ni de pago bajo ninguna circunstancia — su superficie (2.12) expone únicamente ítems, SKU, cantidades, ubicación física y el nombre del destinatario para la validación del QR.
@@ -767,7 +770,7 @@ model ProductoWebFoto {
 **Ruta (validar retiro, escaneo de QR + DNI):** `POST /app/api/ecommerce/pick-pack/[id]/validar-retiro/route.ts`
 **Ruta (priorizar manualmente, Administrador E-commerce):** `PATCH /app/api/ecommerce/pick-pack/[id]/prioridad/route.ts`
 **Server Action equivalente:** las de escritorio del Operador viven en `app/(dashboard)/ecommerce/pick-pack/actions.ts`; el escaneo (confirmar ítem, validar retiro) se expone como Route Handler porque la PWA del Operador lo invoca directamente, no vía formulario de servidor.
-**Permiso requerido:** `ecommerce:leer_cola_preparacion` (consulta, ambos roles); `ecommerce:preparar_pedido` (tomar/confirmar ítem/completar, exclusivo Operador); `ecommerce:validar_retiro_qr` (exclusivo Operador); `ecommerce:leer_cola_preparacion` + rol Administrador para priorizar (la matriz de 2.10 no define un permiso separado para "priorizar" — se resuelve con el mismo permiso de consulta del Administrador, dado que el propio criterio de aceptación lo describe como una extensión de su capacidad de consulta, no como una acción nueva).
+**Permiso requerido:** `ecommerce:leer_cola_preparacion` (consulta, ambos roles); `ecommerce:preparar_pedido` (tomar/confirmar ítem/completar, exclusivo Operador); `ecommerce:validar_retiro_qr` (exclusivo Operador); `ecommerce:priorizar_cola` para priorizar (`PATCH .../prioridad`, exclusivo Administrador E-commerce — permiso propio de la matriz de 2.10, sin comparar el nombre del rol).
 
 ```typescript
 export const ConfirmarItemPreparacionSchema = z.object({

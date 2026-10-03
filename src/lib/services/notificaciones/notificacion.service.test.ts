@@ -90,14 +90,16 @@ test("listener: sin await hacia el emisor y con captura de errores síncronos y 
   assert.match(LISTENER, /try\s*\{[\s\S]*s\.armar\(payload\)[\s\S]*\}\s*catch/);
 });
 
-test("listener: suscripciones activas = 2 de HU-F3 + 2 ecommerce:* preexistentes (E1/E2)", () => {
+test("listener: suscripciones activas sin eventos duplicados", () => {
   const eventos = [...LISTENER.matchAll(/evento:\s*"([^"]+)"/g)].map((m) => m[1]).sort();
   assert.deepEqual(eventos, [
     "ecommerce:carrito_articulo_no_disponible",
+    "ecommerce:pedido_admitido_cola",
     "ecommerce:pedido_pago_confirmado",
     "stock:umbral_critico_alcanzado",
     "usuario:suspendido_automaticamente",
   ]);
+  assert.equal(new Set(eventos).size, eventos.length);
 });
 
 test("listener (Punto abierto 5): clave_origen por ocurrencia", () => {
@@ -105,9 +107,17 @@ test("listener (Punto abierto 5): clave_origen por ocurrencia", () => {
   assert.match(LISTENER, /clave_origen:\s*`\$\{p\.usuario_id\}:\$\{bloqueadoHasta\}`/);
 });
 
-test("listener (Punto abierto 9): roles por Rol.nombre", () => {
+test("listener (Punto abierto 9): Rol.nombre se usa solo para routing de destinatarios", () => {
   assert.match(LISTENER, /roles:\s*\["ENCARGADO_DEPOSITO"\]/);
   assert.match(LISTENER, /usuario_ids:\s*\[p\.usuario_id\],\s*roles:\s*\["ADMINISTRADOR"\]/);
+  assert.match(
+    LISTENER,
+    /evento:\s*"ecommerce:pedido_admitido_cola"[\s\S]*?clave_origen:\s*p\.evento_id[\s\S]*?destinatarios:\s*\{\s*roles:\s*\["OPERADOR_PICK_PACK"\]\s*\}/,
+  );
+  const inicioPago = LISTENER.indexOf('evento: "ecommerce:pedido_pago_confirmado"');
+  const inicioAdmision = LISTENER.indexOf('evento: "ecommerce:pedido_admitido_cola"');
+  assert.ok(inicioPago !== -1 && inicioAdmision > inicioPago);
+  assert.doesNotMatch(LISTENER.slice(inicioPago, inicioAdmision), /OPERADOR_PICK_PACK/);
 });
 
 test("ninguna escritura de Notificacion fuera de notificacion.service.ts", () => {
