@@ -379,3 +379,187 @@ export async function listarSupervisoresVentas(): Promise<SupervisorParaSelector
 
   return usuarios;
 }
+
+// ──────────────────────────────────────────────────────────────────────────────
+// HU-E1 (spec_modulo_E.md §2.2 paso 4) — alta de un `PedidoVenta` RESERVADO
+// dentro de la transacción del llamador. Módulo E NO crea `PedidoVenta` por su
+// cuenta: invoca esta función de Módulo B (spec E §2.2: "Módulo E no
+// reimplementa la creación de PedidoVenta").
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * `numero_venta` (`V-<año>-<secuencia 6 díg.>`). Misma regla que los helpers
+ * privados de `presupuesto.service.ts` y `venta-mostrador.service.ts` (no se
+ * tocaron: ver deuda en docs/tasks/HU-E1.md). El `@unique` de schema es la
+ * defensa final: ante colisión por concurrencia (`P2002`) el llamador reintenta.
+ */
+export async function generarNumeroVentaTx(tx: Prisma.TransactionClient): Promise<string> {
+  const anio = new Date().getFullYear();
+  const prefijo = `V-${anio}-`;
+  const emitidosEsteAnio = await tx.pedidoVenta.count({
+    where: { numero_venta: { startsWith: prefijo } },
+  });
+  return `${prefijo}${String(emitidosEsteAnio + 1).padStart(6, "0")}`;
+}
+
+export interface CrearPedidoVentaReservadoItem {
+  variante_sku_id: string;
+  cantidad: number;
+  /** Precio ya resuelto server-side (HU-B9) y congelado en el ítem. */
+  precio_unitario: Prisma.Decimal;
+  /** Reserva de Módulo A ya congelada para este ítem (`@unique`). */
+  reserva_id: string;
+}
+
+export interface CrearPedidoVentaReservadoInput {
+  canal: "MOSTRADOR" | "WEB";
+  cliente_id: string;
+  registrado_por_id: string;
+  items: readonly CrearPedidoVentaReservadoItem[];
+}
+
+export interface PedidoVentaReservadoCreado {
+  pedido_venta_id: string;
+  numero_venta: string;
+  total: Prisma.Decimal;
+}
+
+/**
+ * Crea un `PedidoVenta` en `RESERVADO` (estado inicial de la máquina de
+ * spec B §3.1) con sus ítems al precio congelado, cada uno con su reserva.
+ * No toca stock ni emite eventos: el llamador ya congeló las reservas en la
+ * misma transacción y emite sus eventos post-commit.
+ */
+export async function crearPedidoVentaReservadoTx(
+  tx: Prisma.TransactionClient,
+  input: CrearPedidoVentaReservadoInput,
+): Promise<PedidoVentaReservadoCreado> {
+  const total = input.items.reduce(
+    (acumulado, item) => acumulado.add(item.precio_unitario.mul(item.cantidad)),
+    new Prisma.Decimal(0),
+  );
+  const numeroVenta = await generarNumeroVentaTx(tx);
+
+  const pedido = await tx.pedidoVenta.create({
+    data: {
+      numero_venta: numeroVenta,
+      cliente_id: input.cliente_id,
+      canal: input.canal,
+      estado: "RESERVADO",
+      total,
+      registrado_por_id: input.registrado_por_id,
+      items: {
+        create: input.items.map((item) => ({
+          variante_sku_id: item.variante_sku_id,
+          cantidad: item.cantidad,
+          precio_unitario: item.precio_unitario,
+          reserva_id: item.reserva_id,
+        })),
+      },
+    },
+    select: { id: true, numero_venta: true, total: true },
+  });
+
+  return { pedido_venta_id: pedido.id, numero_venta: pedido.numero_venta, total: pedido.total };
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// HU-E2 — transiciones del PedidoVenta web sobre el `tx` del llamador (pago
+// online). Funciones NUEVAS: ninguna firma existente de Módulo B cambia. No
+// emiten eventos; el llamador (Módulo E) emite los suyos post-commit.
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * HU-E2 (Q1) — Descuenta un monto (cupón HU-E4) del `total` de un pedido
+ * `RESERVADO`, sin dejarlo negativo (spec E §2.4). El total queda NETO, igual
+ * que el que se cobra y se factura.
+ *
+ * @throws {ServiceError} TRANSICION_INVALIDA si el pedido no está RESERVADO y activo.
+ */
+export async function aplicarDescuentoPedidoVentaTx(
+  tx: Prisma.TransactionClient,
+  pedidoVentaId: string,
+  montoDescuento: Prisma.Decimal,
+): Promise<Prisma.Decimal> {
+  const pedido = await tx.pedidoVenta.findFirst({
+    where: { id: pedidoVentaId, estado: "RESERVADO", is_active: true, deleted_at: null },
+    select: { total: true },
+  });
+  if (!pedido) {
+    throw new ServiceError("TRANSICION_INVALIDA", "Solo un pedido RESERVADO admite descuento");
+  }
+  const neto = Prisma.Decimal.max(new Prisma.Decimal(0), pedido.total.sub(montoDescuento));
+  await tx.pedidoVenta.update({ where: { id: pedidoVentaId }, data: { total: neto } });
+  return neto;
+}
+
+export interface FacturarPedidoVentaInput {
+  pedido_venta_id: string;
+  fecha_facturacion: Date;
+  medio_pago: { medio: "MERCADO_PAGO"; importe: Prisma.Decimal; referencia: string };
+}
+
+/**
+ * HU-E2 (P8) — `RESERVADO → FACTURADO` por el total (spec B §3.1): setea
+ * `fecha_facturacion`, `cantidad_facturada = cantidad` de cada ítem activo y
+ * registra el cobro en `VentaMedioPago`. Transición condicionada: si otro
+ * proceso ya cambió el estado, `count = 0` → `TRANSICION_INVALIDA`. El
+ * comprobante fiscal lo emite el llamador con `emitirComprobanteFiscal()` en
+ * el mismo `tx`.
+ */
+export async function facturarPedidoVentaTx(
+  tx: Prisma.TransactionClient,
+  input: FacturarPedidoVentaInput,
+): Promise<void> {
+  const cambio = await tx.pedidoVenta.updateMany({
+    where: { id: input.pedido_venta_id, estado: "RESERVADO", is_active: true, deleted_at: null },
+    data: { estado: "FACTURADO", fecha_facturacion: input.fecha_facturacion },
+  });
+  if (cambio.count === 0) {
+    throw new ServiceError("TRANSICION_INVALIDA", "Solo un pedido RESERVADO puede facturarse");
+  }
+
+  const items = await tx.pedidoVentaItem.findMany({
+    where: { pedido_venta_id: input.pedido_venta_id, is_active: true, deleted_at: null },
+    select: { id: true, cantidad: true },
+  });
+  for (const item of items) {
+    await tx.pedidoVentaItem.update({ where: { id: item.id }, data: { cantidad_facturada: item.cantidad } });
+  }
+
+  await tx.ventaMedioPago.create({
+    data: {
+      pedido_venta_id: input.pedido_venta_id,
+      medio: input.medio_pago.medio,
+      importe: input.medio_pago.importe,
+      referencia: input.medio_pago.referencia,
+    },
+  });
+}
+
+/**
+ * HU-E2 (P4, corregido por el owner) — `RESERVADO → ANULADO` con baja lógica
+ * (spec B §3.1: "ANULADO (baja lógica)"). La usa el rechazo del pago web, que
+ * ya liberó las reservas en el mismo `tx`: el pedido no queda RESERVADO sin
+ * stock reservado. Nunca borra nada.
+ *
+ * @throws {ServiceError} TRANSICION_INVALIDA si el pedido no está RESERVADO y activo.
+ */
+export async function anularPedidoVentaTx(
+  tx: Prisma.TransactionClient,
+  input: { pedido_venta_id: string; deleted_by: string; deletion_reason: string; ahora?: Date },
+): Promise<void> {
+  const cambio = await tx.pedidoVenta.updateMany({
+    where: { id: input.pedido_venta_id, estado: "RESERVADO", is_active: true, deleted_at: null },
+    data: {
+      estado: "ANULADO",
+      is_active: false,
+      deleted_at: input.ahora ?? new Date(),
+      deleted_by: input.deleted_by,
+      deletion_reason: input.deletion_reason,
+    },
+  });
+  if (cambio.count === 0) {
+    throw new ServiceError("TRANSICION_INVALIDA", "Solo un pedido RESERVADO puede anularse");
+  }
+}

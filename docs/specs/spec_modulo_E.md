@@ -1,10 +1,26 @@
 # Especificación Técnica — Módulo E (E-commerce / Tienda Online)
 ## ERP SWAT Indumentarias — Sprint 4
+## Revisión 2 — HU-E8 (Registro e inicio de sesión del Cliente Web): contrato cerrado y sincronizado con la implementación. Revisión aditiva: las secciones 2.8.a a 2.8.g, 3.7, la extensión de la sección 4 y el cierre de la sección 5 (al inicio de su lista) se agregan dentro de cada sección sin alterar lo existente; el contenido de la Revisión 1 no se reescribe y ninguna sección se renumera.
 ## Revisión 1 — Primera especificación técnica del módulo (HU-E1 a HU-E13)
 
 **Metodología:** Specification-Driven Development (SDD)
 **Stack:** Next.js 16 (App Router) · Node.js · PostgreSQL 16 · Prisma ORM · TypeScript · Zod
 **Referencias normativas:** `RULES.md` (Regla N.° 1 — Restricción Estricta de Borrado Físico; Regla N.° 2 — Protección de Datos Personales y Trazabilidad Inalterable; Regla N.° 3 — Aislamiento de Dominio) · `Documento de Alcance Funcional y Técnico` (sección Módulo E) · `Product Backlog — SWAT Indumentarias.xlsx` (hoja **Sprint 4**, HU-E1 a HU-E13) · `schema.prisma` · `spec_modulo_A.md` (sección 2.9, servicio centralizado de reserva — congelamiento/liberación de stock, único punto de contacto con inventario) · `spec_modulo_B.md` (sección 2.1/HU-B1, patrón de venta; sección 2.9/HU-B9, resolución server-side de precio; sección 2.7/HU-B7, comprobante fiscal simulado) · `spec_modulo_C.md` (sección 2.1/HU-C1, alta de Cliente; sección 2.4/HU-C4, consentimiento de datos personales) · `spec_modulo_D.md` (RBAC, auditoría, `ConfiguracionSistema` §6) · `spec_modulo_F.md` (sección 2.1/HU-F1, Conector Mercado Pago; sección 2.3/HU-F3, Motor de Notificaciones internas y aislamiento por tipo de sesión) · `spec_modulo_G.md` (HU-G11, registro del ingreso de cobros online) · `spec_modulo_H.md` (patrón de referencia de formato, cifrado AES-256 y consola de auditoría forense por dominio)
+
+**Changelog de la Revisión 2 (HU-E8):**
+| Sección Rev.1 | Estado previo | Acción en Rev.2 |
+|---|---|---|
+| 2.8 Ruta de blanqueo | `POST .../blanquear-password`, Server Action en `ventas/pos/actions.ts`, contraseña temporal o redefinición forzada | Reemplazada: vinculación y recuperación desde la pantalla `/ecommerce/cuentas-web`; recuperación por código de un uso (2.8.e) |
+| 2.8 Permiso | `ventas:validar_identidad_cliente_web` provisional, "Vendedor/Cajero" | Confirmado ese nombre, **solo rol `VENDEDOR`** (2.8.a) |
+| 2.8 N intentos | Clave de configuración "a agregar" | `ECOMMERCE_CUENTA_WEB_MAX_INTENTOS = 5` y `ECOMMERCE_CUENTA_WEB_BLOQUEO_MINUTOS = 15` (2.8.d) |
+| 2.8 Nombre mínimo | 1 carácter | 2 caracteres, alineado con C1 (2.8.b) |
+| 2.8 Consentimiento | `acepta_consentimiento` | `acepta_tratamiento` (literal `true`) y `acepta_comunicaciones` opcional (2.8.b) |
+| 2.8 Vinculación | Sin contrato ("a definir en implementación") | Contrato en 2.8.e, con reasignación de acceso |
+| 2.8 Registro, baja, aislamiento de pendientes | Sin contrato | 2.8.b, 2.8.f |
+| 2.8 Sesión y login | Contrato de E1 | Sin cambios de contrato; bloqueo y aislamiento de pendientes en 2.8.c, 2.8.d y 2.8.f |
+| 3 Reglas de negocio | Sin reglas de la cuenta web | Sección 3.7 |
+| 4 Eventos | Cuatro eventos de cuenta | Se agregan `ecommerce:cuenta_web_recuperacion_habilitada` y `ecommerce:cuenta_web_password_redefinida` |
+| 5 Fuera de alcance | Endpoint de vinculación y clave de intentos de login pendientes | Resueltos; se agrega la baja definitiva (re-registro y reactivación diferidos) |
 
 ---
 
@@ -380,6 +396,8 @@ export type AnularOrdenNoAbonadaInput = z.infer<typeof AnularOrdenNoAbonadaSchem
 
 ### 2.8. Registro e inicio de sesión de Cliente Web (HU-E8)
 
+> **Revisión 2 (HU-E8):** el texto anterior de esta sección es el de la Revisión 1 y se conserva como antecedente. **Reemplazado en Rev.2: ver 2.8.a a 2.8.g** en lo siguiente: la ruta `POST /app/api/ecommerce/cuentas-web/[id]/blanquear-password/route.ts`, la Server Action `blanquearPasswordClienteWeb()` en `ventas/pos/actions.ts` y la "contraseña temporal o redefinición forzada" (reemplazadas por vinculación y recuperación por código desde `/ecommerce/cuentas-web`, 2.8.e y 2.8.f); el schema `RegistrarCuentaClienteWebSchema` (`nombre` pasa a mínimo 2 caracteres y `acepta_consentimiento` se reemplaza por `acepta_tratamiento` y `acepta_comunicaciones`, 2.8.b); la clave "a agregar" de intentos fallidos (2.8.d); el "endpoint de vinculación a definir en implementación" (2.8.e); y la nota de relevamiento sobre el nombre del permiso (2.8.a lo confirma). El modelo `CuentaClienteWeb` de arriba se amplía con tres campos de recuperación (2.8.e).
+
 **Ruta (registro):** `POST /app/api/tienda/cuenta/registro/route.ts`
 **Ruta (login):** `POST /app/api/tienda/cuenta/login/route.ts`
 **Ruta (baja lógica de cuenta):** `PATCH /app/api/tienda/cuenta/baja/route.ts`
@@ -455,6 +473,163 @@ model CuentaClienteWeb {
 
 **Nota de relevamiento — nombre del permiso para la validación presencial de identidad:** el Backlog no nombra el permiso ni confirma si es exclusivo de "Vendedor" (rol que Módulo B usa como "Cajero POS"/"Supervisor de Ventas", sin un rol "Vendedor" propio confirmado contra `seed.ts`) o si aplica a cualquier rol con acceso al POS. Se usa `ventas:validar_identidad_cliente_web` como nombre provisional, a confirmar contra el RBAC real de Módulo D antes de implementar — no asumido como ya sembrado.
 
+### 2.8.a. Interfaces (Revisión 2 — HU-E8)
+
+**Fecha de cierre:** 02/10/2026. Contrato aprobado y sincronizado con el código de `fix/HU-E8-deuda`. Donde la Revisión 2 difiere de lo implementado, esta sección describe el **código** y lo marca como *Nota de sincronización*.
+
+| Operación | Ruta | Autorización | Respuesta OK |
+|---|---|---|---|
+| Registro | `POST /app/api/tienda/cuenta/registro/route.ts` | Pública | `201 { cuenta_id, cliente_id, vinculacion_pendiente }`, sin cookie de sesión |
+| Login | `POST /app/api/tienda/cuenta/login/route.ts` (existe, HU-E1) | Pública | `200 { cuenta_id, email, vinculacion_pendiente, carrito_fusionado }` + cookie de sesión |
+| Logout | `POST /app/api/tienda/cuenta/logout/route.ts` (existe, HU-E1) | Pública (solo borra la cookie) | Contrato de HU-E1 sin cambios |
+| Baja propia | `PATCH /app/api/tienda/cuenta/baja/route.ts` | Sesión web **vinculada** (`withSesionClienteWeb`) | `200 { cuenta_id }` y borra la cookie |
+| Redefinir contraseña | `POST /app/api/tienda/cuenta/redefinir-password/route.ts` | Pública con código válido | `200 { cuenta_id }`, sin sesión automática |
+| Buscar cuenta por DNI | `GET /app/api/ecommerce/cuentas-web/route.ts?dni=` | `ventas:validar_identidad_cliente_web` | `200 { cuenta }` o `404 CUENTA_WEB_NO_ENCONTRADA` |
+| Validar vinculación | `POST /app/api/ecommerce/cuentas-web/[id]/validar-vinculacion/route.ts` | `ventas:validar_identidad_cliente_web` | `200` (2.8.e) |
+| Habilitar recuperación | `POST /app/api/ecommerce/cuentas-web/[id]/habilitar-recuperacion/route.ts` | `ventas:validar_identidad_cliente_web` | `201 { codigo, expira_en }` |
+
+Las rutas internas usan `withPermission(PERMISO_VALIDAR_IDENTIDAD_CLIENTE_WEB, …)`; la constante vive en `src/lib/auth/permisos-ecommerce.ts` (no en un `route.ts`, porque un Route Handler solo puede exportar métodos HTTP y opciones de segmento, y `next build` falla ante cualquier otro export). El permiso `ventas:validar_identidad_cliente_web` se asigna **solo al rol `VENDEDOR`**. El actor de las operaciones internas es siempre `session.userId`, nunca el body; el `cuentaId` de la baja es siempre el de la sesión web.
+
+Las rutas son wrappers finos; la lógica vive en `lib/services/ecommerce/cuenta-cliente-web.service.ts` (`registrarCuentaClienteWeb`, `autenticarCuentaClienteWeb`, `validarVinculacionCuentaWeb`, `habilitarRecuperacionCuentaWeb`, `redefinirPasswordCuentaWeb`, `darDeBajaCuentaWeb`, `buscarCuentaWebPorDni`). Envelope estándar `{ data, error }`; input inválido: `400 VALIDATION_ERROR` con `fieldErrors`.
+
+*Nota de sincronización:* la Rev.1 ubicaba la validación en una Server Action del POS; la implementación la expone como Route Handlers de `api/ecommerce/cuentas-web` y una pantalla propia (`/ecommerce/cuentas-web`), sin tocar archivos de Módulo B.
+
+### 2.8.b. Registro (Revisión 2 — HU-E8)
+
+**Input** (Zod, `src/lib/schemas/cuenta-cliente-web.schema.ts`, `RegistroCuentaWebSchema`):
+
+```typescript
+{
+  nombre: string,        // trim, min 2
+  dni: string,           // /^\d{7,8}$/
+  telefono: string,      // trim, no vacío
+  email: string,         // email válido, trim + minúsculas
+  password: string,      // min 8, sin trim ni transformación
+  acepta_tratamiento: true,            // literal true: obligatorio
+  acepta_comunicaciones: boolean       // opcional en la UI, default false
+}
+```
+
+La casilla de comunicaciones existe porque `crearClienteTx` exige una decisión comercial explícita; sin ella, el sistema registraría un rechazo que el cliente no expresó. **Casilla obligatoria:** "Acepto el tratamiento de mis datos personales (Ley 25.326) para gestionar mi cuenta y mis compras en la tienda web de SWAT Indumentarias." **Casilla opcional:** "Acepto recibir comunicaciones comerciales." Ninguna viene marcada por defecto.
+
+**Comportamiento:**
+
+1. El hash se deriva con `hashPassword()` de `lib/auth/password.ts` (Argon2id) **antes** de abrir la transacción.
+2. También antes de la transacción se resuelve el usuario de sistema "Canal Web" activo con `obtenerUsuarioCanalWebId()` (`src/lib/services/ecommerce/usuario-canal-web.ts`, de HU-E2). Si no existe o está inactivo, error operativo (`CANAL_WEB_SIN_USUARIO_SISTEMA`; la ruta responde `500`), porque `crearClienteTx` no valida la actividad del actor.
+3. Dentro de la transacción se lee el Cliente por DNI (`id`, `is_active`, `deleted_at`), porque `crearClienteTx` no devuelve el estado de un Cliente existente:
+   - **Existe inactivo:** `409 REGISTRO_WEB_NO_DISPONIBLE`.
+   - **No existe:** `crearClienteTx(tx, input, usuarioIdCanalWeb)` con nombre, DNI, teléfono, email y la decisión comercial (`ACEPTA` si `acepta_comunicaciones`, si no `RECHAZA`); el consentimiento de tratamiento queda registrado por C1 en la misma transacción. Cuenta con `vinculacion_pendiente = false`. **Módulo C no se modifica.**
+   - **Existe y está activo, sin cuenta:** no se llama a `crearClienteTx`; cuenta con `vinculacion_pendiente = true`. Los datos y el consentimiento del Cliente **no se modifican**.
+   - **Existe con cuenta:** `409 CUENTA_WEB_YA_EXISTE`.
+4. Si `crearClienteTx` devuelve `esNuevo = false` (un alta concurrente del mismo DNI entre la lectura y la creación), la cuenta queda **pendiente**: `resolverClienteCreadoEnRegistro()` (`registro-cuenta-web.reglas.ts`) relee el Cliente y lo rechaza si quedó inactivo.
+5. Email ya usado por otra cuenta (activa o no): `409 REGISTRO_WEB_NO_DISPONIBLE`.
+6. Carrera entre dos registros del mismo DNI o email: el `P2002` se traduce al `409` correspondiente (`CUENTA_WEB_YA_EXISTE` si ya existe una cuenta para ese DNI, si no `REGISTRO_WEB_NO_DISPONIBLE`). Nunca se devuelve como éxito una cuenta creada por otro request.
+7. Después del COMMIT se emite `ecommerce:cuenta_web_registrada` con actor `cuenta`, el flag de pendiente y la evidencia de aceptación del reclamante (`acepta_tratamiento`, `acepta_comunicaciones`, instante del servidor).
+
+**Mensajes:** `CUENTA_WEB_YA_EXISTE`: "Ya existe una cuenta web para este DNI". `REGISTRO_WEB_NO_DISPONIBLE`: "No es posible completar el registro con los datos indicados." No se revela qué dato coincide ni se devuelven datos del Cliente.
+
+*Nota de sincronización:* el orden de las verificaciones es el del código: un Cliente **inactivo** responde `REGISTRO_WEB_NO_DISPONIBLE` aunque tenga cuenta (el contrato original listaba "con cuenta, activa o no" antes).
+
+**Limitación conocida (D6):** `cliente_id` y `email` son únicos incluyendo cuentas dadas de baja. Una cuenta dada de baja es definitiva en este sprint: ese DNI y ese email no pueden volver a registrarse. La reactivación o el re-registro quedan como deuda de backlog (sección 5).
+
+### 2.8.c. Contraseña y sesión (Revisión 2 — HU-E8)
+
+- Hash con `hashPassword` / `verifyPassword` de `lib/auth/password.ts` (Argon2id; el formato PHC incluye la sal). No se crea criptografía nueva.
+- La sesión es la de HU-E1 sin cambios de contrato: cookie `swat_tienda_session`, secreto `JWT_SECRET_CLIENTE_WEB`, HS256, claims `sub` (id de cuenta) y `tv` (`token_version`), duración `DURACION_SESION_CLIENTE_WEB_HORAS` (168). En cada request la verificación exige firma válida con el secreto web, cuenta y Cliente activos y `tv` igual al `token_version` persistido. La sesión expone `vinculacionPendiente`.
+- Nunca se registra la contraseña, el hash, el JWT ni el código de recuperación en eventos ni en logs.
+
+### 2.8.d. Login y bloqueo (Revisión 2 — HU-E8)
+
+1. Email normalizado (trim + minúsculas). Email inexistente, cuenta inactiva o contraseña incorrecta: `401 CREDENCIALES_INVALIDAS`, "Email o contraseña incorrectos". Solo una contraseña incorrecta sobre una cuenta activa incrementa el contador.
+2. Si `bloqueada_hasta > now()`: `423 CUENTA_BLOQUEADA` con el envelope de la Rev.1 (mensaje exacto: "La cuenta está bloqueada temporalmente por intentos fallidos; la recuperación es presencial en sucursal"), **sin verificar la contraseña** y sin extender el bloqueo.
+3. Si `bloqueada_hasta <= now()` (bloqueo vencido): se reinicia el contador antes de evaluar el intento.
+4. Contraseña incorrecta: `intentos_fallidos + 1` bajo `SELECT … FOR UPDATE` de la fila de la cuenta (la verificación Argon2 se hace fuera de la transacción para no retener el lock; si `token_version` cambió entre la lectura y el lock, no se emite sesión). Al llegar a `ECOMMERCE_CUENTA_WEB_MAX_INTENTOS`: `bloqueada_hasta = now() + ECOMMERCE_CUENTA_WEB_BLOQUEO_MINUTOS` y evento `ecommerce:cuenta_web_bloqueada`, **una sola vez por transición** aunque lleguen requests concurrentes. Ese intento responde `423`.
+5. Contraseña correcta: contador en 0, `bloqueada_hasta = null`, se emite la sesión. Si la cuenta está vinculada, se fusiona el carrito de visitante con el servicio de HU-E1 (comportamiento actual); si está pendiente, **no se fusiona** y la cookie de visitante se conserva.
+6. El bloqueo no incrementa `token_version`: las sesiones ya emitidas siguen vigentes.
+7. Si faltan las claves de configuración o no son enteros positivos: `500 INTERNAL_ERROR` con el mensaje genérico "Error interno. Intentá más tarde." (`ErrorConfiguracionCuentaWeb`, que no es un `ServiceError`), **sin el nombre de la clave en la respuesta** (queda solo en el log del servidor). Nunca se usa un valor por defecto silencioso. Aplica a login y redefinición, únicos lectores de las claves (`obtenerMaxIntentosCuentaWeb()`, `obtenerBloqueoMinutosCuentaWeb()` en `configuracion.service.ts`).
+
+Valores sembrados (`ConfiguracionSistema`, módulo `E`): `ECOMMERCE_CUENTA_WEB_MAX_INTENTOS = 5`, `ECOMMERCE_CUENTA_WEB_BLOQUEO_MINUTOS = 15`.
+
+### 2.8.e. Operaciones presenciales del Vendedor (Revisión 2 — HU-E8)
+
+**Pantalla:** `/ecommerce/cuentas-web` (dashboard, entrada "Cuentas web" en el Sidebar), solo para usuarios con `ventas:validar_identidad_cliente_web` (la página lo verifica en el servidor). El Vendedor busca por DNI y ve nombre del Cliente, email de la cuenta y estado (Activa, Pendiente, Bloqueada, Dada de baja; "Bloqueada" solo si `bloqueada_hasta > now`). Una cuenta dada de baja se muestra con su fecha y **sin acciones**.
+
+*Nota de sincronización:* `GET /api/ecommerce/cuentas-web?dni=` devuelve también cuentas dadas de baja (la pantalla las distingue por `is_active`/`deleted_at`). La pantalla no muestra la fecha de alta ni el vencimiento del código (la API devuelve `created_at` y `expira_en`).
+
+**Modelo de datos (ampliación de `CuentaClienteWeb`, migración `20261002170000_hu_e8_cuenta_cliente_web_recuperacion`):**
+
+```prisma
+  recuperacion_codigo_digest   String?   @unique  // SHA-256 del código; nunca el código
+  recuperacion_expira_en       DateTime?
+  recuperacion_emitida_por_id  String?
+  recuperacion_emitida_por     Usuario?  @relation("RecuperacionCuentaWebEmitidaPor", fields: [recuperacion_emitida_por_id], references: [id], onDelete: Restrict)
+```
+
+**Validar vinculación** (`POST …/[id]/validar-vinculacion`). El Vendedor verifica el DNI físico del titular y le muestra el email de la cuenta (la pantalla pregunta "¿El titular reconoce este email?").
+
+- Body `{ email_reconocido: true }`: el titular reconoce el email. Se establece `vinculacion_pendiente = false`.
+- Body `{ email_reconocido: false, email_titular: string }`: **el titular no reconoce el email (posible registro hecho por un tercero).** En la misma transacción se reemplaza el email por `email_titular` (normalizado y único; si está ocupado, `409 REGISTRO_WEB_NO_DISPONIBLE`), se reemplaza `password_hash` por el hash de un valor aleatorio descartado, se incrementa `token_version` (el tercero pierde toda sesión), se limpian contador y bloqueo, `vinculacion_pendiente = false` y se habilita la recuperación devolviendo el código en la misma respuesta. El titular define su contraseña en ese momento.
+- La transición se serializa con `SELECT … FOR UPDATE` de la fila de la cuenta: un doble request (por ejemplo, doble clic del Vendedor) produce **una sola transición, un solo evento y un solo código**; la segunda respuesta es `200` sin código.
+- Solo aplica a cuentas activas y pendientes. Sobre una cuenta ya vinculada responde `200` con su estado, sin cambios ni evento. Cuenta inactiva o inexistente: `404 CUENTA_WEB_NO_ENCONTRADA`.
+- Respuesta `200 { cuenta_id, vinculacion_pendiente: false, acceso_reasignado: boolean, codigo?, expira_en? }`.
+- Evento `ecommerce:cuenta_web_vinculada` con el Vendedor como actor y `acceso_reasignado`. Si hubo reasignación, también `ecommerce:cuenta_web_recuperacion_habilitada`.
+- Los consentimientos del Cliente no se modifican.
+
+**Habilitar recuperación** (`POST …/[id]/habilitar-recuperacion`). Solo cuentas activas **y vinculadas** (pendiente: `409 CUENTA_VINCULACION_PENDIENTE`, "La cuenta está pendiente de validación de identidad"; primero se valida la vinculación; inactiva o inexistente: `404`).
+
+- Genera un código de 8 caracteres con `crypto.randomInt` sobre el alfabeto `23456789ABCDEFGHJKMNPQRSTUVWXYZ` (sin `0 O 1 I L`).
+- Persiste `recuperacion_codigo_digest` (SHA-256 del código en mayúsculas), `recuperacion_expira_en = now() + 15 min` y `recuperacion_emitida_por_id` (el Vendedor). Una nueva emisión **reemplaza** la anterior, que deja de servir.
+- No cambia la contraseña ni el `token_version`.
+- Respuesta `201 { codigo, expira_en }`. El código se muestra **una sola vez** en la pantalla del Vendedor, que se lo entrega al titular en persona (permanece visible hasta que el Vendedor hace otra búsqueda, edita el DNI o emite un código nuevo). Nunca se envía por email, SMS ni WhatsApp, ni va en la URL ni en los logs.
+- Evento `ecommerce:cuenta_web_recuperacion_habilitada` (actor Vendedor, vencimiento; sin el código ni el digest).
+
+### 2.8.f. Redefinición, baja y aislamiento de cuentas pendientes (Revisión 2 — HU-E8)
+
+**Redefinir contraseña** (`POST /api/tienda/cuenta/redefinir-password`). Body `{ email, codigo, password, confirmacion }`, con `password === confirmacion`, `password` de mínimo 8 y `codigo` de exactamente 8 caracteres (se normaliza a mayúsculas).
+
+- Un único `updateMany` condicional sobre la cuenta: email coincide, activa, vinculada, `recuperacion_codigo_digest = sha256(codigo)`, `recuperacion_expira_en > now()` **y bloqueo no vigente** (`bloqueada_hasta` nulo o `<= now()`). Si afecta una fila: nuevo `password_hash`, limpia los tres campos de recuperación, contador en 0, bloqueo en null y `token_version + 1`. Dos requests concurrentes con el mismo código producen un solo éxito, y una cuenta bloqueada no consume el código.
+- Si no afecta ninguna fila, la lectura posterior solo decide la respuesta: bloqueo vigente → `423 CUENTA_BLOQUEADA` (no suma intento); en otro caso → `422 CODIGO_RECUPERACION_INVALIDO`, "El código no es válido o venció", sin distinguir la causa; si el email corresponde a una cuenta activa, cuenta como intento fallido (misma regla y mismo bloqueo que el login).
+- No inicia sesión. La UI (`/tienda/recuperar`) redirige al login.
+- Evento `ecommerce:cuenta_web_password_redefinida`.
+
+**Baja propia** (`PATCH /api/tienda/cuenta/baja`). Sesión web vinculada; body `{ motivo: string (trim, no vacío), confirmar: true }`.
+
+- La cuenta es la de la sesión; nunca un id del body.
+- En una transacción: `is_active = false`, `deleted_at = now()`, `deleted_by = "cuenta_web:<cuenta_id>"`, `deletion_reason = motivo`, `token_version + 1` y limpia los campos de recuperación.
+- Borra la cookie. El Cliente, sus consentimientos y sus pedidos no se tocan. Cuenta inexistente o ya dada de baja: `404`.
+- Evento `ecommerce:cuenta_web_baja` con actor `cuenta` y el motivo.
+
+**Aislamiento de cuentas pendientes.** Una cuenta pendiente puede iniciar sesión, ver el aviso de validación pendiente (`/tienda/cuenta`) y cerrar sesión. **No puede** usar el carrito persistente, fusionar, hacer checkout, consultar pedidos, comprobantes ni QR, ni darse de baja. Mientras tanto, navega catálogo y carrito como visitante.
+
+- `withSesionClienteWeb()` **rechaza por defecto** las cuentas pendientes con `403 CUENTA_VINCULACION_PENDIENTE`, "Tu cuenta está pendiente de validación de identidad en sucursal". Acepta un segundo argumento de opciones: `permitirPendiente` (para endpoints que deban aceptar pendientes) y `mensajeSinSesion`.
+- `SESION_CLIENTE_WEB_REQUERIDA` (`401`) dice "Debe iniciar sesión para continuar" por defecto y "Debe iniciar sesión para completar la compra" en `POST /api/tienda/checkout` (opción `mensajeSinSesion`).
+- `contexto-tienda` (`resolverContextoTienda()`) trata a una cuenta pendiente como visitante: usa el carrito de la cookie de visitante y nunca el carrito de la cuenta. El carrito de una cuenta pendiente no ofrece compra: muestra el aviso con enlace a `/tienda/cuenta`.
+- Las páginas que leen la sesión directamente, `/tienda/checkout/pendiente` y `/tienda/checkout/resultado` (esta última de HU-E2), nunca muestran datos de pedidos a una cuenta pendiente: la redirigen a `/tienda/cuenta`. Leen la sesión con `getSesionClienteWebVinculada()`; cualquier consumidor nuevo de la sesión web pasa por la misma guarda.
+- `/tienda/cuenta` es la página de la cuenta: aviso de pendiente, cerrar sesión y baja propia (solo si está vinculada). Sin sesión redirige a `/tienda/ingresar`.
+
+*Nota de sincronización:* la Rev.2 original citaba "sesión actual/aviso, logout" como endpoints que aceptan pendientes. En la implementación el aviso es una página (`/tienda/cuenta`, sobre `getSesionClienteWeb()`) y `logout` es público (solo borra la cookie): hoy ningún endpoint usa `permitirPendiente`.
+
+### 2.8.g. Sincronización con la implementación — diferencias respecto del contrato original (Revisión 2 — HU-E8)
+
+Cada diferencia entre el borrador de la Rev.2 y el código de `fix/HU-E8-deuda` quedó resuelta a favor del **código** y anotada en la subsección correspondiente. Resumen:
+
+| Tema | Contrato original | Implementado (manda) | Subsección |
+|---|---|---|---|
+| Constante del permiso | Sin ubicación | `src/lib/auth/permisos-ecommerce.ts` | 2.8.a |
+| Usuario "Canal Web" | "sin duplicar la consulta" | `obtenerUsuarioCanalWebId()` (`usuario-canal-web.ts`, HU-E2) | 2.8.b |
+| Cliente creado con `esNuevo = false` | No contemplado | Cuenta pendiente (`resolverClienteCreadoEnRegistro`) | 2.8.b |
+| Cliente inactivo con cuenta | `CUENTA_WEB_YA_EXISTE` | `REGISTRO_WEB_NO_DISPONIBLE` (se evalúa primero la actividad) | 2.8.b |
+| Doble `validar-vinculacion` | Una transición | `SELECT … FOR UPDATE`: una transición, un evento, un código | 2.8.e |
+| Configuración faltante o inválida | `500` operativo | `500 INTERNAL_ERROR` genérico, sin el nombre de la clave | 2.8.d |
+| Bloqueo en la redefinición | Cuenta bloqueada: `423` | La condición de bloqueo va en el mismo `updateMany`; la lectura posterior solo decide 423 o 422 | 2.8.f |
+| Textos de `CUENTA_BLOQUEADA` y `SESION_CLIENTE_WEB_REQUERIDA` | Los de la Rev.1 | Idénticos; el segundo, configurable por ruta | 2.8.d, 2.8.f |
+| Páginas de la tienda | `/tienda/checkout/*` sin precisión | `/tienda/cuenta` y redirecciones de `pendiente` y `resultado`; carrito sin compra | 2.8.f |
+| Endpoints que aceptan pendientes | "sesión actual/aviso, logout" | Ninguno usa `permitirPendiente`; el aviso es una página; `logout` es público | 2.8.f |
+| Búsqueda por DNI | `200 { cuenta }` o `404` | También devuelve cuentas dadas de baja | 2.8.e |
+| Pantalla del Vendedor | Fecha de alta y vencimiento del código | No se muestran (la API devuelve `created_at` y `expira_en`) | 2.8.e |
+| Respuesta del login | `+ vinculacion_pendiente` | `{ cuenta_id, email, vinculacion_pendiente, carrito_fusionado }` | 2.8.a |
+| Errores `404` | No especificados | `CUENTA_WEB_NO_ENCONTRADA` en rutas internas y baja | 2.8.e, 2.8.f |
+
 ### 2.9. Historial y estado de pedidos — "Mis pedidos" (HU-E9)
 
 **Story Points:** 3.
@@ -516,12 +691,15 @@ model CuentaClienteWeb {
 | `ecommerce:gestionar_cupones` | ✓ | — |
 | `ecommerce:anular_orden_no_abonada` | ✓ | — |
 | `ecommerce:cancelar_pedido_pagado` | ✓ | — |
-| `ecommerce:leer_cola_preparacion` | ✓ (consulta + prioriza) | ✓ (consulta + toma) |
+| `ecommerce:leer_cola_preparacion` | ✓ (consulta) | ✓ (consulta + toma) |
+| `ecommerce:priorizar_cola` | ✓ (prioridad manual de la cola, ver 2.12) | — |
 | `ecommerce:preparar_pedido` | — | ✓ |
 | `ecommerce:validar_retiro_qr` | — | ✓ |
 | `ecommerce:leer_historial_ordenes` | ✓ (todos los clientes) | — |
 | `ecommerce:exportar_metricas` | ✓ | — |
 | `ecommerce:solicitar_acceso_log_pagos` | ✓ (con aprobación, ver 2.6) | — |
+
+**`ecommerce:priorizar_cola` (Punto abierto 1 de HU-E10, resuelto por Cali + PO):** permiso propio, exclusivo del Administrador E-commerce. Antes "priorizar" se resolvía con `ecommerce:leer_cola_preparacion` + rol Administrador, pero ese permiso lo tienen los dos roles, así que solo se podía distinguirlos comparando el nombre del rol (contra el criterio de "autorización siempre por permiso" de abajo). Sembrado en `seed.ts` con UUID `6481fbee-c5d3-4c40-ad62-261588c1d0cf`.
 
 **Comportamiento esperado:**
 - **Segregación de funciones (criterio de aceptación explícito):** el Operador de Pick & Pack **no** tiene acceso a datos de facturación ni de pago bajo ninguna circunstancia — su superficie (2.12) expone únicamente ítems, SKU, cantidades, ubicación física y el nombre del destinatario para la validación del QR.
@@ -606,7 +784,7 @@ model ProductoWebFoto {
 **Ruta (validar retiro, escaneo de QR + DNI):** `POST /app/api/ecommerce/pick-pack/[id]/validar-retiro/route.ts`
 **Ruta (priorizar manualmente, Administrador E-commerce):** `PATCH /app/api/ecommerce/pick-pack/[id]/prioridad/route.ts`
 **Server Action equivalente:** las de escritorio del Operador viven en `app/(dashboard)/ecommerce/pick-pack/actions.ts`; el escaneo (confirmar ítem, validar retiro) se expone como Route Handler porque la PWA del Operador lo invoca directamente, no vía formulario de servidor.
-**Permiso requerido:** `ecommerce:leer_cola_preparacion` (consulta, ambos roles); `ecommerce:preparar_pedido` (tomar/confirmar ítem/completar, exclusivo Operador); `ecommerce:validar_retiro_qr` (exclusivo Operador); `ecommerce:leer_cola_preparacion` + rol Administrador para priorizar (la matriz de 2.10 no define un permiso separado para "priorizar" — se resuelve con el mismo permiso de consulta del Administrador, dado que el propio criterio de aceptación lo describe como una extensión de su capacidad de consulta, no como una acción nueva).
+**Permiso requerido:** `ecommerce:leer_cola_preparacion` (consulta, ambos roles); `ecommerce:preparar_pedido` (tomar/confirmar ítem/completar, exclusivo Operador); `ecommerce:validar_retiro_qr` (exclusivo Operador); `ecommerce:priorizar_cola` para priorizar (`PATCH .../prioridad`, exclusivo Administrador E-commerce — permiso propio de la matriz de 2.10, sin comparar el nombre del rol).
 
 ```typescript
 export const ConfirmarItemPreparacionSchema = z.object({
@@ -724,6 +902,14 @@ Ninguna entidad de Módulo E expone o invoca `prisma.<modelo>.delete()` ni `dele
 
 Webhook de pago (2.2, heredado del contrato de HU-F1), consumo de cupón (2.4), y el reintegro de HU-E13 (pendiente de modelado explícito, ver Nota de relevamiento crítica en 2.13) siguen el mismo patrón de idempotencia por clave única ya establecido en `spec_modulo_A.md`/`spec_modulo_H.md`/`spec_modulo_F.md`: una operación repetida con la misma clave es un no-op, nunca un error ni una duplicación.
 
+### 3.7. Reglas de negocio agregadas por la cuenta web (Revisión 2 — HU-E8)
+
+- Toda escritura de `CuentaClienteWeb` respeta la Regla N.° 1: sin `DELETE`; la baja es lógica (`is_active`, `deleted_at`, `deleted_by`, `deletion_reason`).
+- Las seis transiciones auditables de la cuenta (registro, bloqueo, vinculación, recuperación habilitada, contraseña redefinida y baja) se emiten con `domainEventBus.emit()` **después del COMMIT**, con el patrón vigente del proyecto; `audit-log.listener.ts` (un handler explícito por evento) es la única vía de escritura al `AuditLog`.
+- El usuario "Canal Web" solo figura como autor técnico del alta en Módulo C. El actor real de la operación (la cuenta) queda en el payload del evento.
+- Módulo E consume `crearClienteTx` de Módulo C sin modificarlo (Regla N.° 3) y no modifica el algoritmo de fusión de carritos de HU-E1.
+- El código de recuperación solo se persiste como digest, se entrega una vez y en persona, y nunca aparece en eventos, logs ni URLs.
+
 ---
 
 ## 4. Eventos de Dominio (EDA)
@@ -744,16 +930,40 @@ Webhook de pago (2.2, heredado del contrato de HU-F1), consumo de cupón (2.4), 
 
 **Regla de exclusión de datos sensibles en el payload (misma convención que el resto del ERP):** ningún evento de este módulo incluye datos de facturación cifrados, contraseñas ni el contenido completo del webhook de Mercado Pago en su payload — se referencia por `transaccion_id`/`pedido_venta_id`, dejando que la consulta de detalle se resuelva contra la entidad correspondiente si se necesita.
 
+### Extensión de la Revisión 2 — HU-E8: eventos de la cuenta de Cliente Web
+
+Reemplaza el contrato genérico `{ cuenta_id, cliente_id, evento_especifico }` de la fila de la Revisión 1 para `ecommerce:cuenta_web_*`. Payload base de todos: `{ cuenta_id, cliente_id, actor_tipo: "cuenta" | "usuario", actor_id, ocurrido_en }` (`CuentaWebEventoBase`, `src/lib/events/event-types.ts`). Consumidor: Módulo D (auditoría estándar, `tabla_afectada: cuentas_cliente_web`).
+
+| Evento | Actor | Payload adicional |
+|---|---|---|
+| `ecommerce:cuenta_web_registrada` | `cuenta` | `vinculacion_pendiente`, `acepta_tratamiento`, `acepta_comunicaciones` |
+| `ecommerce:cuenta_web_bloqueada` | `cuenta` | `intentos`, `bloqueada_hasta` |
+| `ecommerce:cuenta_web_vinculada` | `usuario` (Vendedor) | `acceso_reasignado` |
+| `ecommerce:cuenta_web_recuperacion_habilitada` (nuevo) | `usuario` (Vendedor) | `expira_en` |
+| `ecommerce:cuenta_web_password_redefinida` (nuevo) | `cuenta` | — |
+| `ecommerce:cuenta_web_baja` | `cuenta` | `motivo` |
+
+Nunca se incluyen contraseña, hash, JWT, código ni digest.
+
 ---
 
 ## 5. Fuera de Alcance (diferido / bloqueado)
+
+**Revisión 2 — HU-E8:**
+
+- **Baja definitiva de la cuenta web (D6):** una cuenta dada de baja no admite re-registro ni reactivación (`cliente_id` y `email` únicos incluyendo cuentas inactivas). Deuda de backlog; no hay operación presencial que lo resuelva.
+- **Cambios fuera de alcance de HU-E8:** HU-E4 y HU-E9 (más allá de la guarda de pendientes), HU-F3, pagos, perfil y edición de datos del Cliente desde la web, cambio de email por el titular, baja administrativa, mensajería externa, OAuth, cambios a Módulo C y al algoritmo de fusión de HU-E1.
+- **Resuelto en Rev.2:** el contrato del endpoint de vinculación de la cuenta web a un Cliente de mostrador preexistente (2.8.e) y la clave de configuración del umbral de intentos fallidos de login (`ECOMMERCE_CUENTA_WEB_MAX_INTENTOS`, junto con `ECOMMERCE_CUENTA_WEB_BLOQUEO_MINUTOS`, sembradas en `prisma/seed.ts`).
+- **Rate limiting de `redefinir-password`:** el hash Argon2id se calcula en cada request, también con la cuenta bloqueada o inexistente; el rate limiting queda fuera de alcance.
 
 - **Envío a domicilio:** ninguna de las 13 HU de este documento lo modela — ver ⚠️ Alcance del módulo, al inicio. `DireccionCliente` (HU-C3, Módulo C) no es consumida por este módulo.
 - **Reversión de stock `Vendido → Disponible` en Módulo A para HU-E13 (bloqueante):** ver Nota de relevamiento crítica en 2.13 — sin resolver, HU-E13 no puede implementarse en su totalidad (la cancelación fiscal/de tesorería sí puede avanzar; la reversión física de stock, no).
 - **Endpoint de reembolso saliente del Conector de Mercado Pago (HU-F1):** `spec_modulo_F.md` no lo define — a confirmar y, de ser necesario, agregar a `spec_modulo_F.md` sección 2.1 antes de implementar HU-E13.
 - **Mecanismo de "solicitud de acceso aprobada" al log de pagos (HU-E6):** sin precedente en el resto del ERP y sin contrato definido por el Backlog — ver Nota de relevamiento en 2.6.
 - **Endpoint de vinculación de cuenta web a Cliente de mostrador preexistente (HU-E8):** el Backlog confirma que "un Vendedor valida la identidad del titular" pero no especifica el contrato del endpoint — a definir junto con el owner de Módulo C/RBAC.
+  - *Revisión 2:* resuelto. Contrato en 2.8.e (validación de vinculación con reasignación de acceso, permiso `ventas:validar_identidad_cliente_web`, solo rol `VENDEDOR`).
 - **Claves de `ConfiguracionSistema` adicionales, no incluidas en `spec_modulo_D.md` sección 6.2 (Sprint 4, Revisión 1):** este documento asume, sin haberlas agregado al catálogo sembrado de Módulo D, las siguientes claves nuevas: umbral de intentos fallidos de login de Cliente Web (2.8), plazo de carrito abandonado (2.1), cantidad máxima de fotos y tamaño máximo por foto (2.11). Deben agregarse a `spec_modulo_D.md` sección 6.2 antes de implementar — no se edita ese documento desde aquí para no invalidar su propia Revisión 1 sin coordinación explícita del owner de Módulo D.
+  - *Revisión 2:* la clave de 2.8 quedó resuelta como `ECOMMERCE_CUENTA_WEB_MAX_INTENTOS` (más `ECOMMERCE_CUENTA_WEB_BLOQUEO_MINUTOS`), sembradas en `prisma/seed.ts` con módulo `E` (2.8.d). El catálogo de `spec_modulo_D.md` sección 6.2 **no** se actualizó desde aquí: sigue pendiente de coordinación con el owner de Módulo D. Las claves de 2.1 y 2.11 siguen pendientes.
 - **Storage de imágenes (HU-E11):** este documento no define el mecanismo de almacenamiento de fotos de producto (S3, Vercel Blob u otro) — `ProductoWebFoto.url` asume una URL ya resuelta por un mecanismo externo a definir.
 - **Mecanismo de push en tiempo real para notificaciones (heredado de `spec_modulo_F.md` sección 2.3):** el contador de "Mis pedidos"/bandeja se refresca por polling, no WebSocket/SSE — documentado como extensión futura no bloqueante, mismo criterio que Módulo F.
 - **`origen_reserva` para checkout web, sin valor confirmado en el enum `OrigenReserva` de Módulo A:** ver Nota de relevamiento en 2.2 — bloqueante menor (tiene una salida de contingencia razonable, reutilizar `SENIA`, pero no confirmada).

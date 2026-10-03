@@ -507,7 +507,7 @@ export interface ReservaCongeladaPayload {
   variante_sku_id: string;
   deposito_id: string;
   usuario_id: string;
-  origen_reserva: "SENIA" | "LICITACION" | "PEDIDO_INSTITUCIONAL";
+  origen_reserva: "SENIA" | "LICITACION" | "PEDIDO_INSTITUCIONAL" | "CHECKOUT_WEB";
   cantidad: number;
 }
 
@@ -518,10 +518,13 @@ export interface ReservaCongeladaPayload {
  * Emisión post-`$transaction` (§4). No incluye `usuario_id`: la vía TTL la
  * dispara el cron (agente del sistema, sin usuario humano); el listener
  * registra la auditoría con `usuario_id: null`.
+ *
+ * HU-E2: `PAGO_RECHAZADO` = liberación inmediata por rechazo del pago web
+ * (`liberarReservasTx()`), RESERVADO → DISPONIBLE como la de TTL.
  */
 export interface ReservaLiberadaPayload {
   reserva_id: string;
-  motivo_liberacion: "VENTA" | "TTL_VENCIDO";
+  motivo_liberacion: "VENTA" | "TTL_VENCIDO" | "PAGO_RECHAZADO";
   variante_sku_id: string;
   cantidad: number;
 }
@@ -784,6 +787,25 @@ export interface ExcepcionCreditoResueltaPayload {
 }
 
 /**
+ * HU-B9 (Módulo B) — Payload emitido tras publicar una `ListaPrecioVentaVersion`
+ * (`publicarVersionListaPrecioVenta()`, spec_modulo_B.md §2.9/§4). Evento
+ * SENSIBLE (encadenamiento SHA-256: afecta el precio de todos los canales).
+ * Payload literal de spec §4. Punto abierto 3 resuelto: `version_anterior_id`
+ * es la versión activa que rige cuando empieza a regir la nueva (`null` si
+ * no hay ninguna; las programadas a futuro no cuentan), y alimenta `valor_anterior` del AuditLog.
+ * `vigente_desde` viaja como ISO 8601. Emisión post-`COMMIT`.
+ */
+export interface PrecioVentaVersionPublicadaPayload {
+  version_id: string;
+  version_anterior_id: string | null;
+  lista_id: string;
+  publicado_por_id: string;
+  vigente_desde: string;
+  items_publicados: number;
+  items_bajo_costo: number;
+}
+
+/**
  * HU-C1 (Módulo C) — Payload emitido tras el alta NUEVA de un `Cliente`
  * (`crearCliente()`, spec_modulo_C.md §2.1/§4). Se emite SOLO cuando
  * `es_nuevo === true` — recuperar un `Cliente` existente por DNI (§3.1: "no
@@ -917,6 +939,265 @@ export interface VentaRegistradaPayload {
   usuario_id: string;
 }
 
+// ──────────────────────────────────────────────────────────────────────────────
+// HU-E12 — Pick & Pack / Click & Collect
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * HU-E12 — Admisión de un pedido PAGO_CONFIRMADO a la cola de preparación.
+ * Se emite post-COMMIT por el caller E2; `admitirPedidoPagoConfirmado` solo
+ * devuelve la metadata del evento pendiente porque no controla el commit.
+ */
+export interface EcommercePedidoAdmitidoColaPayload {
+  evento_id: string;
+  pedido_venta_id: string;
+  pedido_venta_ecommerce_id: string;
+  actor_id: string | null;
+  estado_nuevo: "EN_PREPARACION";
+  timestamp: string;
+}
+
+/** HU-E12 — Un operador tomó un pedido libre de la cola. */
+export interface EcommercePedidoTomadoPayload {
+  evento_id: string;
+  pedido_venta_id: string;
+  pedido_venta_ecommerce_id: string;
+  actor_id: string;
+  estado: "EN_PREPARACION";
+  timestamp: string;
+}
+
+/** HU-E12 — Cambio manual de prioridad en la cola de preparación. */
+export interface EcommercePrioridadPreparacionCambiadaPayload {
+  evento_id: string;
+  pedido_venta_id: string;
+  pedido_venta_ecommerce_id: string;
+  actor_id: string;
+  prioridad_anterior: number | null;
+  prioridad_nueva: number | null;
+  timestamp: string;
+}
+
+/** HU-E12 — Confirmación de una unidad preparada por escaneo. */
+export interface EcommerceUnidadPreparacionConfirmadaPayload {
+  evento_id: string;
+  pedido_venta_id: string;
+  pedido_venta_item_id: string;
+  variante_sku_id: string;
+  actor_id: string;
+  cantidad_confirmada_anterior: number;
+  cantidad_confirmada_nueva: number;
+  timestamp: string;
+}
+
+/** HU-E12 — Pedido completamente preparado y listo para retiro. */
+export interface EcommercePedidoListoParaRetiroPayload {
+  evento_id: string;
+  pedido_venta_id: string;
+  pedido_venta_ecommerce_id: string;
+  actor_id: string;
+  estado_anterior: "EN_PREPARACION";
+  estado_nuevo: "LISTO_PARA_RETIRO";
+  plazo_retiro_vencimiento: string;
+  timestamp: string;
+}
+
+/**
+ * HU-E1 (spec_modulo_E.md §2.1/§4, criterio de aceptación 4) — motivo por el
+ * que un ítem de carrito dejó de ser comprable ("desactivado", decisión D6 de
+ * `docs/tasks/HU-E1.md`). `STOCK_INSUFICIENTE` NO está acá a propósito: usa
+ * otro código de error y no notifica.
+ */
+export type MotivoArticuloNoDisponible =
+  | "SKU_INACTIVO"
+  | "PRODUCTO_INACTIVO"
+  | "NO_VISIBLE_WEB"
+  | "SIN_PRECIO_VIGENTE"
+  | "NO_PUBLICABLE";
+
+/**
+ * HU-E1 — Payload emitido por cada ítem afectado cuando el checkout se
+ * bloquea con `422 ARTICULO_NO_DISPONIBLE`. Consumidores: Módulo F (HU-F3,
+ * notificación ADVERTENCIA al dueño del carrito) y Módulo D (auditoría). Sin
+ * PII ni precios (convención de exclusión de spec E §4). `sku` es el código
+ * de la variante, para el placeholder de la plantilla (spec F §3.2).
+ */
+export interface CarritoArticuloNoDisponiblePayload {
+  carrito_id: string;
+  carrito_item_id: string;
+  variante_sku_id: string;
+  sku: string;
+  motivo: MotivoArticuloNoDisponible;
+  cliente_web_cuenta_id: string | null;
+}
+
+/** HU-E1 (CA7) — fusión del carrito de visitante en el de la cuenta, al iniciar sesión. */
+export interface CarritoFusionadoPayload {
+  carrito_origen_id: string;
+  carrito_destino_id: string;
+  cliente_web_cuenta_id: string;
+  items_fusionados: number;
+}
+
+/**
+ * HU-E1 (D1/D10) — checkout parcial confirmado: reservas congeladas,
+ * `PedidoVenta` RESERVADO + `PedidoVentaEcommerce` PAGO_PENDIENTE. Sin precios
+ * ni PII (convención de spec E §4).
+ */
+export interface CheckoutIniciadoPayload {
+  pedido_venta_id: string;
+  pedido_venta_ecommerce_id: string;
+  numero_venta: string;
+  cliente_web_cuenta_id: string;
+  carrito_id: string;
+  reserva_ids: string[];
+  ttl_expiracion: string;
+}
+
+/** HU-E1 (D10) — baja lógica del carrito convertido en pedido (mismo commit del checkout). */
+export interface CarritoConvertidoEnPedidoPayload {
+  carrito_id: string;
+  pedido_venta_id: string;
+  cliente_web_cuenta_id: string;
+  deleted_at: string;
+  deletion_reason: string;
+}
+
+/**
+ * HU-E2 (CA6) — pago web aprobado y aplicado: stock VENDIDO, `PedidoVenta`
+ * FACTURADO con su Factura B y `PedidoVentaEcommerce` PAGO_CONFIRMADO, en un
+ * solo commit. Contrato documentado en docs/tasks/HU-E2.md §3.3. Consumidores:
+ * Módulo D (auditoría), F3 (notificación al Cliente Web), HU-E6 y HU-G11
+ * (owner: Rama) y HU-E12 (owner: Emir). Se emite post-commit y sin outbox:
+ * los consumidores DEBEN ser idempotentes por `mercadopago_payment_id`.
+ */
+export interface PedidoPagoConfirmadoPayload {
+  pedido_venta_id: string;
+  pedido_venta_ecommerce_id: string;
+  numero_venta: string;
+  cliente_id: string;
+  cliente_web_cuenta_id: string;
+  mercadopago_payment_id: string;
+  /** `PedidoVenta.total` (neto de cupón). */
+  monto: number;
+  moneda: "ARS";
+  /** ISO-8601 — `date_approved` informado por Mercado Pago. */
+  fecha_aprobacion: string;
+  comprobante_id: string;
+  cupon_aplicacion_id: string | null;
+}
+
+/**
+ * HU-E2 (CA7) — pago web rechazado: reservas liberadas (PAGO_RECHAZADO),
+ * `PedidoVenta` ANULADO, `PedidoVentaEcommerce` PAGO_RECHAZADO (activo) y el
+ * carrito del cliente reconstruido. Contrato en docs/tasks/HU-E2.md §3.3.
+ */
+export interface PagoRechazadoPayload {
+  pedido_venta_id: string;
+  pedido_venta_ecommerce_id: string;
+  numero_venta: string;
+  cliente_id: string;
+  cliente_web_cuenta_id: string;
+  mercadopago_payment_id: string;
+  monto: number;
+  moneda: "ARS";
+  fecha_rechazo: string;
+  /** `status_detail` de Mercado Pago. */
+  motivo_rechazo: string;
+  reserva_ids: string[];
+  carrito_id: string;
+}
+
+/** HU-E2 — motivos de un pago que no se aplica (o se aplica con alerta). */
+export type MotivoPagoAnomalo =
+  | "MONTO_DISCREPANTE"
+  | "PAGO_TARDIO"
+  | "PAGO_DUPLICADO"
+  | "PAGO_HUERFANO"
+  /** Único motivo emitido con el pago SÍ confirmado (task §3.2, Q3). */
+  | "CUPON_LIMITE_EXCEDIDO";
+
+/**
+ * HU-E2 — pago informado por Mercado Pago que no se aplicó tal cual (monto
+ * distinto, tardío, duplicado, huérfano) o cupón que superó su límite al
+ * confirmar. Evento auditado; reembolso manual fuera de E2.
+ */
+export interface PagoAnomaloPayload {
+  motivo: MotivoPagoAnomalo;
+  mercadopago_payment_id: string;
+  /** `status` de Mercado Pago (ej. "approved"). */
+  estado_pago_mp: string;
+  pedido_venta_ecommerce_id: string | null;
+  pedido_venta_id: string | null;
+  monto_informado: number;
+  moneda_informada: string;
+  monto_esperado: number | null;
+}
+
+export interface CuentaWebEventoBase {
+  cuenta_id: string;
+  cliente_id: string;
+  actor_tipo: "cuenta" | "usuario";
+  actor_id: string;
+  ocurrido_en: string;
+}
+export interface CuentaWebRegistradaPayload extends CuentaWebEventoBase {
+  vinculacion_pendiente: boolean;
+  acepta_tratamiento: true;
+  acepta_comunicaciones: boolean;
+}
+export interface CuentaWebBloqueadaPayload extends CuentaWebEventoBase { intentos: number; bloqueada_hasta: string }
+export interface CuentaWebVinculadaPayload extends CuentaWebEventoBase { acceso_reasignado: boolean }
+export interface CuentaWebRecuperacionHabilitadaPayload extends CuentaWebEventoBase { expira_en: string }
+export type CuentaWebPasswordRedefinidaPayload = CuentaWebEventoBase;
+export interface CuentaWebBajaPayload extends CuentaWebEventoBase { motivo: string }
+
+/**
+ * HU-F2 (spec_modulo_F.md §4) — redacción auditable de una
+ * `PlantillaNotificacion`. Claves en orden estable (spec D §4.2, nota de
+ * `JSON.stringify`).
+ */
+export interface PlantillaNotificacionRedaccion {
+  asunto: string;
+  cuerpo: string;
+  prioridad_default: "CRITICA" | "ADVERTENCIA" | "INFORMATIVA";
+}
+
+/** HU-F2 — Payload emitido tras el alta de una `PlantillaNotificacion`. */
+export interface NotificacionPlantillaCreadaPayload {
+  plantilla_id: string;
+  tipo_evento: string;
+  usuario_id: string;
+  valor_nuevo: PlantillaNotificacionRedaccion;
+}
+
+/** HU-F2 — Payload emitido tras editar la redacción de una `PlantillaNotificacion`. */
+export interface NotificacionPlantillaActualizadaPayload {
+  plantilla_id: string;
+  tipo_evento: string;
+  usuario_id: string;
+  valor_anterior: PlantillaNotificacionRedaccion;
+  valor_nuevo: PlantillaNotificacionRedaccion;
+}
+
+/** HU-F2 — Payload emitido tras la baja lógica de una `PlantillaNotificacion`. */
+export interface NotificacionPlantillaBajaLogicaPayload {
+  plantilla_id: string;
+  tipo_evento: string;
+  usuario_id: string;
+  valor_anterior: { is_active: true };
+  valor_nuevo: { is_active: false; deletion_reason: string };
+}
+
+/** HU-F2 (task §4.1-bis) — Payload emitido tras reactivar una `PlantillaNotificacion`. */
+export interface NotificacionPlantillaReactivadaPayload {
+  plantilla_id: string;
+  tipo_evento: string;
+  usuario_id: string;
+  valor_anterior: { is_active: false };
+  valor_nuevo: { is_active: true };
+}
+
 /** Mapa evento → payload, usado por `domain-event-bus.ts` para tipar `emit`/`on`. */
 export interface DomainEventMap {
   /** HU-A1: se emite tras el alta de un ProductoMaestro. */
@@ -1008,6 +1289,8 @@ export interface DomainEventMap {
   "venta:operacion_cuenta_corriente_registrada": OperacionCuentaCorrienteRegistradaPayload;
   /** HU-B5: se emite tras aprobar/rechazar una operación de cuenta corriente RETENIDA (evento sensible). */
   "venta:excepcion_credito_resuelta": ExcepcionCreditoResueltaPayload;
+  /** HU-B9: se emite tras publicar una versión de la Lista de Precios de Venta (evento sensible). */
+  "precio_venta:version_publicada": PrecioVentaVersionPublicadaPayload;
   /** HU-C1: se emite tras el alta NUEVA de un Cliente (nunca al recuperar uno existente por DNI). */
   "cliente:creado": ClienteCreadoPayload;
   /** HU-C4: un evento histórico confirmado durante regularización o desde la ficha. */
@@ -1022,6 +1305,136 @@ export interface DomainEventMap {
   "venta:turno_cerrado": VentaTurnoCerradoPayload;
   /** HU-B1: se emite tras registrar una venta de mostrador con cobro multimedio. */
   "venta:registrada": VentaRegistradaPayload;
+  /** HU-E12: admisión a cola Pick&Pack (evento pendiente producido por E2). */
+  "ecommerce:pedido_admitido_cola": EcommercePedidoAdmitidoColaPayload;
+  /** HU-E12: un operador tomó un pedido de la cola. */
+  "ecommerce:pedido_tomado": EcommercePedidoTomadoPayload;
+  /** HU-E12: cambio manual de prioridad de preparación. */
+  "ecommerce:prioridad_preparacion_cambiada": EcommercePrioridadPreparacionCambiadaPayload;
+  /** HU-E12: confirmación de una unidad preparada por escaneo. */
+  "ecommerce:unidad_preparacion_confirmada": EcommerceUnidadPreparacionConfirmadaPayload;
+  /** HU-E12: pedido completamente preparado, listo para retiro. */
+  "ecommerce:pedido_listo_para_retiro": EcommercePedidoListoParaRetiroPayload;
+  /** HU-E1: se emite por cada ítem de carrito que bloquea el checkout por estar desactivado (CA4). */
+  "ecommerce:carrito_articulo_no_disponible": CarritoArticuloNoDisponiblePayload;
+  /** HU-E1: se emite tras fusionar el carrito de visitante con el de la cuenta (CA7). */
+  "ecommerce:carrito_fusionado": CarritoFusionadoPayload;
+  /** HU-E1: se emite tras el commit del checkout parcial (pedido PAGO_PENDIENTE). */
+  "ecommerce:checkout_iniciado": CheckoutIniciadoPayload;
+  /** HU-E1: se emite tras dar de baja lógica el carrito convertido en pedido. */
+  "ecommerce:carrito_convertido_en_pedido": CarritoConvertidoEnPedidoPayload;
+  /** HU-E2: se emite tras el commit de la confirmación de un pago aprobado. */
+  "ecommerce:pedido_pago_confirmado": PedidoPagoConfirmadoPayload;
+  /** HU-E2: se emite tras el commit del rechazo de un pago (CA7, rechazo auditado). */
+  "ecommerce:pago_rechazado": PagoRechazadoPayload;
+  /** HU-E2: pago de MP no aplicado (o cupón excedido al confirmar). */
+  "ecommerce:pago_anomalo": PagoAnomaloPayload;
+  "ecommerce:cuenta_web_registrada": CuentaWebRegistradaPayload;
+  "ecommerce:cuenta_web_bloqueada": CuentaWebBloqueadaPayload;
+  "ecommerce:cuenta_web_vinculada": CuentaWebVinculadaPayload;
+  "ecommerce:cuenta_web_recuperacion_habilitada": CuentaWebRecuperacionHabilitadaPayload;
+  "ecommerce:cuenta_web_password_redefinida": CuentaWebPasswordRedefinidaPayload;
+  "ecommerce:cuenta_web_baja": CuentaWebBajaPayload;
+  /** HU-F2: se emite tras el alta de una PlantillaNotificacion. */
+  "notificacion_plantilla:creada": NotificacionPlantillaCreadaPayload;
+  /** HU-F2: se emite tras editar la redacción de una PlantillaNotificacion. */
+  "notificacion_plantilla:actualizada": NotificacionPlantillaActualizadaPayload;
+  /** HU-F2: se emite tras la baja lógica de una PlantillaNotificacion (nunca DELETE físico). */
+  "notificacion_plantilla:baja_logica": NotificacionPlantillaBajaLogicaPayload;
+  /** HU-F2 (task §4.1-bis): se emite tras reactivar una PlantillaNotificacion dada de baja. */
+  "notificacion_plantilla:reactivada": NotificacionPlantillaReactivadaPayload;
 }
 
 export type DomainEventName = keyof DomainEventMap;
+
+/**
+ * HU-F2 (spec_modulo_F.md §2.2) — registro RUNTIME de los nombres de evento
+ * de `DomainEventMap`, para validar `PlantillaNotificacion.tipo_evento` en la
+ * capa de servicios (el mapa es solo un tipo y no existe en runtime).
+ *
+ * Al agregar un evento al mapa hay que agregarlo acá: `satisfies` impide
+ * nombres que no estén en el mapa, `_registroCompleto` rompe el typecheck si
+ * falta alguno, y `event-types.test.ts` lo verifica contra la fuente.
+ */
+export const TIPOS_EVENTO_DOMINIO = [
+  "producto_maestro:creado",
+  "variantes:generadas",
+  "producto_maestro:desactivado",
+  "stock:umbrales_configurados",
+  "stock:umbral_critico_alcanzado",
+  "inventario:ingreso_stock_registrado",
+  "stock:transferencia_iniciada",
+  "stock:transferencia_recepcion_confirmada",
+  "stock:transferencia_baja_logica",
+  "inventario:variante_baja_logica",
+  "usuario:creado",
+  "usuario:baja_logica",
+  "usuario:suspendido_automaticamente",
+  "usuario:sesion_iniciada",
+  "usuario:sesion_cerrada",
+  "usuario:estado_cambiado",
+  "usuario:reactivado",
+  "rol:creado",
+  "rol:permisos_actualizados",
+  "orden_compra:creada",
+  "orden_compra:estado_cambiado",
+  "orden_compra:items_editados",
+  "recepcion:registrada",
+  "proveedor:estado_cambiado",
+  "cuenta_por_pagar:estado_cambiado",
+  "comprobante_proveedor:registrado",
+  "comprobante_proveedor:anulado",
+  "proveedor:baja_logica",
+  "proveedor:legajo_editado",
+  "proveedor:variacion_precio_critica",
+  "proveedor:lista_precio_aprobada",
+  "stock:reserva_congelada",
+  "stock:reserva_liberada",
+  "stock:reclasificacion_devuelto",
+  "stock:reclasificacion_solicitud_creada",
+  "stock:reclasificacion_solicitud_aprobada",
+  "stock:reclasificacion_solicitud_rechazada",
+  "producto_maestro:actualizado",
+  "inventario:variante_actualizada",
+  "venta:presupuesto_emitido",
+  "venta:presupuesto_vencido",
+  "venta:presupuesto_aceptado",
+  "venta:descuento_fuera_margen",
+  "venta:cambio_precio_manual",
+  "venta:operacion_cuenta_corriente_registrada",
+  "venta:excepcion_credito_resuelta",
+  "precio_venta:version_publicada",
+  "cliente:creado",
+  "consentimiento:decision_registrada",
+  "cliente:actualizado",
+  "cliente:baja_logica",
+  "venta:turno_abierto",
+  "venta:turno_cerrado",
+  "venta:registrada",
+  "ecommerce:pedido_admitido_cola",
+  "ecommerce:pedido_tomado",
+  "ecommerce:prioridad_preparacion_cambiada",
+  "ecommerce:unidad_preparacion_confirmada",
+  "ecommerce:pedido_listo_para_retiro",
+  "ecommerce:carrito_articulo_no_disponible",
+  "ecommerce:carrito_fusionado",
+  "ecommerce:checkout_iniciado",
+  "ecommerce:carrito_convertido_en_pedido",
+  "ecommerce:pedido_pago_confirmado",
+  "ecommerce:pago_rechazado",
+  "ecommerce:pago_anomalo",
+  "ecommerce:cuenta_web_registrada",
+  "ecommerce:cuenta_web_bloqueada",
+  "ecommerce:cuenta_web_vinculada",
+  "ecommerce:cuenta_web_recuperacion_habilitada",
+  "ecommerce:cuenta_web_password_redefinida",
+  "ecommerce:cuenta_web_baja",
+  "notificacion_plantilla:creada",
+  "notificacion_plantilla:actualizada",
+  "notificacion_plantilla:baja_logica",
+  "notificacion_plantilla:reactivada",
+] as const satisfies readonly DomainEventName[];
+
+/** Falla el typecheck si `TIPOS_EVENTO_DOMINIO` no cubre todas las claves de `DomainEventMap`. */
+type EventosFaltantes = Exclude<DomainEventName, (typeof TIPOS_EVENTO_DOMINIO)[number]>;
+export const _registroCompleto: [EventosFaltantes] extends [never] ? true : never = true;

@@ -33,6 +33,9 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env
 
+# HU-E2 — pagos del simulador local de Mercado Pago (MP_MODO=simulado)
+/.mp-simulador/
+
 # vercel
 .vercel
 
