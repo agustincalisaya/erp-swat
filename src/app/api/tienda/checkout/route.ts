@@ -37,4 +37,4 @@ export const POST = withSesionClienteWeb(async (req, sesion) => {
   } catch (err) {
     return respuestaError(err, "POST /api/tienda/checkout");
   }
-});
+}, { mensajeSinSesion: "Debe iniciar sesión para completar la compra" });

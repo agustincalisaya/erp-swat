@@ -171,6 +171,8 @@ DATABASE_URL=$TEST_DB MP_MODO=simulado APP_PUBLIC_URL=http://localhost:3101 npx 
 HU_E1_INTEGRATION_BASE_URL=http://localhost:3101 HU_E1_INTEGRATION_DATABASE_URL=$TEST_DB npm run test:integration:e1-http
 ```
 
+> El servidor de test también necesita `JWT_SECRET_CLIENTE_WEB` y `CARRITO_COOKIE_SECRET` (64 caracteres hexadecimales cada una, `openssl rand -hex 32`, distintas de `JWT_SECRET`), además de `MP_MODO=simulado` y `APP_PUBLIC_URL`. Exportarlas solo en la shell que levanta `next dev`; nunca en archivos. Lo mismo vale para `test:integration:e8-http` (variables `HU_E8_INTEGRATION_BASE_URL` y `HU_E8_INTEGRATION_DATABASE_URL`). La base de test debe estar migrada (`prisma migrate deploy`) y sembrada (`prisma db seed`): el seed crea las claves `ECOMMERCE_CUENTA_WEB_*`.
+
 > ⚠️ **`test:integration:e1-http` MODIFICA la base a la que apunta el servidor:** crea clientes, cuentas web, artículos, carritos, reservas y pedidos propios (no borra nada). Correrlo SIEMPRE contra la base de test (`swat_erp_test_e1`), nunca contra la base de desarrollo de alguien. Exige las dos variables y ambas deben apuntar a la MISMA base: el test prepara su estado por Prisma (`HU_E1_INTEGRATION_DATABASE_URL`) y lo verifica por HTTP (`HU_E1_INTEGRATION_BASE_URL`). Cada caso usa su propia cuenta y sus propios artículos (`hu-e1.test-fixtures.ts`), así que no depende del seed ni de pedidos previos y espera un único resultado. `test:integration:e1` también escribe en la base indicada (misma advertencia).
 
 Resultados al cierre: unit 498/498 · `test:integration:e1` 21/21 · `test:integration:e1-http` 15/15 (contra `next start` sobre la base de test, 2 corridas seguidas) · regresión B1 9/9, B3 10/10, B4 9/9 · `tsc --noEmit` 0 · ESLint 0 errores (3 warnings preexistentes ajenos a E1).

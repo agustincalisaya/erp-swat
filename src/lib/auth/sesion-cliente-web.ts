@@ -170,13 +170,13 @@ type HandlerConSesionClienteWeb<C> = (
  */
 export function withSesionClienteWeb<C = unknown>(
   handler: HandlerConSesionClienteWeb<C>,
-  options: { permitirPendiente?: boolean } = {},
+  options: { permitirPendiente?: boolean; mensajeSinSesion?: string } = {},
 ) {
   return async (req: NextRequest, ctx: C): Promise<NextResponse> => {
     const sesion = await getSesionClienteWeb();
     if (!sesion) {
       return NextResponse.json(
-        { data: null, error: { code: "SESION_CLIENTE_WEB_REQUERIDA", message: "Debe iniciar sesión para completar la compra" } },
+        { data: null, error: { code: "SESION_CLIENTE_WEB_REQUERIDA", message: options.mensajeSinSesion ?? "Debe iniciar sesión para continuar" } },
         { status: 401 },
       );
     }
