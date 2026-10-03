@@ -787,6 +787,24 @@ export interface ExcepcionCreditoResueltaPayload {
 }
 
 /**
+ * HU-B9 (Módulo B) — Payload emitido tras publicar una `ListaPrecioVentaVersion`
+ * (`publicarVersionListaPrecioVenta()`, spec_modulo_B.md §2.9/§4). Evento
+ * SENSIBLE (encadenamiento SHA-256: afecta el precio de todos los canales).
+ * Payload LITERAL de spec §4 — decisión Punto abierto 3, opción A: NO trae
+ * "valores anterior y nuevo" que pide el CA del Backlog (divergencia
+ * documentada como hallazgo, no se amplía sin decisión del dueño del spec).
+ * `vigente_desde` viaja como ISO 8601. Emisión post-`COMMIT`.
+ */
+export interface PrecioVentaVersionPublicadaPayload {
+  version_id: string;
+  lista_id: string;
+  publicado_por_id: string;
+  vigente_desde: string;
+  items_publicados: number;
+  items_bajo_costo: number;
+}
+
+/**
  * HU-C1 (Módulo C) — Payload emitido tras el alta NUEVA de un `Cliente`
  * (`crearCliente()`, spec_modulo_C.md §2.1/§4). Se emite SOLO cuando
  * `es_nuevo === true` — recuperar un `Cliente` existente por DNI (§3.1: "no
@@ -1161,6 +1179,8 @@ export interface DomainEventMap {
   "venta:operacion_cuenta_corriente_registrada": OperacionCuentaCorrienteRegistradaPayload;
   /** HU-B5: se emite tras aprobar/rechazar una operación de cuenta corriente RETENIDA (evento sensible). */
   "venta:excepcion_credito_resuelta": ExcepcionCreditoResueltaPayload;
+  /** HU-B9: se emite tras publicar una versión de la Lista de Precios de Venta (evento sensible). */
+  "precio_venta:version_publicada": PrecioVentaVersionPublicadaPayload;
   /** HU-C1: se emite tras el alta NUEVA de un Cliente (nunca al recuperar uno existente por DNI). */
   "cliente:creado": ClienteCreadoPayload;
   /** HU-C4: un evento histórico confirmado durante regularización o desde la ficha. */

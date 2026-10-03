@@ -15,6 +15,10 @@ import {
   MedioPagoSchema,
   RegistrarVentaMostradorSchema,
   ComprobanteFiscalIdSchema,
+  CrearVersionListaPrecioVentaSchema,
+  ItemListaPrecioVentaSchema,
+  PrecioVigenteQuerySchema,
+  VarianteSkuIdSchema,
 } from "./ventas.schema.ts";
 
 const cliente = "11111111-1111-4111-8111-111111111111";
@@ -466,4 +470,65 @@ test("RegistrarVentaMostradorSchema exige tipo_comprobante dentro de FACTURA_A/F
 test("ComprobanteFiscalIdSchema valida el UUID del segmento [id]", () => {
   assert.equal(ComprobanteFiscalIdSchema.safeParse("no-es-uuid").success, false);
   assert.equal(ComprobanteFiscalIdSchema.safeParse(cliente).success, true);
+});
+
+// ── HU-B9 — Lista de Precios de Venta ────────────────────────────────────────
+
+function versionValida(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    vigente_desde: "2026-10-01T00:00:00.000Z",
+    items: [{ variante_sku_id: variante, precio_venta: 23000 }],
+    ...overrides,
+  };
+}
+
+test("CrearVersionListaPrecioVentaSchema acepta una versión válida y coerciona vigente_desde ISO a Date", () => {
+  const r = CrearVersionListaPrecioVentaSchema.safeParse(versionValida());
+  assert.equal(r.success, true);
+  assert.ok(r.success && r.data.vigente_desde instanceof Date);
+  assert.equal(r.success && r.data.vigente_desde.toISOString(), "2026-10-01T00:00:00.000Z");
+});
+
+test("CrearVersionListaPrecioVentaSchema permite vigente_desde en el pasado (Punto abierto 13)", () => {
+  assert.equal(CrearVersionListaPrecioVentaSchema.safeParse(versionValida({ vigente_desde: "2020-01-01" })).success, true);
+});
+
+test("CrearVersionListaPrecioVentaSchema rechaza items vacío con el mensaje del spec", () => {
+  const r = CrearVersionListaPrecioVentaSchema.safeParse(versionValida({ items: [] }));
+  assert.equal(r.success, false);
+  assert.equal(!r.success && r.error.issues[0]?.message, "La versión debe incluir al menos un ítem");
+});
+
+test("CrearVersionListaPrecioVentaSchema rechaza vigente_desde ausente o inválido", () => {
+  assert.equal(CrearVersionListaPrecioVentaSchema.safeParse(versionValida({ vigente_desde: undefined })).success, false);
+  assert.equal(CrearVersionListaPrecioVentaSchema.safeParse(versionValida({ vigente_desde: "no-es-fecha" })).success, false);
+});
+
+test("ItemListaPrecioVentaSchema: precio_venta 0 o negativo falla; variante no UUID falla; motivo vacío falla", () => {
+  assert.equal(ItemListaPrecioVentaSchema.safeParse({ variante_sku_id: variante, precio_venta: 0 }).success, false);
+  assert.equal(ItemListaPrecioVentaSchema.safeParse({ variante_sku_id: variante, precio_venta: -1 }).success, false);
+  assert.equal(ItemListaPrecioVentaSchema.safeParse({ variante_sku_id: "x", precio_venta: 1 }).success, false);
+  assert.equal(
+    ItemListaPrecioVentaSchema.safeParse({ variante_sku_id: variante, precio_venta: 1, motivo_bajo_costo: "" }).success,
+    false,
+  );
+  assert.equal(
+    ItemListaPrecioVentaSchema.safeParse({ variante_sku_id: variante, precio_venta: 1, motivo_bajo_costo: "Liquidación" })
+      .success,
+    true,
+  );
+});
+
+test("ItemListaPrecioVentaSchema NO acepta campo de costo: costo_reposicion_referencia del cliente se descarta", () => {
+  const r = ItemListaPrecioVentaSchema.safeParse({ variante_sku_id: variante, precio_venta: 1, costo_reposicion_referencia: 1 });
+  assert.equal(r.success, true);
+  assert.equal(r.success && "costo_reposicion_referencia" in r.data, false);
+});
+
+test("PrecioVigenteQuerySchema / VarianteSkuIdSchema validan UUID", () => {
+  assert.equal(PrecioVigenteQuerySchema.safeParse({ variante_sku_id: variante }).success, true);
+  assert.equal(PrecioVigenteQuerySchema.safeParse({ variante_sku_id: "x" }).success, false);
+  assert.equal(PrecioVigenteQuerySchema.safeParse({}).success, false);
+  assert.equal(VarianteSkuIdSchema.safeParse(variante).success, true);
+  assert.equal(VarianteSkuIdSchema.safeParse("no-es-uuid").success, false);
 });
