@@ -113,7 +113,26 @@ test("publicar: emite precio_venta:version_publicada DESPUÉS de la $transaction
   for (const campo of ["version_id", "lista_id", "publicado_por_id", "vigente_desde", "items_publicados", "items_bajo_costo"]) {
     assert.match(bloque, new RegExp(`${campo}:`), `falta ${campo}`);
   }
+  assert.match(bloque, /version_anterior_id,/);
   assert.equal((fuente.match(/domainEventBus\.emit\(/g) ?? []).length, 1);
+});
+
+test("publicar: version_anterior_id se lee dentro de la $transaction ANTES del create (null si no hay previa)", () => {
+  const idxTx = publicar.indexOf("prisma.$transaction");
+  const idxAnterior = publicar.indexOf("tx.listaPrecioVentaVersion.findFirst");
+  const idxVersion = publicar.indexOf("tx.listaPrecioVentaVersion.create");
+  assert.ok(idxTx > -1 && idxAnterior > idxTx && idxVersion > idxAnterior);
+  const consulta = publicar.slice(idxAnterior, idxVersion);
+  assert.match(
+    consulta,
+    /where: \{ lista_id, is_active: true, deleted_at: null, vigente_desde: \{ lte: input\.vigente_desde \} \}/,
+  );
+  assert.match(consulta, /orderBy: \[\{ vigente_desde: "desc" \}, \{ created_at: "desc" \}\]/);
+  assert.match(consulta, /take: 1/);
+  // Primera versión de la lista ⇒ no hay fila previa ⇒ null.
+  assert.match(publicar, /version_anterior_id: anterior\?\.id \?\? null/);
+  // Solo viaja en el evento: el valor de retorno (respuesta del POST) no cambia.
+  assert.match(publicar, /const \{ version_anterior_id, \.\.\.resultado \} = await prisma\.\$transaction/);
 });
 
 // ── Sugerencia ──────────────────────────────────────────────────────────────
@@ -157,7 +176,11 @@ test("el evento está tipado y el listener lo registra con la accion aprobada", 
   assert.match(bloque, /accion: "PUBLICAR_VERSION_LISTA_PRECIO_VENTA"/);
   assert.match(bloque, /tabla_afectada: "versiones_lista_precio_venta"/);
   assert.match(bloque, /registro_id: payload\.version_id/);
-  assert.match(bloque, /valor_anterior: null/);
+  assert.match(bloque, /valor_anterior: \{ version_anterior_id: payload\.version_anterior_id \}/);
+  assert.match(
+    leer("../../events/event-types.ts"),
+    /interface PrecioVentaVersionPublicadaPayload \{\s*\n\s*version_id: string;\s*\n\s*version_anterior_id: string \| null;/,
+  );
 });
 
 test("el servicio nunca escribe AuditLog directo", () => {

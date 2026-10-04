@@ -32,7 +32,7 @@
  */
 import type { LucideIcon } from "lucide-react";
 // 1. Agregamos el ícono "Layers" a la importación
-import { ScrollText, ShieldCheck, Users, Package, Warehouse, ScanBarcode, Layers, FileSearch, ShoppingCart, ClipboardList, Store, PackageCheck, Undo2, Wallet, Banknote, Receipt, FileText, UserPlus, Tags, TicketPercent } from "lucide-react";
+import { ScrollText, ShieldCheck, Users, Package, Warehouse, ScanBarcode, Layers, FileSearch, ShoppingCart, ClipboardList, Store, PackageCheck, Undo2, Wallet, Banknote, Receipt, FileText, UserPlus, Tags, TicketPercent, Settings, BellRing } from "lucide-react";
 import { getServerSession } from "@/lib/auth/session";
 import { usuarioTienePermiso } from "@/lib/auth/with-permission";
 import { SidebarNav, type SidebarNavSection } from "@/components/layout/SidebarNav";
@@ -218,6 +218,21 @@ const SECCIONES: SeccionConfig[] = [
     ],
   },
   {
+    label: "E-commerce",
+    icon: Store,
+    items: [
+      // HU-E12 T09 — consola Pick & Pack. Gate por `ecommerce:leer_cola_preparacion`
+      // (Admin Ecommerce y Operador Pick&Pack); la página también bloquea por URL
+      // y las acciones internas se gatean por sus permisos granulares.
+      {
+        label: "Preparación de pedidos",
+        href: "/ecommerce/preparacion",
+        icon: PackageCheck,
+        permiso: "ecommerce:leer_cola_preparacion",
+      },
+    ],
+  },
+  {
     label: "Clientes",
     icon: UserPlus,
     items: [
@@ -266,6 +281,22 @@ const SECCIONES: SeccionConfig[] = [
         href: "/tesoreria/cuentas-por-pagar",
         icon: Banknote,
         permiso: "cuentas_por_pagar:leer",
+      },
+    ],
+  },
+  {
+    // HU-F2 (Módulo F) — formularios de gestión de los roles de plataforma
+    // (spec_modulo_F.md §1). Gate por `notificaciones:administrar_plantillas`
+    // (exclusivo Administrador de Plataforma); sin el permiso la sección
+    // queda vacía y no se muestra.
+    label: "Administración",
+    icon: Settings,
+    items: [
+      {
+        label: "Plantillas de notificación",
+        href: "/administracion/notificaciones/plantillas",
+        icon: BellRing,
+        permiso: "notificaciones:administrar_plantillas",
       },
     ],
   },

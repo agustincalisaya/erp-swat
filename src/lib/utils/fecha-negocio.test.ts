@@ -17,6 +17,7 @@ import {
   fechaDeVigenciaAlcanzada,
   hoyComoFechaSoloUtc,
   inicioDiaUtc,
+  sumarDiasCalendarioNegocio,
 } from "./fecha-negocio.ts";
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -171,4 +172,40 @@ test("fechaDeVigenciaAlcanzada: una fecha-solo del pasado sigue vigente", () => 
   const haceUnaSemana = new Date("2026-09-19T00:00:00.000Z");
   const ahora = new Date("2026-09-26T12:00:00.000Z");
   assert.equal(fechaDeVigenciaAlcanzada(haceUnaSemana, ahora), true);
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// sumarDiasCalendarioNegocio — plazo de retiro E12 (T06)
+// ──────────────────────────────────────────────────────────────────────────
+
+test("sumarDiasCalendarioNegocio: suma 1 día calendario preservando hora local", () => {
+  // 2026-09-26T14:00:00Z = 11:00 hora Argentina
+  const inicio = new Date("2026-09-26T14:00:00.000Z");
+  const vencimiento = sumarDiasCalendarioNegocio(inicio, 1);
+  assert.equal(vencimiento.toISOString(), "2026-09-27T14:00:00.000Z");
+});
+
+test("sumarDiasCalendarioNegocio: suma varios días calendario", () => {
+  const inicio = new Date("2026-09-26T14:00:00.000Z");
+  const vencimiento = sumarDiasCalendarioNegocio(inicio, 5);
+  assert.equal(vencimiento.toISOString(), "2026-10-01T14:00:00.000Z");
+});
+
+test("sumarDiasCalendarioNegocio: cruza fin de mes", () => {
+  const inicio = new Date("2026-09-30T18:00:00.000Z");
+  const vencimiento = sumarDiasCalendarioNegocio(inicio, 2);
+  assert.equal(vencimiento.toISOString(), "2026-10-02T18:00:00.000Z");
+});
+
+test("sumarDiasCalendarioNegocio: cruza fin de año", () => {
+  const inicio = new Date("2026-12-31T20:00:00.000Z");
+  const vencimiento = sumarDiasCalendarioNegocio(inicio, 3);
+  assert.equal(vencimiento.toISOString(), "2027-01-03T20:00:00.000Z");
+});
+
+test("sumarDiasCalendarioNegocio: instante cercano a medianoche argentina", () => {
+  // 2026-09-26T02:50:00Z = 2026-09-25 23:50 hora Argentina
+  const inicio = new Date("2026-09-26T02:50:00.000Z");
+  const vencimiento = sumarDiasCalendarioNegocio(inicio, 1);
+  assert.equal(vencimiento.toISOString(), "2026-09-27T02:50:00.000Z");
 });

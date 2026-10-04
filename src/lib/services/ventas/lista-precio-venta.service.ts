@@ -234,6 +234,8 @@ export interface VersionListaPrecioVentaPublicada {
  * nada persistido.
  *
  * Emisión post-COMMIT de `precio_venta:version_publicada` (evento sensible).
+ * `version_anterior_id` viaja solo en el evento (para el AuditLog), no en el
+ * valor de retorno: la respuesta del POST no cambia.
  *
  * @throws {ServiceError} ITEM_DUPLICADO_EN_VERSION (400)
  * @throws {ServiceError} LISTA_PRECIO_VENTA_NO_CONFIGURADA (409)
@@ -260,7 +262,7 @@ export async function publicarVersionListaPrecioVenta(
     costoPorSku.set(id, costo?.precio_unitario ?? null);
   }
 
-  const resultado = await prisma.$transaction(async (tx) => {
+  const { version_anterior_id, ...resultado } = await prisma.$transaction(async (tx) => {
     const listas = await tx.listaPrecioVenta.findMany({
       where: { is_active: true, deleted_at: null },
       select: { id: true },
@@ -307,6 +309,17 @@ export async function publicarVersionListaPrecioVenta(
       };
     });
 
+    // Versión reemplazada (Punto abierto 3, resuelto): la activa que rige en el
+    // instante en que empieza a regir la nueva (`vigente_desde <=`), así una
+    // versión programada a futuro no cuenta como "anterior". Leída ANTES del
+    // create y solo lectura (inmutabilidad). `null` si no hay ninguna.
+    const anterior = await tx.listaPrecioVentaVersion.findFirst({
+      where: { lista_id, is_active: true, deleted_at: null, vigente_desde: { lte: input.vigente_desde } },
+      orderBy: [{ vigente_desde: "desc" }, { created_at: "desc" }],
+      take: 1,
+      select: { id: true },
+    });
+
     const version = await tx.listaPrecioVentaVersion.create({
       data: { lista_id, vigente_desde: input.vigente_desde, publicado_por_id: usuarioId },
       select: { id: true, vigente_desde: true },
@@ -317,6 +330,7 @@ export async function publicarVersionListaPrecioVenta(
 
     return {
       version_id: version.id,
+      version_anterior_id: anterior?.id ?? null,
       lista_id,
       vigente_desde: version.vigente_desde,
       items_publicados: filas.length,
@@ -327,6 +341,7 @@ export async function publicarVersionListaPrecioVenta(
   // Post-COMMIT: evento sensible → audit-log.listener.ts (SHA-256).
   domainEventBus.emit("precio_venta:version_publicada", {
     version_id: resultado.version_id,
+    version_anterior_id,
     lista_id: resultado.lista_id,
     publicado_por_id: usuarioId,
     vigente_desde: resultado.vigente_desde.toISOString(),

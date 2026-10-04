@@ -231,6 +231,10 @@ export async function registrarEventoAuditoria(evento: DatosEventoAuditoria) {
 
 **Convención de campo `JSON.stringify` no canónico:** `JSON.stringify` en JavaScript no garantiza orden de claves estable entre distintas ejecuciones si el objeto se construye de forma no determinística. Los servicios que emiten eventos deben construir `valor_anterior`/`valor_nuevo` con orden de claves consistente (ideal: mismo orden que el schema Prisma del modelo afectado) para que la verificación retroactiva de la cadena (4.4) sea reproducible.
 
+**Valores con `toJSON()` en el payload (`Date`, `Prisma.Decimal`) — hallazgo H7 de HU-F3:** `canonicalizarJson()` (la canonicalización que usa `calcularHashEncadenado()` tanto al insertar como al verificar) aplica `toJSON()` a cualquier valor que lo tenga, antes de ordenar sus claves. Sin eso, un `Date` se hasheaba como `{}` y un `Decimal` como su estructura interna `{d,e,s}`, pero Prisma persiste en jsonb el resultado de `toJSON()` (texto ISO / string numérico): `verificar-cadena` recalculaba sobre el string releído y la cadena se rompía. El caso que lo disparó fue `usuario:suspendido_automaticamente` (`bloqueado_hasta: Date`).
+
+**Caso conocido — `Prisma.Decimal` en `producto_maestro:actualizado`:** `editarProductoMaestro()` (`src/lib/services/inventario/producto.service.ts:515`, `valorAnterior[campo] = actual[campo]`) copia los valores de la fila de Prisma sin convertir. Si se edita un campo `Decimal` (p. ej. `costo_estandar_referencia`, `Decimal(10,2)`), `valor_anterior` lleva un objeto `Prisma.Decimal`, no un número ni un string. El `toJSON()` de `canonicalizarJson()` ya lo cubre a nivel hash, así que **no rompe la cadena**: el `AuditLog` guarda `"1234.5"` y el hash se calcula sobre ese mismo string. Queda anotado para que no sorprenda si aparece en un listado forense o en un test. Cubierto por `src/lib/crypto/hash-chain.test.ts`.
+
 ### 4.3. Consola de Auditoría — Interfaz de solo lectura
 
 **Ruta:** `GET /app/api/auditoria/logs/route.ts`

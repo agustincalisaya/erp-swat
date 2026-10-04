@@ -790,13 +790,14 @@ export interface ExcepcionCreditoResueltaPayload {
  * HU-B9 (Módulo B) — Payload emitido tras publicar una `ListaPrecioVentaVersion`
  * (`publicarVersionListaPrecioVenta()`, spec_modulo_B.md §2.9/§4). Evento
  * SENSIBLE (encadenamiento SHA-256: afecta el precio de todos los canales).
- * Payload LITERAL de spec §4 — decisión Punto abierto 3, opción A: NO trae
- * "valores anterior y nuevo" que pide el CA del Backlog (divergencia
- * documentada como hallazgo, no se amplía sin decisión del dueño del spec).
+ * Payload literal de spec §4. Punto abierto 3 resuelto: `version_anterior_id`
+ * es la versión activa que rige cuando empieza a regir la nueva (`null` si
+ * no hay ninguna; las programadas a futuro no cuentan), y alimenta `valor_anterior` del AuditLog.
  * `vigente_desde` viaja como ISO 8601. Emisión post-`COMMIT`.
  */
 export interface PrecioVentaVersionPublicadaPayload {
   version_id: string;
+  version_anterior_id: string | null;
   lista_id: string;
   publicado_por_id: string;
   vigente_desde: string;
@@ -936,6 +937,69 @@ export interface VentaRegistradaPayload {
   medios_pago: VentaRegistradaMedioPagoPayload[];
   turno_caja_id: string;
   usuario_id: string;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// HU-E12 — Pick & Pack / Click & Collect
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * HU-E12 — Admisión de un pedido PAGO_CONFIRMADO a la cola de preparación.
+ * Se emite post-COMMIT por el caller E2; `admitirPedidoPagoConfirmado` solo
+ * devuelve la metadata del evento pendiente porque no controla el commit.
+ */
+export interface EcommercePedidoAdmitidoColaPayload {
+  evento_id: string;
+  pedido_venta_id: string;
+  pedido_venta_ecommerce_id: string;
+  actor_id: string | null;
+  estado_nuevo: "EN_PREPARACION";
+  timestamp: string;
+}
+
+/** HU-E12 — Un operador tomó un pedido libre de la cola. */
+export interface EcommercePedidoTomadoPayload {
+  evento_id: string;
+  pedido_venta_id: string;
+  pedido_venta_ecommerce_id: string;
+  actor_id: string;
+  estado: "EN_PREPARACION";
+  timestamp: string;
+}
+
+/** HU-E12 — Cambio manual de prioridad en la cola de preparación. */
+export interface EcommercePrioridadPreparacionCambiadaPayload {
+  evento_id: string;
+  pedido_venta_id: string;
+  pedido_venta_ecommerce_id: string;
+  actor_id: string;
+  prioridad_anterior: number | null;
+  prioridad_nueva: number | null;
+  timestamp: string;
+}
+
+/** HU-E12 — Confirmación de una unidad preparada por escaneo. */
+export interface EcommerceUnidadPreparacionConfirmadaPayload {
+  evento_id: string;
+  pedido_venta_id: string;
+  pedido_venta_item_id: string;
+  variante_sku_id: string;
+  actor_id: string;
+  cantidad_confirmada_anterior: number;
+  cantidad_confirmada_nueva: number;
+  timestamp: string;
+}
+
+/** HU-E12 — Pedido completamente preparado y listo para retiro. */
+export interface EcommercePedidoListoParaRetiroPayload {
+  evento_id: string;
+  pedido_venta_id: string;
+  pedido_venta_ecommerce_id: string;
+  actor_id: string;
+  estado_anterior: "EN_PREPARACION";
+  estado_nuevo: "LISTO_PARA_RETIRO";
+  plazo_retiro_vencimiento: string;
+  timestamp: string;
 }
 
 /**
@@ -1132,6 +1196,52 @@ export interface CuponAplicacionLiberadaPayload extends CuponEventoBase {
   motivo: string;
 }
 
+/**
+ * HU-F2 (spec_modulo_F.md §4) — redacción auditable de una
+ * `PlantillaNotificacion`. Claves en orden estable (spec D §4.2, nota de
+ * `JSON.stringify`).
+ */
+export interface PlantillaNotificacionRedaccion {
+  asunto: string;
+  cuerpo: string;
+  prioridad_default: "CRITICA" | "ADVERTENCIA" | "INFORMATIVA";
+}
+
+/** HU-F2 — Payload emitido tras el alta de una `PlantillaNotificacion`. */
+export interface NotificacionPlantillaCreadaPayload {
+  plantilla_id: string;
+  tipo_evento: string;
+  usuario_id: string;
+  valor_nuevo: PlantillaNotificacionRedaccion;
+}
+
+/** HU-F2 — Payload emitido tras editar la redacción de una `PlantillaNotificacion`. */
+export interface NotificacionPlantillaActualizadaPayload {
+  plantilla_id: string;
+  tipo_evento: string;
+  usuario_id: string;
+  valor_anterior: PlantillaNotificacionRedaccion;
+  valor_nuevo: PlantillaNotificacionRedaccion;
+}
+
+/** HU-F2 — Payload emitido tras la baja lógica de una `PlantillaNotificacion`. */
+export interface NotificacionPlantillaBajaLogicaPayload {
+  plantilla_id: string;
+  tipo_evento: string;
+  usuario_id: string;
+  valor_anterior: { is_active: true };
+  valor_nuevo: { is_active: false; deletion_reason: string };
+}
+
+/** HU-F2 (task §4.1-bis) — Payload emitido tras reactivar una `PlantillaNotificacion`. */
+export interface NotificacionPlantillaReactivadaPayload {
+  plantilla_id: string;
+  tipo_evento: string;
+  usuario_id: string;
+  valor_anterior: { is_active: false };
+  valor_nuevo: { is_active: true };
+}
+
 /** Mapa evento → payload, usado por `domain-event-bus.ts` para tipar `emit`/`on`. */
 export interface DomainEventMap {
   /** HU-A1: se emite tras el alta de un ProductoMaestro. */
@@ -1239,6 +1349,16 @@ export interface DomainEventMap {
   "venta:turno_cerrado": VentaTurnoCerradoPayload;
   /** HU-B1: se emite tras registrar una venta de mostrador con cobro multimedio. */
   "venta:registrada": VentaRegistradaPayload;
+  /** HU-E12: admisión a cola Pick&Pack (evento pendiente producido por E2). */
+  "ecommerce:pedido_admitido_cola": EcommercePedidoAdmitidoColaPayload;
+  /** HU-E12: un operador tomó un pedido de la cola. */
+  "ecommerce:pedido_tomado": EcommercePedidoTomadoPayload;
+  /** HU-E12: cambio manual de prioridad de preparación. */
+  "ecommerce:prioridad_preparacion_cambiada": EcommercePrioridadPreparacionCambiadaPayload;
+  /** HU-E12: confirmación de una unidad preparada por escaneo. */
+  "ecommerce:unidad_preparacion_confirmada": EcommerceUnidadPreparacionConfirmadaPayload;
+  /** HU-E12: pedido completamente preparado, listo para retiro. */
+  "ecommerce:pedido_listo_para_retiro": EcommercePedidoListoParaRetiroPayload;
   /** HU-E1: se emite por cada ítem de carrito que bloquea el checkout por estar desactivado (CA4). */
   "ecommerce:carrito_articulo_no_disponible": CarritoArticuloNoDisponiblePayload;
   /** HU-E1: se emite tras fusionar el carrito de visitante con el de la cuenta (CA7). */
@@ -1271,6 +1391,112 @@ export interface DomainEventMap {
   "ecommerce:cupon_consumido": CuponConsumidoPayload;
   /** HU-E4: aplicación pendiente dada de baja por rechazo del pago o vencimiento del pedido. */
   "ecommerce:cupon_aplicacion_liberada": CuponAplicacionLiberadaPayload;
+  /** HU-F2: se emite tras el alta de una PlantillaNotificacion. */
+  "notificacion_plantilla:creada": NotificacionPlantillaCreadaPayload;
+  /** HU-F2: se emite tras editar la redacción de una PlantillaNotificacion. */
+  "notificacion_plantilla:actualizada": NotificacionPlantillaActualizadaPayload;
+  /** HU-F2: se emite tras la baja lógica de una PlantillaNotificacion (nunca DELETE físico). */
+  "notificacion_plantilla:baja_logica": NotificacionPlantillaBajaLogicaPayload;
+  /** HU-F2 (task §4.1-bis): se emite tras reactivar una PlantillaNotificacion dada de baja. */
+  "notificacion_plantilla:reactivada": NotificacionPlantillaReactivadaPayload;
 }
 
 export type DomainEventName = keyof DomainEventMap;
+
+/**
+ * HU-F2 (spec_modulo_F.md §2.2) — registro RUNTIME de los nombres de evento
+ * de `DomainEventMap`, para validar `PlantillaNotificacion.tipo_evento` en la
+ * capa de servicios (el mapa es solo un tipo y no existe en runtime).
+ *
+ * Al agregar un evento al mapa hay que agregarlo acá: `satisfies` impide
+ * nombres que no estén en el mapa, `_registroCompleto` rompe el typecheck si
+ * falta alguno, y `event-types.test.ts` lo verifica contra la fuente.
+ */
+export const TIPOS_EVENTO_DOMINIO = [
+  "producto_maestro:creado",
+  "variantes:generadas",
+  "producto_maestro:desactivado",
+  "stock:umbrales_configurados",
+  "stock:umbral_critico_alcanzado",
+  "inventario:ingreso_stock_registrado",
+  "stock:transferencia_iniciada",
+  "stock:transferencia_recepcion_confirmada",
+  "stock:transferencia_baja_logica",
+  "inventario:variante_baja_logica",
+  "usuario:creado",
+  "usuario:baja_logica",
+  "usuario:suspendido_automaticamente",
+  "usuario:sesion_iniciada",
+  "usuario:sesion_cerrada",
+  "usuario:estado_cambiado",
+  "usuario:reactivado",
+  "rol:creado",
+  "rol:permisos_actualizados",
+  "orden_compra:creada",
+  "orden_compra:estado_cambiado",
+  "orden_compra:items_editados",
+  "recepcion:registrada",
+  "proveedor:estado_cambiado",
+  "cuenta_por_pagar:estado_cambiado",
+  "comprobante_proveedor:registrado",
+  "comprobante_proveedor:anulado",
+  "proveedor:baja_logica",
+  "proveedor:legajo_editado",
+  "proveedor:variacion_precio_critica",
+  "proveedor:lista_precio_aprobada",
+  "stock:reserva_congelada",
+  "stock:reserva_liberada",
+  "stock:reclasificacion_devuelto",
+  "stock:reclasificacion_solicitud_creada",
+  "stock:reclasificacion_solicitud_aprobada",
+  "stock:reclasificacion_solicitud_rechazada",
+  "producto_maestro:actualizado",
+  "inventario:variante_actualizada",
+  "venta:presupuesto_emitido",
+  "venta:presupuesto_vencido",
+  "venta:presupuesto_aceptado",
+  "venta:descuento_fuera_margen",
+  "venta:cambio_precio_manual",
+  "venta:operacion_cuenta_corriente_registrada",
+  "venta:excepcion_credito_resuelta",
+  "precio_venta:version_publicada",
+  "cliente:creado",
+  "consentimiento:decision_registrada",
+  "cliente:actualizado",
+  "cliente:baja_logica",
+  "venta:turno_abierto",
+  "venta:turno_cerrado",
+  "venta:registrada",
+  "ecommerce:pedido_admitido_cola",
+  "ecommerce:pedido_tomado",
+  "ecommerce:prioridad_preparacion_cambiada",
+  "ecommerce:unidad_preparacion_confirmada",
+  "ecommerce:pedido_listo_para_retiro",
+  "ecommerce:carrito_articulo_no_disponible",
+  "ecommerce:carrito_fusionado",
+  "ecommerce:checkout_iniciado",
+  "ecommerce:carrito_convertido_en_pedido",
+  "ecommerce:pedido_pago_confirmado",
+  "ecommerce:pago_rechazado",
+  "ecommerce:pago_anomalo",
+  "ecommerce:cuenta_web_registrada",
+  "ecommerce:cuenta_web_bloqueada",
+  "ecommerce:cuenta_web_vinculada",
+  "ecommerce:cuenta_web_recuperacion_habilitada",
+  "ecommerce:cuenta_web_password_redefinida",
+  "ecommerce:cuenta_web_baja",
+  "ecommerce:cupon_creado",
+  "ecommerce:cupon_editado",
+  "ecommerce:cupon_baja",
+  "ecommerce:cupon_aplicado",
+  "ecommerce:cupon_consumido",
+  "ecommerce:cupon_aplicacion_liberada",
+  "notificacion_plantilla:creada",
+  "notificacion_plantilla:actualizada",
+  "notificacion_plantilla:baja_logica",
+  "notificacion_plantilla:reactivada",
+] as const satisfies readonly DomainEventName[];
+
+/** Falla el typecheck si `TIPOS_EVENTO_DOMINIO` no cubre todas las claves de `DomainEventMap`. */
+type EventosFaltantes = Exclude<DomainEventName, (typeof TIPOS_EVENTO_DOMINIO)[number]>;
+export const _registroCompleto: [EventosFaltantes] extends [never] ? true : never = true;

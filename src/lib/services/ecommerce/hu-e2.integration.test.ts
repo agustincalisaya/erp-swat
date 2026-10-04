@@ -92,7 +92,12 @@ test(
 
     // ── Eventos emitidos ─────────────────────────────────────────────────────
     const eventos: { nombre: string; payload: Record<string, unknown> }[] = [];
-    for (const nombre of ["ecommerce:pedido_pago_confirmado", "ecommerce:pago_rechazado", "ecommerce:pago_anomalo"] as const) {
+    for (const nombre of [
+      "ecommerce:pedido_pago_confirmado",
+      "ecommerce:pedido_admitido_cola",
+      "ecommerce:pago_rechazado",
+      "ecommerce:pago_anomalo",
+    ] as const) {
       domainEventBus.on(nombre, (payload) => eventos.push({ nombre, payload: payload as unknown as Record<string, unknown> }));
     }
     const eventosDe = (nombre: string, pedidoVentaId: string) =>
@@ -134,6 +139,7 @@ test(
           estado_ecommerce: true,
           is_active: true,
           mercadopago_payment_id: true,
+          fecha_pago_confirmado: true,
           pedido_venta: {
             select: {
               estado: true,
@@ -194,8 +200,9 @@ test(
       assert.equal(r.resultado, "CONFIRMADO");
 
       const p = await estadoPedido(iniciado.pedido_venta_id);
-      assert.equal(p.estado_ecommerce, "PAGO_CONFIRMADO", "no pasa a EN_PREPARACION (es de HU-E12)");
+      assert.equal(p.estado_ecommerce, "EN_PREPARACION", "E2→E12: pago confirmado pasa directo a Pick&Pack");
       assert.equal(p.mercadopago_payment_id, pid);
+      assert.ok(p.fecha_pago_confirmado);
       assert.equal(p.pedido_venta.estado, "FACTURADO");
       assert.ok(p.pedido_venta.fecha_facturacion);
       assert.equal(p.pedido_venta.comprobantes.length, 1);
@@ -214,14 +221,16 @@ test(
       assert.equal(confirmado[0].payload.mercadopago_payment_id, pid);
       assert.equal(confirmado[0].payload.monto, 18000);
       assert.equal(confirmado[0].payload.moneda, "ARS");
+      assert.equal(eventosDe("ecommerce:pedido_admitido_cola", iniciado.pedido_venta_id).length, 1);
 
-      // CA3 — la misma notificación otra vez: sin efectos.
+      // CA3 — la misma notificación otra vez: sin efectos y sin re-admitir.
       const repetido = await pagoWeb.procesarNotificacionPago(pid, pasarela);
       assert.equal(repetido.resultado, "SIN_EFECTO");
       const despues = await estadoPedido(iniciado.pedido_venta_id);
       assert.equal(despues.pedido_venta.comprobantes.length, 1);
       assert.equal(despues.pedido_venta.medios_pago.length, 1);
       assert.equal(eventosDe("ecommerce:pedido_pago_confirmado", iniciado.pedido_venta_id).length, 1);
+      assert.equal(eventosDe("ecommerce:pedido_admitido_cola", iniciado.pedido_venta_id).length, 1);
     });
 
     await t.test("CA3 — dos notificaciones concurrentes del mismo pago: una sola confirmación", async () => {

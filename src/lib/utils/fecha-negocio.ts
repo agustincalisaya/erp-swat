@@ -34,6 +34,8 @@
  * `lista-precios.calculo.ts`).
  */
 
+import { addDays } from "date-fns";
+
 const ZONA_HORARIA_NEGOCIO = "America/Argentina/Buenos_Aires";
 
 const FORMATEADOR_DIA_NEGOCIO = new Intl.DateTimeFormat("en-CA", {
@@ -51,6 +53,11 @@ const FORMATEADOR_DIA_UTC = new Intl.DateTimeFormat("en-CA", {
 });
 
 const MS_POR_DIA = 24 * 60 * 60 * 1000;
+
+// Offset fijo de Argentina (UTC-3). El país no observa DST desde 2009, por lo
+// que un offset constante es equivalente a resolver TZID para operaciones de
+// día calendario.
+const OFFSET_ARGENTINA_MS = 3 * 60 * 60 * 1000;
 
 /**
  * Día calendario de negocio (`AAAA-MM-DD`, huso horario de Argentina) de un
@@ -172,4 +179,21 @@ export function fechaDeVigenciaAlcanzada(
   ahora: Date = new Date(),
 ): boolean {
   return diaDeVigencia(fechaInicioVigencia) <= diaNegocioIso(ahora);
+}
+
+/**
+ * Suma `dias` calendario de negocio (huso horario de Argentina) a un instante
+ * real, preservando la hora local argentina. Argentina no observa horario de
+ * verano, por lo que un offset fijo es suficiente; sin embargo, la operación se
+ * realiza sobre componentes de día calendario (`addDays`) para respetar meses y
+ * años, no como duración de 24h.
+ *
+ * `instante` se convierte primero al "tiempo local argentino" (UTC+3), se
+ * suman los días calendario, y se vuelve a UTC. Así una lectura hecha a las
+ * 14:00 AR el día N termina con vencimiento a las 14:00 AR del día N+dias.
+ */
+export function sumarDiasCalendarioNegocio(instante: Date, dias: number): Date {
+  const tiempoArgentino = new Date(instante.getTime() + OFFSET_ARGENTINA_MS);
+  const conDiasSumados = addDays(tiempoArgentino, dias);
+  return new Date(conDiasSumados.getTime() - OFFSET_ARGENTINA_MS);
 }
