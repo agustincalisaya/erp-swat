@@ -521,10 +521,13 @@ export interface ReservaCongeladaPayload {
  *
  * HU-E2: `PAGO_RECHAZADO` = liberación inmediata por rechazo del pago web
  * (`liberarReservasTx()`), RESERVADO → DISPONIBLE como la de TTL.
+ *
+ * HU-E7: `ANULACION_ORDEN` = liberación por anulación de una orden web no
+ * abonada, manual o automática (`liberarReservasTx()`, spec E §2.7).
  */
 export interface ReservaLiberadaPayload {
   reserva_id: string;
-  motivo_liberacion: "VENTA" | "TTL_VENCIDO" | "PAGO_RECHAZADO";
+  motivo_liberacion: "VENTA" | "TTL_VENCIDO" | "PAGO_RECHAZADO" | "ANULACION_ORDEN";
   variante_sku_id: string;
   cantidad: number;
 }
@@ -1060,6 +1063,18 @@ export interface ContenidoWebBajaPayload {
   actor_id: string;
 }
 
+/**
+ * HU-E7 (spec E §2.7/§4) — evento sensible: orden web no abonada anulada,
+ * manual (Administrador E-commerce) o automática por vencimiento de reserva.
+ * `usuario_id` ausente en la vía automática (actor de sistema).
+ */
+export interface OrdenAnuladaPayload {
+  pedido_venta_id: string;
+  usuario_id?: string;
+  deletion_reason: string;
+  automatico: boolean;
+}
+
 /** HU-E1 (CA7) — fusión del carrito de visitante en el de la cuenta, al iniciar sesión. */
 export interface CarritoFusionadoPayload {
   carrito_origen_id: string;
@@ -1424,6 +1439,8 @@ export interface DomainEventMap {
   "ecommerce:visibilidad_web_cambiada": VisibilidadWebCambiadaPayload;
   /** HU-E5: se emite tras el commit de la baja lógica del contenido web. */
   "ecommerce:contenido_web_baja": ContenidoWebBajaPayload;
+  /** HU-E7: se emite tras el commit de la anulación de una orden web no abonada (manual o por TTL). */
+  "ecommerce:orden_anulada": OrdenAnuladaPayload;
   /** HU-F2: se emite tras el alta de una PlantillaNotificacion. */
   "notificacion_plantilla:creada": NotificacionPlantillaCreadaPayload;
   /** HU-F2: se emite tras editar la redacción de una PlantillaNotificacion. */
@@ -1526,6 +1543,7 @@ export const TIPOS_EVENTO_DOMINIO = [
   "ecommerce:cupon_aplicacion_liberada",
   "ecommerce:visibilidad_web_cambiada",
   "ecommerce:contenido_web_baja",
+  "ecommerce:orden_anulada",
   "notificacion_plantilla:creada",
   "notificacion_plantilla:actualizada",
   "notificacion_plantilla:baja_logica",

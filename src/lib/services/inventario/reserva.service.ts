@@ -613,8 +613,9 @@ export function emitirReservasLiberadasTtl(liberadas: readonly ReservaLiberadaTt
 // 4.5 — HU-E2: liberación inmediata por rechazo del pago web
 // ──────────────────────────────────────────────────────────────────────────────
 
-/** Motivos de liberación inmediata (no TTL) que acepta `liberarReservasTx()`. */
-export type MotivoLiberacionInmediata = "PAGO_RECHAZADO";
+/** Motivos de liberación inmediata (no TTL) que acepta `liberarReservasTx()`.
+ * HU-E7: `ANULACION_ORDEN` = anulación de una orden web no abonada (manual o por TTL). */
+export type MotivoLiberacionInmediata = "PAGO_RECHAZADO" | "ANULACION_ORDEN";
 
 /**
  * HU-E2 (CA7) — Libera YA, dentro del `tx` del llamador, las reservas indicadas

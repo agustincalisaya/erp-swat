@@ -104,3 +104,25 @@ export const BajaContenidoWebSchema = z.object(
   CUERPO_OBJETO,
 ).strict(CAMPOS_NO_PERMITIDOS);
 export type BajaContenidoWebInput = z.infer<typeof BajaContenidoWebSchema>;
+
+// ──────────────────────────────────────────────────────────────────────────────
+// HU-E7 §2.7 — anulación manual de orden web no abonada (task_relos.md D12)
+// ──────────────────────────────────────────────────────────────────────────────
+
+/** `[id]` de la ruta = `pedido_venta_id` (UUID de `PedidoVenta`, D1). */
+export const PedidoVentaIdSchema = z.string().uuid("El identificador del pedido es inválido");
+
+/** Motivo obligatorio (criterio 3); el actor sale siempre de la sesión. Sin tope de largo (decisión de Adriel). */
+export const AnularOrdenNoAbonadaSchema = z.object(
+  {
+    deletion_reason: z
+      .string({
+        required_error: "El motivo de anulación es obligatorio",
+        invalid_type_error: "El motivo de anulación debe ser texto",
+      })
+      .trim()
+      .min(1, "El motivo de anulación es obligatorio"),
+  },
+  CUERPO_OBJETO,
+).strict(CAMPOS_NO_PERMITIDOS);
+export type AnularOrdenNoAbonadaInput = z.infer<typeof AnularOrdenNoAbonadaSchema>;
