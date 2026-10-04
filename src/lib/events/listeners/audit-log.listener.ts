@@ -764,10 +764,14 @@ export function iniciarAuditLogListener(): void {
   // queda null y la cuenta viaja en `valor_nuevo` (mismo criterio que los
   // eventos disparados por el cron). Las mutaciones anónimas de ítems no se
   // auditan (D8, aprobada).
+  // HU-E5 (task_relos.md D6/D12/D13): el mismo evento lo emite el aviso
+  // proactivo al ocultar o dar de baja el contenido web; ahí no es un bloqueo
+  // de checkout. Sin `origen` (o "CHECKOUT") el asiento queda igual que en E1.
   domainEventBus.on("ecommerce:carrito_articulo_no_disponible", (payload) => {
-    void registrarAuditLog({
+    const porVisibilidad = payload.origen === "VISIBILIDAD_WEB";
+    registrarAuditLog({
       usuario_id: null,
-      accion: "CHECKOUT_BLOQUEADO",
+      accion: porVisibilidad ? "ARTICULO_NO_DISPONIBLE_VISIBILIDAD_WEB" : "CHECKOUT_BLOQUEADO",
       tabla_afectada: "items_carrito_web",
       registro_id: payload.carrito_item_id,
       ip: "internal-event",
@@ -777,7 +781,13 @@ export function iniciarAuditLogListener(): void {
         variante_sku_id: payload.variante_sku_id,
         motivo: payload.motivo,
         cliente_web_cuenta_id: payload.cliente_web_cuenta_id,
+        ...(porVisibilidad ? { origen: payload.origen } : {}),
       },
+    }).catch((error: unknown) => {
+      console.error("[audit-log.listener] Falló la escritura de auditoría para ecommerce:carrito_articulo_no_disponible:", {
+        carrito_item_id: payload.carrito_item_id,
+        codigo_error: codigoDiagnosticoAuditoria(error),
+      });
     });
   });
 
@@ -960,6 +970,51 @@ export function iniciarAuditLogListener(): void {
       console.error("[audit-log.listener] Falló la escritura de auditoría para ecommerce:cupon_aplicacion_liberada:", {
         aplicacion_id: payload.aplicacion_id,
         pedido_venta_id: payload.pedido_venta_id,
+        codigo_error: codigoDiagnosticoAuditoria(error),
+      });
+    });
+  });
+
+  // ── HU-E5 (Módulo E) — visibilidad web y baja lógica del contenido (spec E
+  // §2.5). El actor es siempre un Usuario del ERP (Administrador E-commerce).
+  domainEventBus.on("ecommerce:visibilidad_web_cambiada", (payload) => {
+    registrarAuditLog({
+      usuario_id: payload.actor_id,
+      accion: "ecommerce:visibilidad_web_cambiada",
+      tabla_afectada: "contenidos_producto_web",
+      registro_id: payload.producto_web_id,
+      ip: "internal-event",
+      valor_anterior: { visibilidad_web: payload.visibilidad_anterior },
+      valor_nuevo: {
+        visibilidad_web: payload.visibilidad_nueva,
+        motivo: payload.motivo,
+        producto_maestro_id: payload.producto_maestro_id,
+      },
+    }).catch((error: unknown) => {
+      console.error("[audit-log.listener] Falló la escritura de auditoría para ecommerce:visibilidad_web_cambiada:", {
+        producto_web_id: payload.producto_web_id,
+        codigo_error: codigoDiagnosticoAuditoria(error),
+      });
+    });
+  });
+  domainEventBus.on("ecommerce:contenido_web_baja", (payload) => {
+    registrarAuditLog({
+      usuario_id: payload.actor_id,
+      accion: "ecommerce:contenido_web_baja",
+      tabla_afectada: "contenidos_producto_web",
+      registro_id: payload.producto_web_id,
+      ip: "internal-event",
+      valor_anterior: { is_active: true },
+      valor_nuevo: {
+        is_active: false,
+        deleted_by: payload.actor_id,
+        deletion_reason: payload.deletion_reason,
+        visibilidad_web: false,
+        producto_maestro_id: payload.producto_maestro_id,
+      },
+    }).catch((error: unknown) => {
+      console.error("[audit-log.listener] Falló la escritura de auditoría para ecommerce:contenido_web_baja:", {
+        producto_web_id: payload.producto_web_id,
         codigo_error: codigoDiagnosticoAuditoria(error),
       });
     });

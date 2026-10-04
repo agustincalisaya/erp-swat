@@ -1029,6 +1029,35 @@ export interface CarritoArticuloNoDisponiblePayload {
   sku: string;
   motivo: MotivoArticuloNoDisponible;
   cliente_web_cuenta_id: string | null;
+  /**
+   * HU-E5 (task_relos.md D6) — quién lo disparó: un checkout bloqueado o el
+   * aviso proactivo al ocultar / dar de baja el contenido web. Ausente =
+   * `"CHECKOUT"` (retrocompatible con HU-E1).
+   */
+  origen?: OrigenArticuloNoDisponible;
+}
+
+export type OrigenArticuloNoDisponible = "CHECKOUT" | "VISIBILIDAD_WEB";
+
+/**
+ * HU-E5 (spec_modulo_E.md §2.5) — cambio de `ProductoWebContenido.visibilidad_web`
+ * (UPDATE reversible). Solo se emite si el valor cambió (D2). Sin PII.
+ */
+export interface VisibilidadWebCambiadaPayload {
+  producto_web_id: string;
+  producto_maestro_id: string;
+  visibilidad_anterior: boolean;
+  visibilidad_nueva: boolean;
+  motivo: string | null;
+  actor_id: string;
+}
+
+/** HU-E5 (criterio 3, D1) — baja lógica del contenido web. Sin PII. */
+export interface ContenidoWebBajaPayload {
+  producto_web_id: string;
+  producto_maestro_id: string;
+  deletion_reason: string;
+  actor_id: string;
 }
 
 /** HU-E1 (CA7) — fusión del carrito de visitante en el de la cuenta, al iniciar sesión. */
@@ -1391,6 +1420,10 @@ export interface DomainEventMap {
   "ecommerce:cupon_consumido": CuponConsumidoPayload;
   /** HU-E4: aplicación pendiente dada de baja por rechazo del pago o vencimiento del pedido. */
   "ecommerce:cupon_aplicacion_liberada": CuponAplicacionLiberadaPayload;
+  /** HU-E5: se emite tras el commit de un cambio real de visibilidad web (ocultar/mostrar). */
+  "ecommerce:visibilidad_web_cambiada": VisibilidadWebCambiadaPayload;
+  /** HU-E5: se emite tras el commit de la baja lógica del contenido web. */
+  "ecommerce:contenido_web_baja": ContenidoWebBajaPayload;
   /** HU-F2: se emite tras el alta de una PlantillaNotificacion. */
   "notificacion_plantilla:creada": NotificacionPlantillaCreadaPayload;
   /** HU-F2: se emite tras editar la redacción de una PlantillaNotificacion. */
@@ -1491,6 +1524,8 @@ export const TIPOS_EVENTO_DOMINIO = [
   "ecommerce:cupon_aplicado",
   "ecommerce:cupon_consumido",
   "ecommerce:cupon_aplicacion_liberada",
+  "ecommerce:visibilidad_web_cambiada",
+  "ecommerce:contenido_web_baja",
   "notificacion_plantilla:creada",
   "notificacion_plantilla:actualizada",
   "notificacion_plantilla:baja_logica",

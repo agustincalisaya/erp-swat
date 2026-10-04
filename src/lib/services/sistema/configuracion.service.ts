@@ -21,6 +21,8 @@ export const CLAVE_ECOMMERCE_DEPOSITO_CANAL_WEB_ID = "ECOMMERCE_DEPOSITO_CANAL_W
 export const CLAVE_ECOMMERCE_CHECKOUT_TTL_HORAS = "ECOMMERCE_CHECKOUT_TTL_HORAS";
 export const CLAVE_ECOMMERCE_CUENTA_WEB_MAX_INTENTOS = "ECOMMERCE_CUENTA_WEB_MAX_INTENTOS";
 export const CLAVE_ECOMMERCE_CUENTA_WEB_BLOQUEO_MINUTOS = "ECOMMERCE_CUENTA_WEB_BLOQUEO_MINUTOS";
+/** HU-E5 (task_relos.md D4): días sin actividad tras los que un carrito se da de baja. */
+export const CLAVE_ECOMMERCE_CARRITO_ABANDONADO_DIAS = "ECOMMERCE_CARRITO_ABANDONADO_DIAS";
 
 export interface ConfiguracionValor {
   clave: string;
@@ -94,4 +96,8 @@ export async function obtenerMaxIntentosCuentaWeb(): Promise<number> {
 
 export async function obtenerBloqueoMinutosCuentaWeb(): Promise<number> {
   return obtenerEnteroPositivo(CLAVE_ECOMMERCE_CUENTA_WEB_BLOQUEO_MINUTOS);
+}
+
+export async function obtenerPlazoCarritoAbandonadoDias(): Promise<number> {
+  return obtenerEnteroPositivo(CLAVE_ECOMMERCE_CARRITO_ABANDONADO_DIAS);
 }

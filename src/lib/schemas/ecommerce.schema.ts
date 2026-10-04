@@ -60,3 +60,47 @@ export const IniciarCheckoutSchema = z
   })
   .strict();
 export type IniciarCheckoutInput = z.infer<typeof IniciarCheckoutSchema>;
+
+// ──────────────────────────────────────────────────────────────────────────────
+// HU-E5 §2.5 — visibilidad web y baja lógica del contenido (task_relos.md D1)
+// ──────────────────────────────────────────────────────────────────────────────
+
+/** Body ausente, `null`, array o no-JSON (`leerJson` lo convierte en `null`). */
+const CUERPO_OBJETO = {
+  required_error: "El cuerpo debe ser un objeto JSON",
+  invalid_type_error: "El cuerpo debe ser un objeto JSON",
+};
+
+/** Cualquier campo desconocido (incluido el actor) es 400, mismo criterio que HU-E4. */
+const CAMPOS_NO_PERMITIDOS = "El cuerpo contiene campos no permitidos";
+
+/** Ocultar/mostrar en la tienda: UPDATE reversible, motivo opcional (spec §2.5). */
+export const CambiarVisibilidadWebSchema = z.object(
+  {
+    visibilidad_web: z.boolean({
+      required_error: "La visibilidad web es obligatoria",
+      invalid_type_error: "La visibilidad web debe ser verdadero o falso",
+    }),
+    motivo: z
+      .string({ invalid_type_error: "El motivo debe ser texto" })
+      .trim()
+      .min(1, "El motivo no puede estar vacío")
+      .max(500, "El motivo admite hasta 500 caracteres")
+      .optional(),
+  },
+  CUERPO_OBJETO,
+).strict(CAMPOS_NO_PERMITIDOS);
+export type CambiarVisibilidadWebInput = z.infer<typeof CambiarVisibilidadWebSchema>;
+
+/** Baja lógica del contenido web (criterio 3): motivo obligatorio. */
+export const BajaContenidoWebSchema = z.object(
+  {
+    deletion_reason: z
+      .string({ required_error: "El motivo de baja es obligatorio", invalid_type_error: "El motivo de baja debe ser texto" })
+      .trim()
+      .min(1, "El motivo de baja es obligatorio")
+      .max(500, "El motivo de baja admite hasta 500 caracteres"),
+  },
+  CUERPO_OBJETO,
+).strict(CAMPOS_NO_PERMITIDOS);
+export type BajaContenidoWebInput = z.infer<typeof BajaContenidoWebSchema>;
