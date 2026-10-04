@@ -1063,6 +1063,55 @@ export interface ContenidoWebBajaPayload {
   actor_id: string;
 }
 
+/** HU-E11 (spec E §2.11/§4, task_relos.md D25) — alta del contenido web. Sin PII. */
+export interface ContenidoWebCreadoPayload {
+  producto_web_id: string;
+  producto_maestro_id: string;
+  titulo_comercial: string;
+  descripcion: string;
+  actor_id: string;
+}
+
+/** HU-E11 (D25) — edición del contenido web: solo los campos que cambiaron. */
+export interface ContenidoWebEditadoPayload {
+  producto_web_id: string;
+  producto_maestro_id: string;
+  antes: { titulo_comercial?: string; descripcion?: string };
+  despues: { titulo_comercial?: string; descripcion?: string };
+  actor_id: string;
+}
+
+/** HU-E11 (D25) — foto subida. `principal_anterior_id`: la que dejó de ser principal en la misma transacción. */
+export interface FotoWebSubidaPayload {
+  foto_id: string;
+  producto_web_id: string;
+  url: string;
+  formato: "JPG" | "PNG" | "WEBP";
+  tamano_bytes: number;
+  es_principal: boolean;
+  orden: number;
+  principal_anterior_id: string | null;
+  actor_id: string;
+}
+
+/** HU-E11 (D25) — una foto pasa a ser la principal del contenido. */
+export interface FotoWebPrincipalCambiadaPayload {
+  foto_id: string;
+  producto_web_id: string;
+  principal_anterior_id: string | null;
+  actor_id: string;
+}
+
+/** HU-E11 (D25) — baja lógica de una foto. `principal_promovida_id`: la que pasó a principal en la misma transacción. */
+export interface FotoWebBajaPayload {
+  foto_id: string;
+  producto_web_id: string;
+  deletion_reason: string;
+  era_principal: boolean;
+  principal_promovida_id: string | null;
+  actor_id: string;
+}
+
 /**
  * HU-E7 (spec E §2.7/§4) — evento sensible: orden web no abonada anulada,
  * manual (Administrador E-commerce) o automática por vencimiento de reserva.
@@ -1439,6 +1488,16 @@ export interface DomainEventMap {
   "ecommerce:visibilidad_web_cambiada": VisibilidadWebCambiadaPayload;
   /** HU-E5: se emite tras el commit de la baja lógica del contenido web. */
   "ecommerce:contenido_web_baja": ContenidoWebBajaPayload;
+  /** HU-E11: tras el commit del alta del contenido web. */
+  "ecommerce:contenido_web_creado": ContenidoWebCreadoPayload;
+  /** HU-E11: tras el commit de una edición real (un no-op no emite). */
+  "ecommerce:contenido_web_editado": ContenidoWebEditadoPayload;
+  /** HU-E11: tras el commit del alta de una foto. */
+  "ecommerce:foto_web_subida": FotoWebSubidaPayload;
+  /** HU-E11: tras el commit de un cambio real de foto principal (un no-op no emite). */
+  "ecommerce:foto_web_principal_cambiada": FotoWebPrincipalCambiadaPayload;
+  /** HU-E11: tras el commit de la baja lógica de una foto. */
+  "ecommerce:foto_web_baja": FotoWebBajaPayload;
   /** HU-E7: se emite tras el commit de la anulación de una orden web no abonada (manual o por TTL). */
   "ecommerce:orden_anulada": OrdenAnuladaPayload;
   /** HU-F2: se emite tras el alta de una PlantillaNotificacion. */
@@ -1543,6 +1602,11 @@ export const TIPOS_EVENTO_DOMINIO = [
   "ecommerce:cupon_aplicacion_liberada",
   "ecommerce:visibilidad_web_cambiada",
   "ecommerce:contenido_web_baja",
+  "ecommerce:contenido_web_creado",
+  "ecommerce:contenido_web_editado",
+  "ecommerce:foto_web_subida",
+  "ecommerce:foto_web_principal_cambiada",
+  "ecommerce:foto_web_baja",
   "ecommerce:orden_anulada",
   "notificacion_plantilla:creada",
   "notificacion_plantilla:actualizada",

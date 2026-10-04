@@ -15,6 +15,7 @@ import "server-only";
 
 import { prisma } from "@/lib/db/prisma";
 import { ServiceError } from "@/lib/errors/service-error";
+import { FORMATOS_IMAGEN_CONOCIDOS, type FormatoImagen } from "@/lib/services/ecommerce/validacion-imagen";
 
 /** Claves sembradas para Sprint 4 (spec_modulo_D.md §6.2). */
 export const CLAVE_ECOMMERCE_DEPOSITO_CANAL_WEB_ID = "ECOMMERCE_DEPOSITO_CANAL_WEB_ID";
@@ -23,6 +24,10 @@ export const CLAVE_ECOMMERCE_CUENTA_WEB_MAX_INTENTOS = "ECOMMERCE_CUENTA_WEB_MAX
 export const CLAVE_ECOMMERCE_CUENTA_WEB_BLOQUEO_MINUTOS = "ECOMMERCE_CUENTA_WEB_BLOQUEO_MINUTOS";
 /** HU-E5 (task_relos.md D4): días sin actividad tras los que un carrito se da de baja. */
 export const CLAVE_ECOMMERCE_CARRITO_ABANDONADO_DIAS = "ECOMMERCE_CARRITO_ABANDONADO_DIAS";
+/** HU-E11 (task_relos.md D3, D21): fotos del contenido web. */
+export const CLAVE_ECOMMERCE_FOTOS_MAX_POR_PRODUCTO = "ECOMMERCE_FOTOS_MAX_POR_PRODUCTO";
+export const CLAVE_ECOMMERCE_FOTO_TAMANO_MAX_MB = "ECOMMERCE_FOTO_TAMANO_MAX_MB";
+export const CLAVE_ECOMMERCE_FOTO_FORMATOS_PERMITIDOS = "ECOMMERCE_FOTO_FORMATOS_PERMITIDOS";
 
 export interface ConfiguracionValor {
   clave: string;
@@ -100,4 +105,33 @@ export async function obtenerBloqueoMinutosCuentaWeb(): Promise<number> {
 
 export async function obtenerPlazoCarritoAbandonadoDias(): Promise<number> {
   return obtenerEnteroPositivo(CLAVE_ECOMMERCE_CARRITO_ABANDONADO_DIAS);
+}
+
+/** HU-E11 — N, máximo de fotos activas por contenido web. */
+export async function obtenerFotosMaxPorProducto(): Promise<number> {
+  return obtenerEnteroPositivo(CLAVE_ECOMMERCE_FOTOS_MAX_POR_PRODUCTO);
+}
+
+/** HU-E11 — tamaño máximo por foto, en bytes (la clave está en MB: × 1024 × 1024, D21). */
+export async function obtenerFotoTamanoMaxBytes(): Promise<number> {
+  return (await obtenerEnteroPositivo(CLAVE_ECOMMERCE_FOTO_TAMANO_MAX_MB)) * 1024 * 1024;
+}
+
+/**
+ * HU-E11 — formatos admitidos, CSV (ej. `"JPG,PNG,WEBP"`). Un formato
+ * desconocido o una lista vacía es `CONFIGURACION_INVALIDA` (D21).
+ *
+ * @throws {ServiceError} CONFIGURACION_NO_ENCONTRADA | CONFIGURACION_INVALIDA
+ */
+export async function obtenerFotoFormatosPermitidos(): Promise<FormatoImagen[]> {
+  const { valor } = await obtenerConfiguracion(CLAVE_ECOMMERCE_FOTO_FORMATOS_PERMITIDOS);
+  const formatos = valor.split(",").map((f) => f.trim().toUpperCase()).filter((f) => f !== "");
+  const conocidos: readonly string[] = FORMATOS_IMAGEN_CONOCIDOS;
+  if (formatos.length === 0 || formatos.some((f) => !conocidos.includes(f))) {
+    throw new ServiceError(
+      "CONFIGURACION_INVALIDA",
+      `${CLAVE_ECOMMERCE_FOTO_FORMATOS_PERMITIDOS} debe ser una lista de ${FORMATOS_IMAGEN_CONOCIDOS.join(", ")} (valor actual: "${valor}")`,
+    );
+  }
+  return [...new Set(formatos)] as FormatoImagen[];
 }

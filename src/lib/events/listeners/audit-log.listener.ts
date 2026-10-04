@@ -1020,6 +1020,89 @@ export function iniciarAuditLogListener(): void {
     });
   });
 
+  // ── HU-E11 (Módulo E) — contenido comercial y fotos del catálogo (spec E
+  // §2.11/§4, task_relos.md D25). Actor: Usuario del ERP (Administrador
+  // E-commerce). El cambio colateral de principal viaja en el payload.
+  const fallaAuditoriaE11 = (evento: string, registroId: string) => (error: unknown) => {
+    console.error(`[audit-log.listener] Falló la escritura de auditoría para ${evento}:`, {
+      registro_id: registroId,
+      codigo_error: codigoDiagnosticoAuditoria(error),
+    });
+  };
+  domainEventBus.on("ecommerce:contenido_web_creado", (payload) => {
+    registrarAuditLog({
+      usuario_id: payload.actor_id,
+      accion: "ecommerce:contenido_web_creado",
+      tabla_afectada: "contenidos_producto_web",
+      registro_id: payload.producto_web_id,
+      ip: "internal-event",
+      valor_anterior: null,
+      valor_nuevo: {
+        producto_maestro_id: payload.producto_maestro_id,
+        titulo_comercial: payload.titulo_comercial,
+        descripcion: payload.descripcion,
+        visibilidad_web: false,
+      },
+    }).catch(fallaAuditoriaE11("ecommerce:contenido_web_creado", payload.producto_web_id));
+  });
+  domainEventBus.on("ecommerce:contenido_web_editado", (payload) => {
+    registrarAuditLog({
+      usuario_id: payload.actor_id,
+      accion: "ecommerce:contenido_web_editado",
+      tabla_afectada: "contenidos_producto_web",
+      registro_id: payload.producto_web_id,
+      ip: "internal-event",
+      valor_anterior: payload.antes,
+      valor_nuevo: payload.despues,
+    }).catch(fallaAuditoriaE11("ecommerce:contenido_web_editado", payload.producto_web_id));
+  });
+  domainEventBus.on("ecommerce:foto_web_subida", (payload) => {
+    registrarAuditLog({
+      usuario_id: payload.actor_id,
+      accion: "ecommerce:foto_web_subida",
+      tabla_afectada: "fotos_producto_web",
+      registro_id: payload.foto_id,
+      ip: "internal-event",
+      valor_anterior: null,
+      valor_nuevo: {
+        producto_web_id: payload.producto_web_id,
+        url: payload.url,
+        formato: payload.formato,
+        tamano_bytes: payload.tamano_bytes,
+        es_principal: payload.es_principal,
+        orden: payload.orden,
+        principal_anterior_id: payload.principal_anterior_id,
+      },
+    }).catch(fallaAuditoriaE11("ecommerce:foto_web_subida", payload.foto_id));
+  });
+  domainEventBus.on("ecommerce:foto_web_principal_cambiada", (payload) => {
+    registrarAuditLog({
+      usuario_id: payload.actor_id,
+      accion: "ecommerce:foto_web_principal_cambiada",
+      tabla_afectada: "fotos_producto_web",
+      registro_id: payload.foto_id,
+      ip: "internal-event",
+      valor_anterior: { es_principal: false, principal_anterior_id: payload.principal_anterior_id },
+      valor_nuevo: { es_principal: true },
+    }).catch(fallaAuditoriaE11("ecommerce:foto_web_principal_cambiada", payload.foto_id));
+  });
+  domainEventBus.on("ecommerce:foto_web_baja", (payload) => {
+    registrarAuditLog({
+      usuario_id: payload.actor_id,
+      accion: "ecommerce:foto_web_baja",
+      tabla_afectada: "fotos_producto_web",
+      registro_id: payload.foto_id,
+      ip: "internal-event",
+      valor_anterior: { is_active: true, es_principal: payload.era_principal },
+      valor_nuevo: {
+        is_active: false,
+        deleted_by: payload.actor_id,
+        deletion_reason: payload.deletion_reason,
+        principal_promovida_id: payload.principal_promovida_id,
+      },
+    }).catch(fallaAuditoriaE11("ecommerce:foto_web_baja", payload.foto_id));
+  });
+
   // ── HU-E7 (Módulo E) — anulación de orden web no abonada (spec E §2.7/§4),
   // evento sensible encadenado SHA-256. Manual: el Administrador E-commerce.
   // Automática por TTL: `usuario_id` null (actor de sistema, mismo criterio que

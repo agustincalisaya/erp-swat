@@ -2340,6 +2340,8 @@ model ProductoWebFoto {
   deletion_reason String?
 
   created_at DateTime @default(now())
+  /// HU-E11 (RULES Regla 1): faltaba; las filas previas toman CURRENT_TIMESTAMP.
+  updated_at DateTime @default(now()) @updatedAt
 
   // --- Relaciones ---
   producto_web_contenido ProductoWebContenido @relation(fields: [producto_web_contenido_id], references: [id], onDelete: Restrict)

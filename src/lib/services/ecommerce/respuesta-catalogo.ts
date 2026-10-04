@@ -12,6 +12,14 @@ import { ProductoWebIdSchema } from "@/lib/schemas/ecommerce.schema";
 
 const STATUS_POR_CODIGO: Record<string, number> = {
   PRODUCTO_WEB_NO_ENCONTRADO: 404,
+  // HU-E11 (task_relos.md D22, D23): contenido y fotos del catálogo.
+  PRODUCTO_MAESTRO_NO_ENCONTRADO: 404,
+  FOTO_WEB_NO_ENCONTRADA: 404,
+  CONTENIDO_WEB_EXISTENTE: 409,
+  LIMITE_FOTOS_ALCANZADO: 409,
+  ARCHIVO_VACIO: 422,
+  ARCHIVO_DEMASIADO_GRANDE: 422,
+  FORMATO_IMAGEN_NO_ADMITIDO: 422,
 };
 
 export function respuestaOkCatalogo<T>(data: T): NextResponse {
