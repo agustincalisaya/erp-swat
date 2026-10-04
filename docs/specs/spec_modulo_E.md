@@ -1,5 +1,6 @@
 # Especificación Técnica — Módulo E (E-commerce / Tienda Online)
 ## ERP SWAT Indumentarias — Sprint 4
+## Revisión 6 — HU-E11 (Contenido comercial y búsqueda del catálogo online), 04/10/2026: contrato sincronizado con la implementación. Revisión aditiva: se agregan §2.11.a–§2.11.g, la extensión de eventos de la sección 4 y las notas Rev.6 de la sección 5. El contenido de §2.11 Rev.1 y de las Revisiones 1–5 se conserva íntegro; ninguna sección se renumera.
 ## Revisión 5 — HU-E7 (Anulación manual de orden web no abonada), 04/10/2026: contrato sincronizado con la implementación. Revisión aditiva: se agregan §2.7.a–§2.7.d, la extensión de eventos de la sección 4 y la nota Rev.5 de la sección 5. El contenido de §2.7 Rev.1, de §3.1 y de las Revisiones 1–4 se conserva íntegro; ninguna sección se renumera.
 ## Revisión 4 — HU-E5 (Visibilidad web independiente del inventario físico), 04/10/2026: contrato sincronizado con la implementación. Revisión aditiva: se agregan §2.5.a–§2.5.e, la extensión de eventos de la sección 4 y la nota Rev.4 de la sección 5. El contenido de §2.5 Rev.1 y de las Revisiones 1–3 se conserva íntegro; ninguna sección se renumera.
 ## Revisión 3 — HU-E4 (Cupones de descuento), 03/10/2026: contrato cerrado y sincronizado con implementación y re-verify independiente. Revisión aditiva: se agregan §2.4.a–§2.4.e, §3.8, eventos y exclusiones E4; se anota la sustitución de §2.4 Rev.1 y la integración con §2.2. Se conserva íntegro el contenido anterior, incluida HU-E8 Rev.2, sin renumerar otras HUs.
@@ -913,6 +914,108 @@ model ProductoWebFoto {
 { "data": { "producto_web_id": "uuid", "producto_maestro_id": "uuid", "visibilidad_web": false }, "error": null }
 ```
 
+### 2.11.a. Interfaces (Revisión 6 — HU-E11)
+
+**Parámetro de ruta:** donde §2.11 escribe `[id]` se usa `[producto_web_id]`: HU-E5 ya creó ese segmento en la misma carpeta y Next.js no admite dos nombres de segmento dinámico en el mismo nivel. Es una aclaración, no un cambio de contrato.
+**Server Actions:** no se implementaron (mismo desvío que §2.5.b y §2.7.a, a validar por el equipo): la pantalla `/ecommerce/catalogo` llama a los Route Handlers y lee el listado desde el Server Component.
+**Permiso:** `ecommerce:gestionar_catalogo` vía `withPermission` en las cuatro rutas del backoffice; el actor sale de la sesión.
+
+| Método | Ruta | Body | Éxito |
+|---|---|---|---|
+| POST | `/api/ecommerce/catalogo` | `{ producto_maestro_id, titulo_comercial, descripcion }` | 201 `{ producto_web_id, producto_maestro_id, visibilidad_web: false }` |
+| PATCH | `/api/ecommerce/catalogo/[producto_web_id]` | `{ titulo_comercial?, descripcion? }` (al menos uno) | 200 `{ producto_web_id, titulo_comercial, descripcion, visibilidad_web }` |
+| POST | `/api/ecommerce/catalogo/[producto_web_id]/fotos` | `multipart/form-data`: `archivo` (File, único) y `es_principal` opcional (`"true"`/`"false"`) | 201 `{ foto_id, producto_web_id, url, es_principal, orden, is_active, deleted_at }` |
+| PATCH | `/api/ecommerce/catalogo/[producto_web_id]/fotos/[foto_id]` | `{ es_principal: true }` **o** `{ deletion_reason }` | 200 con la foto en su estado final |
+| GET | `/api/tienda/fotos/[archivo]` (público, sin sesión) | — | la imagen |
+| GET | `/api/tienda/catalogo` (ampliado) | query `q`, `categoria`, `talle`, `color`, `genero`, `modelo`, `orden`, `page`, `page_size` | 200, formato de E1 + bloque `filtros` |
+
+La baja lógica del contenido **no** es una ruta nueva: es `PATCH …/[producto_web_id]/baja` de HU-E5 (`darDeBajaContenidoWeb()`), reutilizada sin cambios.
+
+```typescript
+// src/lib/schemas/ecommerce.schema.ts — bodies estrictos (campo extra → 400), textos con trim
+export const CrearContenidoWebSchema = z.object({
+  producto_maestro_id: z.string().uuid(),
+  titulo_comercial: z.string().trim().min(1),
+  descripcion: z.string().trim().min(1),
+}).strict();
+export const EditarContenidoWebSchema = z.object({
+  titulo_comercial: z.string().trim().min(1).optional(),
+  descripcion: z.string().trim().min(1).optional(),
+}).strict().refine((v) => v.titulo_comercial !== undefined || v.descripcion !== undefined);
+// Desvío de §2.11: además de una URL absoluta acepta una ruta que empieza con "/"
+// (el Adapter local guarda `/api/tienda/fotos/<uuid>.<ext>`). Valida el resultado
+// YA resuelto por el Gateway, nunca lo que manda el cliente.
+export const SubirFotoProductoSchema = z.object({
+  url: z.union([z.string().url(), z.string().regex(/^\/(?!\/)\S+$/)]),
+  es_principal: z.boolean().default(false),
+});
+// Exactamente una operación (equivale a un union de dos objetos estrictos).
+export const ActualizarFotoWebSchema = z.object({
+  es_principal: z.literal(true).optional(),
+  deletion_reason: z.string().trim().min(1).optional(),
+}).strict().superRefine(/* exactamente una de las dos */);
+```
+
+### 2.11.b. Almacenamiento de fotos (Revisión 6 — HU-E11)
+
+§5 dejaba el mecanismo fuera de alcance; sin recibir el archivo no se pueden validar formato ni tamaño (criterio 2), así que HU-E11 lo resuelve con un **Gateway de almacenamiento de imágenes** propio del dominio (`almacenamiento-imagenes.gateway.ts`, Regla N.° 3) y un **Adapter de disco local** (`almacenamiento-imagenes.local.adapter.ts`). Pendiente de validar con el equipo.
+
+- El servidor valida el **formato real por firma de bytes** (JPEG `FF D8 FF`, PNG `89 50 4E 47 0D 0A 1A 0A`, WebP `RIFF????WEBP`), nunca por la extensión ni por el `Content-Type` del cliente, y el **tamaño real** (`validacion-imagen.ts`, puro).
+- El directorio sale de `CATALOGO_FOTOS_DIR` (relativo al proceso o absoluto); sin valor por defecto: si falta, las rutas de fotos responden 500. El nombre lo genera el servidor (`randomUUID()` + extensión del formato detectado); el nombre que manda el cliente nunca se usa. La escritura no sobrescribe (`wx`).
+- `ProductoWebFoto.url` guarda la ruta relativa `/api/tienda/fotos/<uuid>.<ext>`.
+- Ruta pública `GET /api/tienda/fotos/[archivo]`: `archivo` debe cumplir `^<uuid>\.(jpg|png|webp)$` y la ruta resuelta debe quedar dentro del directorio (sin path traversal); `Content-Type` por extensión, `Cache-Control: public, max-age=31536000, immutable`, `X-Content-Type-Options: nosniff`, sin sesión. No consulta la base: una foto dada de baja se sigue sirviendo (contenido comercial, nombre no adivinable; la tienda deja de referenciarla).
+- **Tope de memoria del multipart:** los Route Handlers no tienen límite de body por defecto. Antes de parsear, un `Content-Length` mayor que máximo + 64 KB responde 422 sin leer el cuerpo (con `Connection: close`); sin `Content-Length` se lee el stream con ese tope. El tamaño real del archivo se valida igual.
+- **Archivos físicos:** nunca se borran (política del módulo coherente con la baja lógica). Si la transacción falla después de guardar, el archivo queda huérfano y se registra en el log (solo el nombre generado); la limpieza queda pendiente (§5).
+- Un proveedor en la nube (S3, Vercel Blob u otro) es un Adapter nuevo, sin cambios en el dominio.
+
+### 2.11.c. Configuración (Revisión 6 — HU-E11)
+
+Tres claves nuevas de módulo `E`, sembradas con `upsert` y `update: {}`, con getter tipado en `configuracion.service.ts` que falla con `CONFIGURACION_INVALIDA` ante un valor inválido. Valores pendientes de validar con el PO; `spec_modulo_D.md` §6.2 no se edita desde acá.
+
+| Clave | Valor sembrado | Getter |
+|---|---|---|
+| `ECOMMERCE_FOTOS_MAX_POR_PRODUCTO` | `8` | `obtenerFotosMaxPorProducto()` — entero positivo |
+| `ECOMMERCE_FOTO_TAMANO_MAX_MB` | `5` | `obtenerFotoTamanoMaxBytes()` — entero positivo × 1024 × 1024 |
+| `ECOMMERCE_FOTO_FORMATOS_PERMITIDOS` | `JPG,PNG,WEBP` | `obtenerFotoFormatosPermitidos()` — CSV, subconjunto no vacío de JPG/PNG/WEBP |
+
+### 2.11.d. Reglas de contenido y fotos (Revisión 6 — HU-E11)
+
+- **Alta:** una fila por Producto Maestro; el Producto Maestro debe existir y estar activo (si no, `404 PRODUCTO_MAESTRO_NO_ENCONTRADO`). Si ya hay contenido, **activo o dado de baja**, `409 CONTENIDO_WEB_EXISTENTE` (sin reactivación; dos altas concurrentes: una 201 y una 409 por el índice único). Nace con `visibilidad_web = false`; mostrarlo es la operación de §2.5.
+- **Edición:** solo `titulo_comercial` y/o `descripcion`; un contenido dado de baja responde `404 PRODUCTO_WEB_NO_ENCONTRADO`. Pedir los valores actuales es un no-op (200 sin UPDATE ni evento).
+- **Fotos:** toda operación toma `SELECT … FOR UPDATE` sobre la fila del contenido activo, que serializa las subidas concurrentes y los cambios de principal (no hay índice parcial en la base). Como máximo N fotos **activas** (una baja libera un lugar; N+1 subidas en paralelo dejan exactamente N). Cada foto nueva va al final (`orden` = máximo activo + 1). La primera foto activa queda principal; `es_principal = true` en la subida o en el PATCH desmarca la anterior en la misma transacción. Dar de baja la principal promueve a la activa de menor `orden`. Marcar como principal la que ya lo es: no-op.
+- **Baja de foto:** `is_active = false`, `deleted_at`, `deleted_by` (actor), `deletion_reason` obligatorio. Una foto ya dada de baja, inexistente o de otro contenido responde `404 FOTO_WEB_NO_ENCONTRADA`. Las fotos no se dan de baja en cascada al dar de baja el contenido (quedan inaccesibles: toda operación exige contenido activo). Dar de baja la última foto de un contenido visible no avisa a los carritos (§2.1 solo lo pide al ocultar o dar de baja el contenido; el checkout ya bloquea con `ARTICULO_NO_DISPONIBLE`).
+- **Modelo:** `ProductoWebFoto` agrega `updated_at DateTime @default(now()) @updatedAt` (faltaba según RULES Regla 1). Migración aditiva `20261004211846_hu_e11_foto_web_updated_at`: una sola columna `NOT NULL DEFAULT CURRENT_TIMESTAMP`.
+- **Independencia (criterio 6):** ninguna operación lee ni escribe `VarianteSKU`, `StockDeposito`, `Reserva` ni Módulo B; el Producto Maestro solo se lee para validar el alta.
+
+### 2.11.e. Publicación y detalle (Revisión 6 — HU-E11)
+
+- `evaluarComprabilidad()` y `whereContenidoPublicado` (HU-E1) ya exigían foto activa, descripción, precio vigente y `visibilidad_web = true`: **no se modificaron**. Matiz documentado: un producto visible, con foto y descripción pero sin ningún SKU con precio vigente **se lista** y su detalle se muestra como "No disponible para la compra" (lo exige `hu-e1.integration.test.ts`); no aparece como comprable, que es la definición de "publicado" de §2.11. Una descripción de solo espacios no puede nacer por el alta ni la edición (`trim().min(1)`).
+- El detalle de HU-E1 ya cumplía el criterio 4 (todas las fotos activas con la principal primero, descripción, precio vigente por variante y selector con disponibilidad leída en cada request). Sin cambios; verificado con tests.
+
+### 2.11.f. Listado de la tienda (Revisión 6 — HU-E11)
+
+- `ListarCatalogoQuerySchema` suma `talle`, `color`, `genero`, `modelo` (texto, `trim`, ≤ 100) y `orden` (`novedad` por defecto, `precio_asc`, `precio_desc`) a `q`, `categoria` y la paginación de E1. Sin `.strict()`: los parámetros extra se ignoran. Un valor inexistente de categoría/talle/color/género/modelo devuelve lista vacía; solo `orden`, `page`, `page_size` o un largo inválido dan `400 VALIDATION_ERROR`.
+- Los filtros se resuelven contra `ProductoMaestro.categoria` y `VarianteSKU.talle/color/genero/modelo` reales. Los de variante los debe cumplir **una misma variante comprable** (`talle=M&color=Rojo` exige una variante M y Roja).
+- `novedad`: `created_at` del contenido descendente. `precio_asc`/`precio_desc`: precio vigente más bajo entre las variantes comprables (HU-B9); los productos sin precio van al final en ambos sentidos; desempate `created_at desc`, `id`.
+- Respuesta: el formato de E1 más `filtros: { categorias, talles, colores, generos, modelos }`, calculados sobre **todo** el catálogo publicado y comprable (no se acotan por los filtros activos), ordenados alfabéticamente.
+- Implementación: una pasada liviana (ids, atributos y `created_at` de los contenidos publicados, sin descripción) + una sola llamada a `resolverPreciosVentaVigentes()` (vía única de HU-B9) + filtro, orden y paginación en memoria; solo la página se hidrata con `resolverVariantesWeb()` (stock en tiempo real). Sin N+1. **Limitación:** ids, atributos y precios del catálogo publicado se cargan en memoria por request.
+
+### 2.11.g. Errores (Revisión 6 — HU-E11)
+
+`{ data: null, error: { code, message } }`, mapeados en `respuesta-catalogo.ts` (backoffice):
+
+| Status | `code` | Cuándo |
+|---|---|---|
+| 400 | `VALIDATION_ERROR` | id no UUID; body no objeto; campo extra; textos vacíos; PATCH de foto con ambas operaciones o ninguna; multipart ausente, sin `archivo`, con `archivo` repetido o de texto, `es_principal` inválido o campo extra; `orden`/`page`/`page_size`/largo inválido en el listado |
+| 401 / 403 | `UNAUTHORIZED` / `FORBIDDEN` | sin sesión / sin `ecommerce:gestionar_catalogo` |
+| 404 | `PRODUCTO_WEB_NO_ENCONTRADO` | contenido inexistente o dado de baja |
+| 404 | `PRODUCTO_MAESTRO_NO_ENCONTRADO` | Producto Maestro inexistente o inactivo en el alta |
+| 404 | `FOTO_WEB_NO_ENCONTRADA` | foto inexistente, de otro contenido o dada de baja; en la ruta pública, nombre inválido o archivo inexistente |
+| 409 | `CONTENIDO_WEB_EXISTENTE` | ya hay contenido (activo o dado de baja) para ese Producto Maestro |
+| 409 | `LIMITE_FOTOS_ALCANZADO` | ya hay N fotos activas |
+| 422 | `ARCHIVO_VACIO` / `ARCHIVO_DEMASIADO_GRANDE` / `FORMATO_IMAGEN_NO_ADMITIDO` | archivo de 0 bytes / mayor al máximo (real o por tope del cuerpo) / firma no reconocida o formato no habilitado |
+| 500 | `INTERNAL_ERROR` | inesperado; configuración de fotos ausente o inválida; falta `CATALOGO_FOTOS_DIR` |
+
 ### 2.12. Cola de preparación y entrega Click & Collect (HU-E12)
 
 **Ruta (consulta de cola):** `GET /app/api/ecommerce/pick-pack/cola/route.ts`
@@ -1125,7 +1228,21 @@ Dos eventos nuevos, emitidos después del COMMIT, con handler explícito en `aud
 
 Módulo A: `ReservaLiberadaPayload.motivo_liberacion` y `MotivoLiberacionInmediata` agregan `"ANULACION_ORDEN"` (aditivo y retrocompatible; ninguna lista cerrada depende del tipo) para la liberación por anulación, manual o automática. `spec_modulo_A.md` no se edita desde aquí: queda reportado para su owner. El asiento `RESERVA_LIBERADA` existente registra el motivo sin cambios.
 
+### Extensión de eventos — Revisión 6 (HU-E11)
+
+Cinco eventos nuevos en `src/lib/events/event-types.ts` (y en `TIPOS_EVENTO_DOMINIO`), emitidos con `domainEventBus.emit` **después del COMMIT** con captura local; handler explícito en `audit-log.listener.ts` con `.catch(codigoDiagnosticoAuditoria)`. `usuario_id` = actor, `accion` = nombre del evento, `ip = "internal-event"`. Un no-op no emite. El cambio colateral de principal viaja en el payload, sin asiento aparte. Sin PII ni el nombre original del archivo.
+
+| Evento | Payload | Asiento (`tabla_afectada` / `registro_id`; antes → después) |
+|---|---|---|
+| `ecommerce:contenido_web_creado` | `{ producto_web_id, producto_maestro_id, titulo_comercial, descripcion, actor_id }` | `contenidos_producto_web` / contenido; `null` → `{ producto_maestro_id, titulo_comercial, descripcion, visibilidad_web: false }` |
+| `ecommerce:contenido_web_editado` | `{ producto_web_id, producto_maestro_id, antes, despues, actor_id }` (solo campos cambiados) | `contenidos_producto_web` / contenido; `antes` → `despues` |
+| `ecommerce:foto_web_subida` | `{ foto_id, producto_web_id, url, formato, tamano_bytes, es_principal, orden, principal_anterior_id, actor_id }` | `fotos_producto_web` / foto; `null` → todo menos `actor_id` |
+| `ecommerce:foto_web_principal_cambiada` | `{ foto_id, producto_web_id, principal_anterior_id, actor_id }` | `fotos_producto_web` / foto; `{ es_principal: false, principal_anterior_id }` → `{ es_principal: true }` |
+| `ecommerce:foto_web_baja` | `{ foto_id, producto_web_id, deletion_reason, era_principal, principal_promovida_id, actor_id }` | `fotos_producto_web` / foto; `{ is_active: true, es_principal }` → `{ is_active: false, deleted_by, deletion_reason, principal_promovida_id }` |
+
 ## 5. Fuera de Alcance (diferido / bloqueado)
+
+**Rev.6 — E11:** reactivación de contenido o fotos dados de baja; recorte, redimensionado o compresión de imágenes; proveedor en la nube y CDN (un Adapter nuevo del Gateway de §2.11.b); procedimiento de limpieza de archivos huérfanos; volumen persistente para `CATALOGO_FOTOS_DIR` cuando la app se contenedorice (hoy `docker-compose.yml` solo levanta Postgres y el cron). Pendientes de validar con el equipo/PO: el almacenamiento por el servidor con Gateway y disco local (§2.11.b), los valores 8 / 5 MB / JPG-PNG-WebP (§2.11.c), la falta de reactivación del contenido dado de baja (§2.11.d) y la ausencia de Server Actions (§2.11.a).
 
 **Rev.5 — E7:** reconstrucción del carrito del cliente, notificación al Cliente Web y cierre de la preferencia de Mercado Pago al anular (no los pide la spec; decisiones de producto pendientes); consumo de las métricas de conversión por el Módulo D (HU-D3); agendado del cron en despliegue. Pendientes de validar con el equipo/PO: pantalla mínima sin Server Action (§2.7.a) y listener spec-literal (§2.7.d).
 
@@ -1149,7 +1266,9 @@ Módulo A: `ReservaLiberadaPayload.motivo_liberacion` y `MotivoLiberacionInmedia
 - **Claves de `ConfiguracionSistema` adicionales, no incluidas en `spec_modulo_D.md` sección 6.2 (Sprint 4, Revisión 1):** este documento asume, sin haberlas agregado al catálogo sembrado de Módulo D, las siguientes claves nuevas: umbral de intentos fallidos de login de Cliente Web (2.8), plazo de carrito abandonado (2.1), cantidad máxima de fotos y tamaño máximo por foto (2.11). Deben agregarse a `spec_modulo_D.md` sección 6.2 antes de implementar — no se edita ese documento desde aquí para no invalidar su propia Revisión 1 sin coordinación explícita del owner de Módulo D.
   - *Revisión 2:* la clave de 2.8 quedó resuelta como `ECOMMERCE_CUENTA_WEB_MAX_INTENTOS` (más `ECOMMERCE_CUENTA_WEB_BLOQUEO_MINUTOS`), sembradas en `prisma/seed.ts` con módulo `E` (2.8.d). El catálogo de `spec_modulo_D.md` sección 6.2 **no** se actualizó desde aquí: sigue pendiente de coordinación con el owner de Módulo D. Las claves de 2.1 y 2.11 siguen pendientes.
   - *Revisión 4:* la clave de 2.1 quedó resuelta como `ECOMMERCE_CARRITO_ABANDONADO_DIAS` (default `7`, módulo `E`), sembrada en `prisma/seed.ts` (§2.5.d). `spec_modulo_D.md` §6.2 sigue sin actualizar (coordinación pendiente con el owner de Módulo D). Las claves de 2.11 siguen pendientes.
+  - *Revisión 6:* las claves de 2.11 quedaron resueltas como `ECOMMERCE_FOTOS_MAX_POR_PRODUCTO` (8), `ECOMMERCE_FOTO_TAMANO_MAX_MB` (5) y `ECOMMERCE_FOTO_FORMATOS_PERMITIDOS` (`JPG,PNG,WEBP`), módulo `E`, sembradas en `prisma/seed.ts` (§2.11.c). `spec_modulo_D.md` §6.2 sigue sin actualizar (coordinación pendiente con el owner de Módulo D).
 - **Storage de imágenes (HU-E11):** este documento no define el mecanismo de almacenamiento de fotos de producto (S3, Vercel Blob u otro) — `ProductoWebFoto.url` asume una URL ya resuelta por un mecanismo externo a definir.
+  - *Revisión 6:* resuelto con un Gateway propio y un Adapter de disco local (§2.11.b); un proveedor en la nube queda como Adapter futuro.
 - **Mecanismo de push en tiempo real para notificaciones (heredado de `spec_modulo_F.md` sección 2.3):** el contador de "Mis pedidos"/bandeja se refresca por polling, no WebSocket/SSE — documentado como extensión futura no bloqueante, mismo criterio que Módulo F.
 - **`origen_reserva` para checkout web, sin valor confirmado en el enum `OrigenReserva` de Módulo A:** ver Nota de relevamiento en 2.2 — bloqueante menor (tiene una salida de contingencia razonable, reutilizar `SENIA`, pero no confirmada).
 - **Exportación de métricas (HU-E10, permiso `ecommerce:exportar_metricas`):** el permiso está definido en la matriz de 2.10 pero este documento no especifica ningún endpoint ni contrato de exportación — mismo patrón de diferimiento ya usado por `spec_modulo_B.md` sección 5 para su propia exportación de reportes (se asume resuelto por el futuro Tablero de Comando de Módulo D).
