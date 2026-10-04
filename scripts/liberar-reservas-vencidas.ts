@@ -14,6 +14,9 @@
  * HU-E4 (Gate 3, A1): después corre, de forma independiente, el mantenimiento
  * de cupones (`ejecutarMantenimientoProgramado()`, el mismo que usa el cron):
  * si una tarea falla, la otra corre igual y el error se loguea.
+ *
+ * HU-E5 (D10): tercera tarea, la baja lógica de carritos web abandonados
+ * (`ECOMMERCE_CARRITO_ABANDONADO_DIAS`), con su propia línea de log.
  */
 import "dotenv/config";
 import { domainEventBus } from "@/lib/events/domain-event-bus";
@@ -34,7 +37,7 @@ async function esperarListenerAuditoria(): Promise<void> {
 }
 
 async function pasada(): Promise<void> {
-  const { reservas, cupones } = await ejecutarMantenimientoProgramado(new Date());
+  const { reservas, cupones, carritos } = await ejecutarMantenimientoProgramado(new Date());
   const ahora = new Date().toISOString();
   if (reservas.ok) {
     const resultado = reservas.valor;
@@ -53,8 +56,13 @@ async function pasada(): Promise<void> {
         `${cupones.valor.cupones_dados_de_baja.length} cupón(es) dado(s) de baja.`,
     );
   }
+  if (carritos.ok) {
+    console.log(
+      `[job:reservas] ${ahora} — carritos abandonados: ${carritos.valor.total_desactivados} carrito(s) dado(s) de baja.`,
+    );
+  }
   // Los errores ya los logueó `ejecutarMantenimientoProgramado()`.
-  if (!reservas.ok || !cupones.ok) process.exitCode = 1;
+  if (!reservas.ok || !cupones.ok || !carritos.ok) process.exitCode = 1;
 }
 
 async function main(): Promise<void> {

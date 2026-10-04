@@ -471,6 +471,7 @@ test("HU-E4 — cupones contra PostgreSQL", { skip: !DATABASE_URL, timeout: 300_
           throw new Error("falla simulada de Módulo A");
         },
         ejecutarMantenimientoCupones: cupones.ejecutarMantenimientoCupones,
+        desactivarCarritosAbandonados: async () => ({ total_desactivados: 0, carrito_ids: [] }),
       });
       assert.equal(resultado.reservas.ok, false);
       assert.equal(resultado.cupones.ok, true);
@@ -487,6 +488,7 @@ test("HU-E4 — cupones contra PostgreSQL", { skip: !DATABASE_URL, timeout: 300_
         ejecutarMantenimientoCupones: async () => {
           throw new Error("falla simulada de cupones");
         },
+        desactivarCarritosAbandonados: async () => ({ total_desactivados: 0, carrito_ids: [] }),
       });
       assert.equal(inverso.reservas.ok, true);
       assert.equal(inverso.cupones.ok, false);

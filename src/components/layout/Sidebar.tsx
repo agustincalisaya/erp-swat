@@ -32,7 +32,7 @@
  */
 import type { LucideIcon } from "lucide-react";
 // 1. Agregamos el ícono "Layers" a la importación
-import { ScrollText, ShieldCheck, Users, Package, Warehouse, ScanBarcode, Layers, FileSearch, ShoppingCart, ClipboardList, Store, PackageCheck, Undo2, Wallet, Banknote, Receipt, FileText, UserPlus, Tags, TicketPercent, Settings, BellRing } from "lucide-react";
+import { ScrollText, ShieldCheck, Users, Package, Warehouse, ScanBarcode, Layers, FileSearch, ShoppingCart, ClipboardList, Store, PackageCheck, Undo2, Wallet, Banknote, Receipt, FileText, UserPlus, Tags, TicketPercent, Settings, BellRing, Globe } from "lucide-react";
 import { getServerSession } from "@/lib/auth/session";
 import { usuarioTienePermiso } from "@/lib/auth/with-permission";
 import { SidebarNav, type SidebarNavSection } from "@/components/layout/SidebarNav";
@@ -266,6 +266,14 @@ const SECCIONES: SeccionConfig[] = [
         href: "/ecommerce/cupones",
         icon: TicketPercent,
         permiso: "ecommerce:gestionar_cupones",
+      },
+      // HU-E5 — visibilidad web del catálogo; mismo grupo, debajo de "Cupones".
+      // Gate por `ecommerce:gestionar_catalogo`.
+      {
+        label: "Catálogo web",
+        href: "/ecommerce/catalogo",
+        icon: Globe,
+        permiso: "ecommerce:gestionar_catalogo",
       },
     ],
   },

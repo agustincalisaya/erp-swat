@@ -3548,15 +3548,15 @@ async function main() {
   // dependen de una decisión del owner de Módulo D):
   //   - umbral de arqueo ciego (HU-B2) y % máximo de descuento por perfil
   //     (HU-B4) — spec_modulo_B.md §5;
-  //   - intentos fallidos de login de Cliente Web (HU-E8), plazo de carrito
-  //     abandonado (HU-E1/E5), cantidad máxima y tamaño máximo de fotos
-  //     (HU-E11) — spec_modulo_E.md §5.
+  //   - intentos fallidos de login de Cliente Web (HU-E8), cantidad máxima y
+  //     tamaño máximo de fotos (HU-E11) — spec_modulo_E.md §5.
   for (const [clave, valor, descripcion, modulo] of [
     ["ECOMMERCE_DEPOSITO_CANAL_WEB_ID", depositoShowroom.id, "Depósito cuyo stock se publica en el canal web (HU-E1) y donde se ubica físicamente la preparación (HU-E12)", "E"],
     ["ECOMMERCE_CHECKOUT_TTL_HORAS", "1", "TTL en horas de la reserva de stock del checkout web (HU-E1 → ttl_horas de HU-A10)", "E"],
     ["ECOMMERCE_CUENTA_WEB_MAX_INTENTOS", "5", "Intentos fallidos antes de bloquear temporalmente una cuenta web (HU-E8)", "E"],
     ["ECOMMERCE_CUENTA_WEB_BLOQUEO_MINUTOS", "15", "Duración en minutos del bloqueo temporal de una cuenta web (HU-E8)", "E"],
     ["ECOMMERCE_PLAZO_RETIRO_DIAS", "10", "Días desde LISTO_PARA_RETIRO hasta VENCIDO_SIN_RETIRO (HU-E13)", "E"],
+    ["ECOMMERCE_CARRITO_ABANDONADO_DIAS", "7", "Días sin actividad (carritos_web.updated_at) tras los que un carrito web se da de baja lógica por abandono (HU-E5; valor 7 pendiente de validar con el PO)", "E"],
     ["VENTAS_MARGEN_SUGERIDO_PRECIO_VENTA", "0.35", "Margen para el precio sugerido: costo de reposición × (1 + margen) (HU-B9)", "B"],
   ] as const) {
     await prisma.configuracionSistema.upsert({

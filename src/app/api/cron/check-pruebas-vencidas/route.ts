@@ -36,6 +36,9 @@
  * vía `ejecutarMantenimientoProgramado()`: si una falla, la otra corre igual.
  * El status de la respuesta lo sigue decidiendo la liberación de reservas.
  *
+ * HU-E5 (D10): tercera tarea independiente, la baja lógica de carritos web
+ * abandonados; su resultado va en `mantenimiento_carritos`.
+ *
  * @see src/lib/services/ecommerce/mantenimiento-programado.ts
  */
 
@@ -66,7 +69,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   // ── 2. Liberación de Reservas con TTL vencido (RESERVADO → DISPONIBLE) ───────
   // ── 3. HU-E4: mantenimiento de cupones, independiente del paso 2 ────────────
-  const { reservas, cupones } = await ejecutarMantenimientoProgramado(ahora);
+  // ── 4. HU-E5: baja de carritos abandonados, independiente de los anteriores ──
+  const { reservas, cupones, carritos } = await ejecutarMantenimientoProgramado(ahora);
 
   const mantenimientoCupones = cupones.ok
     ? {
@@ -82,6 +86,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
+  const mantenimientoCarritos = carritos.ok
+    ? { ok: true, total_desactivados: carritos.valor.total_desactivados }
+    : { ok: false, error: "Error en la baja de carritos abandonados." };
+  if (carritos.ok && carritos.valor.total_desactivados > 0) {
+    console.warn(
+      `[CRON][check-pruebas-vencidas] 🛒 Carritos abandonados: ${carritos.valor.total_desactivados} carrito(s) dado(s) de baja.`,
+    );
+  }
+
   if (!reservas.ok) {
     // El error ya quedó logueado por `ejecutarMantenimientoProgramado()`.
     return NextResponse.json(
@@ -90,6 +103,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         ejecutado_at: ahora.toISOString(),
         error: "Error al liberar reservas vencidas.",
         mantenimiento_cupones: mantenimientoCupones,
+        mantenimiento_carritos: mantenimientoCarritos,
       },
       { status: 500 },
     );
@@ -115,6 +129,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       umbral_reservado: resultado.umbral,
       total_reservas_liberadas: resultado.total_liberadas,
       mantenimiento_cupones: mantenimientoCupones,
+      mantenimiento_carritos: mantenimientoCarritos,
     },
     { status: 200 },
   );
