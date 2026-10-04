@@ -1,11 +1,24 @@
 # Especificación Técnica — Módulo E (E-commerce / Tienda Online)
 ## ERP SWAT Indumentarias — Sprint 4
+## Revisión 3 — HU-E4 (Cupones de descuento), 03/10/2026: contrato cerrado y sincronizado con implementación y re-verify independiente. Revisión aditiva: se agregan §2.4.a–§2.4.e, §3.8, eventos y exclusiones E4; se anota la sustitución de §2.4 Rev.1 y la integración con §2.2. Se conserva íntegro el contenido anterior, incluida HU-E8 Rev.2, sin renumerar otras HUs.
 ## Revisión 2 — HU-E8 (Registro e inicio de sesión del Cliente Web): contrato cerrado y sincronizado con la implementación. Revisión aditiva: las secciones 2.8.a a 2.8.g, 3.7, la extensión de la sección 4 y el cierre de la sección 5 (al inicio de su lista) se agregan dentro de cada sección sin alterar lo existente; el contenido de la Revisión 1 no se reescribe y ninguna sección se renumera.
 ## Revisión 1 — Primera especificación técnica del módulo (HU-E1 a HU-E13)
 
 **Metodología:** Specification-Driven Development (SDD)
 **Stack:** Next.js 16 (App Router) · Node.js · PostgreSQL 16 · Prisma ORM · TypeScript · Zod
 **Referencias normativas:** `RULES.md` (Regla N.° 1 — Restricción Estricta de Borrado Físico; Regla N.° 2 — Protección de Datos Personales y Trazabilidad Inalterable; Regla N.° 3 — Aislamiento de Dominio) · `Documento de Alcance Funcional y Técnico` (sección Módulo E) · `Product Backlog — SWAT Indumentarias.xlsx` (hoja **Sprint 4**, HU-E1 a HU-E13) · `schema.prisma` · `spec_modulo_A.md` (sección 2.9, servicio centralizado de reserva — congelamiento/liberación de stock, único punto de contacto con inventario) · `spec_modulo_B.md` (sección 2.1/HU-B1, patrón de venta; sección 2.9/HU-B9, resolución server-side de precio; sección 2.7/HU-B7, comprobante fiscal simulado) · `spec_modulo_C.md` (sección 2.1/HU-C1, alta de Cliente; sección 2.4/HU-C4, consentimiento de datos personales) · `spec_modulo_D.md` (RBAC, auditoría, `ConfiguracionSistema` §6) · `spec_modulo_F.md` (sección 2.1/HU-F1, Conector Mercado Pago; sección 2.3/HU-F3, Motor de Notificaciones internas y aislamiento por tipo de sesión) · `spec_modulo_G.md` (HU-G11, registro del ingreso de cobros online) · `spec_modulo_H.md` (patrón de referencia de formato, cifrado AES-256 y consola de auditoría forense por dominio)
+
+**Changelog de la Revisión 3 (HU-E4):**
+
+| Sección previa | Contrato anterior | Contrato vigente en Rev.3 |
+|---|---|---|
+| 2.4 | Conteo solo confirmado junto a reserva optimista; ABM declarado | Sustituido para E4 por §2.4.a–e: C+P global/cliente en un statement; histórico, TTL UTC y ABM real |
+| 2.2 | Aplicación y pago de E2 | Nota de sincronización: stock→cupón, reloj después del lock; TTL persistido; pago/rechazo conservan locks; datos congelados en pendiente/resultado |
+| 2.4 validación | Valor numérico, porcentaje hasta 100; Server Actions declaradas | Valor string decimal, porcentaje <100, bruto ≥ subtotal no aplicable; Route Handlers, sin acciones nuevas; errores raíz en español |
+| 2.4 edición/baja | Sin política de historial/concurrencia | Código inmutable, solo ampliar límites con historial, lock sin CAS; baja lógica idempotente |
+| 3 reglas | Sin mantenimiento específico de capacidad | §3.8: C/P, confirmadas protegidas, cron/script compartidos con A y tareas independientes |
+| 4 eventos | Sin los seis eventos de cupón | Payloads exactos `ecommerce:cupon_*`, listeners explícitos posteriores al COMMIT |
+| 5 exclusiones | Alcance general | Sin historial de aplicaciones UI/API, reactivación, acumulación, neto cero ni devolución de usos por reembolso |
 
 **Changelog de la Revisión 2 (HU-E8):**
 | Sección Rev.1 | Estado previo | Acción en Rev.2 |
@@ -131,6 +144,8 @@ model CarritoWebItem {
 
 ### 2.2. Checkout y pago con Mercado Pago (HU-E2)
 
+**Sincronización Rev.3 — integración E4:** se conserva input/response de checkout y la lógica/locks de pago y rechazo. La admisión reserva primero stock, después adquiere lock del cupón y toma `new Date()`; `aplicarCuponTx` consulta ocupación conjunta y crea la pendiente con `reserva_hasta` igual al menor vencimiento de stock del pedido. E2 transmite datos para emitir aplicado/consumido/liberado después del COMMIT. La reserva ocupa capacidad; Q3 rechaza una segunda admisión con límite 1, sin esperar al pago. La salvaguarda histórica `CUPON_LIMITE_EXCEDIDO` se conserva, sin incorporar lock de cupón al pago. Rechazo conserva "Pago rechazado por Mercado Pago". Lectores `obtenerPedidoWebPendiente` / `obtenerResultadoPago` y páginas `/tienda/checkout/pendiente` / `/tienda/checkout/resultado` muestran subtotal, código, descuento y neto persistidos mediante `DesgloseCupon`, sin recalcular precios HU-B9; sin cupón mantienen la vista anterior. El contrato operativo de cupones es §2.4.a–e, que prevalece sobre las menciones anteriores de E4.
+
 **Ruta (iniciar checkout):** `POST /app/api/tienda/checkout/route.ts`
 **Ruta (webhook de confirmación):** `POST /app/api/webhooks/mercadopago/route.ts` *(la misma ruta única ya definida por `spec_modulo_F.md` sección 2.1.3 — Módulo E no define un webhook propio, es consumidor del mismo evento `pago:webhook_confirmado` que emite el Conector)*
 **Server Action equivalente:** `iniciarCheckout()` en `app/(tienda)/checkout/actions.ts`
@@ -218,6 +233,8 @@ model PedidoVentaEcommerce {
 
 ### 2.4. Cupones de descuento (HU-E4)
 
+**Sustitución explícita Rev.3:** el contrato E4 vigente está en **§2.4.a–§2.4.e** y §3.8 agregados a continuación. El texto de Rev.1 bajo este encabezado se conserva como antecedente; quedan sustituidos sus conteos solo de confirmadas, Server Actions previstas, schema numérico/porcentaje ≤100, respuesta aislada de aplicación y cualquier referencia contradictoria a reserva optimista. La implementación utiliza las cinco operaciones HTTP de §2.4.e y el checkout E2 existente; no hay endpoint público de aplicación o prevalidación. Las demás HUs y Rev.2 E8 se conservan.
+
 **Ruta (alta/edición/baja, Administrador E-commerce):** `POST /app/api/ecommerce/cupones/route.ts`, `PATCH /app/api/ecommerce/cupones/[id]/route.ts`, `PATCH /app/api/ecommerce/cupones/[id]/baja/route.ts`
 **Server Action equivalente:** `crearCupon()`, `editarCupon()`, `darDeBajaCupon()` en `app/(dashboard)/ecommerce/cupones/actions.ts`
 **Permiso requerido:** `ecommerce:gestionar_cupones` (exclusivo Administrador E-commerce, HU-E10).
@@ -289,6 +306,70 @@ model CuponAplicacion {
 ```json
 { "data": null, "error": { "code": "CUPON_VENCIDO", "message": "El cupón indicado no está vigente" } }
 ```
+
+### 2.4.a. Modelo persistido y migración (Revisión 3 — HU-E4)
+
+Se reutilizan `CuponDescuento` (`cupones_descuento`) y `CuponAplicacion` (`aplicaciones_cupon`), sin tablas nuevas. Se agrega `updated_at DateTime @updatedAt` a ambos y `reserva_hasta DateTime?` a la aplicación. Tipo de beneficio persiste como String y se valida como `PORCENTAJE | MONTO_FIJO`. Importes siguen siendo Decimal; código único incluyendo cupones dados de baja. No se modifica el modelo de clientes C ni inventario A.
+
+Migración `20261003120000_hu_e4_cupones_descuento`: `updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP`, backfill `updated_at = created_at`; TTL nullable `TIMESTAMP(3)` **sin zona**. Solo pendientes activas sin baja reciben el menor `fecha_expiracion` de las reservas relacionadas con items activos del pedido. Confirmadas e históricas quedan con TTL nulo; pendientes nuevas siempre guardan TTL. No agrega CHECKs ni índices parciales manuales, conforme al delta aprobado.
+
+Seed de `SWAT10`, `INVIERNO5000`, `LANZAMIENTO15`: upserts que no reactivan bajas en update. El TTL del fixture pendiente se sincroniza con su reserva de stock, sin tocar campos de baja. La validación independiente de migración reportó **No difference detected** contra shadow de test; integración debe generar cliente Prisma y desplegar migraciones con el procedimiento del entorno.
+
+### 2.4.b. Capacidad, estado y lectura coherente (Revisión 3 — HU-E4)
+
+- **C:** todas las aplicaciones `confirmada = true`, incluidas las históricas inactivas o dadas de baja. Un reembolso no devuelve capacidad.
+- **P:** `confirmada = false`, `is_active = true`, `deleted_at IS NULL`, `reserva_hasta > ahora`. TTL nulo o vencido no ocupa capacidad.
+- Mismos predicados globales y por `cliente_id` de la cuenta web vinculada. Admisión exige `C+P < límite` para ambos; global nulo significa ilimitado.
+- `leerOcupacion` ejecuta **un `$queryRaw` con `COUNT(*) FILTER`** para C/P globales, C/P del cliente y total histórico. Un pago entre dos statements no puede perder simultáneamente la pendiente y el consumo. Admisión, `construirDtos` y reevaluación definitiva de baja automática usan este mismo helper.
+- Comparación UTC explícita: `reserva_hasta > (ahora.toISOString()::timestamptz AT TIME ZONE 'UTC')`. El resultado sin zona es compatible con la columna; no interpreta ese UTC como hora local de la sesión PostgreSQL. El re-verify probó −1/+1 minuto en UTC, Buenos Aires y Tokio.
+
+Estado derivado por prioridad: `DADO_DE_BAJA` (inactivo o con deleted_at), `NO_INICIADO` (ahora < inicio), `VENCIDO` (ahora > fin), `AGOTADO` (C global ≥ límite finito), `VIGENTE`. Los extremos de vigencia son inclusivos. **P no produce agotamiento del maestro**: puede cerrar temporalmente admisión, sin dar de baja el cupón. Disponible = null si ilimitado; si finito, `max(0, límite_global−C−P)`. `tiene_aplicaciones` contempla todo el historial, incluso liberadas.
+
+### 2.4.c. Aplicación en checkout y K5 (Revisión 3 — HU-E4)
+
+Un único `cupon_codigo?` en checkout E2; se normaliza trim/mayúsculas. Orden stock→cupón: E2 reserva stock y llama a `aplicarCuponTx`; éste adquiere `SELECT ... FOR UPDATE` sobre el maestro, toma **reloj de aplicación después del lock** (Gate 3 A2), relee y valida estado/capacidad. Esta resolución sustituye la mención previa a reloj de BD. La aplicación pendiente conserva `reserva_hasta` igual al menor TTL de stock del pedido.
+
+Precio/base: subtotal de items congelado por HU-B9. Cálculo Decimal, half-up a dos decimales. **K5:** porcentaje menor que 100 y descuento bruto ≥ subtotal → `CUPON_NO_APLICABLE` **antes** del recorte defensivo de `calcularDescuento`. Porcentaje/fijo deben dejar neto positivo; no venta gratis ni acumulación. Error revierte la transacción de admisión, sin pedido/aplicación parcialmente aceptados.
+
+Errores 422 vía `respuesta-tienda.ts`: `CUPON_NO_ENCONTRADO`, `CUPON_INACTIVO`, `CUPON_NO_VIGENTE`, `CUPON_VENCIDO`, `CUPON_LIMITE_ALCANZADO`, `CUPON_NO_APLICABLE`. No se añade endpoint público previo ni cambia la respuesta de checkout E2. Pendiente/resultado leen subtotal/descuento/código persistidos mediante lectores con control de propiedad; `DesgloseCupon` conserva vista anterior cuando no existe cupón.
+
+### 2.4.d. Consumo, liberación y mantenimiento (Revisión 3 — HU-E4)
+
+Pago confirmado convierte P en C. **K2:** pago/rechazo conservan locks y lógica E2; no adquieren lock del maestro ni vuelven a reservar/revalidar capacidad. Se mantiene la salvaguarda histórica de límite excedido (`CUPON_LIMITE_EXCEDIDO`), sin transformarla en nueva condición de rechazo del pago. `pago-web.service.ts` transporta los datos devueltos por las funciones de cupón para eventos posteriores al COMMIT. Rechazo conserva **"Pago rechazado por Mercado Pago"**.
+
+`ejecutarMantenimientoCupones()`:
+
+1. Libera aplicaciones **no confirmadas**, activas y sin baja con `reserva_hasta <= ahora`; selección y update condicionado comparten `confirmada: false`. Motivo `TTL_CHECKOUT_VENCIDO`. Una confirmada con TTL pasado se conserva. Capacidad ya excluye una pendiente vencida aunque el mantenimiento se demore.
+2. Preselecciona maestros vencidos o agotados por **C**, adquiere lock de cada maestro y reevalúa con `leerOcupacion` y reloj actual. Baja lógica por `VENCIMIENTO` o `LIMITE_GLOBAL_AGOTADO`; prevalece vencimiento. Idempotente, actor sistema Canal Web. No reactivación ni limpieza de historia.
+
+Entry points: **POST `/api/cron/check-pruebas-vencidas`** y script `scripts/liberar-reservas-vencidas.ts` (`npm run job:reservas`, `job:reservas:watch`). `mantenimiento-programado.ts` ejecuta `liberarReservasVencidas` de A primero y luego E4, cada tarea con captura de error independiente. No se modifica `reserva.service.ts` ni se crea un job TTL E2 separado. El cron preserva el status de A (500 si falla, 200 si termina); resultado E4 en `mantenimiento_cupones`, con error genérico si falla. Bearer `CRON_SECRET` cuando está configurado; producción sin secreto es error.
+
+En test, seed y server deben compartir `ENCRYPTION_KEY_PROVEEDORES` para el conector simulado, además de los secretos efímeros de sesión/carrito. Si se pierde la clave efímera, generar otra y resembrar **solo la base aislada de test** con el seed existente; no resetear ni reemplazar silenciosamente por development/producción. Claves fuera de archivos/reportes.
+
+### 2.4.e. Administración, schemas y respuesta (Revisión 3 — HU-E4)
+
+Página `/ecommerce/cupones`, componente `CuponesCliente`, entrada **Cupones en Clientes** junto a Cuentas web. Permiso exclusivo Administrador E-commerce: `ecommerce:gestionar_cupones` (`PERMISO_GESTIONAR_CUPONES`, `src/lib/auth/permisos-ecommerce.ts`). Página protegida en servidor y cinco métodos `withPermission`; actor `session.userId`, nunca body. Implementación mediante Route Handlers, sin las Server Actions previstas en Rev.1.
+
+| Método | Ruta | Respuesta de éxito |
+|---|---|---|
+| GET | `/api/ecommerce/cupones?estado=ACTIVOS\|INACTIVOS\|TODOS&q=` | 200 `{ data: { items }, error: null }`; default ACTIVOS, q por código, `created_at` desc |
+| POST | `/api/ecommerce/cupones` | 201 `{ data: { cupon }, error: null }` |
+| GET | `/api/ecommerce/cupones/[id]` | 200 `{ data: { cupon }, error: null }`, incluye bajas |
+| PATCH | `/api/ecommerce/cupones/[id]` | 200 `{ data: { cupon }, error: null }` |
+| PATCH | `/api/ecommerce/cupones/[id]/baja` | 200 `{ data: { cupon }, error: null }`, repetición sin cambios ni evento |
+
+DTO `cupon`: `id, codigo, tipo_beneficio, valor, vigente_desde, vigente_hasta, limite_uso_global, limite_uso_por_cliente, is_active, deleted_at, deletion_reason, estado, usos_confirmados, reservas_vigentes, capacidad_disponible, tiene_aplicaciones, created_at, updated_at`. `valor` texto decimal con dos decimales, fechas ISO, global/disponible nulos si ilimitados; `deleted_by` no forma parte del DTO.
+
+Schemas estrictos `CrearCuponSchema`, `EditarCuponSchema`, `BajaCuponSchema`, `FiltroCuponesSchema` en `src/lib/schemas/cupon.schema.ts`:
+
+- Código: trim/mayúsculas, 3–50 `[A-Z0-9_-]`, único incluso sobre bajas. Tipo `PORCENTAJE | MONTO_FIJO`; valor **string** decimal positivo, hasta dos decimales, compatible con Decimal(12,2). Porcentaje <100.
+- Inicio/fin ISO con zona; fin > inicio. Global entero positivo nullable, default null; cliente entero positivo, default 1. q trim/mayúsculas, máximo 50; vacío se omite.
+- PATCH sin código, actor ni campos de baja; al menos un campo. Servicio valida campos cruzados contra persistido. **K4:** sin aplicaciones se edita beneficio/ventana/límites; con cualquier historial solo se amplían límites (global finito→mayor/null; ilimitado no se reduce; cliente→mayor). Maestro dado de baja no se edita. **K6:** lock/relectura, sin CAS; no-op sin evento.
+- Baja: motivo texto trim de 3–500; setea `is_active=false`, `deleted_at`, `deleted_by`, `deletion_reason`. Conserva descuentos de compras iniciadas. Repetida devuelve el estado actual sin evento.
+
+`respuesta-cupones.ts` concentra `leerJson` y mapeo de errores. Validación 400: `{ data: null, error: { code: "VALIDATION_ERROR", message: "Los datos enviados no son válidos", fieldErrors, formErrors } }`. `null`, array y no-JSON reciben **"El cuerpo debe ser un objeto JSON"** en formErrors; motivo ausente **"El motivo es obligatorio"**. Otros: 401/403; 404 `CUPON_NO_ENCONTRADO`; 409 `CUPON_CODIGO_EXISTENTE`, `CUPON_INACTIVO`, `CUPON_EDICION_RESTRINGIDA`; 500 `INTERNAL_ERROR` genérico.
+
+UI: alta exitosa muestra **Cupón creado**, limpia búsqueda y selecciona Todos; edición real **Cupón actualizado**. No-op cierra sin éxito y errores conservan formulario/mensaje; controles de envío deshabilitados. Motivo vacío/<3 impide submit, sin atribuirle respuesta API. Read-only traduce `VENCIMIENTO → Vencimiento`, `LIMITE_GLOBAL_AGOTADO → Límite de uso agotado` y conserva motivo manual; fecha sin doble punto mediante `motivo-baja-cupon.ts`/presentación. `TTL_CHECKOUT_VENCIDO → Reserva vencida` tiene mapping unitario, sin superficie de historial contractual (K8).
 
 ### 2.5. Visibilidad web independiente del inventario físico (HU-E5)
 
@@ -895,6 +976,12 @@ Webhook de pago (2.2, heredado del contrato de HU-F1), consumo de cupón (2.4), 
 
 ---
 
+### 3.8. Reglas de cupones (Revisión 3 — HU-E4)
+
+K1–K8 y Gate 3 aprobados el 02/10/2026: capacidad C+P global/cliente leída conjuntamente (§2.4.b); lock de admisión después de stock, reloj posterior al lock; consumo al pago sin alterar sus locks; rechazo preservado; mantenimiento compartido e independiente de A; código inmutable y solo ampliación de límites con historial; bruto ≥ subtotal no aplicable; administración con lock sin CAS; seis eventos auditados post-COMMIT; sin historial UI/API ni reactivación. Sin DELETE/deleteMany sobre maestros/aplicaciones, sin cambios del algoritmo de stock, auditoría o fusión del carrito.
+
+Correcciones verificadas el 03/10/2026: F01 statement único y dos regresiones checkout/pago (global y cliente); F02 nueve cuerpos/rutas inválidos con mismo envelope español; CA07 conserva confirmada con TTL vencido. Matriz independiente **676 pass / 0 fail / 0 skip**, tsc/lint/migración/build completos; Chrome independiente cerrado, con límites de evidencia explícitos en `docs/modulos/modulo E/HU4_MODULO_E.md`. No se extiende esa evidencia a deploy/integración remota o stress no ejecutado.
+
 ## 4. Eventos de Dominio (EDA)
 
 **Archivo:** `src/lib/events/event-types.ts` (extiende la tabla de `spec_modulo_D.md` §5, namespace `ecommerce:*` — con la excepción de los eventos ya definidos por otros módulos que Módulo E consume sin redefinir: `pago:webhook_confirmado` de Módulo F, `stock:reserva_congelada`/`stock:reserva_liberada` de Módulo A, `venta:comprobante_emitido` de Módulo B).
@@ -930,7 +1017,24 @@ Nunca se incluyen contraseña, hash, JWT, código ni digest.
 
 ---
 
+### Extensión de eventos — Revisión 3 (HU-E4)
+
+Se agregan seis eventos a `src/lib/events/event-types.ts`, cada uno con handler explícito en `audit-log.listener.ts`, emitidos con `domainEventBus.emit` **después del COMMIT**. Sin modificar el algoritmo SHA-256. Base: `{ cupon_id, actor_tipo: "usuario" | "cuenta" | "sistema", actor_id, ocurrido_en }`, fecha ISO y montos string decimal.
+
+| Evento | Campos adicionales exactos |
+|---|---|
+| `ecommerce:cupon_creado` | `codigo`, `tipo_beneficio`, `valor`, `vigente_desde`, `vigente_hasta`, `limite_uso_global`, `limite_uso_por_cliente` |
+| `ecommerce:cupon_editado` | `antes`, `despues`, solo campos cambiados |
+| `ecommerce:cupon_baja` | `motivo` |
+| `ecommerce:cupon_aplicado` | `aplicacion_id`, `pedido_venta_id`, `cliente_id`, `monto_descontado`, `reserva_hasta` |
+| `ecommerce:cupon_consumido` | `aplicacion_id`, `pedido_venta_id` |
+| `ecommerce:cupon_aplicacion_liberada` | `aplicacion_id`, `pedido_venta_id`, `motivo` |
+
+Alta/edición/baja manual: usuario; aplicación: cuenta web; consumo/liberación/baja automática: sistema Canal Web. Aplicado/consumido usan `registro_id` de la aplicación; cupón en payload. `cliente_id` UUID seudónimo, sin DNI/contacto/secretos. No-op e idempotencia no duplican evento.
+
 ## 5. Fuera de Alcance (diferido / bloqueado)
+
+**Rev.3 — E4:** campañas ampliadas, acumulación, endpoint público de validación antes del checkout, pantalla/endpoint de historial de aplicaciones (K8; persisten datos y auditoría para D), reactivación, restitución de usos por reembolso E13, pedidos de neto cero, cambios de proveedor o algoritmo de reserva. No quedan gates de evidencia E4 pendientes al cierre documentado; deuda aceptada de UI/copy/accesibilidad no se incorpora como requisito nuevo. La integración/PR siguen siendo operaciones manuales pendientes.
 
 **Revisión 2 — HU-E8:**
 
