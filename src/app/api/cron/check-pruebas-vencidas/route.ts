@@ -30,10 +30,17 @@
  *
  * @see prisma/schema.prisma → model Reserva
  * @see src/lib/services/inventario/reserva.service.ts → liberarReservasVencidas()
+ *
+ * HU-E4 (Gate 3, A1): después de la liberación de reservas corre, de forma
+ * independiente, el mantenimiento de cupones (`ejecutarMantenimientoCupones()`)
+ * vía `ejecutarMantenimientoProgramado()`: si una falla, la otra corre igual.
+ * El status de la respuesta lo sigue decidiendo la liberación de reservas.
+ *
+ * @see src/lib/services/ecommerce/mantenimiento-programado.ts
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { liberarReservasVencidas } from "@/lib/services/inventario/reserva.service";
+import { ejecutarMantenimientoProgramado } from "@/lib/services/ecommerce/mantenimiento-programado";
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   // ── 1. Autenticación por secret compartido ──────────────────────────────────
@@ -58,39 +65,57 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const ahora = new Date();
 
   // ── 2. Liberación de Reservas con TTL vencido (RESERVADO → DISPONIBLE) ───────
-  try {
-    const resultado = await liberarReservasVencidas(ahora);
+  // ── 3. HU-E4: mantenimiento de cupones, independiente del paso 2 ────────────
+  const { reservas, cupones } = await ejecutarMantenimientoProgramado(ahora);
 
-    if (resultado.total_liberadas === 0) {
-      console.log(
-        `[CRON][check-pruebas-vencidas] ✅ Sin reservas vencidas. ` +
-          `(fecha_expiracion <= ${resultado.umbral})`,
-      );
-    } else {
-      console.warn(
-        `[CRON][check-pruebas-vencidas] 🔓 ${resultado.total_liberadas} reserva(s) liberada(s) por TTL vencido: ` +
-          resultado.liberadas.map((r) => r.reserva_id).join(", "),
-      );
-    }
-
-    return NextResponse.json(
-      {
+  const mantenimientoCupones = cupones.ok
+    ? {
         ok: true,
-        ejecutado_at: ahora.toISOString(),
-        umbral_reservado: resultado.umbral,
-        total_reservas_liberadas: resultado.total_liberadas,
-      },
-      { status: 200 },
+        total_aplicaciones_liberadas: cupones.valor.aplicaciones_liberadas.length,
+        total_cupones_dados_de_baja: cupones.valor.cupones_dados_de_baja.length,
+      }
+    : { ok: false, error: "Error en el mantenimiento de cupones." };
+  if (cupones.ok && (cupones.valor.aplicaciones_liberadas.length > 0 || cupones.valor.cupones_dados_de_baja.length > 0)) {
+    console.warn(
+      `[CRON][check-pruebas-vencidas] 🎟️ Cupones: ${cupones.valor.aplicaciones_liberadas.length} aplicación(es) liberada(s), ` +
+        `${cupones.valor.cupones_dados_de_baja.length} cupón(es) dado(s) de baja.`,
     );
-  } catch (error) {
-    console.error("[CRON] Error al liberar reservas vencidas:", error);
+  }
+
+  if (!reservas.ok) {
+    // El error ya quedó logueado por `ejecutarMantenimientoProgramado()`.
     return NextResponse.json(
       {
         ok: false,
         ejecutado_at: ahora.toISOString(),
         error: "Error al liberar reservas vencidas.",
+        mantenimiento_cupones: mantenimientoCupones,
       },
       { status: 500 },
     );
   }
+
+  const resultado = reservas.valor;
+  if (resultado.total_liberadas === 0) {
+    console.log(
+      `[CRON][check-pruebas-vencidas] ✅ Sin reservas vencidas. ` +
+        `(fecha_expiracion <= ${resultado.umbral})`,
+    );
+  } else {
+    console.warn(
+      `[CRON][check-pruebas-vencidas] 🔓 ${resultado.total_liberadas} reserva(s) liberada(s) por TTL vencido: ` +
+        resultado.liberadas.map((r) => r.reserva_id).join(", "),
+    );
+  }
+
+  return NextResponse.json(
+    {
+      ok: true,
+      ejecutado_at: ahora.toISOString(),
+      umbral_reservado: resultado.umbral,
+      total_reservas_liberadas: resultado.total_liberadas,
+      mantenimiento_cupones: mantenimientoCupones,
+    },
+    { status: 200 },
+  );
 }

@@ -65,7 +65,7 @@ import {
 import { obtenerDepositoCanalWebId, obtenerTtlCheckoutHoras } from "@/lib/services/sistema/configuracion.service";
 import { aplicarDescuentoPedidoVentaTx, crearPedidoVentaReservadoTx } from "@/lib/services/ventas/pedido-venta.service";
 import type { IniciarCheckoutInput } from "@/lib/schemas/ecommerce.schema";
-import { aplicarCuponTx } from "@/lib/services/ecommerce/cupon.service";
+import { aplicarCuponTx, emitirCuponAplicado, type CuponAplicado } from "@/lib/services/ecommerce/cupon.service";
 import { obtenerOCrearPreferencia } from "@/lib/services/ecommerce/pago-web.service";
 import { NOMBRE_USUARIO_CANAL_WEB, obtenerUsuarioCanalWebId } from "@/lib/services/ecommerce/usuario-canal-web";
 
@@ -191,6 +191,11 @@ export interface PedidoWebPendienteVista {
   checkout_url: string | null;
   numero_venta: string;
   total: number;
+  /**
+   * HU-E4: cupón activo aplicado al pedido. `total` ya es neto (el descuento se
+   * congela en `PedidoVenta.total`), así que `subtotal` = `total` + `monto_descontado`.
+   */
+  cupon: { codigo: string; monto_descontado: number; subtotal: number } | null;
   ttl_expiracion: string;
   /** Derivado de `ttl_expiracion` — NO es un estado persistido (ver pedido-web.reglas.ts). */
   estado_visible: EstadoVisiblePedidoWeb;
@@ -224,6 +229,12 @@ export async function obtenerPedidoWebPendiente(
           numero_venta: true,
           total: true,
           items: { where: { is_active: true }, select: { reserva: { select: { fecha_expiracion: true } } } },
+          aplicaciones_cupon: {
+            where: { is_active: true, deleted_at: null },
+            orderBy: { created_at: "desc" },
+            take: 1,
+            select: { monto_descontado: true, cupon: { select: { codigo: true } } },
+          },
         },
       },
     },
@@ -236,12 +247,22 @@ export async function obtenerPedidoWebPendiente(
   // Sin reservas (no debería ocurrir en un pedido web) = nada que pagar: vencida.
   const ttl = new Date(vencimientos.length > 0 ? Math.min(...vencimientos) : 0);
 
+  const aplicacion = pendiente.pedido_venta.aplicaciones_cupon[0];
+  const total = pendiente.pedido_venta.total.toNumber();
+
   return {
     pedido_venta_id: pendiente.pedido_venta.id,
     pedido_venta_ecommerce_id: pendiente.id,
     checkout_url: pendiente.mercadopago_checkout_url,
     numero_venta: pendiente.pedido_venta.numero_venta,
-    total: pendiente.pedido_venta.total.toNumber(),
+    total,
+    cupon: aplicacion
+      ? {
+          codigo: aplicacion.cupon.codigo,
+          monto_descontado: aplicacion.monto_descontado.toNumber(),
+          subtotal: aplicacion.monto_descontado.add(pendiente.pedido_venta.total).toNumber(),
+        }
+      : null,
     ttl_expiracion: ttl.toISOString(),
     estado_visible: derivarEstadoVisiblePedidoWeb(ttl, ahora),
   };
@@ -258,6 +279,8 @@ interface ResultadoTransaccion {
   reservas: ReservaCongeladaPayload[];
   liberadas: ReservaLiberadaTtl[];
   convertidoEn: Date;
+  /** HU-E4: aplicación de cupón creada (para `ecommerce:cupon_aplicado` post-commit). */
+  cupon: CuponAplicado | null;
 }
 
 /** Error interno: otra transacción ya convirtió este carrito (D10). */
@@ -390,6 +413,13 @@ async function reservarPedidoCheckout(sesion: SesionCheckout, input: IniciarChec
     deleted_at: resultado.convertidoEn.toISOString(),
     deletion_reason: MOTIVO_CARRITO_CONVERTIDO,
   });
+  if (resultado.cupon) {
+    emitirCuponAplicado(resultado.cupon, {
+      cuenta_id: sesion.cuentaId,
+      cliente_id: sesion.clienteId,
+      pedido_venta_id: resultado.respuesta.pedido_venta_id,
+    });
+  }
 
   return resultado.respuesta;
 }
@@ -514,33 +544,34 @@ async function ejecutarTransaccionCheckout(
         items: itemsPedido,
       });
 
+      // Ventana de pago = el vencimiento más próximo de las reservas creadas.
+      const ttlExpiracion = new Date(Math.min(...vencimientos));
+
       // (7) HU-E2 paso 2 — cupón (HU-E4) sobre el total congelado; un cupón
       // inválido revierte TODO el checkout (422 CUPON_*). El total queda neto.
+      // La aplicación reserva el uso hasta que vence la reserva de stock.
       let total = pedido.total;
-      let cuponAplicacionId: string | null = null;
+      let cupon: CuponAplicado | null = null;
       if (cuponCodigo) {
-        const cupon = await aplicarCuponTx(tx, {
+        cupon = await aplicarCuponTx(tx, {
           codigo: cuponCodigo,
           cliente_id: sesion.clienteId,
           pedido_venta_id: pedido.pedido_venta_id,
           subtotal: pedido.total,
-          ahora,
+          reserva_hasta: ttlExpiracion,
         });
         total = await aplicarDescuentoPedidoVentaTx(tx, pedido.pedido_venta_id, cupon.monto_descontado);
-        cuponAplicacionId = cupon.cupon_aplicacion_id;
       }
 
       const ecommerce = await tx.pedidoVentaEcommerce.create({
         data: {
           pedido_venta_id: pedido.pedido_venta_id,
           estado_ecommerce: "PAGO_PENDIENTE",
-          cupon_aplicacion_id: cuponAplicacionId,
+          cupon_aplicacion_id: cupon?.cupon_aplicacion_id ?? null,
         },
         select: { id: true },
       });
 
-      // Ventana de pago = el vencimiento más próximo de las reservas creadas.
-      const ttlExpiracion = new Date(Math.min(...vencimientos));
       return {
         respuesta: {
           pedido_venta_id: pedido.pedido_venta_id,
@@ -557,6 +588,7 @@ async function ejecutarTransaccionCheckout(
         reservas,
         liberadas,
         convertidoEn: ahora,
+        cupon,
       };
     },
     { timeout: TIMEOUT_TRANSACCION_MS },

@@ -1088,6 +1088,50 @@ export interface CuentaWebRecuperacionHabilitadaPayload extends CuentaWebEventoB
 export type CuentaWebPasswordRedefinidaPayload = CuentaWebEventoBase;
 export interface CuentaWebBajaPayload extends CuentaWebEventoBase { motivo: string }
 
+/**
+ * HU-E4 (spec E §4) — base de los eventos de cupón. `actor_tipo`: "usuario"
+ * (administración), "cuenta" (Cliente Web en el checkout) o "sistema"
+ * (usuario "Canal Web": pago, rechazo, vencimiento, baja automática). Montos
+ * como string decimal. Sin DNI ni datos de contacto.
+ */
+export interface CuponEventoBase {
+  cupon_id: string;
+  actor_tipo: "usuario" | "cuenta" | "sistema";
+  actor_id: string;
+  ocurrido_en: string;
+}
+export interface CuponCreadoPayload extends CuponEventoBase {
+  codigo: string;
+  tipo_beneficio: string;
+  valor: string;
+  vigente_desde: string;
+  vigente_hasta: string;
+  limite_uso_global: number | null;
+  limite_uso_por_cliente: number;
+}
+export interface CuponEditadoPayload extends CuponEventoBase {
+  /** Solo los campos cambiados. */
+  antes: Record<string, unknown>;
+  despues: Record<string, unknown>;
+}
+export interface CuponBajaPayload extends CuponEventoBase { motivo: string }
+export interface CuponAplicadoPayload extends CuponEventoBase {
+  aplicacion_id: string;
+  pedido_venta_id: string;
+  cliente_id: string;
+  monto_descontado: string;
+  reserva_hasta: string;
+}
+export interface CuponConsumidoPayload extends CuponEventoBase {
+  aplicacion_id: string;
+  pedido_venta_id: string;
+}
+export interface CuponAplicacionLiberadaPayload extends CuponEventoBase {
+  aplicacion_id: string;
+  pedido_venta_id: string;
+  motivo: string;
+}
+
 /** Mapa evento → payload, usado por `domain-event-bus.ts` para tipar `emit`/`on`. */
 export interface DomainEventMap {
   /** HU-A1: se emite tras el alta de un ProductoMaestro. */
@@ -1215,6 +1259,18 @@ export interface DomainEventMap {
   "ecommerce:cuenta_web_recuperacion_habilitada": CuentaWebRecuperacionHabilitadaPayload;
   "ecommerce:cuenta_web_password_redefinida": CuentaWebPasswordRedefinidaPayload;
   "ecommerce:cuenta_web_baja": CuentaWebBajaPayload;
+  /** HU-E4: alta de un cupón desde la administración. */
+  "ecommerce:cupon_creado": CuponCreadoPayload;
+  /** HU-E4: edición con cambios (solo los campos cambiados). */
+  "ecommerce:cupon_editado": CuponEditadoPayload;
+  /** HU-E4: baja lógica manual o automática (vencido / agotado). */
+  "ecommerce:cupon_baja": CuponBajaPayload;
+  /** HU-E4: el checkout creó la aplicación pendiente (reserva del uso). */
+  "ecommerce:cupon_aplicado": CuponAplicadoPayload;
+  /** HU-E4: pago confirmado, la aplicación pasó a confirmada. */
+  "ecommerce:cupon_consumido": CuponConsumidoPayload;
+  /** HU-E4: aplicación pendiente dada de baja por rechazo del pago o vencimiento del pedido. */
+  "ecommerce:cupon_aplicacion_liberada": CuponAplicacionLiberadaPayload;
 }
 
 export type DomainEventName = keyof DomainEventMap;

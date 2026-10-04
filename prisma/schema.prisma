@@ -2221,6 +2221,7 @@ model CuponDescuento {
   deletion_reason String?
 
   created_at DateTime @default(now())
+  updated_at DateTime @default(now()) @updatedAt
 
   // --- Relaciones ---
   aplicaciones CuponAplicacion[]
@@ -2229,10 +2230,10 @@ model CuponDescuento {
 }
 
 /// Aplicación de un cupón a un pedido web (HU-E4). Nace con
-/// `confirmada = false` al iniciar el checkout (reserva optimista del uso) y
-/// pasa a `true` recién al confirmarse el pago; los límites de uso cuentan
-/// solo las `confirmada = true`. Si el pago se rechaza o la reserva vence, la
-/// aplicación pasa a inactiva por baja lógica (spec §2.4).
+/// `confirmada = false` y `reserva_hasta` al iniciar el checkout (reserva del
+/// uso) y pasa a `true` recién al confirmarse el pago. Los límites cuentan las
+/// confirmadas más las pendientes con reserva vigente (spec §2.4.b). Si el pago
+/// se rechaza o la reserva vence, la aplicación pasa a inactiva por baja lógica.
 model CuponAplicacion {
   id               String  @id @default(uuid())
   cupon_id         String
@@ -2240,6 +2241,9 @@ model CuponAplicacion {
   cliente_id       String
   monto_descontado Decimal @db.Decimal(12, 2)
   confirmada       Boolean @default(false)
+  /// HU-E4: vencimiento de la reserva de stock del pedido (mismo TTL de E2).
+  /// Una aplicación pendiente solo ocupa capacidad mientras `reserva_hasta > ahora`.
+  reserva_hasta    DateTime?
 
   // --- Soft delete estricto (pago rechazado / reserva vencida — spec §2.4) ---
   is_active       Boolean   @default(true)
@@ -2248,6 +2252,7 @@ model CuponAplicacion {
   deletion_reason String?
 
   created_at DateTime @default(now())
+  updated_at DateTime @default(now()) @updatedAt
 
   // --- Relaciones ---
   cupon            CuponDescuento        @relation(fields: [cupon_id], references: [id], onDelete: Restrict)

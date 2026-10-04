@@ -28,6 +28,8 @@ import { reconstruirCarritoDesdePedidoTx } from "@/lib/services/ecommerce/carrit
 import {
   confirmarAplicacionCuponTx,
   darDeBajaAplicacionCuponTx,
+  emitirCuponAplicacionLiberada,
+  emitirCuponConsumido,
 } from "@/lib/services/ecommerce/cupon.service";
 import {
   clasificarAprobadoSobreResuelto,
@@ -299,7 +301,7 @@ async function confirmarPago(
         // (6) Consumo del cupón (spec §2.4: recién al confirmarse el pago).
         const cupon = pedido.cupon_aplicacion_id
           ? await confirmarAplicacionCuponTx(tx, pedido.cupon_aplicacion_id)
-          : { limite_excedido: false };
+          : { limite_excedido: false, consumo: null };
 
         const cuenta = venta.cliente_id
           ? await tx.cuentaClienteWeb.findUnique({ where: { cliente_id: venta.cliente_id }, select: { id: true } })
@@ -311,6 +313,7 @@ async function confirmarPago(
           comprobanteId: comprobante.comprobante_id,
           cuponAplicacionId: pedido.cupon_aplicacion_id,
           cuponExcedido: cupon.limite_excedido,
+          cuponConsumo: cupon.consumo,
           cuentaId: cuenta?.id ?? "",
           eventosReserva,
         };
@@ -347,6 +350,8 @@ async function confirmarPago(
     comprobante_id: confirmado.comprobanteId,
     cupon_aplicacion_id: confirmado.cuponAplicacionId,
   });
+  // HU-E4: consumo del cupón (spec E §4).
+  if (confirmado.cuponConsumo) emitirCuponConsumido(confirmado.cuponConsumo, usuarioCanalWebId);
   if (confirmado.cuponExcedido) {
     emitirAnomalo("CUPON_LIMITE_EXCEDIDO", pago, {
       ecommerce_id: ecommerceId,
@@ -430,13 +435,13 @@ async function rechazarPago(
         const liberadas = await liberarReservasTx(tx, reservaIds, "PAGO_RECHAZADO", ahora);
 
         // (4) El cupón no cuenta contra el límite (spec §2.4).
-        if (pedido.cupon_aplicacion_id) {
-          await darDeBajaAplicacionCuponTx(tx, pedido.cupon_aplicacion_id, {
-            deleted_by: usuarioCanalWebId,
-            deletion_reason: "Pago rechazado por Mercado Pago",
-            ahora,
-          });
-        }
+        const cuponLiberado = pedido.cupon_aplicacion_id
+          ? await darDeBajaAplicacionCuponTx(tx, pedido.cupon_aplicacion_id, {
+              deleted_by: usuarioCanalWebId,
+              deletion_reason: "Pago rechazado por Mercado Pago",
+              ahora,
+            })
+          : null;
 
         // (5) Carrito reconstruido para reintentar con un checkout nuevo (P5).
         const cuenta = venta.cliente_id
@@ -458,7 +463,7 @@ async function rechazarPago(
           ahora,
         });
 
-        return { venta, cuentaId: cuenta.id, carritoId: carrito.carrito_id, liberadas, preferenceId: pedido.mercadopago_preference_id };
+        return { venta, cuentaId: cuenta.id, carritoId: carrito.carrito_id, liberadas, preferenceId: pedido.mercadopago_preference_id, cuponLiberado };
       },
       { timeout: TIMEOUT_TRANSACCION_MS },
     );
@@ -486,6 +491,8 @@ async function rechazarPago(
     reserva_ids: rechazado.liberadas.map((r) => r.reserva_id),
     carrito_id: rechazado.carritoId,
   });
+  // HU-E4: la aplicación del cupón quedó liberada (spec E §4).
+  if (rechazado.cuponLiberado) emitirCuponAplicacionLiberada(rechazado.cuponLiberado, usuarioCanalWebId);
 
   // Q2: la preferencia no debe admitir otro intento. Best-effort: si falla,
   // un pago aprobado posterior cae en PAGO_TARDIO.
@@ -506,6 +513,8 @@ export interface ResultadoPagoVista {
   numero_venta: string;
   estado_ecommerce: string;
   total: number;
+  /** HU-E4: cupón activo del pedido; `total` es neto, `subtotal` = `total` + `monto_descontado`. */
+  cupon: { codigo: string; monto_descontado: number; subtotal: number } | null;
   comprobante: { tipo: string; cae_simulado: string } | null;
 }
 
@@ -534,17 +543,31 @@ export async function obtenerResultadoPago(pedidoVentaId: string, clienteId: str
             take: 1,
             select: { tipo_comprobante: true, cae_simulado: true },
           },
+          aplicaciones_cupon: {
+            where: { is_active: true, deleted_at: null },
+            orderBy: { created_at: "desc" },
+            take: 1,
+            select: { monto_descontado: true, cupon: { select: { codigo: true } } },
+          },
         },
       },
     },
   });
   if (!pedido) return null;
   const comprobante = pedido.pedido_venta.comprobantes[0];
+  const aplicacion = pedido.pedido_venta.aplicaciones_cupon[0];
   return {
     pedido_venta_id: pedido.pedido_venta.id,
     numero_venta: pedido.pedido_venta.numero_venta,
     estado_ecommerce: pedido.estado_ecommerce,
     total: pedido.pedido_venta.total.toNumber(),
+    cupon: aplicacion
+      ? {
+          codigo: aplicacion.cupon.codigo,
+          monto_descontado: aplicacion.monto_descontado.toNumber(),
+          subtotal: aplicacion.monto_descontado.add(pedido.pedido_venta.total).toNumber(),
+        }
+      : null,
     comprobante: comprobante ? { tipo: comprobante.tipo_comprobante, cae_simulado: comprobante.cae_simulado } : null,
   };
 }
