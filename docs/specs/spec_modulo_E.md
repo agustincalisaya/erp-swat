@@ -1,5 +1,6 @@
 # Especificación Técnica — Módulo E (E-commerce / Tienda Online)
 ## ERP SWAT Indumentarias — Sprint 4
+## Revisión 5 — HU-E7 (Anulación manual de orden web no abonada), 04/10/2026: contrato sincronizado con la implementación. Revisión aditiva: se agregan §2.7.a–§2.7.d, la extensión de eventos de la sección 4 y la nota Rev.5 de la sección 5. El contenido de §2.7 Rev.1, de §3.1 y de las Revisiones 1–4 se conserva íntegro; ninguna sección se renumera.
 ## Revisión 4 — HU-E5 (Visibilidad web independiente del inventario físico), 04/10/2026: contrato sincronizado con la implementación. Revisión aditiva: se agregan §2.5.a–§2.5.e, la extensión de eventos de la sección 4 y la nota Rev.4 de la sección 5. El contenido de §2.5 Rev.1 y de las Revisiones 1–3 se conserva íntegro; ninguna sección se renumera.
 ## Revisión 3 — HU-E4 (Cupones de descuento), 03/10/2026: contrato cerrado y sincronizado con implementación y re-verify independiente. Revisión aditiva: se agregan §2.4.a–§2.4.e, §3.8, eventos y exclusiones E4; se anota la sustitución de §2.4 Rev.1 y la integración con §2.2. Se conserva íntegro el contenido anterior, incluida HU-E8 Rev.2, sin renumerar otras HUs.
 ## Revisión 2 — HU-E8 (Registro e inicio de sesión del Cliente Web): contrato cerrado y sincronizado con la implementación. Revisión aditiva: las secciones 2.8.a a 2.8.g, 3.7, la extensión de la sección 4 y el cierre de la sección 5 (al inicio de su lista) se agregan dentro de cada sección sin alterar lo existente; el contenido de la Revisión 1 no se reescribe y ninguna sección se renumera.
@@ -519,6 +520,31 @@ export type AnularOrdenNoAbonadaInput = z.infer<typeof AnularOrdenNoAbonadaSchem
 ```json
 { "data": null, "error": { "code": "TRANSICION_INVALIDA", "message": "Solo una orden no abonada (Pago Pendiente o Pago Rechazado) puede anularse por esta vía" } }
 ```
+
+### 2.7.a. Interfaces (Revisión 5 — HU-E7)
+
+- **Ruta:** `PATCH /api/ecommerce/pedidos/[id]/anular`, con `[id]` = `pedido_venta_id` (UUID de `PedidoVenta`, no el id de `PedidoVentaEcommerce`), coherente con la respuesta y el evento. Permiso `ecommerce:anular_orden_no_abonada` (constante `PERMISO_ANULAR_ORDEN_NO_ABONADA`), actor siempre de la sesión.
+- **Sin Server Action (desvío a validar con el equipo):** no hay `actions.ts`; la pantalla `/ecommerce/pedidos` (Server Component con gate de permiso: sin sesión → `/login`, sin permiso → `/no-autorizado`) lista las órdenes no abonadas y su componente cliente llama al Route Handler, mismo criterio que cupones, cuentas web y catálogo (desvío ya registrado en HU-E5). Sidebar: "Pedidos web", debajo de "Catálogo web".
+- **Schema:** el de §2.7 Rev.1 con `.trim()`, mensajes de raíz y `.strict()` (convención desde HU-E4/E5), sin tope de largo: raíz no objeto → "El cuerpo debe ser un objeto JSON"; campo extra (`actor_id`, `deleted_by`, `estado`…) → "El cuerpo contiene campos no permitidos"; vacío o solo espacios → "El motivo de anulación es obligatorio".
+- **Errores:** 400 `VALIDATION_ERROR` · 401 `UNAUTHORIZED` · 403 `FORBIDDEN` · **404 `PEDIDO_WEB_NO_ENCONTRADO`** ("El pedido no existe o no es un pedido web": id inexistente o `PedidoVenta` de canal MOSTRADOR) · 409 `TRANSICION_INVALIDA` (mensaje de §2.7) · 500 `INTERNAL_ERROR`.
+
+### 2.7.b. Caminos de anulación (Revisión 5 — HU-E7)
+
+- La búsqueda es por `pedido_venta_id` **sin filtrar por `is_active`**, para que una segunda anulación responda 409 y no un 404 engañoso. *Desvío justificado respecto de `RULES.md` §1* (filtrar inactivos por defecto): la operación necesita ver la orden ya dada de baja para rechazarla con el código correcto; no se expone ningún dato del registro inactivo.
+- **`PAGO_PENDIENTE`**, en una transacción: libera vía Módulo A **todas** las reservas activas de los ítems del pedido (§2.7 Rev.1 habla de "la Reserva" en singular; un pedido web tiene una por ítem), da de baja la aplicación de cupón pendiente (HU-E4, firmada por el usuario de sistema "Canal Web" como el resto de las liberaciones de E4), anula el `PedidoVenta` (`RESERVADO → ANULADO`, baja lógica con el actor y el motivo) y pasa la extensión a `ANULADO` con sus cuatro campos de baja.
+- **`PAGO_RECHAZADO`:** HU-E2 ya liberó reservas y cupón y anuló el `PedidoVenta` con su propia baja lógica; la anulación solo pasa la extensión a `ANULADO` con baja lógica y no pisa la baja de E2. Si el `PedidoVenta` todavía está `RESERVADO` y activo (datos que no pasaron por el flujo real de E2), también se anula.
+- **`stock_liberado`** es `true` solo si esta operación liberó al menos una reserva: en `PAGO_RECHAZADO` es `false` (el stock ya se había liberado).
+- Nunca DELETE: ítems, reservas (cerradas, no dadas de baja), aplicación de cupón y transacciones de pago quedan en el historial; la orden anulada conserva sus cuatro campos de baja y su `deletion_reason` para las métricas de conversión del Módulo D (consumidor diferido, HU-D3).
+- **Desvío respecto de §3.1 (no se reescribe §3.1):** §3.1 asocia `PAGO_RECHAZADO` a `PedidoVenta.estado = RESERVADO (sin cambio)`, pero HU-E2 implementó el rechazo anulando el `PedidoVenta` (`RESERVADO → ANULADO`, decisión P4 de E2). §2.7.b sigue el comportamiento real; el fixture `PEDIDO_WEB_PAGO_RECHAZADO_IDS` del seed todavía refleja §3.1.
+
+### 2.7.c. Concurrencia (Revisión 5 — HU-E7)
+
+Mismo orden de bloqueo que la confirmación del pago web: `PedidoVenta` `FOR UPDATE` y luego transición condicionada de la extensión (`estado_ecommerce` esperado + `is_active`). Si gana el pago, la anulación responde 409; si gana la anulación, el pago aprobado posterior se clasifica `PAGO_TARDIO` (E2). El rechazo del pago bloquea en el orden inverso: un deadlock (`40P01`) se reintenta localmente hasta 3 veces, cada intento relee el estado y los eventos se emiten una sola vez tras el intento que confirmó.
+
+### 2.7.d. Vía automática por TTL (Revisión 5 — HU-E7)
+
+- Listener `anulacion-orden.listener.ts`, registrado en `domain-event-bus.ts` después del de auditoría. Solo reacciona a `stock:reserva_liberada` con `motivo_liberacion = "TTL_VENCIDO"`: correlaciona `reserva_id` → ítem → `pedido_venta_id` y, si el pedido es `WEB` con la extensión activa en `PAGO_PENDIENTE`, aplica el mismo núcleo que la vía manual con `deleted_by` = usuario de sistema "Canal Web", `deletion_reason = "Reserva vencida sin pago (TTL)"` (`MOTIVO_ANULACION_TTL`) y `automatico: true`. Si alguna reserva de la orden seguía activa, también se libera. Cualquier otro caso se ignora sin error; varias reservas de una misma orden producen una sola anulación. Un error se loguea solo con su código y nunca rompe al emisor.
+- Funciona en los tres lugares donde corre el TTL: el cron y la liberación en línea del checkout (proceso de Next) y `npm run job:reservas`, que espera `listenersRegistrados` antes de liberar y `esperarAnulacionesPendientes()` antes de desconectar Prisma.
 
 ### 2.8. Registro e inicio de sesión de Cliente Web (HU-E8)
 
@@ -1091,7 +1117,17 @@ Dos eventos nuevos, emitidos después del COMMIT, con handler explícito en `aud
 
 `ecommerce:carrito_articulo_no_disponible` agrega el campo opcional `origen?: "CHECKOUT" \| "VISIBILIDAD_WEB"` (ausente = `"CHECKOUT"`, retrocompatible). Su asiento de auditoría se etiqueta `CHECKOUT_BLOQUEADO` (sin origen o CHECKOUT, sin cambios respecto de HU-E1) o `ARTICULO_NO_DISPONIBLE_VISIBILIDAD_WEB` (con `origen` en `valor_nuevo`).
 
+### Extensión de eventos — Revisión 5 (HU-E7)
+
+| Evento | Payload | Asiento |
+|---|---|---|
+| `ecommerce:orden_anulada` (evento sensible, fila de la Rev.1 sin cambios) | `{ pedido_venta_id, usuario_id?, deletion_reason, automatico }` — `usuario_id` ausente en la vía automática | `usuario_id` = actor (manual) o `null` (automática, como E2 y el TTL); `accion` = evento; `pedidos_venta`, `registro_id = pedido_venta_id`; antes `{ is_active: true }` / después `{ estado_ecommerce: "ANULADO", is_active: false, deletion_reason, automatico }` |
+
+Módulo A: `ReservaLiberadaPayload.motivo_liberacion` y `MotivoLiberacionInmediata` agregan `"ANULACION_ORDEN"` (aditivo y retrocompatible; ninguna lista cerrada depende del tipo) para la liberación por anulación, manual o automática. `spec_modulo_A.md` no se edita desde aquí: queda reportado para su owner. El asiento `RESERVA_LIBERADA` existente registra el motivo sin cambios.
+
 ## 5. Fuera de Alcance (diferido / bloqueado)
+
+**Rev.5 — E7:** reconstrucción del carrito del cliente, notificación al Cliente Web y cierre de la preferencia de Mercado Pago al anular (no los pide la spec; decisiones de producto pendientes); consumo de las métricas de conversión por el Módulo D (HU-D3); agendado del cron en despliegue. Pendientes de validar con el equipo/PO: pantalla mínima sin Server Action (§2.7.a) y listener spec-literal (§2.7.d).
 
 **Rev.4 — E5:** reactivación de un contenido web dado de baja; Server Actions de §2.5 (desvío a validar); bandeja de notificaciones del Cliente Web en la tienda (superficie fuera de HU-F3); agendado del cron en despliegue (mismo pendiente que reservas y cupones). Pendientes de validar con el PO: las dos operaciones de §2.5.a y el plazo de 7 días de §2.5.d.
 

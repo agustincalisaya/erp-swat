@@ -1020,6 +1020,33 @@ export function iniciarAuditLogListener(): void {
     });
   });
 
+  // ── HU-E7 (Módulo E) — anulación de orden web no abonada (spec E §2.7/§4),
+  // evento sensible encadenado SHA-256. Manual: el Administrador E-commerce.
+  // Automática por TTL: `usuario_id` null (actor de sistema, mismo criterio que
+  // E2 y la liberación por TTL). El payload no trae el estado previo
+  // (PAGO_PENDIENTE o PAGO_RECHAZADO): `valor_anterior` registra que estaba activa.
+  domainEventBus.on("ecommerce:orden_anulada", (payload) => {
+    registrarAuditLog({
+      usuario_id: payload.usuario_id ?? null,
+      accion: "ecommerce:orden_anulada",
+      tabla_afectada: "pedidos_venta",
+      registro_id: payload.pedido_venta_id,
+      ip: "internal-event",
+      valor_anterior: { is_active: true },
+      valor_nuevo: {
+        estado_ecommerce: "ANULADO",
+        is_active: false,
+        deletion_reason: payload.deletion_reason,
+        automatico: payload.automatico,
+      },
+    }).catch((error: unknown) => {
+      console.error("[audit-log.listener] Falló la escritura de auditoría para ecommerce:orden_anulada:", {
+        pedido_venta_id: payload.pedido_venta_id,
+        codigo_error: codigoDiagnosticoAuditoria(error),
+      });
+    });
+  });
+
   // ── HU-E2 (Módulo E) — pago web por webhook de Mercado Pago. El actor es
   // Mercado Pago (sin `Usuario` del ERP): `usuario_id` null, mismo criterio que
   // los eventos de E1. Sin datos de tarjeta ni payload crudo de MP (spec E §4).

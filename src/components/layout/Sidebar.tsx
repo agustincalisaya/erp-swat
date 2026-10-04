@@ -32,7 +32,7 @@
  */
 import type { LucideIcon } from "lucide-react";
 // 1. Agregamos el ícono "Layers" a la importación
-import { ScrollText, ShieldCheck, Users, Package, Warehouse, ScanBarcode, Layers, FileSearch, ShoppingCart, ClipboardList, Store, PackageCheck, Undo2, Wallet, Banknote, Receipt, FileText, UserPlus, Tags, TicketPercent, Settings, BellRing, Globe } from "lucide-react";
+import { ScrollText, ShieldCheck, Users, Package, Warehouse, ScanBarcode, Layers, FileSearch, ShoppingCart, ClipboardList, Store, PackageCheck, Undo2, Wallet, Banknote, Receipt, FileText, UserPlus, Tags, TicketPercent, Settings, BellRing, Globe, Ban } from "lucide-react";
 import { getServerSession } from "@/lib/auth/session";
 import { usuarioTienePermiso } from "@/lib/auth/with-permission";
 import { SidebarNav, type SidebarNavSection } from "@/components/layout/SidebarNav";
@@ -274,6 +274,14 @@ const SECCIONES: SeccionConfig[] = [
         href: "/ecommerce/catalogo",
         icon: Globe,
         permiso: "ecommerce:gestionar_catalogo",
+      },
+      // HU-E7 — órdenes web no abonadas y su anulación manual; debajo de
+      // "Catálogo web". Gate por `ecommerce:anular_orden_no_abonada`.
+      {
+        label: "Pedidos web",
+        href: "/ecommerce/pedidos",
+        icon: Ban,
+        permiso: "ecommerce:anular_orden_no_abonada",
       },
     ],
   },

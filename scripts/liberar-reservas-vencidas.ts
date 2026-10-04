@@ -19,20 +19,20 @@
  * (`ECOMMERCE_CARRITO_ABANDONADO_DIAS`), con su propia línea de log.
  */
 import "dotenv/config";
-import { domainEventBus } from "@/lib/events/domain-event-bus";
+import { domainEventBus, listenersRegistrados } from "@/lib/events/domain-event-bus";
+import { esperarAnulacionesPendientes } from "@/lib/events/listeners/anulacion-orden.listener";
 import { ejecutarMantenimientoProgramado } from "@/lib/services/ecommerce/mantenimiento-programado";
 import { prisma } from "@/lib/db/prisma";
 
 const modoWatch = process.argv.includes("--watch");
 const intervaloSeg = Number(process.env.JOB_RESERVAS_INTERVALO_SEG ?? 60);
 
-/** El listener de auditoría se registra por import dinámico: se espera a que
- * esté suscripto antes de liberar, para no perder el asiento RESERVA_LIBERADA. */
+/** Los listeners se registran por import dinámico: se espera a que estén
+ * suscriptos antes de liberar, para no perder el asiento RESERVA_LIBERADA ni
+ * la anulación automática de la orden web (HU-E7, D3). */
 async function esperarListenerAuditoria(): Promise<void> {
-  for (let intento = 0; intento < 50; intento++) {
-    if (domainEventBus.listenerCount("stock:reserva_liberada") > 0) return;
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
+  await listenersRegistrados;
+  if (domainEventBus.listenerCount("stock:reserva_liberada") > 0) return;
   console.warn("[job:reservas] El listener de auditoría no quedó registrado: los eventos no se auditarán.");
 }
 
@@ -69,6 +69,8 @@ async function main(): Promise<void> {
   await esperarListenerAuditoria();
   await pasada();
   if (!modoWatch) {
+    // HU-E7: las anulaciones automáticas por TTL corren en el listener (asíncrono).
+    await esperarAnulacionesPendientes();
     // Deja drenar la cola serializada del ledger (`registrarAuditLog`) antes de salir.
     await new Promise((resolve) => setTimeout(resolve, 500));
     await prisma.$disconnect();
