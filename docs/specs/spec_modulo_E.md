@@ -1,5 +1,6 @@
 # Especificación Técnica — Módulo E (E-commerce / Tienda Online)
 ## ERP SWAT Indumentarias — Sprint 4
+## Revisión 4 — HU-E5 (Visibilidad web independiente del inventario físico), 04/10/2026: contrato sincronizado con la implementación. Revisión aditiva: se agregan §2.5.a–§2.5.e, la extensión de eventos de la sección 4 y la nota Rev.4 de la sección 5. El contenido de §2.5 Rev.1 y de las Revisiones 1–3 se conserva íntegro; ninguna sección se renumera.
 ## Revisión 3 — HU-E4 (Cupones de descuento), 03/10/2026: contrato cerrado y sincronizado con implementación y re-verify independiente. Revisión aditiva: se agregan §2.4.a–§2.4.e, §3.8, eventos y exclusiones E4; se anota la sustitución de §2.4 Rev.1 y la integración con §2.2. Se conserva íntegro el contenido anterior, incluida HU-E8 Rev.2, sin renumerar otras HUs.
 ## Revisión 2 — HU-E8 (Registro e inicio de sesión del Cliente Web): contrato cerrado y sincronizado con la implementación. Revisión aditiva: las secciones 2.8.a a 2.8.g, 3.7, la extensión de la sección 4 y el cierre de la sección 5 (al inicio de su lista) se agregan dentro de cada sección sin alterar lo existente; el contenido de la Revisión 1 no se reescribe y ninguna sección se renumera.
 ## Revisión 1 — Primera especificación técnica del módulo (HU-E1 a HU-E13)
@@ -394,6 +395,50 @@ export type CambiarVisibilidadWebInput = z.infer<typeof CambiarVisibilidadWebSch
 ```json
 { "data": { "producto_web_id": "uuid", "visibilidad_web": false }, "error": null }
 ```
+
+### 2.5.a. Dos operaciones: ocultar/mostrar y baja lógica (Revisión 4 — HU-E5)
+
+El criterio 3 del backlog exige que "la desactivación web" sea baja lógica con `is_active`, `deleted_at`, `deleted_by`, `deletion_reason`; esta sección (Rev.1) la define como `UPDATE` reversible. Se implementan **las dos**, como operaciones separadas (pendiente de validar con el PO):
+
+- **Ocultar/mostrar** (este §2.5): `UPDATE` reversible de `visibilidad_web`, motivo opcional, sin tocar `is_active` ni `deleted_*`. Pedir el valor actual es un no-op: 200 con el estado, sin `UPDATE`, sin evento ni avisos.
+- **Baja lógica del contenido** (criterio 3): `is_active = false`, `deleted_at`, `deleted_by` (actor de la sesión), `deletion_reason` obligatorio y `visibilidad_web = false`. Sin reactivación. §2.11 asigna la baja del contenido a HU-E11: E11 debe reutilizar `darDeBajaContenidoWeb()` (`src/lib/services/ecommerce/visibilidad-web.service.ts`) sin duplicar lógica.
+
+Un contenido dado de baja no es operable: ambas operaciones responden `404 PRODUCTO_WEB_NO_ENCONTRADO`.
+
+### 2.5.b. Interfaces (Revisión 4 — HU-E5)
+
+**Ruta (baja lógica):** `PATCH /app/api/ecommerce/catalogo/[producto_web_id]/baja/route.ts` — mismo permiso `ecommerce:gestionar_catalogo`.
+**Server Actions:** no se implementaron. Siguiendo el patrón real del Módulo E (cupones, cuentas web), la pantalla `/ecommerce/catalogo` llama a los Route Handlers; la Server Action `cambiarVisibilidadWeb()` nombrada arriba queda como desvío a validar por el equipo. El listado de la pantalla se lee desde el Server Component; no se agrega un `GET` de listado.
+
+```typescript
+// src/lib/schemas/ecommerce.schema.ts — bodies estrictos (campo extra → 400)
+export const CambiarVisibilidadWebSchema = z.object({
+  visibilidad_web: z.boolean(),
+  motivo: z.string().trim().min(1).max(500).optional(),
+}).strict();
+export const BajaContenidoWebSchema = z.object({
+  deletion_reason: z.string().trim().min(1).max(500),
+}).strict();
+```
+
+**Respuesta `200 OK` (baja):**
+```json
+{ "data": { "producto_web_id": "uuid", "is_active": false, "deleted_at": "2026-10-05T14:02:11.000Z" }, "error": null }
+```
+
+Errores: `400 VALIDATION_ERROR` (id no UUID, body inválido, raíz no objeto, campo extra, motivo vacío) · `401` · `403` · `404 PRODUCTO_WEB_NO_ENCONTRADO` · `500 INTERNAL_ERROR`.
+
+### 2.5.c. Aviso a carritos afectados (Revisión 4 — HU-E5)
+
+Después del COMMIT, al ocultar un contenido —o al darlo de baja **si estaba visible**— se emite `ecommerce:carrito_articulo_no_disponible` por cada ítem activo de un carrito activo cuya variante pertenece al Producto Maestro del contenido, con `motivo: "NO_VISIBLE_WEB"` y el campo nuevo `origen: "VISIBILIDAD_WEB"` (ver sección 4). Los carritos de visitante emiten con `cliente_web_cuenta_id: null` y HU-F3 los descarta. La idempotencia de F3 sigue siendo por `carrito_item_id`: un ítem notifica una sola vez, sea por este aviso o por un checkout bloqueado. Una falla al avisar no revierte la operación ya confirmada.
+
+### 2.5.d. Carritos abandonados (Revisión 4 — HU-E5, contrato compartido con §2.1)
+
+Clave nueva `ECOMMERCE_CARRITO_ABANDONADO_DIAS` (módulo `E`, sembrada en `7`, valor pendiente de validar con el PO). Un carrito (de cuenta o de visitante) está abandonado si `carritos_web.updated_at` es estrictamente anterior a `ahora − plazo`. La baja es lógica: `is_active = false`, `deleted_at = ahora`, `deleted_by = null` (sistema), `deletion_reason = "ABANDONADO"`; los ítems no se tocan; no emite evento ni asiento de auditoría (no es un evento de negocio auditable, §2.1). Corre como tercera tarea, aislada, del coordinador `mantenimiento-programado.ts` (HU-E4), invocado por `POST /api/cron/check-pruebas-vencidas` (bloque `mantenimiento_carritos` en la respuesta, sin cambiar autenticación ni status) y por `npm run job:reservas`.
+
+### 2.5.e. Independencia respecto de Módulo A (Revisión 4 — HU-E5)
+
+Ninguna de las dos operaciones lee ni escribe `VarianteSKU`, `ProductoMaestro` ni `StockDeposito`. El listado de administración informa el estado del Producto Maestro solo como dato de lectura; no condiciona la visibilidad.
 
 ### 2.6. Log de auditoría de transacciones de pago (HU-E6)
 
@@ -1035,7 +1080,20 @@ Se agregan seis eventos a `src/lib/events/event-types.ts`, cada uno con handler 
 
 Alta/edición/baja manual: usuario; aplicación: cuenta web; consumo/liberación/baja automática: sistema Canal Web. Aplicado/consumido usan `registro_id` de la aplicación; cupón en payload. `cliente_id` UUID seudónimo, sin DNI/contacto/secretos. No-op e idempotencia no duplican evento.
 
+### Extensión de eventos — Revisión 4 (HU-E5)
+
+Dos eventos nuevos, emitidos después del COMMIT, con handler explícito en `audit-log.listener.ts` (`usuario_id` = actor, `accion` = nombre del evento, `tabla_afectada: contenidos_producto_web`). Sin PII.
+
+| Evento | Payload |
+|---|---|
+| `ecommerce:visibilidad_web_cambiada` | `{ producto_web_id, producto_maestro_id, visibilidad_anterior, visibilidad_nueva, motivo: string \| null, actor_id }` — solo si el valor cambió |
+| `ecommerce:contenido_web_baja` | `{ producto_web_id, producto_maestro_id, deletion_reason, actor_id }` |
+
+`ecommerce:carrito_articulo_no_disponible` agrega el campo opcional `origen?: "CHECKOUT" \| "VISIBILIDAD_WEB"` (ausente = `"CHECKOUT"`, retrocompatible). Su asiento de auditoría se etiqueta `CHECKOUT_BLOQUEADO` (sin origen o CHECKOUT, sin cambios respecto de HU-E1) o `ARTICULO_NO_DISPONIBLE_VISIBILIDAD_WEB` (con `origen` en `valor_nuevo`).
+
 ## 5. Fuera de Alcance (diferido / bloqueado)
+
+**Rev.4 — E5:** reactivación de un contenido web dado de baja; Server Actions de §2.5 (desvío a validar); bandeja de notificaciones del Cliente Web en la tienda (superficie fuera de HU-F3); agendado del cron en despliegue (mismo pendiente que reservas y cupones). Pendientes de validar con el PO: las dos operaciones de §2.5.a y el plazo de 7 días de §2.5.d.
 
 **Rev.3 — E4:** campañas ampliadas, acumulación, endpoint público de validación antes del checkout, pantalla/endpoint de historial de aplicaciones (K8; persisten datos y auditoría para D), reactivación, restitución de usos por reembolso E13, pedidos de neto cero, cambios de proveedor o algoritmo de reserva. No quedan gates de evidencia E4 pendientes al cierre documentado; deuda aceptada de UI/copy/accesibilidad no se incorpora como requisito nuevo. La integración/PR siguen siendo operaciones manuales pendientes.
 
@@ -1054,6 +1112,7 @@ Alta/edición/baja manual: usuario; aplicación: cuenta web; consumo/liberación
   - *Revisión 2:* resuelto. Contrato en 2.8.e (validación de vinculación con reasignación de acceso, permiso `ventas:validar_identidad_cliente_web`, solo rol `VENDEDOR`).
 - **Claves de `ConfiguracionSistema` adicionales, no incluidas en `spec_modulo_D.md` sección 6.2 (Sprint 4, Revisión 1):** este documento asume, sin haberlas agregado al catálogo sembrado de Módulo D, las siguientes claves nuevas: umbral de intentos fallidos de login de Cliente Web (2.8), plazo de carrito abandonado (2.1), cantidad máxima de fotos y tamaño máximo por foto (2.11). Deben agregarse a `spec_modulo_D.md` sección 6.2 antes de implementar — no se edita ese documento desde aquí para no invalidar su propia Revisión 1 sin coordinación explícita del owner de Módulo D.
   - *Revisión 2:* la clave de 2.8 quedó resuelta como `ECOMMERCE_CUENTA_WEB_MAX_INTENTOS` (más `ECOMMERCE_CUENTA_WEB_BLOQUEO_MINUTOS`), sembradas en `prisma/seed.ts` con módulo `E` (2.8.d). El catálogo de `spec_modulo_D.md` sección 6.2 **no** se actualizó desde aquí: sigue pendiente de coordinación con el owner de Módulo D. Las claves de 2.1 y 2.11 siguen pendientes.
+  - *Revisión 4:* la clave de 2.1 quedó resuelta como `ECOMMERCE_CARRITO_ABANDONADO_DIAS` (default `7`, módulo `E`), sembrada en `prisma/seed.ts` (§2.5.d). `spec_modulo_D.md` §6.2 sigue sin actualizar (coordinación pendiente con el owner de Módulo D). Las claves de 2.11 siguen pendientes.
 - **Storage de imágenes (HU-E11):** este documento no define el mecanismo de almacenamiento de fotos de producto (S3, Vercel Blob u otro) — `ProductoWebFoto.url` asume una URL ya resuelta por un mecanismo externo a definir.
 - **Mecanismo de push en tiempo real para notificaciones (heredado de `spec_modulo_F.md` sección 2.3):** el contador de "Mis pedidos"/bandeja se refresca por polling, no WebSocket/SSE — documentado como extensión futura no bloqueante, mismo criterio que Módulo F.
 - **`origen_reserva` para checkout web, sin valor confirmado en el enum `OrigenReserva` de Módulo A:** ver Nota de relevamiento en 2.2 — bloqueante menor (tiene una salida de contingencia razonable, reutilizar `SENIA`, pero no confirmada).
