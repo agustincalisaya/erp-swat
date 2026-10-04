@@ -324,18 +324,22 @@ test(
       assert.equal(p.pedido_venta.comprobantes.length, 0);
     });
 
-    await t.test("Q3 — cupón que ya alcanzó su límite al confirmar: se confirma igual + CUPON_LIMITE_EXCEDIDO", async () => {
+    // HU-E4 (spec E §2.4.b): la reserva del primer checkout ocupa el único
+    // lugar del cupón, así que el segundo se rechaza antes de pagar y ya no
+    // hay sobreconsumo que informar al confirmar.
+    await t.test("Q3 — cupón de límite 1 reservado por un checkout: el segundo se rechaza con CUPON_LIMITE_ALCANZADO", async () => {
       const cupon = await crearCupon(10, 1);
       const a = await compra({ precio: 10000, cantidad: 1, cupon });
-      const b = await compra({ precio: 10000, cantidad: 1, cupon }); // pasa: ninguna confirmada todavía
-      await pagoWeb.procesarNotificacionPago(pagoMp(a.iniciado.pedido_venta_ecommerce_id, "approved", 9000), pasarela);
-      const r = await pagoWeb.procesarNotificacionPago(pagoMp(b.iniciado.pedido_venta_ecommerce_id, "approved", 9000), pasarela);
-      assert.equal(r.resultado, "CONFIRMADO");
-      assert.equal((await estadoPedido(b.iniciado.pedido_venta_id)).estado_ecommerce, "EN_PREPARACION");
-      const anomalo = eventos.find(
-        (e) => e.nombre === "ecommerce:pago_anomalo" && e.payload.pedido_venta_id === b.iniciado.pedido_venta_id,
+      await assert.rejects(
+        compra({ precio: 10000, cantidad: 1, cupon }),
+        (e: unknown) => e instanceof ServiceError && e.code === "CUPON_LIMITE_ALCANZADO",
       );
-      assert.equal(anomalo?.payload.motivo, "CUPON_LIMITE_EXCEDIDO");
+      const r = await pagoWeb.procesarNotificacionPago(pagoMp(a.iniciado.pedido_venta_ecommerce_id, "approved", 9000), pasarela);
+      assert.equal(r.resultado, "CONFIRMADO");
+      const anomalo = eventos.find(
+        (e) => e.nombre === "ecommerce:pago_anomalo" && e.payload.pedido_venta_id === a.iniciado.pedido_venta_id,
+      );
+      assert.equal(anomalo, undefined, "sin CUPON_LIMITE_EXCEDIDO: la reserva ya ocupaba el lugar");
     });
 
     await t.test("D-E2-6 — pago huérfano (sin external_reference o pedido inexistente) → ANOMALIA", async () => {

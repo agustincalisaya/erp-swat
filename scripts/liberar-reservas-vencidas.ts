@@ -10,10 +10,14 @@
  * Módulo A — no reimplementa ninguna transición de stock. Corre con
  * `node --conditions=react-server --import tsx` (mismo mecanismo que el seed y
  * los `test:integration:*`) para poder importar código con `server-only`.
+ *
+ * HU-E4 (Gate 3, A1): después corre, de forma independiente, el mantenimiento
+ * de cupones (`ejecutarMantenimientoProgramado()`, el mismo que usa el cron):
+ * si una tarea falla, la otra corre igual y el error se loguea.
  */
 import "dotenv/config";
 import { domainEventBus } from "@/lib/events/domain-event-bus";
-import { liberarReservasVencidas } from "@/lib/services/inventario/reserva.service";
+import { ejecutarMantenimientoProgramado } from "@/lib/services/ecommerce/mantenimiento-programado";
 import { prisma } from "@/lib/db/prisma";
 
 const modoWatch = process.argv.includes("--watch");
@@ -30,16 +34,27 @@ async function esperarListenerAuditoria(): Promise<void> {
 }
 
 async function pasada(): Promise<void> {
-  const resultado = await liberarReservasVencidas(new Date());
+  const { reservas, cupones } = await ejecutarMantenimientoProgramado(new Date());
   const ahora = new Date().toISOString();
-  if (resultado.total_liberadas === 0) {
-    console.log(`[job:reservas] ${ahora} — sin reservas vencidas.`);
-  } else {
+  if (reservas.ok) {
+    const resultado = reservas.valor;
+    if (resultado.total_liberadas === 0) {
+      console.log(`[job:reservas] ${ahora} — sin reservas vencidas.`);
+    } else {
+      console.log(
+        `[job:reservas] ${ahora} — ${resultado.total_liberadas} reserva(s) liberada(s): ` +
+          resultado.liberadas.map((r) => r.reserva_id).join(", "),
+      );
+    }
+  }
+  if (cupones.ok) {
     console.log(
-      `[job:reservas] ${ahora} — ${resultado.total_liberadas} reserva(s) liberada(s): ` +
-        resultado.liberadas.map((r) => r.reserva_id).join(", "),
+      `[job:reservas] ${ahora} — cupones: ${cupones.valor.aplicaciones_liberadas.length} aplicación(es) liberada(s), ` +
+        `${cupones.valor.cupones_dados_de_baja.length} cupón(es) dado(s) de baja.`,
     );
   }
+  // Los errores ya los logueó `ejecutarMantenimientoProgramado()`.
+  if (!reservas.ok || !cupones.ok) process.exitCode = 1;
 }
 
 async function main(): Promise<void> {

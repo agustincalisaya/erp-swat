@@ -59,7 +59,7 @@ HU-E12 se divide en 10 tasks secuenciales con 4 puntos de parada obligatorios. C
     - `scan_id` String `@unique`
     - `codigo_escaneado` String
     - `is_active` Boolean `@default(true)`
-    - `deleted_at` DateTime?  
+    - `deleted_at` DateTime?
     - `deleted_by` String?
     - `deletion_reason` String?
     - `created_at` DateTime `@default(now())`

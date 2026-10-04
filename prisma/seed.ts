@@ -4489,6 +4489,9 @@ async function main() {
     });
     pedidoWebPorEstado.set(`${p.estado_ecommerce}:${p.numero_venta}`, pedido);
 
+    // HU-E4: vencimiento más próximo de las reservas del pedido = `reserva_hasta`
+    // de su aplicación de cupón pendiente.
+    let vencimientoReserva: Date | null = null;
     for (const [i, variante_sku_id] of p.variantes.entries()) {
       const { item, reserva } = p.ids.items[i];
       // PAGO_PENDIENTE: la expiración (24h) excede a propósito
@@ -4497,6 +4500,7 @@ async function main() {
       const fechaExpiracion = reservaVigente
         ? sumarHoras(new Date(), 24)
         : sumarHoras(p.fecha_checkout, ttlCheckoutHoras);
+      if (!vencimientoReserva || fechaExpiracion < vencimientoReserva) vencimientoReserva = fechaExpiracion;
 
       await prisma.reserva.upsert({
         where: { id: reserva },
@@ -4534,9 +4538,12 @@ async function main() {
     }
 
     if (p.cupon) {
+      // HU-E4: la pendiente acompaña a su reserva (que se refresca en cada
+      // corrida); nunca se tocan los campos de baja.
+      const reservaHasta = p.cupon.confirmada ? null : vencimientoReserva;
       await prisma.cuponAplicacion.upsert({
         where: { id: p.cupon.aplicacion_id },
-        update: {},
+        update: p.cupon.confirmada ? {} : { reserva_hasta: reservaHasta },
         create: {
           id: p.cupon.aplicacion_id,
           cupon_id: p.cupon.cupon_id,
@@ -4544,6 +4551,7 @@ async function main() {
           cliente_id: clienteJuanPerez.id,
           monto_descontado: descuento,
           confirmada: p.cupon.confirmada,
+          reserva_hasta: reservaHasta,
           created_at: p.fecha_checkout,
         },
       });

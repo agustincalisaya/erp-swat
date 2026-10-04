@@ -36,6 +36,12 @@ import { registrarAuditLog } from "@/lib/services/auditoria/audit-log.service";
 
 let registrado = false;
 
+/** Diagnóstico seguro: solo un código Prisma `PXXXX`; nunca el mensaje ni propiedades del error. */
+function codigoDiagnosticoAuditoria(error: unknown): string {
+  const codigo = typeof error === "object" && error !== null ? (error as { code?: unknown }).code : undefined;
+  return typeof codigo === "string" && /^P\d{4}$/.test(codigo) ? codigo : "ERROR_ESCRITURA_AUDITORIA";
+}
+
 async function registrarDecisionC4(payload: ConsentimientoDecisionRegistradaPayload): Promise<void> {
   try {
     await registrarAuditLog({
@@ -854,6 +860,109 @@ export function iniciarAuditLogListener(): void {
   domainEventBus.on("ecommerce:cuenta_web_baja", (payload) => {
     const { cuenta_id, actor_id, actor_tipo, ocurrido_en, ...datos } = payload;
     void registrarAuditLog({ usuario_id: null, accion: "ecommerce:cuenta_web_baja", tabla_afectada: "cuentas_cliente_web", registro_id: cuenta_id, ip: "internal-event", valor_anterior: { is_active: true }, valor_nuevo: { ...datos, actor_id, actor_tipo, ocurrido_en, is_active: false } });
+  });
+
+  // ── HU-E4 (Módulo E) — cupones de descuento (spec E §4). `usuario_id` es el
+  // actor cuando es un Usuario del ERP (administración o "Canal Web"); null
+  // cuando el actor es la cuenta del Cliente Web (mismo criterio que E8).
+  domainEventBus.on("ecommerce:cupon_creado", (payload) => {
+    const { cupon_id, actor_id, actor_tipo, ocurrido_en, ...datos } = payload;
+    void registrarAuditLog({
+      usuario_id: actor_id,
+      accion: "ecommerce:cupon_creado",
+      tabla_afectada: "cupones_descuento",
+      registro_id: cupon_id,
+      ip: "internal-event",
+      valor_anterior: null,
+      valor_nuevo: { ...datos, actor_tipo, ocurrido_en, is_active: true },
+    });
+  });
+  domainEventBus.on("ecommerce:cupon_editado", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.actor_id,
+      accion: "ecommerce:cupon_editado",
+      tabla_afectada: "cupones_descuento",
+      registro_id: payload.cupon_id,
+      ip: "internal-event",
+      valor_anterior: payload.antes,
+      valor_nuevo: { ...payload.despues, actor_tipo: payload.actor_tipo, ocurrido_en: payload.ocurrido_en },
+    });
+  });
+  domainEventBus.on("ecommerce:cupon_baja", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.actor_id,
+      accion: "ecommerce:cupon_baja",
+      tabla_afectada: "cupones_descuento",
+      registro_id: payload.cupon_id,
+      ip: "internal-event",
+      valor_anterior: { is_active: true },
+      valor_nuevo: {
+        is_active: false,
+        deleted_at: payload.ocurrido_en,
+        deleted_by: payload.actor_id,
+        deletion_reason: payload.motivo,
+        actor_tipo: payload.actor_tipo,
+      },
+    });
+  });
+  domainEventBus.on("ecommerce:cupon_aplicado", (payload) => {
+    const { aplicacion_id, actor_id, actor_tipo, ocurrido_en, ...datos } = payload;
+    void registrarAuditLog({
+      usuario_id: null,
+      accion: "ecommerce:cupon_aplicado",
+      tabla_afectada: "aplicaciones_cupon",
+      registro_id: aplicacion_id,
+      ip: "internal-event",
+      valor_anterior: null,
+      valor_nuevo: { ...datos, confirmada: false, actor_id, actor_tipo, ocurrido_en },
+    });
+  });
+  domainEventBus.on("ecommerce:cupon_consumido", (payload) => {
+    registrarAuditLog({
+      usuario_id: payload.actor_id,
+      accion: "ecommerce:cupon_consumido",
+      tabla_afectada: "aplicaciones_cupon",
+      registro_id: payload.aplicacion_id,
+      ip: "internal-event",
+      valor_anterior: { confirmada: false },
+      valor_nuevo: {
+        confirmada: true,
+        cupon_id: payload.cupon_id,
+        pedido_venta_id: payload.pedido_venta_id,
+        actor_tipo: payload.actor_tipo,
+        ocurrido_en: payload.ocurrido_en,
+      },
+    }).catch((error: unknown) => {
+      console.error("[audit-log.listener] Falló la escritura de auditoría para ecommerce:cupon_consumido:", {
+        aplicacion_id: payload.aplicacion_id,
+        pedido_venta_id: payload.pedido_venta_id,
+        codigo_error: codigoDiagnosticoAuditoria(error),
+      });
+    });
+  });
+  domainEventBus.on("ecommerce:cupon_aplicacion_liberada", (payload) => {
+    registrarAuditLog({
+      usuario_id: payload.actor_id,
+      accion: "ecommerce:cupon_aplicacion_liberada",
+      tabla_afectada: "aplicaciones_cupon",
+      registro_id: payload.aplicacion_id,
+      ip: "internal-event",
+      valor_anterior: { is_active: true },
+      valor_nuevo: {
+        is_active: false,
+        deleted_at: payload.ocurrido_en,
+        deletion_reason: payload.motivo,
+        cupon_id: payload.cupon_id,
+        pedido_venta_id: payload.pedido_venta_id,
+        actor_tipo: payload.actor_tipo,
+      },
+    }).catch((error: unknown) => {
+      console.error("[audit-log.listener] Falló la escritura de auditoría para ecommerce:cupon_aplicacion_liberada:", {
+        aplicacion_id: payload.aplicacion_id,
+        pedido_venta_id: payload.pedido_venta_id,
+        codigo_error: codigoDiagnosticoAuditoria(error),
+      });
+    });
   });
 
   // ── HU-E2 (Módulo E) — pago web por webhook de Mercado Pago. El actor es

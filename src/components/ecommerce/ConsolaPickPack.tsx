@@ -435,4 +435,3 @@ export function ConsolaPickPack({
     </div>
   );
 }
-

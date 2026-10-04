@@ -12,6 +12,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { buttonVariants } from "@/components/ui/button";
+import { DesgloseCupon } from "@/components/tienda/DesgloseCupon";
 import { formatearPrecio } from "@/components/tienda/formato";
 import { getSesionClienteWeb, getSesionClienteWebVinculada } from "@/lib/auth/sesion-cliente-web";
 import { obtenerResultadoPago } from "@/lib/services/ecommerce/pago-web.service";
@@ -95,6 +96,7 @@ export default async function CheckoutResultadoTiendaPage({
           Te avisamos cuando esté listo para retirar en Sucursal Salta.
         </AlertDescription>
       </Alert>
+      {pedido.cupon && <DesgloseCupon cupon={pedido.cupon} total={pedido.total} />}
       <Link href="/tienda/catalogo" className={buttonVariants({ variant: "outline" })}>
         Seguir comprando
       </Link>

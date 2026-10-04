@@ -27,8 +27,10 @@ const STATUS_POR_CODIGO: Record<string, number> = {
   // HU-E2/E4 — cupón inválido (spec E §2.4).
   CUPON_NO_ENCONTRADO: 422,
   CUPON_INACTIVO: 422,
+  CUPON_NO_VIGENTE: 422,
   CUPON_VENCIDO: 422,
   CUPON_LIMITE_ALCANZADO: 422,
+  CUPON_NO_APLICABLE: 422,
   // HU-E2 — pasarela: el pedido ya quedó Pago Pendiente (`details.pedido_venta_id`).
   PASARELA_TIMEOUT: 502,
   PASARELA_NO_DISPONIBLE: 502,

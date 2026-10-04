@@ -21,6 +21,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { buttonVariants } from "@/components/ui/button";
+import { DesgloseCupon } from "@/components/tienda/DesgloseCupon";
 import { formatearPrecio } from "@/components/tienda/formato";
 import { getSesionClienteWeb, getSesionClienteWebVinculada } from "@/lib/auth/sesion-cliente-web";
 import { obtenerPedidoWebPendiente } from "@/lib/services/ecommerce/checkout.service";
@@ -119,6 +120,7 @@ export default async function CheckoutPendienteTiendaPage({
           Si el pago no se confirma antes, la reserva vence y el stock vuelve a estar disponible.
         </AlertDescription>
       </Alert>
+      {pedido.cupon && <DesgloseCupon cupon={pedido.cupon} total={pedido.total} />}
       {checkoutUrl ? (
         <>
           {/* Checkout Pro: la tarjeta se carga en Mercado Pago, nunca en SWAT (CA1). */}
