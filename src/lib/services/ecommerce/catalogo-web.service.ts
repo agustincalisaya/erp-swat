@@ -176,51 +176,171 @@ function resumir(variantes: VarianteWeb[]) {
   };
 }
 
+/** HU-E11 (D11, D20d) — valores para armar los filtros de la tienda. */
+export interface FiltrosDisponibles {
+  categorias: string[];
+  talles: string[];
+  colores: string[];
+  generos: string[];
+  modelos: string[];
+}
+
 export interface CatalogoPaginado {
   items: ProductoWebResumen[];
   paginacion: { total: number; pagina_actual: number; total_paginas: number; por_pagina: number };
+  /** HU-E11: aditivo, no rompe a los consumidores de E1. */
+  filtros: FiltrosDisponibles;
 }
 
-export async function listarCatalogo(query: ListarCatalogoQuery): Promise<CatalogoPaginado> {
-  const depositoId = await obtenerDepositoCanalWebId();
-  const where: Prisma.ProductoWebContenidoWhereInput = {
-    ...whereContenidoPublicado,
-    ...(query.q
-      ? {
-          OR: [
-            { titulo_comercial: { contains: query.q, mode: "insensitive" } },
-            { descripcion: { contains: query.q, mode: "insensitive" } },
-          ],
-        }
-      : {}),
-    ...(query.categoria ? { producto_maestro: { ...NO_BORRADO, categoria: query.categoria } } : {}),
-  };
+/** HU-E1 llamaba sin `orden`; HU-E11 lo agrega con `novedad` por defecto. */
+export type ConsultaCatalogo = Omit<ListarCatalogoQuery, "orden"> & Partial<Pick<ListarCatalogoQuery, "orden">>;
 
-  const [total, contenidos] = await Promise.all([
-    prisma.productoWebContenido.count({ where }),
+const ordenarTextos = (valores: Iterable<string>) => [...new Set(valores)].sort((a, b) => a.localeCompare(b, "es"));
+
+/**
+ * Listado público (HU-E1 + HU-E11, spec E §2.11; task_relos.md D10, D11, D20).
+ *
+ * 1. Pasada liviana: todos los contenidos publicados con sus variantes activas
+ *    (solo ids, atributos y `created_at`; sin descripción) + UNA llamada a
+ *    `resolverPreciosVentaVigentes` (la vía única de HU-B9) para saber qué
+ *    variante es comprable (`evaluarComprabilidad`, mismo predicado de E1).
+ * 2. En memoria: `filtros` disponibles (todo el catálogo publicado y
+ *    comprable), filtros de categoría y de variante (una MISMA variante
+ *    comprable debe cumplir todos), orden y paginación. `q` se resuelve en SQL.
+ * 3. Se hidrata solo la página con `resolverVariantesWeb` (stock en tiempo real).
+ *
+ * Sin N+1 (cantidad de consultas constante). Limitación documentada: ids,
+ * atributos y precios del catálogo publicado viven en memoria por request.
+ */
+export async function listarCatalogo(query: ConsultaCatalogo): Promise<CatalogoPaginado> {
+  const orden = query.orden ?? "novedad";
+  const depositoId = await obtenerDepositoCanalWebId();
+
+  const [publicados, idsTexto] = await Promise.all([
     prisma.productoWebContenido.findMany({
-      where,
-      orderBy: { created_at: "desc" },
-      skip: (query.page - 1) * query.page_size,
-      take: query.page_size,
+      where: whereContenidoPublicado,
       select: {
         id: true,
-        titulo_comercial: true,
+        created_at: true,
+        visibilidad_web: true,
+        descripcion: true,
+        is_active: true,
+        deleted_at: true,
+        _count: { select: { fotos: { where: NO_BORRADO } } },
         producto_maestro: {
-          select: { categoria: true, variantes: { where: NO_BORRADO, select: { id: true } } },
+          select: {
+            categoria: true,
+            is_active: true,
+            deleted_at: true,
+            variantes: {
+              where: NO_BORRADO,
+              select: { id: true, talle: true, color: true, genero: true, modelo: true, is_active: true, deleted_at: true },
+            },
+          },
         },
-        fotos: { where: NO_BORRADO, select: { url: true }, orderBy: [{ es_principal: "desc" }, { orden: "asc" }], take: 1 },
       },
     }),
+    query.q
+      ? prisma.productoWebContenido
+          .findMany({
+            where: {
+              ...whereContenidoPublicado,
+              OR: [
+                { titulo_comercial: { contains: query.q, mode: "insensitive" } },
+                { descripcion: { contains: query.q, mode: "insensitive" } },
+              ],
+            },
+            select: { id: true },
+          })
+          .then((filas) => new Set(filas.map((f) => f.id)))
+      : Promise.resolve(null),
   ]);
 
+  const precios = await resolverPreciosVentaVigentes(
+    publicados.flatMap((c) => c.producto_maestro.variantes.map((v) => v.id)),
+  );
+
+  const filtros = { talles: new Set<string>(), colores: new Set<string>(), generos: new Set<string>(), modelos: new Set<string>(), categorias: new Set<string>() };
+  const filtraVariante = Boolean(query.talle || query.color || query.genero || query.modelo);
+  const candidatos: { id: string; created_at: Date; precioMinimo: number | null }[] = [];
+
+  for (const c of publicados) {
+    const comprables = c.producto_maestro.variantes.filter(
+      (v) =>
+        evaluarComprabilidad({
+          variante: v,
+          producto: c.producto_maestro,
+          contenido: { ...c, fotos_activas: c._count.fotos },
+          precio_venta: precios.get(v.id)?.precio_venta.toNumber() ?? null,
+        }).comprable,
+    );
+    for (const v of comprables) {
+      filtros.talles.add(v.talle);
+      filtros.colores.add(v.color);
+      filtros.generos.add(v.genero);
+      filtros.modelos.add(v.modelo);
+    }
+    if (comprables.length > 0) filtros.categorias.add(c.producto_maestro.categoria);
+
+    if (idsTexto && !idsTexto.has(c.id)) continue;
+    if (query.categoria && c.producto_maestro.categoria !== query.categoria) continue;
+    const coinciden = filtraVariante
+      ? comprables.filter(
+          (v) =>
+            (!query.talle || v.talle === query.talle) &&
+            (!query.color || v.color === query.color) &&
+            (!query.genero || v.genero === query.genero) &&
+            (!query.modelo || v.modelo === query.modelo),
+        )
+      : null;
+    if (coinciden && coinciden.length === 0) continue;
+
+    const preciosComprables = comprables.map((v) => precios.get(v.id)!.precio_venta.toNumber());
+    candidatos.push({
+      id: c.id,
+      created_at: c.created_at,
+      precioMinimo: preciosComprables.length > 0 ? Math.min(...preciosComprables) : null,
+    });
+  }
+
+  const porNovedad = (a: (typeof candidatos)[number], b: (typeof candidatos)[number]) =>
+    b.created_at.getTime() - a.created_at.getTime() || a.id.localeCompare(b.id);
+  candidatos.sort((a, b) => {
+    if (orden === "novedad") return porNovedad(a, b);
+    // Sin precio, al final en ambos sentidos (D20c).
+    if (a.precioMinimo === null || b.precioMinimo === null) {
+      return a.precioMinimo === b.precioMinimo ? porNovedad(a, b) : a.precioMinimo === null ? 1 : -1;
+    }
+    const diferencia = orden === "precio_asc" ? a.precioMinimo - b.precioMinimo : b.precioMinimo - a.precioMinimo;
+    return diferencia || porNovedad(a, b);
+  });
+
+  const total = candidatos.length;
+  const idsPagina = candidatos.slice((query.page - 1) * query.page_size, query.page * query.page_size).map((c) => c.id);
+
+  const contenidos = idsPagina.length
+    ? await prisma.productoWebContenido.findMany({
+        where: { id: { in: idsPagina } },
+        select: {
+          id: true,
+          titulo_comercial: true,
+          producto_maestro: {
+            select: { categoria: true, variantes: { where: NO_BORRADO, select: { id: true } } },
+          },
+          fotos: { where: NO_BORRADO, select: { url: true }, orderBy: [{ es_principal: "desc" }, { orden: "asc" }], take: 1 },
+        },
+      })
+    : [];
+  const porId = new Map(contenidos.map((c) => [c.id, c]));
+  const pagina = idsPagina.map((id) => porId.get(id)).filter((c): c is (typeof contenidos)[number] => c !== undefined);
+
   const vistas = await resolverVariantesWeb(
-    contenidos.flatMap((c) => c.producto_maestro.variantes.map((v) => v.id)),
+    pagina.flatMap((c) => c.producto_maestro.variantes.map((v) => v.id)),
     depositoId,
   );
 
   return {
-    items: contenidos.map((c) => ({
+    items: pagina.map((c) => ({
       producto_web_id: c.id,
       titulo: c.titulo_comercial,
       categoria: c.producto_maestro.categoria,
@@ -232,6 +352,13 @@ export async function listarCatalogo(query: ListarCatalogoQuery): Promise<Catalo
       pagina_actual: query.page,
       total_paginas: Math.max(1, Math.ceil(total / query.page_size)),
       por_pagina: query.page_size,
+    },
+    filtros: {
+      categorias: ordenarTextos(filtros.categorias),
+      talles: ordenarTextos(filtros.talles),
+      colores: ordenarTextos(filtros.colores),
+      generos: ordenarTextos(filtros.generos),
+      modelos: ordenarTextos(filtros.modelos),
     },
   };
 }

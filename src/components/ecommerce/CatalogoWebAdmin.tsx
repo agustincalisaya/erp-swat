@@ -6,7 +6,10 @@
  * tienda (motivo opcional) y dar de baja (motivo obligatorio + confirmación
  * explícita). Llama a los Route Handlers y refresca la lista del servidor.
  * `producto_activo` es solo informativo: no condiciona ninguna acción (D22).
+ * HU-E11 (spec E §2.11): alta, edición de título/descripción y gestión de
+ * fotos con los formularios de `ContenidoWebFormularios.tsx`.
  */
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type SubmitEvent } from "react";
@@ -15,6 +18,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import {
+  FormularioCrearContenido,
+  FormularioEditarContenido,
+  GestorFotos,
+  type FotoAdmin,
+  type LimitesFotos,
+  type ProductoSinContenidoOpcion,
+} from "@/components/ecommerce/ContenidoWebFormularios";
 
 interface Fila {
   producto_web_id: string;
@@ -24,6 +35,9 @@ interface Fila {
   producto_activo: boolean;
   visibilidad_web: boolean;
   fotos_activas: number;
+  /** HU-E11: descripción y fotos activas (principal primero). */
+  descripcion: string;
+  fotos: FotoAdmin[];
 }
 
 interface Pagina {
@@ -204,9 +218,24 @@ function FormularioBaja({ fila, onHecho, onCancelar }: { fila: Fila; onHecho: (a
 // Listado
 // ──────────────────────────────────────────────────────────────────────────────
 
-type Modal = { tipo: "visibilidad"; fila: Fila } | { tipo: "baja"; fila: Fila } | null;
+type Modal =
+  | { tipo: "visibilidad"; fila: Fila }
+  | { tipo: "baja"; fila: Fila }
+  | { tipo: "crear" }
+  | { tipo: "editar"; fila: Fila }
+  // Por id: tras `router.refresh()` el gestor muestra las fotos actualizadas.
+  | { tipo: "fotos"; productoWebId: string }
+  | null;
 
-export function CatalogoWebAdmin({ pagina }: { pagina: Pagina }) {
+export function CatalogoWebAdmin({
+  pagina,
+  productosSinContenido,
+  limitesFotos,
+}: {
+  pagina: Pagina;
+  productosSinContenido: ProductoSinContenidoOpcion[];
+  limitesFotos: LimitesFotos | null;
+}) {
   const router = useRouter();
   const [modal, setModal] = useState<Modal>(null);
   const [aviso, setAviso] = useState<string | null>(null);
@@ -218,12 +247,21 @@ export function CatalogoWebAdmin({ pagina }: { pagina: Pagina }) {
     router.refresh();
   };
 
+  const filaFotos = modal?.tipo === "fotos" ? pagina.items.find((f) => f.producto_web_id === modal.productoWebId) : undefined;
+  const filaModal = modal && "fila" in modal ? modal.fila : filaFotos;
+
   const tituloModal =
     modal?.tipo === "visibilidad"
       ? `${modal.fila.visibilidad_web ? "Ocultar" : "Mostrar"} "${modal.fila.titulo_comercial}"`
       : modal?.tipo === "baja"
         ? `Dar de baja "${modal.fila.titulo_comercial}"`
-        : "";
+        : modal?.tipo === "crear"
+          ? "Crear contenido web"
+          : modal?.tipo === "editar"
+            ? `Editar "${modal.fila.titulo_comercial}"`
+            : filaFotos
+              ? `Fotos de "${filaFotos.titulo_comercial}"`
+              : "";
 
   return (
     <div className="space-y-4">
@@ -233,15 +271,40 @@ export function CatalogoWebAdmin({ pagina }: { pagina: Pagina }) {
         </Alert>
       )}
 
+      <div className="flex justify-end">
+        <Button
+          type="button"
+          onClick={() => {
+            setAviso(null);
+            setModal({ tipo: "crear" });
+          }}
+        >
+          Crear contenido
+        </Button>
+      </div>
+
       {pagina.items.length === 0 ? (
         <p className="rounded-lg border p-6 text-center text-sm text-muted-foreground">No hay contenidos web para mostrar.</p>
       ) : (
         <ul className="grid gap-3 md:grid-cols-2">
           {pagina.items.map((fila) => (
             <li key={fila.producto_web_id} className="space-y-3 rounded-lg border p-4" data-producto-web-id={fila.producto_web_id}>
-              <div className="space-y-1">
-                <p className="font-medium">{fila.titulo_comercial}</p>
-                <p className="text-sm text-muted-foreground">Producto: {fila.producto_nombre}</p>
+              <div className="flex gap-3">
+                {fila.fotos[0] && (
+                  <Image
+                    src={fila.fotos[0].url}
+                    alt={`Foto principal de ${fila.titulo_comercial}`}
+                    width={64}
+                    height={64}
+                    unoptimized
+                    className="size-16 shrink-0 rounded object-cover"
+                  />
+                )}
+                <div className="min-w-0 space-y-1">
+                  <p className="font-medium">{fila.titulo_comercial}</p>
+                  <p className="text-sm text-muted-foreground">Producto: {fila.producto_nombre}</p>
+                  <p className="line-clamp-2 text-sm text-muted-foreground">{fila.descripcion}</p>
+                </div>
               </div>
               <div className="flex flex-wrap gap-2">
                 <Badge variant={fila.visibilidad_web ? "default" : "secondary"}>
@@ -251,6 +314,30 @@ export function CatalogoWebAdmin({ pagina }: { pagina: Pagina }) {
                   {fila.fotos_activas} {fila.fotos_activas === 1 ? "foto" : "fotos"}
                 </Badge>
                 {!fila.producto_activo && <Badge variant="outline">Producto inactivo en inventario</Badge>}
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="sm:flex-1"
+                  onClick={() => {
+                    setAviso(null);
+                    setModal({ tipo: "editar", fila });
+                  }}
+                >
+                  Editar
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="sm:flex-1"
+                  onClick={() => {
+                    setAviso(null);
+                    setModal({ tipo: "fotos", productoWebId: fila.producto_web_id });
+                  }}
+                >
+                  Fotos
+                </Button>
               </div>
               <div className="flex flex-col gap-2 sm:flex-row">
                 <Button
@@ -307,12 +394,34 @@ export function CatalogoWebAdmin({ pagina }: { pagina: Pagina }) {
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>{tituloModal}</DialogTitle>
-            {modal && <DialogDescription>Producto: {modal.fila.producto_nombre}</DialogDescription>}
+            {filaModal && <DialogDescription>Producto: {filaModal.producto_nombre}</DialogDescription>}
           </DialogHeader>
           {modal?.tipo === "visibilidad" ? (
             <FormularioVisibilidad key={modal.fila.producto_web_id} fila={modal.fila} onHecho={hecho} onCancelar={() => setModal(null)} />
           ) : modal?.tipo === "baja" ? (
             <FormularioBaja key={modal.fila.producto_web_id} fila={modal.fila} onHecho={hecho} onCancelar={() => setModal(null)} />
+          ) : modal?.tipo === "crear" ? (
+            <FormularioCrearContenido productos={productosSinContenido} onHecho={hecho} onCancelar={() => setModal(null)} />
+          ) : modal?.tipo === "editar" ? (
+            <FormularioEditarContenido
+              key={modal.fila.producto_web_id}
+              productoWebId={modal.fila.producto_web_id}
+              tituloActual={modal.fila.titulo_comercial}
+              descripcionActual={modal.fila.descripcion}
+              onHecho={hecho}
+              onCancelar={() => setModal(null)}
+            />
+          ) : filaFotos ? (
+            <GestorFotos
+              key={filaFotos.producto_web_id}
+              productoWebId={filaFotos.producto_web_id}
+              fotos={filaFotos.fotos}
+              limites={limitesFotos}
+              onCambio={(texto) => {
+                setAviso(texto);
+                router.refresh();
+              }}
+            />
           ) : null}
         </DialogContent>
       </Dialog>

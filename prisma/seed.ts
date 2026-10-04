@@ -3548,8 +3548,9 @@ async function main() {
   // dependen de una decisión del owner de Módulo D):
   //   - umbral de arqueo ciego (HU-B2) y % máximo de descuento por perfil
   //     (HU-B4) — spec_modulo_B.md §5;
-  //   - intentos fallidos de login de Cliente Web (HU-E8), cantidad máxima y
-  //     tamaño máximo de fotos (HU-E11) — spec_modulo_E.md §5.
+  //   - intentos fallidos de login de Cliente Web (HU-E8) — spec_modulo_E.md §5.
+  // Las tres claves de fotos de HU-E11 ya se siembran abajo (spec E §2.11,
+  // Revisión 6; valores pendientes de validar con el PO y con el owner de D).
   for (const [clave, valor, descripcion, modulo] of [
     ["ECOMMERCE_DEPOSITO_CANAL_WEB_ID", depositoShowroom.id, "Depósito cuyo stock se publica en el canal web (HU-E1) y donde se ubica físicamente la preparación (HU-E12)", "E"],
     ["ECOMMERCE_CHECKOUT_TTL_HORAS", "1", "TTL en horas de la reserva de stock del checkout web (HU-E1 → ttl_horas de HU-A10)", "E"],
@@ -3557,6 +3558,9 @@ async function main() {
     ["ECOMMERCE_CUENTA_WEB_BLOQUEO_MINUTOS", "15", "Duración en minutos del bloqueo temporal de una cuenta web (HU-E8)", "E"],
     ["ECOMMERCE_PLAZO_RETIRO_DIAS", "10", "Días desde LISTO_PARA_RETIRO hasta VENCIDO_SIN_RETIRO (HU-E13)", "E"],
     ["ECOMMERCE_CARRITO_ABANDONADO_DIAS", "7", "Días sin actividad (carritos_web.updated_at) tras los que un carrito web se da de baja lógica por abandono (HU-E5; valor 7 pendiente de validar con el PO)", "E"],
+    ["ECOMMERCE_FOTOS_MAX_POR_PRODUCTO", "8", "Cantidad máxima de fotos activas por contenido web (HU-E11; valor 8 pendiente de validar con el PO)", "E"],
+    ["ECOMMERCE_FOTO_TAMANO_MAX_MB", "5", "Tamaño máximo por foto del catálogo web, en MB de 1024 × 1024 bytes (HU-E11; valor 5 pendiente de validar con el PO)", "E"],
+    ["ECOMMERCE_FOTO_FORMATOS_PERMITIDOS", "JPG,PNG,WEBP", "Formatos de foto admitidos en el catálogo web, separados por coma; detectados por firma de bytes (HU-E11)", "E"],
     ["VENTAS_MARGEN_SUGERIDO_PRECIO_VENTA", "0.35", "Margen para el precio sugerido: costo de reposición × (1 + margen) (HU-B9)", "B"],
   ] as const) {
     await prisma.configuracionSistema.upsert({

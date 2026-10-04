@@ -36,6 +36,9 @@ yarn-error.log*
 # HU-E2 — pagos del simulador local de Mercado Pago (MP_MODO=simulado)
 /.mp-simulador/
 
+# HU-E11 — fotos del catálogo web guardadas por el Adapter de disco (CATALOGO_FOTOS_DIR)
+/.catalogo-fotos/
+
 # vercel
 .vercel
 
