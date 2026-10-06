@@ -47,7 +47,7 @@ const eslintConfig = defineConfig([
       "no-restricted-imports": [
         "error",
         {
-          paths: [{ name: "mercadopago", message: "Usǭ el Adapter de lib/integraciones/mercadopago (spec F §3.1)." }],
+          paths: [{ name: "mercadopago", message: "Usá el Adapter de lib/integraciones/mercadopago (spec F §3.1)." }],
           patterns: [
             {
               group: ["**/integraciones/mercadopago/*", "!**/integraciones/mercadopago/tipos"],
