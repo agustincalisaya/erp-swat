@@ -27,7 +27,9 @@ export default async function TiendaLayout({ children }: { children: React.React
           <nav className="ml-auto flex items-center gap-2 text-sm">
             {contexto.sesion ? (
               <>
-                <span className="hidden text-slate-600 sm:inline">{contexto.sesion.email}</span>
+                <Link href="/tienda/cuenta" className="rounded-md px-2 py-1 hover:bg-slate-100">
+                  Mi cuenta
+                </Link>
                 <BotonSalirTienda />
               </>
             ) : (

@@ -97,17 +97,16 @@ test("HU-E9 consulta pedidos propios y QR contra PostgreSQL aislado", {
     } });
 
     const listado = await listarPedidosWebCliente(clienteAId, { db: tx });
-    assert.equal(listado.total, 5);
-    assert.deepEqual(new Set(listado.pedidos.map((p) => p.id)), new Set([pago, preparacion, listo, entregado, historico]));
-    assert.ok(!listado.pedidos.some((p) => p.id === ajeno || p.id === mostrador));
-    assert.equal(listado.pedidos.find((p) => p.id === historico)?.estado, "CANCELADO");
+    assert.equal(listado.total, 4);
+    assert.deepEqual(new Set(listado.pedidos.map((p) => p.id)), new Set([pago, preparacion, listo, entregado]));
+    assert.ok(!listado.pedidos.some((p) => p.id === ajeno || p.id === mostrador || p.id === historico));
     assert.equal((await listarPedidosWebCliente(clienteAId, { db: tx, pagina: 2, porPagina: 2 })).pedidos.length, 2);
 
     const propio = await obtenerPedidoWebCliente(clienteAId, listo, { db: tx, ahora });
     assert.equal(propio.items[0].producto, "Producto HU-E9");
     assert.match(propio.qr_data_url ?? "", /^data:image\/png;base64,/);
     assert.ok(!JSON.stringify(propio).includes(tokenRetiro));
-    for (const id of [pago, preparacion, entregado, historico]) {
+    for (const id of [pago, preparacion, entregado]) {
       assert.equal((await obtenerPedidoWebCliente(clienteAId, id, { db: tx, ahora })).qr_data_url, null);
     }
     const codigoError = async (id: string) => {
@@ -120,6 +119,8 @@ test("HU-E9 consulta pedidos propios y QR contra PostgreSQL aislado", {
       throw new Error("La consulta debió devolver PEDIDO_NO_ENCONTRADO");
     };
     assert.deepEqual(await codigoError(ajeno), await codigoError(randomUUID()));
+    assert.deepEqual(await codigoError(historico), await codigoError(randomUUID()));
+    assert.deepEqual(await codigoError(mostrador), await codigoError(randomUUID()));
     await assert.rejects(
       () => obtenerComprobanteWebCliente(clienteAId, ajeno, comprobanteId, { db: tx }),
       (error: unknown) => error instanceof ServiceError && error.code === "COMPROBANTE_NO_ENCONTRADO",

@@ -208,13 +208,14 @@ model PedidoVentaEcommerce {
 
 ### 2.3. Ciclo Click & Collect y código QR de retiro (HU-E3)
 
-**Sin endpoint propio de transición de estado:** esta HU no expone una ruta nueva — describe el **contrato de ciclo completo** definido en las secciones 2.2 (pago), 2.9 (Mis pedidos, visualización del QR) y 2.12 (cola de preparación, transición y validación del QR). En particular, HU-E9 tiene implementados el servicio de lectura, los componentes y sus pruebas, pero sus endpoints y pantallas autenticadas siguen pendientes de HU-E8, como indica §2.9. Esta sección documenta la relación entre ellas para que el ciclo completo quede trazable en un solo lugar.
+**Sin endpoint propio de transición de estado:** esta HU no expone una ruta nueva — describe el **contrato de ciclo completo** definido en las secciones 2.2 (pago), 2.9 (Mis pedidos, visualización del QR) y 2.12 (cola de preparación, transición y validación del QR). HU-E8 provee la sesión Cliente Web, HU-E12 genera token y plazo, y HU-E9 ya publica los endpoints/pantallas autenticadas descritos en §2.9.
 
 **Comportamiento esperado:**
-- Ciclo: `Pago Confirmado` (2.2) → `En Preparación` (2.12, ingreso automático a la cola) → `Listo para Retiro` (2.12, al completar la preparación — genera `codigo_qr_retiro`) → `Entregado` (2.12, al validar QR + DNI).
-- El código QR (2.9) es visible **únicamente** en `estado_ecommerce = LISTO_PARA_RETIRO` y deja de ser válido al pasar a `ENTREGADO`, `CANCELADO` o `VENCIDO_SIN_RETIRO` — la validación de vigencia del QR se resuelve siempre contra `PedidoVentaEcommerce.estado_ecommerce`, nunca contra un campo de expiración propio del QR (el QR en sí no tiene TTL — lo que expira es el estado del pedido).
-- La validación de identidad en el retiro (QR + DNI, un tercero no autorizado no puede retirar) es responsabilidad de 2.12.
-- El plazo de retiro y su vencimiento (`VENCIDO_SIN_RETIRO`) son responsabilidad de HU-E13 (sección 2.13).
+- Ciclo: `Pago Confirmado` (2.2) → `En Preparación` (2.12, ingreso automático a la cola) → `Listo para Retiro` (2.12, al completar la preparación — genera `codigo_qr_retiro`) → `Entregado` (HU-E3, al validar QR + identidad).
+- `estado_ecommerce` es la autoridad del ciclo de vida. E9 muestra el QR únicamente en `LISTO_PARA_RETIRO`, con token existente y con `plazo_retiro_vencimiento` nulo o `>= ahora`. La comprobación del plazo es una defensa de presentación: si venció, E9 oculta el QR pero no cambia el estado; HU-E13 realiza posteriormente la transición a `VENCIDO_SIN_RETIRO`.
+- El QR se oculta antes de `LISTO_PARA_RETIRO` y al pasar a `ENTREGADO`, `CANCELADO`, `VENCIDO_SIN_RETIRO` o cualquier otro estado.
+- HU-E3 valida QR + identidad y transiciona a `ENTREGADO`; E9 no valida el QR ni solicita DNI.
+- El vencimiento y las cancelaciones, incluidas sus transiciones de estado, son responsabilidad de HU-E13 (sección 2.13).
 
 ### 2.4. Cupones de descuento (HU-E4)
 
@@ -637,47 +638,63 @@ Cada diferencia entre el borrador de la Rev.2 y el código de `fix/HU-E8-deuda` 
 
 **Modelo:** no se crea `PedidoWeb` ni `OrdenWeb`. Se reutiliza el `PedidoVenta` del Módulo B con `canal = WEB` y su extensión 1:1 `PedidoVentaEcommerce` para el estado y los datos propios del canal online (2.2). "Historial" significa listado de compras propias y estado actual de cada una, no una cronología persistida de transiciones: HU-E9 no crea otra tabla, campos ni enum y no consulta `AuditLog` para construir `historial_estados`.
 
-**Rutas previstas, aún no implementadas por depender de HU-E8:** `GET /app/api/tienda/mis-pedidos/route.ts` (`/api/tienda/mis-pedidos`) y `GET /app/api/tienda/mis-pedidos/[id]/route.ts` (`/api/tienda/mis-pedidos/[id]`). Las pantallas previstas son `/cuenta/pedidos` y `/cuenta/pedidos/[id]`. Ninguna se publica antes de contar con sesión autenticada de Cliente Web; el nombre `withSesionClienteWeb()` de 2.8/Convenciones generales describe el contrato previsto, no un helper ya disponible en `src`.
+**Rutas definitivas implementadas:** `GET /app/api/tienda/mis-pedidos/route.ts` (`/api/tienda/mis-pedidos`) y `GET /app/api/tienda/mis-pedidos/[id]/route.ts` (`/api/tienda/mis-pedidos/[id]`). Las pantallas implementadas son `/tienda/cuenta/pedidos` y `/tienda/cuenta/pedidos/[id]`. HU-E8 provee `withSesionClienteWeb()` y la cookie `swat_tienda_session`; E9 las reutiliza. Cliente Web no usa `/api/ecommerce/**`, `/ecommerce/mis-pedidos` ni las antiguas rutas `/cuenta/pedidos`.
 
-**Comportamiento del núcleo implementado:**
-- **Identidad y mitigación IDOR:** HU-E8 debe entregar server-side `cuentaClienteWebId` y `clienteId` desde la sesión validada; jamás se toma `clienteId` ni `cuenta_cliente_web_id` de query, body o form. El servicio E9 recibe ese `clienteId` ya validado, sin reutilizar `swat_session`, `withPermission` ni el servicio administrativo `obtenerPedidoVenta(id)`. El detalle consulta en un único predicado `pedido.id = id solicitado AND pedido.cliente_id = clienteId autenticado AND pedido.canal = WEB AND extensión e-commerce existente`. Pedido ajeno e inexistente producen el mismo `PEDIDO_NO_ENCONTRADO` y, cuando exista la ruta, la misma respuesta `404`; no se confirma la existencia de pedidos de terceros.
-- **Listado y baja lógica:** "Mis pedidos" es una consulta histórica explícita, paginada server-side (1–50 por página, 20 por defecto), ordenada por fecha descendente y limitada a pedidos `WEB` propios con extensión e-commerce. Puede incluir pedidos propios `CANCELADO` y `ANULADO` aunque `PedidoVenta` o `PedidoVentaEcommerce` estén inactivos; no los reactiva, elimina ni modifica los filtros globales de baja lógica. `ENTREGADO` permanece visible.
-- **Estados actuales:** se usan los nueve valores existentes de `EstadoEcommerce` (2.2): `PAGO_PENDIENTE`, `PAGO_CONFIRMADO`, `PAGO_RECHAZADO`, `EN_PREPARACION`, `LISTO_PARA_RETIRO`, `ENTREGADO`, `ANULADO`, `CANCELADO` y `VENCIDO_SIN_RETIRO`. No se crean estados nuevos. El detalle presenta número, fecha, total, ítems (producto, SKU, talle, color, cantidad y precio congelado), estado actual y comprobante asociado; los DTO omiten logs de pago, información cifrada de facturación y datos de otros clientes.
-- **QR de retiro:** HU-E9 **no genera ni modifica el token**; lee `PedidoVentaEcommerce.codigo_qr_retiro` y genera únicamente la imagen bajo demanda mediante `qrcode`. El QR codifica solo el token opaco: no incluye DNI, nombre, email, monto ni información de Mercado Pago. No se reutiliza `ComprobanteFiscal.qr_data_url`, que es el QR fiscal. Se expone la imagen solo en `LISTO_PARA_RETIRO` con token existente y `plazo_retiro_vencimiento` nulo o `>= ahora`; se oculta en `ENTREGADO`, `CANCELADO`, `VENCIDO_SIN_RETIRO`, `PAGO_RECHAZADO` y cualquier otro estado no listo, incluso si el token permanece almacenado. Si falta el token estando listo y vigente, se informa su indisponibilidad sin inventarlo.
-- **Comprobante:** HU-E9 no lo genera. La consulta de metadatos exige simultáneamente pedido propio `WEB` y comprobante asociado; comprobante ajeno e inexistente no se distinguen. No se expone la ruta administrativa `/api/ventas/comprobantes/[id]` al Cliente Web ni se crea un PDF fiscal. La descarga web definitiva queda pendiente de la superficie autenticada de HU-E8 y del documento disponible en HU-E2/Módulo B; la UI indica "Comprobante no disponible para descarga" sin ofrecer un enlace inválido.
+**Comportamiento implementado:**
+- **Identidad y mitigación IDOR:** el flujo obligatorio es `sesión E8 → sesion.clienteId → servicio E9`. El frontend puede enviar únicamente `page`, `page_size` y el `pedidoId` de la URL; nunca `clienteId`, `cuentaId`, email o DNI. Sin sesión válida responde `401`; una cuenta con vinculación pendiente responde `403 CUENTA_VINCULACION_PENDIENTE`. El detalle consulta en un único predicado ID solicitado + `cliente_id` autenticado + canal WEB + registros activos. Pedido ajeno e inexistente producen el mismo `404 PEDIDO_NO_ENCONTRADO`.
+- **Listado y baja lógica:** paginación server-side de 1–50 elementos (20 por defecto), pedidos `WEB` propios con extensión e-commerce y registros de negocio activos: `PedidoVenta.is_active = true`, `PedidoVenta.deleted_at = null`, `PedidoVentaEcommerce.is_active = true`, `PedidoVentaEcommerce.deleted_at = null`. Estados como `CANCELADO`, `ANULADO` o `PAGO_RECHAZADO` pueden mostrarse si el registro sigue activo. E9 no salta el soft delete para exponer inactivos.
+- **Fecha principal:** se ordena por `PedidoVenta.created_at DESC` (con desempate estable por ID) y se presenta como «Fecha del pedido». `fecha_pago_confirmado` no sustituye esa fecha; puede incorporarse en el futuro como dato adicional.
+- **Estados y detalle:** se usan los nueve valores existentes de `EstadoEcommerce`, sin crear estados nuevos. El detalle presenta número, fecha del pedido, total, ítems (producto, SKU, talle, color, cantidad y precio congelado), estado actual y comprobante asociado; omite datos de Mercado Pago, logs, auditoría, datos cifrados e información operativa Pick & Pack.
+- **QR de retiro:** HU-E12 ya genera `codigo_qr_retiro` y `plazo_retiro_vencimiento`; E9 solo los lee y genera `qr_data_url` server-side. Se expone exclusivamente para el detalle propio cuando el estado es `LISTO_PARA_RETIRO`, el token existe y el plazo es nulo o `>= ahora`. Si el plazo venció, E9 oculta el QR pero no cambia el estado; es una defensa de presentación hasta que HU-E13 transicione a `VENCIDO_SIN_RETIRO`. También se oculta antes y después del estado listo.
+- **Secreto y caché:** el token literal nunca se devuelve como campo JSON, aparece en listados, logs o eventos, ni se guarda en `localStorage`/`sessionStorage`. La respuesta que contiene `qr_data_url` usa `Cache-Control: private, no-store`; las páginas evitan prerender y caché compartida. El QR solo codifica el token opaco y no contiene DNI, nombre, email, monto ni Mercado Pago. No se reutiliza el QR fiscal.
+- **Comprobante:** HU-E9 no lo genera. El DTO público mínimo es `{ tipo, fecha_emision, monto }` y exige pedido propio WEB activo con comprobante asociado. No expone `cae_simulado`, `es_simulado`, QR fiscal ni IDs internos innecesarios; tampoco reutiliza `/api/ventas/comprobantes/[id]`. Mientras no exista un PDF/documento real, la UI muestra «Comprobante no disponible para descarga» y no ofrece enlaces inválidos.
 
-**Responsabilidades entre HU:** HU-E9 solo lee historial y detalle, presenta el QR y los datos disponibles del comprobante; no transiciona pedidos, genera notificaciones ni emite eventos de lectura. HU-E8 autentica al Cliente Web y provee identidad de cuenta y cliente server-side. HU-E12 genera `codigo_qr_retiro` al transicionar a `LISTO_PARA_RETIRO`. HU-E3 valida el QR durante el retiro. HU-E13 implementa cancelación y vencimiento. HU-F3 consume los eventos de los productores correspondientes (E2, E12, E3, E13) para crear notificaciones internas; abrir "Mis pedidos" no las crea.
+**Responsabilidades entre HU:** HU-E8 ya autentica al Cliente Web y provee `sesion.clienteId`; HU-E12 ya genera token y plazo al transicionar a `LISTO_PARA_RETIRO`; HU-E9 solo lee historial/detalle y presenta el QR y metadatos mínimos del comprobante. HU-E3 valida QR + identidad y transiciona a `ENTREGADO`. HU-E13 implementa cancelación, vencimiento y sus transiciones. HU-E9 no valida QR, solicita DNI, transiciona pedidos, genera notificaciones ni emite eventos de lectura.
 
-**DTO de servicio actual, no respuesta HTTP implementada (ejemplo de detalle listo):**
+**DTO público contractual implementado (ejemplo de detalle listo):**
 ```json
 {
   "id": "uuid", "numero": "V-2026-004821", "fecha": "2026-09-28T14:02:11.000Z",
   "total": 87000.00, "estado": "LISTO_PARA_RETIRO",
-  "items": [ { "id": "uuid", "producto": "Campera táctica", "sku": "SKU-EJEMPLO", "talle": "L", "color": "Verde oliva", "cantidad": 1, "precio_unitario": 87000.00 } ],
+  "items": [ { "producto": "Campera táctica", "sku": "SKU-EJEMPLO", "talle": "L", "color": "Verde oliva", "cantidad": 1, "precio_unitario": 87000.00 } ],
   "plazo_retiro_vencimiento": "2026-10-02T14:02:11.000Z",
-  "qr_data_url": "data:image/png;base64,...", "qr_inconsistente": false,
-  "comprobante": null
+  "qr_data_url": "data:image/png;base64,...",
+  "comprobante": { "tipo": "FACTURA_B", "fecha_emision": "2026-09-28T14:05:00.000Z", "monto": 87000.00 }
 }
 ```
 
-**Respuesta HTTP prevista `404 Not Found` (pedido ajeno o inexistente, pendiente de HU-E8):**
+**Respuesta HTTP contractual `404 Not Found` (pedido ajeno o inexistente):**
 ```json
 { "data": null, "error": { "code": "PEDIDO_NO_ENCONTRADO", "message": "El pedido solicitado no existe" } }
 ```
 
+**Criterios de aceptación verificables:**
+1. Historial y detalle solo de pedidos propios WEB activos; pedido ajeno e inexistente responden el mismo 404.
+2. Sesión E8 obligatoria: sin sesión 401; cuenta pendiente 403; identidad siempre desde `sesion.clienteId`.
+3. Paginación por `page`/`page_size`, fecha principal `PedidoVenta.created_at` y navegación bajo `/tienda/cuenta/pedidos`.
+4. QR ausente antes y después de `LISTO_PARA_RETIRO`; visible solo con token y plazo vigente/nulo; oculto tras vencer sin mutar el estado.
+5. Token literal y datos Mercado Pago/Pick & Pack ausentes del contrato público, listados, logs, eventos y storage del navegador.
+6. Respuestas con QR privadas y no cacheables; páginas sin prerender o caché compartida.
+7. Comprobante reducido a `tipo`, `fecha_emision` y `monto`, sin descarga ficticia ni endpoint administrativo.
+8. Sin cambios Prisma, migraciones o seed y sin mutaciones/eventos producidos por la lectura.
+
 **Archivos implementados:**
-- `src/lib/services/ecommerce/mis-pedidos.service.ts` — listado paginado, detalle, DTOs, QR condicional y consulta autorizada de metadatos del comprobante.
-- `src/lib/services/ecommerce/mis-pedidos.service.test.ts` — pruebas unitarias del servicio.
-- `src/lib/services/ecommerce/mis-pedidos.service.integration.test.ts` — integración del servicio con Prisma/PostgreSQL en base dedicada, fixtures propios y rollback.
-- `src/components/ecommerce/MisPedidosListado.tsx` y `src/components/ecommerce/DetallePedidoWeb.tsx` — componentes reutilizables, aún sin rutas públicas.
-- `src/components/ecommerce/mis-pedidos.test.tsx` — pruebas de componentes.
+- `src/lib/schemas/mis-pedidos.schema.ts` — validación estricta de `page`, `page_size` e ID.
+- `src/lib/services/ecommerce/mis-pedidos.service.ts` — listado paginado, detalle, DTOs, soft delete, QR condicional y comprobante mínimo.
+- `src/app/api/tienda/mis-pedidos/route.ts` y `src/app/api/tienda/mis-pedidos/[id]/route.ts` — Route Handlers autenticados por HU-E8.
+- `src/app/api/tienda/mis-pedidos/http.ts` — mapper E9 y wrapper local `conCachePrivada`; HU-E8 no fue modificada.
+- `src/app/(tienda)/tienda/cuenta/pedidos/page.tsx` y `src/app/(tienda)/tienda/cuenta/pedidos/[id]/page.tsx` — páginas RSC autenticadas.
+- `src/components/ecommerce/MisPedidosListado.tsx`, `src/components/ecommerce/DetallePedidoWeb.tsx` y `src/components/tienda/AccesoPedidosCuenta.tsx` — superficie frontend.
+- Suites: `mis-pedidos.schema.test.ts`, `mis-pedidos.service.test.ts`, `mis-pedidos.service.integration.test.ts`, `http.test.ts`, `mis-pedidos.test.tsx`, `hu-e9.http.integration.test.ts` y `hu-e9-e8-e12.integration.test.ts`.
 
 **Estado de implementación:**
-- **IMPLEMENTADO:** núcleo de lectura, listado paginado, detalle, aislamiento por cliente y canal `WEB`, mitigación IDOR, DTOs acotados, QR condicional, componentes reutilizables, consulta autorizada de metadatos del comprobante y pruebas unitarias, de componentes y de integración PostgreSQL.
-- **PENDIENTE POR HU-E8:** sesión real de Cliente Web; `/api/tienda/mis-pedidos`, `/api/tienda/mis-pedidos/[id]`, `/cuenta/pedidos`, `/cuenta/pedidos/[id]` y pruebas HTTP/E2E autenticadas. Sin E8 no se publica ninguna superficie que acepte una identidad suministrada por el navegador.
-- **PENDIENTE POR OTRAS HU:** generación productiva del token en HU-E12; validación y retiro HU-E3; cancelación/vencimiento HU-E13; notificaciones HU-F3; comprobante web descargable definitivo según HU-E2/Módulo B y la superficie autenticada.
+- **IMPLEMENTADA Y VERIFICADA:** sesión E8, historial propio, detalle, IDOR uniforme, soft delete, paginación, QR condicional, comprobante mínimo, páginas finales y caché privada.
+- **DEPENDENCIAS RESUELTAS:** HU-E8 autentica; HU-E2 confirma el pago y dispara admisión; HU-E12 genera token/plazo reales.
+- **FUERA DE ALCANCE/PENDIENTE DE OTRAS HU:** validación y entrega HU-E3; cancelación/vencimiento HU-E13; documento descargable real HU-E2/Módulo B.
 
-**Validación ejecutada:** servicio HU-E9 13 tests aprobados, componentes 4, integración PostgreSQL 1; **18 aprobados, 0 fallidos**. `npx tsc --noEmit --incremental false`: OK; `npm run lint`: 0 errores (3 warnings preexistentes fuera de HU-E9); `npm run build`: OK.
+**Persistencia:** HU-E9 no requirió cambios en `prisma/schema.prisma`, migraciones ni `prisma/seed.ts`.
+
+**Evidencia final:** schemas 7 pass; servicio 16 pass; mapper HTTP 6 pass; componentes 6 pass; integración HTTP real 8 pass / 0 skipped; integración real E8/E2/E12/E9 6 pass / 0 skipped; TypeScript, ESLint, `git diff --check` y build Next.js exitosos.
 
 ### 2.10. Roles Administrador E-commerce y Operador de Pick & Pack (HU-E10)
 

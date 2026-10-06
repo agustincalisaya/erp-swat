@@ -18,16 +18,13 @@ export interface PedidoWebResumen {
 }
 
 export interface ComprobanteWeb {
-  id: string;
   tipo: TipoComprobanteVenta;
-  cae_simulado: string;
-  es_simulado: boolean;
-  fecha: string;
+  fecha_emision: string;
+  monto: number;
 }
 
 export interface PedidoWebDetalle extends Omit<PedidoWebResumen, "cantidad_items"> {
   items: {
-    id: string;
     producto: string;
     sku: string;
     talle: string;
@@ -37,23 +34,18 @@ export interface PedidoWebDetalle extends Omit<PedidoWebResumen, "cantidad_items
   }[];
   plazo_retiro_vencimiento: string | null;
   qr_data_url: string | null;
-  qr_inconsistente: boolean;
   comprobante: ComprobanteWeb | null;
 }
 
 function comprobanteDto(comprobante: {
-  id: string;
   tipo_comprobante: TipoComprobanteVenta;
-  cae_simulado: string;
-  es_simulado: boolean;
+  monto_total: { toNumber(): number };
   created_at: Date;
 }): ComprobanteWeb {
   return {
-    id: comprobante.id,
     tipo: comprobante.tipo_comprobante,
-    cae_simulado: comprobante.cae_simulado,
-    es_simulado: comprobante.es_simulado,
-    fecha: comprobante.created_at.toISOString(),
+    fecha_emision: comprobante.created_at.toISOString(),
+    monto: comprobante.monto_total.toNumber(),
   };
 }
 
@@ -68,8 +60,13 @@ export async function listarPedidosWebCliente(
     throw new ServiceError("PAGINACION_INVALIDA", "Paginación inválida");
   }
 
-  // Mis pedidos es una consulta histórica explícita: incluye bajas lógicas propias, nunca pedidos de otro cliente.
-  const where = { cliente_id: clienteId, canal: "WEB" as const, ecommerce: { isNot: null } };
+  const where = {
+    cliente_id: clienteId,
+    canal: "WEB" as const,
+    is_active: true,
+    deleted_at: null,
+    ecommerce: { is: { is_active: true, deleted_at: null } },
+  };
   const [pedidos, total] = await Promise.all([
     db.pedidoVenta.findMany({
       where,
@@ -108,7 +105,14 @@ export async function obtenerPedidoWebCliente(
   { db = prisma, ahora = new Date() }: OpcionesConsulta = {},
 ): Promise<PedidoWebDetalle> {
   const pedido = await db.pedidoVenta.findFirst({
-    where: { id: pedidoId, cliente_id: clienteId, canal: "WEB", ecommerce: { isNot: null } },
+    where: {
+      id: pedidoId,
+      cliente_id: clienteId,
+      canal: "WEB",
+      is_active: true,
+      deleted_at: null,
+      ecommerce: { is: { is_active: true, deleted_at: null } },
+    },
     select: {
       id: true,
       numero_venta: true,
@@ -118,7 +122,6 @@ export async function obtenerPedidoWebCliente(
       items: {
         orderBy: { created_at: "asc" },
         select: {
-          id: true,
           cantidad: true,
           precio_unitario: true,
           variante_sku: {
@@ -134,7 +137,7 @@ export async function obtenerPedidoWebCliente(
       comprobantes: {
         orderBy: { created_at: "desc" },
         take: 1,
-        select: { id: true, tipo_comprobante: true, cae_simulado: true, es_simulado: true, created_at: true },
+        select: { tipo_comprobante: true, monto_total: true, created_at: true },
       },
     },
   });
@@ -152,7 +155,6 @@ export async function obtenerPedidoWebCliente(
     total: pedido.total.toNumber(),
     estado,
     items: pedido.items.map((item) => ({
-      id: item.id,
       producto: item.variante_sku.producto_maestro.nombre,
       sku: item.variante_sku.sku,
       talle: item.variante_sku.talle,
@@ -162,7 +164,6 @@ export async function obtenerPedidoWebCliente(
     })),
     plazo_retiro_vencimiento: plazo?.toISOString() ?? null,
     qr_data_url: qr,
-    qr_inconsistente: listo && !token,
     comprobante: pedido.comprobantes[0] ? comprobanteDto(pedido.comprobantes[0]) : null,
   };
 }
@@ -178,13 +179,15 @@ export async function obtenerComprobanteWebCliente(
       id: pedidoId,
       cliente_id: clienteId,
       canal: "WEB",
-      ecommerce: { isNot: null },
+      is_active: true,
+      deleted_at: null,
+      ecommerce: { is: { is_active: true, deleted_at: null } },
       comprobantes: { some: { id: comprobanteId } },
     },
     select: {
       comprobantes: {
         where: { id: comprobanteId },
-        select: { id: true, tipo_comprobante: true, cae_simulado: true, es_simulado: true, created_at: true },
+        select: { tipo_comprobante: true, monto_total: true, created_at: true },
       },
     },
   });
