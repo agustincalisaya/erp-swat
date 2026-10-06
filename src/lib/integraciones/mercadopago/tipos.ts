@@ -3,7 +3,8 @@
  * RULES.md §4 — patrón Adapter): Módulo E solo conoce estos tipos, nunca la
  * forma de la API de Mercado Pago. Sin datos de tarjeta en ningún tipo (CA1).
  *
- * // PROVISORIO HU-E2 — completar en HU-F1 (owner: Rama)
+ * HU-F1 agregó el tipo del reembolso (`ReembolsoSolicitado`,
+ * `EstadoReembolsoDominio`) que consume HU-E13.
  */
 
 export type MonedaCobro = "ARS";
@@ -43,4 +44,22 @@ export interface PagoConsultado {
   external_reference: string | null;
   /** `date_approved` (null si no fue aprobado). */
   fecha_aprobacion: string | null;
+}
+
+/** Estado de dominio de un reembolso (task HU-F1 R1). */
+export type EstadoReembolsoDominio = "APROBADO" | "RECHAZADO" | "PENDIENTE";
+
+/**
+ * Resultado de solicitar un reembolso (total o parcial) a Mercado Pago
+ * (task HU-F1 R1). Contrato de consumo de HU-E13 — sin datos de tarjeta.
+ */
+export interface ReembolsoSolicitado {
+  /** `id` del refund en Mercado Pago. */
+  refund_id: string;
+  /** `payment_id` reembolsado. */
+  payment_id: string;
+  /** Monto efectivamente reembolsado (total del pago si no se pidió parcial). */
+  monto: number;
+  /** Estado de dominio derivado del `status` de MP. */
+  estado: EstadoReembolsoDominio;
 }

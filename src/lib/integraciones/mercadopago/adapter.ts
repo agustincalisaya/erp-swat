@@ -17,8 +17,9 @@
  *
  * Con `MP_MODO=simulado` (solo desarrollo) responde desde `simulador.ts`.
  *
- * // PROVISORIO HU-E2 — completar en HU-F1 (owner: Rama): falta
- * // `solicitarReembolso()`; `cerrarCobro()` no está en spec F §3.1 (task Q2).
+ * HU-F1 completó el Adapter: `solicitarReembolso()` (contrato de consumo de
+ * HU-E13) y `healthCheck()` (verificación de bajo costo del Conector). Las
+ * ramas simuladas de ambas viven acá (nunca en `simulador.ts`).
  */
 import "server-only";
 
@@ -26,10 +27,37 @@ import { randomUUID } from "node:crypto";
 import { ServiceError } from "@/lib/errors/service-error";
 import { obtenerConectorActivo, registrarInvocacion, type OperacionConector } from "./conector";
 import { obtenerPagoSimulado, simuladorActivo } from "./simulador";
-import type { CobroIniciado, EstadoPagoDominio, IniciarCobroInput, PagoConsultado } from "./tipos";
+import type {
+  CobroIniciado,
+  EstadoPagoDominio,
+  EstadoReembolsoDominio,
+  IniciarCobroInput,
+  PagoConsultado,
+  ReembolsoSolicitado,
+} from "./tipos";
 
 const API_BASE = "https://api.mercadopago.com";
 const TIMEOUT_MS = 10_000;
+
+/**
+ * Mapeo `status` HTTP → código de `ServiceError` (spec F §3.1). El `404` se
+ * traduce a `PAGO_NO_ENCONTRADO` tanto al consultar como al reembolsar
+ * (HU-F1). Puro y exportado para poder verificarse sin DB ni red.
+ */
+export function codigoErrorPorStatus(status: number, operacion: OperacionConector): string {
+  if (status === 401 || status === 403) return "PASARELA_RECHAZO_CREDENCIALES";
+  if (status === 404 && (operacion === "CONSULTAR_PAGO" || operacion === "SOLICITAR_REEMBOLSO")) {
+    return "PAGO_NO_ENCONTRADO";
+  }
+  if (status >= 500 || status === 429) return "PASARELA_NO_DISPONIBLE";
+  return "PASARELA_RESPUESTA_INVALIDA";
+}
+
+const MENSAJE_POR_CODIGO: Record<string, string> = {
+  PASARELA_RECHAZO_CREDENCIALES: "Mercado Pago rechazó las credenciales del Conector",
+  PAGO_NO_ENCONTRADO: "Mercado Pago no encontró el pago informado",
+  PASARELA_NO_DISPONIBLE: "Mercado Pago no está disponible",
+};
 
 /** Mapeo `status` de MP → estado de dominio (HU-E2 P11: los intermedios no transicionan). */
 export function mapearEstadoPago(statusMp: string): EstadoPagoDominio {
@@ -38,13 +66,22 @@ export function mapearEstadoPago(statusMp: string): EstadoPagoDominio {
   return "PENDIENTE";
 }
 
+/** Credenciales explícitas para llamar a MP sin depender del Conector ACTIVO (HU-F1). */
+export interface ContextoConector {
+  conectorId: string;
+  accessToken: string;
+}
+
 async function llamarMercadoPago(
   operacion: OperacionConector,
   metodo: "GET" | "POST" | "PUT",
   ruta: string,
   body?: unknown,
+  ctx?: ContextoConector,
 ): Promise<unknown> {
-  const conector = await obtenerConectorActivo();
+  const conector = ctx
+    ? { id: ctx.conectorId, access_token: ctx.accessToken }
+    : await obtenerConectorActivo();
   const controlador = new AbortController();
   const temporizador = setTimeout(() => controlador.abort(), TIMEOUT_MS);
 
@@ -71,16 +108,11 @@ async function llamarMercadoPago(
 
   if (!respuesta.ok) {
     await registrarInvocacion(conector.id, operacion, false, `HTTP ${respuesta.status}`);
-    if (respuesta.status === 401 || respuesta.status === 403) {
-      throw new ServiceError("PASARELA_RECHAZO_CREDENCIALES", "Mercado Pago rechazó las credenciales del Conector");
-    }
-    if (respuesta.status === 404 && operacion === "CONSULTAR_PAGO") {
-      throw new ServiceError("PAGO_NO_ENCONTRADO", "Mercado Pago no encontró el pago informado");
-    }
-    if (respuesta.status >= 500 || respuesta.status === 429) {
-      throw new ServiceError("PASARELA_NO_DISPONIBLE", "Mercado Pago no está disponible");
-    }
-    throw new ServiceError("PASARELA_RESPUESTA_INVALIDA", `Mercado Pago respondió HTTP ${respuesta.status}`);
+    const codigo = codigoErrorPorStatus(respuesta.status, operacion);
+    throw new ServiceError(
+      codigo,
+      MENSAJE_POR_CODIGO[codigo] ?? `Mercado Pago respondió HTTP ${respuesta.status}`,
+    );
   }
 
   try {
@@ -184,4 +216,91 @@ export async function cerrarCobro(preferenceId: string): Promise<void> {
     expires: true,
     expiration_date_to: new Date().toISOString(),
   });
+}
+
+/** Mapeo `status` de MP → estado de dominio del reembolso (HU-F1 R1). */
+export function mapearEstadoReembolso(statusMp: string): EstadoReembolsoDominio {
+  if (statusMp === "approved") return "APROBADO";
+  if (statusMp === "rejected" || statusMp === "cancelled") return "RECHAZADO";
+  return "PENDIENTE";
+}
+
+/**
+ * Solicita el reembolso total o parcial de un pago (task HU-F1 R1). Es el
+ * contrato de consumo de HU-E13 (cancelación de pedido pagado): devuelve un
+ * `ReembolsoSolicitado` con `{ refund_id, payment_id, monto, estado }` — sin
+ * datos de tarjeta.
+ *
+ * Errores posibles (mapeados a `ServiceError`): `PAGO_NO_ENCONTRADO` (404, el
+ * pago no existe en MP), `PASARELA_RECHAZO_CREDENCIALES` (401/403),
+ * `PASARELA_NO_DISPONIBLE` (5xx/429), `PASARELA_TIMEOUT` (red/timeout) y
+ * `PASARELA_RESPUESTA_INVALIDA` (otro 4xx o JSON inesperado).
+ *
+ * @param paymentId - `payment_id` de Mercado Pago a reembolsar.
+ * @param monto - Monto parcial; si se omite, el reembolso es total (MP usa el
+ *                total del pago). El body `{ amount }` viaja solo si es parcial.
+ */
+export async function solicitarReembolso(paymentId: string, monto?: number): Promise<ReembolsoSolicitado> {
+  let json: Record<string, unknown>;
+
+  if (simuladorActivo()) {
+    let amount = monto;
+    if (amount === undefined) {
+      const pago = obtenerPagoSimulado(paymentId);
+      if (!pago) throw new ServiceError("PAGO_NO_ENCONTRADO", "Pago simulado inexistente");
+      amount = pago.transaction_amount;
+    }
+    json = { id: `SIM-REF-${paymentId}`, payment_id: paymentId, amount, status: "approved" };
+  } else {
+    json = (await llamarMercadoPago(
+      "SOLICITAR_REEMBOLSO",
+      "POST",
+      `/v1/payments/${encodeURIComponent(paymentId)}/refunds`,
+      monto === undefined ? undefined : { amount: monto },
+    )) as Record<string, unknown>;
+  }
+
+  const refundId = campoTexto(json, "id");
+  const status = campoTexto(json, "status");
+  const amount = json.amount;
+  if (!refundId || !status || typeof amount !== "number") {
+    throw new ServiceError("PASARELA_RESPUESTA_INVALIDA", "El reembolso de Mercado Pago no trae id/status/amount");
+  }
+  return {
+    refund_id: refundId,
+    payment_id: campoTexto(json, "payment_id") ?? paymentId,
+    monto: amount,
+    estado: mapearEstadoReembolso(status),
+  };
+}
+
+/** Credenciales de entrada del `healthCheck` (HU-F1 R3.2). */
+export interface HealthCheckInput {
+  conectorId: string;
+  accessToken: string;
+}
+
+/**
+ * Verificación de bajo costo contra MP (`GET /v1/payment_methods`), SIEMPRE a
+ * través del Adapter (spec F §3.1; el service nunca hace `fetch`). Devuelve
+ * `true` si las credenciales responden; `false` si MP las rechaza o no está
+ * disponible (la invocación fallida queda registrada por `llamarMercadoPago`).
+ *
+ * En `MP_MODO=simulado` resuelve de forma determinística: un token vacío o que
+ * contenga el marcador `INVALID` simula credenciales rechazadas.
+ */
+export async function healthCheck(input: HealthCheckInput): Promise<boolean> {
+  if (simuladorActivo()) {
+    return input.accessToken.trim().length > 0 && !input.accessToken.includes("INVALID");
+  }
+  try {
+    await llamarMercadoPago("HEALTH_CHECK", "GET", "/v1/payment_methods", undefined, {
+      conectorId: input.conectorId,
+      accessToken: input.accessToken,
+    });
+    return true;
+  } catch {
+    // `llamarMercadoPago` ya registró la invocación fallida en la bitácora.
+    return false;
+  }
 }
