@@ -40,17 +40,18 @@ const eslintConfig = defineConfig([
     ignores: [
       "src/lib/integraciones/mercadopago/**",
       "src/lib/services/ecommerce/**",
+      "src/lib/services/integraciones/**",
       "src/app/api/webhooks/mercadopago/**",
     ],
     rules: {
       "no-restricted-imports": [
         "error",
         {
-          paths: [{ name: "mercadopago", message: "Usá el Adapter de lib/integraciones/mercadopago (spec F §3.1)." }],
+          paths: [{ name: "mercadopago", message: "Usǭ el Adapter de lib/integraciones/mercadopago (spec F §3.1)." }],
           patterns: [
             {
               group: ["**/integraciones/mercadopago/*", "!**/integraciones/mercadopago/tipos"],
-              message: "Solo e-commerce y el webhook consumen el Conector de Mercado Pago (HU-E2).",
+              message: "Solo e-commerce, la gestión HU-F1 y el webhook consumen el Conector de Mercado Pago.",
             },
           ],
         },
