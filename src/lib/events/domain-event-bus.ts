@@ -69,6 +69,17 @@ const registroAnulacionOrden = import("@/lib/events/listeners/anulacion-orden.li
   },
 );
 
+// HU-G11 (spec_modulo_G.md §2.6) — quinto import dinámico de registro: el
+// listener REACTIVO de Ingresos de Tesorería por cobros web. Va después de
+// `audit-log.listener`: el asiento de auditoría del evento que lo dispara
+// (`ecommerce:pedido_pago_confirmado`) se encola antes de que arranque la
+// reacción de Tesorería (mismo criterio de orden que los anteriores).
+const registroIngresoTesoreria = import("@/lib/events/listeners/ingreso-tesoreria.listener").then(
+  ({ iniciarIngresoTesoreriaListener }) => {
+    iniciarIngresoTesoreriaListener();
+  },
+);
+
 /**
  * HU-E7 — Resuelve cuando todos los imports dinámicos de arriba terminaron
  * (con éxito o no). La usa `npm run job:reservas`, proceso de corta vida, para
@@ -81,4 +92,5 @@ export const listenersRegistrados: Promise<void> = Promise.allSettled([
   registroCuentasPorPagar,
   registroNotificaciones,
   registroAnulacionOrden,
+  registroIngresoTesoreria,
 ]).then(() => undefined);
