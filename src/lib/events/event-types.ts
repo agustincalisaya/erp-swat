@@ -429,6 +429,39 @@ export interface CuentaPorPagarEstadoCambiadoPayload {
 }
 
 /**
+ * HU-G11 (Módulo G) — Payload emitido post-`COMMIT` por
+ * `ingreso-tesoreria.listener.ts` al registrar el `IngresoTesoreria` de un
+ * cobro web (spec_modulo_G.md §2.6). Único consumidor hoy:
+ * `audit-log.listener.ts` (asiento SHA-256). `monto` es `Prisma.Decimal`
+ * serializado a `string` (`.toFixed(2)`, nunca `number`); `fecha` ISO 8601.
+ * Sin datos sensibles (ni tarjeta, ni credenciales, ni campos cifrados).
+ */
+export interface IngresoWebRegistradoPayload {
+  ingreso_id: string;
+  pedido_venta_id: string;
+  mercadopago_payment_id: string;
+  monto: string;
+  fecha: string;
+  estado: string;
+  caja_virtual: string;
+}
+
+/**
+ * HU-G11 (Módulo G) — Payload emitido post-`COMMIT` por
+ * `ingreso-tesoreria.listener.ts` al registrar el `ContraAsientoIngreso` de un
+ * reintegro (spec_modulo_G.md §2.6; origen HU-E13). `ingreso_original_id`
+ * referencia el ingreso original, que NUNCA se edita ni se elimina. `monto` es
+ * `Prisma.Decimal` serializado a `string` (`.toFixed(2)`).
+ */
+export interface ContraAsientoIngresoRegistradoPayload {
+  contra_asiento_id: string;
+  ingreso_original_id: string;
+  pedido_venta_id: string;
+  monto: string;
+  motivo: string;
+}
+
+/**
  * HU-H1 (Módulo H) — Payload emitido tras la baja lógica de un `Proveedor`
  * (`darDeBajaProveedor()`, spec_modulo_H.md §3.5 · RULES.md Regla N.° 1).
  * `motivo` es el `deletion_reason` obligatorio. NUNCA incluye datos
@@ -1508,6 +1541,10 @@ export interface DomainEventMap {
   "notificacion_plantilla:baja_logica": NotificacionPlantillaBajaLogicaPayload;
   /** HU-F2 (task §4.1-bis): se emite tras reactivar una PlantillaNotificacion dada de baja. */
   "notificacion_plantilla:reactivada": NotificacionPlantillaReactivadaPayload;
+  /** HU-G11: se emite post-COMMIT tras registrar el IngresoTesoreria de un cobro web. */
+  "tesoreria:ingreso_web_registrado": IngresoWebRegistradoPayload;
+  /** HU-G11: se emite post-COMMIT tras registrar el contra-asiento de un reintegro (HU-E13). */
+  "tesoreria:contra_asiento_ingreso_registrado": ContraAsientoIngresoRegistradoPayload;
 }
 
 export type DomainEventName = keyof DomainEventMap;
@@ -1612,6 +1649,8 @@ export const TIPOS_EVENTO_DOMINIO = [
   "notificacion_plantilla:actualizada",
   "notificacion_plantilla:baja_logica",
   "notificacion_plantilla:reactivada",
+  "tesoreria:ingreso_web_registrado",
+  "tesoreria:contra_asiento_ingreso_registrado",
 ] as const satisfies readonly DomainEventName[];
 
 /** Falla el typecheck si `TIPOS_EVENTO_DOMINIO` no cubre todas las claves de `DomainEventMap`. */
