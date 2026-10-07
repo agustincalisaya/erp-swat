@@ -255,3 +255,46 @@ export const SubirFotoMultipartSchema = z
     CUERPO_OBJETO,
   )
   .strict(CAMPOS_NO_PERMITIDOS);
+
+// ──────────────────────────────────────────────────────────────────────────────
+// HU-E6 §2.6 — log de auditoría de pagos online (R2/R3/R4)
+// ──────────────────────────────────────────────────────────────────────────────
+
+/** Estados admitidos por el filtro del log (spec E §2.6). */
+export const ESTADOS_PAGO_LOG = ["APROBADO", "RECHAZADO", "PENDIENTE"] as const;
+export type EstadoPagoLog = (typeof ESTADOS_PAGO_LOG)[number];
+
+/**
+ * R2 — filtros de `GET /api/ecommerce/auditoria/pagos` (spec E §2.6). Mismo
+ * shape de paginación que los módulos A/B: `page` default 1 y `page_size`
+ * default 20 con tope 50. `fecha_hasta` se extiende a fin de día UTC en el
+ * servicio (`finDeDia`).
+ */
+export const ListarLogPagosQuerySchema = z.object({
+  page: z.coerce.number().int().positive().default(1),
+  page_size: z.coerce.number().int().positive().max(50).default(20),
+  estado_pago: z.enum(ESTADOS_PAGO_LOG).optional(),
+  fecha_desde: z.coerce.date().optional(),
+  fecha_hasta: z.coerce.date().optional(),
+});
+export type ListarLogPagosQuery = z.infer<typeof ListarLogPagosQuerySchema>;
+
+/**
+ * R4 — solicitud de acceso del Administrador E-commerce. El motivo es
+ * opcional (la spec §2.6 no lo exige) pero, si viene, no puede ser vacío.
+ */
+export const SolicitarAccesoLogPagosSchema = z.object(
+  {
+    motivo: z
+      .string({ invalid_type_error: "El motivo debe ser texto" })
+      .trim()
+      .min(1, "El motivo no puede estar vacío")
+      .max(500, "El motivo admite hasta 500 caracteres")
+      .optional(),
+  },
+  CUERPO_OBJETO,
+).strict(CAMPOS_NO_PERMITIDOS);
+export type SolicitarAccesoLogPagosInput = z.infer<typeof SolicitarAccesoLogPagosSchema>;
+
+/** R4 — id de la solicitud de acceso (segmento `[id]` de la ruta de aprobación). */
+export const AccesoLogPagosIdSchema = z.string().uuid("El identificador de la solicitud es inválido");
