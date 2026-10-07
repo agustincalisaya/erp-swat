@@ -1,57 +1,171 @@
-# HU-E6 — Log de auditoría de transacciones de pago online (Módulo E, Sprint 4)
+# HU-E6 — Log de auditoría de transacciones de pago online (Módulo E)
 
-Documento de implementación. Fuente normativa: `docs/specs/spec_modulo_E.md` §2.6/§4/§5.
+Contrato: `docs/specs/spec_modulo_E.md` — §2.6 (HU-E6: log, doble permiso, mecanismo de acceso), §4 (eventos), §5/§5.1 (fuera de alcance); `Documento de Alcance Funcional y Técnico` (Módulo E §5/§5.1); `Alineamientos HU - E12 - E6.md` §2 (hallazgo reportado); `schema.prisma`. Referencia operativa: `prompt_HU-E6.md`. Este documento resume las decisiones, la evidencia y los hallazgos del desarrollo. Los artefactos SDD viven en Engram (`sdd/hu-e6-auditoria-pagos/*`).
 
-## Alcance implementado
+**Módulo:** E — E-commerce / Click & Collect · **Responsable:** Ramiro V. Castagnaro (Rama) · **Sprint / estimación:** Sprint 4 · 5 SP
+**Estado:** Implementada y verificada (backend). **12/12 CA aprobados**; veredicto final `pass_with_warnings` (0 blockers). Requirió **una remediación acotada** tras un primer verify fallido (ver §7/§8).
+**Commits:** `b0a2ef6` → `8269a12` (9 commits, ~18 archivos) sobre la rama `HU-E6` (base `origin/develop` `f3522c3`).
 
-| Req | Entrega |
-|-----|---------|
-| R1 | Cada transacción de pago web (APROBADO/RECHAZADO) inserta UNA fila en `TransaccionPagoLog` dentro del `$transaction` del flujo de pago, con datos de facturación cifrados (AES-256-GCM) y `resultado_webhook` sin datos de tarjeta. Tras el COMMIT se emite `ecommerce:transaccion_pago_registrada`. |
-| R2 | `GET /api/ecommerce/auditoria/pagos` — doble permiso (Auditor completo; Administrador E-commerce solo con acceso aprobado y vigente, si no `403 ACCESO_LOG_PAGOS_NO_APROBADO`). Filtros por `estado_pago` y rango de fechas (`finDeDia` UTC), paginado. Solo lectura. |
-| R3 | `ecommerce:acceso_dato_cifrado_auditado` se emite EXACTAMENTE una vez por lectura del dato cifrado. Superficie HTTP: `GET /api/ecommerce/auditoria/pagos/[id]/facturacion` (solo Auditor), que delega en `decryptAndAuditBilling()` vía `obtenerFacturacionPago()`. El Administrador E-commerce nunca ve el campo cifrado (`403 FORBIDDEN`). |
-| R4 | `AccesoLogPagos` (nueva tabla `accesos_log_pagos`) registra solicitud y aprobación. `POST …/solicitar-acceso` (Administrador) y `PATCH …/solicitar-acceso/[id]` (Auditor). Expiración desde `ConfiguracionSistema`. |
+## 1. Historia de usuario y qué hace
 
-## Archivos
+**Como** Auditor (y, con acceso aprobado, Administrador E-commerce), **necesito** un registro forense inmutable de cada transacción de pago online —con el dato de facturación protegido y auditable— **para** responder reclamos y cumplir con la Ley N.° 25.326 sin exponer datos sensibles.
 
-- `src/lib/events/event-types.ts` — 2 payloads + 2 claves en `DomainEventMap` + 2 en `TIPOS_EVENTO_DOMINIO`.
-- `src/lib/events/listeners/audit-log.listener.ts` — 2 handlers AGREGADOS (`TRANSACCION_PAGO_REGISTRADA`, `ACCESO_DATO_CIFRADO_AUDITADO`), con captura segura de fallos.
-- `src/lib/services/ecommerce/pago-web.service.ts` — R1 (modificado con autorización de Chiki, owner de HU-E2). Solo se agregó la inserción del log + la emisión del evento; la lógica E2 existente no se reescribió.
-- `src/lib/services/ecommerce/auditoria-pagos.service.ts` — R2/R3/R4 (nuevo, service de solo lectura + mecanismo de acceso).
-- `src/lib/schemas/ecommerce.schema.ts` — `ListarLogPagosQuerySchema`, `SolicitarAccesoLogPagosSchema`, `AccesoLogPagosIdSchema`, `TransaccionPagoLogIdSchema`.
-- `src/app/api/ecommerce/auditoria/pagos/**` — 4 rutas (GET, GET `[id]/facturacion`, POST, PATCH).
-- `prisma/schema.prisma` + `prisma/migrations/20261007021440_add_acceso_log_pagos/` — modelo `AccesoLogPagos` (migración aditiva).
-- `prisma/seed.ts` — clave `ECOMMERCE_ACCESO_LOG_PAGOS_EXPIRACION_DIAS = 30`.
+La HU tiene **dos mitades**: (a) la **escritura** del log operativo `TransaccionPagoLog` + el evento sensible, en el flujo de pago de HU-E2; y (b) la **lectura** forense con doble permiso + el mecanismo de solicitud de acceso.
 
-## Decisiones de diseño
+| Capacidad | Dónde | Resultado |
+|---|---|---|
+| Escritura del log (R1) | `pago-web.service.ts` (`confirmarPago`/`rechazarPago`) | Inserta **una** fila `TransaccionPagoLog` **dentro** del `$transaction` de E2 (aprobado y rechazado), con facturación cifrada AES-256; emite `ecommerce:transaccion_pago_registrada` **post-COMMIT**. |
+| Lectura forense (R2) | `GET /api/ecommerce/auditoria/pagos` + `auditoria-pagos.service.ts` | Auditor = acceso completo (`TransaccionPagoLog` + mitad `AuditLog` filtrada); Administrador E-commerce = solo con acceso aprobado y vigente, si no `403 ACCESO_LOG_PAGOS_NO_APROBADO`. Paginado, filtrable, solo lectura. |
+| Acceso cifrado auditado (R3) | `GET …/pagos/[id]/facturacion` | Solo Auditor: descifra el dato de facturación y emite `ecommerce:acceso_dato_cifrado_auditado` **una vez por lectura**. |
+| Solicitud de acceso (R4) | `POST …/solicitar-acceso` + `PATCH …/solicitar-acceso/[id]` | `AccesoLogPagos` registra solicitud (Administrador) y aprobación (Auditor), con **expiración** configurable. |
 
-- El log operativo vive en `TransaccionPagoLog`; el hash-chain vive EXCLUSIVAMENTE en `AuditLog` (Módulo D). `TransaccionPagoLog` no tiene cadena propia.
-- El evento se emite post-COMMIT reutilizando `emitirEventoPostCommitSeguroE2` (helper ya existente de HU-E2). Nunca dentro de la transacción.
-- Idempotencia heredada de la transición condicionada `updateMany` de HU-E2: un webhook duplicado no crea una segunda fila ni un segundo evento.
-- Datos de facturación: se leen `Cliente` + `CuentaClienteWeb` DENTRO del mismo `$transaction` (el `PagoConsultado` de MP no los trae) y se cifran con `lib/crypto/aes.ts` (única capa, clave `ENCRYPTION_KEY_PROVEEDORES`).
+## 2. Criterios de aceptación (12) — estado y evidencia
 
-## Divergencias documentadas
+Evidencia: `npm test` (794/794, exit 0), `npm run lint` (0 errores / 4 warnings preexistentes), `npm run build` (OK), migración aplicada + seed. Reporte completo: Engram `sdd/hu-e6-auditoria-pagos/verify-report` (#229).
 
-1. **Columna IV.** La spec §2.6 menciona solo `datos_facturacion_cifrados`, pero `encrypt()` devuelve `{ ciphertext, iv }`. `TransaccionPagoLog.datos_facturacion_iv` ya existía en el schema (agregado con confirmación del equipo, mismo patrón que `Proveedor.datos_bancarios_iv`). El IV se persiste en su propia columna; no se empaqueta dentro del ciphertext.
-2. **`verificar_integridad` (Backlog ↔ spec).** El Product Backlog pide "encadenamiento SHA-256 verificable", pero el `ListarLogPagosQuerySchema` de spec §2.6 no lo incluye. Se implementó `verificarIntegridadLogPagos()` como función module-owned (patrón `verificarCadenaHashesVentas` de HU-B6) que recorre la cadena global de `AuditLog`; NO se expone en el query schema ni en la respuesta del endpoint. Divergencia reportada, pendiente de decisión del PO.
-3. **R4 — aprobador y expiración.** El Alcance Funcional nombra al Auditor como aprobador (implementado). La duración no está definida en ningún documento: se implementó expiración por parámetro (`ECOMMERCE_ACCESO_LOG_PAGOS_EXPIRACION_DIAS`, default 30 días). **Valor pendiente de validar con el PO.**
-4. **`pedido_venta_id` en la respuesta del log.** El shape de spec §2.6 pide `pedido_venta_id`; `TransaccionPagoLog` solo guarda `pedido_venta_ecommerce_id`. La respuesta devuelve el `PedidoVenta.id` real vía join a `PedidoVentaEcommerce.pedido_venta_id`, para consistencia con el payload del evento.
-5. **`decryptAndAuditBilling()`.** Reservado al Auditor; expuesto vía `GET /api/ecommerce/auditoria/pagos/[id]/facturacion` (wrapper `withPermission("auditoria:leer_forense")` + `obtenerFacturacionPago()`). Remediación de la verificación: antes era un entry point sin ruta dedicada, por lo que R3/CA6 quedaba inalcanzable por HTTP.
+| CA | Criterio | Estado | Evidencia |
+|---|---|---|---|
+| 1 | Cada transacción (aprobada/rechazada) inserta **una** fila `TransaccionPagoLog` con facturación cifrada AES-256 | Aprobado | Insert en ambos `$transaction`; `encrypt()` → `datos_facturacion_cifrados` + `_iv` |
+| 2 | Post-COMMIT se emite `ecommerce:transaccion_pago_registrada` + handler agregado | Aprobado | `emitirEventoPostCommitSeguroE2`; handler add-only |
+| 3 | `GET /api/ecommerce/auditoria/pagos` con Auditor → acceso completo, paginado y filtrable | Aprobado | `obtenerLogPagos` + mitad `AuditLog` filtrada (W1) |
+| 4 | Administrador E-commerce sin acceso aprobado → `403 ACCESO_LOG_PAGOS_NO_APROBADO` | Aprobado | `resolverAccesoLogPagos` |
+| 5 | Log de solo lectura; hash-chain es el de `AuditLog` (sin cadena propia) | Aprobado | Sin edición/borrado; sin cadena en `TransaccionPagoLog` |
+| 6 | Toda lectura del dato cifrado por Auditor emite `ecommerce:acceso_dato_cifrado_auditado` (una vez) | Aprobado | `GET …/[id]/facturacion` → `obtenerFacturacionPago` → `decryptAndAuditBilling` |
+| 7 | El texto plano de facturación nunca aparece en logs/respuestas/payloads | Aprobado | Solo se descifra en la respuesta al Auditor; nunca se loguea |
+| 8 | Prohibido `prisma.*.delete()`; sin datos de tarjeta | Aprobado | Revisión; el sistema nunca recibe tarjeta |
+| 9 | Decisión de aprobador + duración documentada | Aprobado | Auditor aprobador + expiración configurable (§7) |
+| 10 | `npm test`, `npm run lint`, `npm run build` pasan | Aprobado | 794/794 · 0 errores · build OK |
+| 11 | `pago-web.service.ts` modificado solo con autorización de Chiki; sin tocar otro módulo | Aprobado | Autorización (decisión 1b); `git diff` acotado |
+| 12 | Sin cambio de `schema.prisma` salvo la migración aprobada de R4 | Aprobado | Solo `AccesoLogPagos` (aditiva) |
 
-## Mitad forense en la respuesta (R2)
+## 3. Decisiones de producto y técnicas
 
-`obtenerLogPagos()` devuelve `{ items, total, page, auditoria: { items, total } }`: `items` es el detalle operativo (`TransaccionPagoLog`) y `auditoria` es la mitad forense — filas de `AuditLog` filtradas por `tabla_afectada = "log_transacciones_pago"` (mismo rango de fechas y paginación), con una proyección segura (`auditoria_id`, `accion`, `registro_id`, `usuario_id`, `hash_actual`, `timestamp`) que nunca incluye `valor_anterior`/`valor_nuevo`.
+| # | Decisión | Opción elegida | Motivo |
+|---|---|---|---|
+| D1 | Quién modifica `pago-web.service.ts` (zona de Chiki/HU-E2) | **Chiki autoriza a Rama** (opción b) | Sin esto, R1 no se podía implementar |
+| D2 | Aprobador y duración del acceso (R4) | **Auditor aprueba** + **expiración configurable** en `ConfiguracionSistema` (`ECOMMERCE_ACCESO_LOG_PAGOS_EXPIRACION_DIAS`, default 30) | El Alcance nombra al Auditor; la duración no estaba definida → parametrizada (no hardcode) |
+| D3 | Encaje del cifrado | `encrypt()` → `datos_facturacion_cifrados` + `datos_facturacion_iv` | **La columna IV YA existía** (el prompt estaba desactualizado); sin migración |
+| D4 | `verificar_integridad` (Backlog↔spec) | Se implementa `verificarIntegridadLogPagos()` module-owned; **no** se expone en el query schema | Reporta la divergencia, no la resuelve en silencio |
+| D5 | Extender `TransaccionPagoLog` | **No** (sin `proveedor`; `resultado_webhook` sigue `String`) | MP es la única pasarela; evita migración innecesaria |
+| D6 | R3 — superficie del acceso cifrado | Endpoint **solo Auditor** `GET …/[id]/facturacion` (remediación) | Hace alcanzable el control de auditoría (Ley 25.326) |
+| D7 | R2 — mitad forense | `obtenerLogPagos()` devuelve `{ items, total, page, auditoria: { items, total } }` | Surfacea la mitad `AuditLog` filtrada (W1) sin romper el shape base |
 
-## Fuera de alcance (R5)
+## 4. Modelo de datos, migración y seed
 
-- Conciliación/liquidación real de Mercado Pago (HU-G2).
-- Tabla de auditoría con hash-chain propio: el hash-chain es de `AuditLog`.
-- Extensión del modelo `TransaccionPagoLog`.
-- `prisma.*.delete()` (baja lógica estricta, RULES.md Regla N.° 1).
+**Migración:** `20261007021440_add_acceso_log_pagos` (**aditiva**: `CREATE TABLE` + índice + 2 FK RESTRICT; sin `ALTER`/`DROP`).
 
-## Tests
+| Modelo (tabla) | Uso en HU-E6 |
+|---|---|
+| `TransaccionPagoLog` (`log_transacciones_pago`) | Detalle operativo por transacción: `pedido_venta_ecommerce_id`, `mercadopago_payment_id`, `monto`, `estado_pago`, `resultado_webhook`, `datos_facturacion_cifrados` + `datos_facturacion_iv`, `created_at`. Append-only, sin soft delete. |
+| `AccesoLogPagos` (`accesos_log_pagos`) — **NUEVO** | Solicitud/aprobación del acceso: `solicitante_id`, `aprobado_por_id?`, `estado`, `motivo_solicitud?`, `motivo_rechazo?`, `solicitada_en`, `aprobada_en?`, `expira_en?`, `is_active`, `created_at`, `updated_at`; relaciones `onDelete: Restrict`. |
+| `AuditLog` (`audit_logs`, Módulo D) | Cadena SHA-256 forense escrita por `audit-log.listener` (los 2 eventos de E6). |
 
-Unitarios (`npm test`): `auditoria-pagos.service.test.ts` (doble permiso, paginación, decrypt-once, integridad, R1 aprobado/rechazado y payload sin datos sensibles), `audit-log.listener.e6.test.ts` (2 handlers), `ecommerce.schema.test.ts` (bounds). Los integration tests HTTP opt-in (`test:integration:e6` / `e6-http`) quedan diferidos y se documentan como deuda de verificación.
+**Seed:** se agregó la clave `ECOMMERCE_ACCESO_LOG_PAGOS_EXPIRACION_DIAS = 30` en `ConfiguracionSistema`. Los permisos `auditoria:leer_forense` y `ecommerce:solicitar_acceso_log_pagos` ya estaban sembrados.
 
-## Validación
+## 5. Contrato de endpoints
 
-`npm test` (791 pass) · `npm run lint` (0 errores) · `npm run build` (OK) · `npx prisma migrate dev --name add_acceso_log_pagos` (aplicada) · `npx prisma generate` · `npx prisma db seed` (OK).
+Rutas thin wrappers: `withPermission` + Zod (`safeParse` → 400 `VALIDATION_ERROR` con `fieldErrors`) + service + `{ data, error }` + `STATUS_POR_CODIGO`. **Ninguna regla de negocio vive en el handler.** Next 16: `params` es `Promise`.
+
+| Método | Ruta (`src/app/api/ecommerce/auditoria/pagos/…`) | Respuestas |
+|---|---|---|
+| GET | `route.ts` | 200 `{ items[], total, page, auditoria: { items[], total } }` · 400 · 401 · 403 `ACCESO_LOG_PAGOS_NO_APROBADO` · 500 |
+| GET | `[id]/facturacion/route.ts` | 200 `{ transaccion_id, datos_facturacion }` · 401 · 403 `FORBIDDEN` · 404 `TRANSACCION_NO_ENCONTRADA` · 500 |
+| POST | `solicitar-acceso/route.ts` | 200/201 solicitud creada · 400 · 401 · 403 · 500 |
+| PATCH | `solicitar-acceso/[id]/route.ts` | 200 aprobación/rechazo (Auditor) · 400 · 401 · 403 · 404 · 500 |
+
+**Schemas** (`src/lib/schemas/ecommerce.schema.ts`): `ListarLogPagosQuerySchema` (`page`, `page_size` máx 50, `estado_pago?`, `fecha_desde?`, `fecha_hasta?`), `SolicitarAccesoLogPagosSchema`, `AccesoLogPagosIdSchema`, `TransaccionPagoLogIdSchema`.
+
+### 5.1. Reglas del service
+
+- **`obtenerLogPagos`**: Auditor = acceso completo; Administrador E-commerce = solo con `AccesoLogPagos` aprobado y no expirado; devuelve la mitad operativa + la forense (proyección segura, sin `valor_anterior`/`valor_nuevo`).
+- **`obtenerFacturacionPago` / `decryptAndAuditBilling`**: solo Auditor; descifra con `lib/crypto/aes.ts` y emite `ecommerce:acceso_dato_cifrado_auditado` una vez.
+- **`verificarIntegridadLogPagos`**: función module-owned (patrón `verificarCadenaHashesVentas`), no expuesta.
+- **`finDeDia`**: normaliza `fecha_hasta` a fin de día UTC.
+- **Sin `delete()`**; sin escritura directa de `AuditLog` (solo el bus).
+
+## 6. Eventos de dominio
+
+**Emite (nuevos, tipados en los 3 loci de `event-types.ts`):**
+- `ecommerce:transaccion_pago_registrada` — `{ transaccion_id, pedido_venta_id, monto, estado_pago, mercadopago_payment_id }` (sin datos sensibles), post-COMMIT.
+- `ecommerce:acceso_dato_cifrado_auditado` — `{ transaccion_id, usuario_auditor_id, timestamp }`, al leer el campo cifrado.
+
+**Auditoría:** 2 handlers **agregados** (nunca modificados los existentes) en `audit-log.listener.ts` → `tabla_afectada = "log_transacciones_pago"`, `ip: "internal-event"`.
+
+## 7. Hallazgos
+
+| # | Sev. | Hallazgo | Tratamiento |
+|---|---|---|---|
+| H1 | — | **Premisa del prompt desactualizada:** `TransaccionPagoLog` SÍ tiene `datos_facturacion_iv`. | Corregido: `encrypt()` mapea directo, sin migración para el log. |
+| H2 | **Alta (bloqueante, resuelto)** | `decryptAndAuditBilling()` emitía el evento pero **no tenía superficie HTTP** → R3/CA6 inalcanzable (código muerto). | **Remediación `8269a12`**: endpoint solo Auditor `GET …/[id]/facturacion` + `obtenerFacturacionPago()`. Re-verify PASS. |
+| H3 | Media | La mitad `AuditLog` filtrada no se surfaceaba en la respuesta. | Resuelto en la remediación (bloque `auditoria`). |
+| H4 | Media (deuda) | Faltan tests de **integración HTTP** (`test:integration:e6`); R1/R3 se apoyan en unitarias source-regex. | Documentado como deuda (W2). |
+| H5 | Baja | `verificar_integridad` (Backlog) no está en el query schema (spec). | Función module-owned implementada; divergencia reportada. |
+| H6 | Baja | R4: default de expiración (30 días) pendiente de validar con el PO. | Parametrizado en `ConfiguracionSistema` (config-only si cambia). |
+| H7 | Baja | La mitad forense se devuelve a cualquier caller que pase el gate (incluye Administrador aprobado). | Proyección segura (sin JSON crudo); nota para el PO si debe ser solo Auditor. |
+
+## 8. Verificación funcional
+
+| Corrida | Resultado |
+|---|---|
+| `npm test` | **794/794** (exit 0) |
+| `npm run lint` | **0 errores** / 4 warnings preexistentes, exit 0 |
+| `npm run build` | **OK** (4 rutas E6 registradas) |
+| `npx prisma migrate dev --name add_acceso_log_pagos` | aplicada (32 migraciones) |
+| `npx prisma db seed` | OK (`ECOMMERCE_ACCESO_LOG_PAGOS_EXPIRACION_DIAS = 30`) |
+
+**Historial de verificación:** verify #1 → **FAIL** (1 blocker: R3/CA6 inalcanzable) → remediación acotada `8269a12` → verify #2 → **PASS** (`pass_with_warnings`, 0 blockers; 12/12 CA, 5/5 requisitos, 9/9 escenarios).
+
+## 9. Cómo correr las pruebas
+
+```bash
+# Prerrequisitos (.env): DATABASE_URL, JWT_SECRET, ENCRYPTION_KEY_PROVEEDORES (64 hex)
+npx prisma migrate status   # debe decir "up to date"
+npx prisma generate         # tras aplicar migraciones
+npx prisma db seed          # idempotente
+npm test                    # unitarias (incluye los *.test.ts de E6)
+npm run lint
+npm run build
+```
+
+> `npm test` enumera los archivos **explícitamente** en `package.json` (sin glob).
+
+## 10. Fuera de alcance y deuda
+
+- **Conciliación/liquidación real de Mercado Pago** (HU-G2).
+- **Tabla de auditoría con hash-chain propio**: el hash-chain es de `AuditLog` (Módulo D).
+- **Extensión del modelo `TransaccionPagoLog`** (sin `proveedor`; payload como `String`).
+- **Deuda:** tests de integración HTTP (`test:integration:e6`); validación del default de expiración con el PO; exposición de `verificar_integridad`.
+
+## 11. Lecciones de proceso
+
+1. **Relevar el schema antes de creer al prompt.** El prompt asumía que no existía la columna IV; existía. Evitó una migración innecesaria.
+2. **Un evento nuevo toca 3 lugares en `event-types.ts`.** La guarda `_registroCompleto` rompe el typecheck si falta `TIPOS_EVENTO_DOMINIO`.
+3. **Código correcto pero inalcanzable sigue siendo un blocker.** La verificación detectó que `decryptAndAuditBilling()` no tenía caller HTTP → el control de auditoría no existía en la práctica.
+4. **La emisión post-COMMIT se reutiliza, no se reinventa.** Se usó `emitirEventoPostCommitSeguroE2` de HU-E2.
+5. **El cifrado tiene una única capa.** `lib/crypto/aes.ts` (`ENCRYPTION_KEY_PROVEEDORES`); no se creó una nueva.
+
+## 12. Archivos de la implementación
+
+Rama `HU-E6` (base `origin/develop` `f3522c3`), commits `b0a2ef6` → `8269a12`.
+
+**Nuevos**
+- `src/lib/services/ecommerce/auditoria-pagos.service.ts` (+ `.test.ts`)
+- `src/lib/events/listeners/audit-log.listener.e6.test.ts`
+- `src/app/api/ecommerce/auditoria/pagos/route.ts`
+- `src/app/api/ecommerce/auditoria/pagos/[id]/facturacion/route.ts`
+- `src/app/api/ecommerce/auditoria/pagos/solicitar-acceso/route.ts`
+- `src/app/api/ecommerce/auditoria/pagos/solicitar-acceso/[id]/route.ts`
+- `prisma/migrations/20261007021440_add_acceso_log_pagos/migration.sql`
+
+**Modificados**
+- `src/lib/services/ecommerce/pago-web.service.ts` (R1, con autorización de Chiki)
+- `src/lib/events/event-types.ts` (2 payloads + mapa + registro)
+- `src/lib/events/listeners/audit-log.listener.ts` (2 handlers, add-only)
+- `src/lib/schemas/ecommerce.schema.ts` (4 schemas)
+- `prisma/schema.prisma` (modelo `AccesoLogPagos`)
+- `prisma/seed.ts` (clave de expiración)
+- `package.json` (enumeración de los `*.test.ts` nuevos)
+
+**No se tocan:** `prisma/migrations/` aplicadas, `src/lib/services/auditoria/**` (solo se consume `registrarAuditLog`), otros módulos. Ningún `DELETE`/`deleteMany`; sin dependencias nuevas.
+
+**Documentación de cierre:** este documento (`docs/modulos/modulo E/HU6_MODULO_E.md`).
