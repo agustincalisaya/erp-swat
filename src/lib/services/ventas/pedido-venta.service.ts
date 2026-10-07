@@ -538,6 +538,92 @@ export async function facturarPedidoVentaTx(
 }
 
 /**
+ * HU-E3 — Entrega total de una venta WEB ya facturada. El llamador conserva
+ * la transacción y adquiere antes los locks del agregado en el orden
+ * PedidoVenta → PedidoVentaEcommerce → PedidoVentaItem. Este helper no abre
+ * transacciones ni añade locks propios; revalida las invariantes comerciales
+ * de B con el mismo `tx` y deja propagar cualquier fallo para el rollback.
+ */
+export async function registrarEntregaTotalPedidoVentaTx(
+  tx: Prisma.TransactionClient,
+  pedidoVentaId: string,
+): Promise<void> {
+  const pedido = await tx.pedidoVenta.findFirst({
+    where: {
+      id: pedidoVentaId,
+      canal: "WEB",
+      estado: "FACTURADO",
+      is_active: true,
+      deleted_at: null,
+    },
+    select: { id: true },
+  });
+  if (!pedido) {
+    throw new ServiceError("TRANSICION_INVALIDA", "La venta no está disponible para entrega total");
+  }
+
+  // Se leen todas las líneas para detectar una baja lógica inconsistente en
+  // una venta ya facturada; ninguna línea inactiva se entrega.
+  const items = await tx.pedidoVentaItem.findMany({
+    where: { pedido_venta_id: pedidoVentaId },
+    orderBy: [{ created_at: "asc" }, { id: "asc" }],
+    select: {
+      id: true,
+      cantidad: true,
+      cantidad_facturada: true,
+      cantidad_entregada: true,
+      is_active: true,
+      deleted_at: true,
+    },
+  });
+  if (
+    items.length === 0 ||
+    items.some((item) =>
+      !item.is_active ||
+      item.deleted_at !== null ||
+      item.cantidad_facturada !== item.cantidad ||
+      item.cantidad_entregada !== 0 ||
+      item.cantidad_entregada > item.cantidad_facturada
+    )
+  ) {
+    throw new ServiceError("ESTADO_INCONSISTENTE", "Los ítems no admiten una entrega total");
+  }
+
+  for (const item of items) {
+    const cambio = await tx.pedidoVentaItem.updateMany({
+      where: {
+        id: item.id,
+        pedido_venta_id: pedidoVentaId,
+        is_active: true,
+        deleted_at: null,
+        cantidad_facturada: item.cantidad,
+        cantidad_entregada: 0,
+      },
+      data: { cantidad_entregada: item.cantidad_facturada },
+    });
+    if (cambio.count !== 1) {
+      throw new ServiceError("ESTADO_INCONSISTENTE", "La entrega de un ítem cambió durante la operación");
+    }
+  }
+
+  const remito = await tx.pedidoVenta.updateMany({
+    where: { id: pedidoVentaId, estado: "FACTURADO", canal: "WEB", is_active: true, deleted_at: null },
+    data: { estado: "REMITO_EMITIDO" },
+  });
+  if (remito.count !== 1) {
+    throw new ServiceError("TRANSICION_INVALIDA", "La venta cambió durante la entrega total");
+  }
+
+  const cierre = await tx.pedidoVenta.updateMany({
+    where: { id: pedidoVentaId, estado: "REMITO_EMITIDO", canal: "WEB", is_active: true, deleted_at: null },
+    data: { estado: "CERRADO" },
+  });
+  if (cierre.count !== 1) {
+    throw new ServiceError("TRANSICION_INVALIDA", "La venta no pudo cerrarse tras la entrega total");
+  }
+}
+
+/**
  * HU-E2 (P4, corregido por el owner) — `RESERVADO → ANULADO` con baja lógica
  * (spec B §3.1: "ANULADO (baja lógica)"). La usa el rechazo del pago web, que
  * ya liberó las reservas en el mismo `tx`: el pedido no queda RESERVADO sin

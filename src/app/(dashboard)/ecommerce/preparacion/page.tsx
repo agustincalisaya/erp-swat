@@ -5,7 +5,8 @@
  * Consola operativa de Pick & Pack / Click & Collect (HU-E12 T09).
  * React Server Component: verifica sesión y gates por permiso real —
  * acceso a la pantalla por `ecommerce:leer_cola_preparacion`, y las
- * capacidades (`ecommerce:preparar_pedido`, `ecommerce:priorizar_cola`) se
+ * capacidades (`ecommerce:preparar_pedido`, `ecommerce:priorizar_cola`,
+ * `ecommerce:validar_retiro_qr`) se
  * pasan a la consola cliente para el control visual por permiso.
  */
 import { redirect } from "next/navigation";
@@ -26,10 +27,11 @@ export default async function PreparacionPickPackPage() {
   const session = await getServerSession();
   if (!session) redirect("/login");
 
-  const [puedeLeer, puedePreparar, puedePriorizar] = await Promise.all([
+  const [puedeLeer, puedePreparar, puedePriorizar, puedeValidarRetiro] = await Promise.all([
     usuarioTienePermiso(session.userId, "ecommerce:leer_cola_preparacion"),
     usuarioTienePermiso(session.userId, "ecommerce:preparar_pedido"),
     usuarioTienePermiso(session.userId, "ecommerce:priorizar_cola"),
+    usuarioTienePermiso(session.userId, "ecommerce:validar_retiro_qr"),
   ]);
   if (!puedeLeer) redirect("/no-autorizado");
 
@@ -53,6 +55,7 @@ export default async function PreparacionPickPackPage() {
         <ConsolaPickPack
           puedePreparar={puedePreparar}
           puedePriorizar={puedePriorizar}
+          puedeValidarRetiro={puedeValidarRetiro}
           usuarioId={session.userId}
         />
       </div>

@@ -1036,6 +1036,37 @@ export interface EcommercePedidoListoParaRetiroPayload {
   estado_nuevo: "LISTO_PARA_RETIRO";
   plazo_retiro_vencimiento: string;
   timestamp: string;
+  /** HU-E3 T8: destinatario operable, o null sin cuenta web notificable. */
+  cliente_web_cuenta_id: string | null;
+  numero_venta: string;
+}
+
+// HU-E3 — retiro validado. T2 declara contratos; la emisión corresponde a T6.
+export type MotivoRetiroRechazado =
+  | "TOKEN_NO_RESUELTO"
+  | "PEDIDO_NO_OPERABLE"
+  | "ESTADO_NO_LISTO"
+  | "PLAZO_VENCIDO"
+  | "DNI_NO_COINCIDE"
+  | "CLIENTE_NO_OPERABLE";
+
+export interface PedidoEntregadoPayload {
+  evento_id: string;
+  pedido_venta_id: string;
+  pedido_venta_ecommerce_id: string;
+  actor_id: string;
+  estado_anterior: "LISTO_PARA_RETIRO";
+  estado_nuevo: "ENTREGADO";
+  timestamp: string;
+}
+
+export interface RetiroRechazadoPayload {
+  evento_id: string;
+  actor_id: string;
+  motivo: MotivoRetiroRechazado;
+  timestamp: string;
+  pedido_venta_id?: string;
+  pedido_venta_ecommerce_id?: string;
 }
 
 /**
@@ -1511,6 +1542,10 @@ export interface DomainEventMap {
   "ecommerce:unidad_preparacion_confirmada": EcommerceUnidadPreparacionConfirmadaPayload;
   /** HU-E12: pedido completamente preparado, listo para retiro. */
   "ecommerce:pedido_listo_para_retiro": EcommercePedidoListoParaRetiroPayload;
+  /** HU-E3: retiro completado después del commit B/E. */
+  "ecommerce:pedido_entregado": PedidoEntregadoPayload;
+  /** HU-E3: intento de retiro rechazado, incluso sin token resuelto. */
+  "ecommerce:retiro_rechazado": RetiroRechazadoPayload;
   /** HU-E1: se emite por cada ítem de carrito que bloquea el checkout por estar desactivado (CA4). */
   "ecommerce:carrito_articulo_no_disponible": CarritoArticuloNoDisponiblePayload;
   /** HU-E1: se emite tras fusionar el carrito de visitante con el de la cuenta (CA7). */
@@ -1648,6 +1683,8 @@ export const TIPOS_EVENTO_DOMINIO = [
   "ecommerce:prioridad_preparacion_cambiada",
   "ecommerce:unidad_preparacion_confirmada",
   "ecommerce:pedido_listo_para_retiro",
+  "ecommerce:pedido_entregado",
+  "ecommerce:retiro_rechazado",
   "ecommerce:carrito_articulo_no_disponible",
   "ecommerce:carrito_fusionado",
   "ecommerce:checkout_iniciado",

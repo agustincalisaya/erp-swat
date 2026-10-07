@@ -280,3 +280,83 @@ test("rechazo async de consumo no bloquea un evento posterior de liberación", a
   assert.equal(logs.length, 1, "solo el consumo fallido debe diagnosticarse");
   assert.match(String(logs[0][0]), /ecommerce:cupon_consumido/);
 });
+
+test("HU-E3 audita entrega agregada B/E usando ID de extensión y datos mínimos", async () => {
+  const llamadas: unknown[] = [];
+  const f = cargarFixture(async (params) => { llamadas.push(params); });
+  f.iniciarAuditLogListener();
+  f.bus.emit("ecommerce:pedido_entregado", {
+    evento_id: "evento-e3-1", pedido_venta_id: "venta-e3-1",
+    pedido_venta_ecommerce_id: "extension-e3-1", actor_id: "actor-e3-1",
+    estado_anterior: "LISTO_PARA_RETIRO", estado_nuevo: "ENTREGADO",
+    timestamp: "2026-10-06T12:00:00.000Z",
+  });
+  await drenarMicrotareas();
+  assert.deepEqual(llamadas, [{
+    usuario_id: "actor-e3-1", accion: "PEDIDO_ENTREGADO",
+    tabla_afectada: "pedidos_venta_ecommerce", registro_id: "extension-e3-1",
+    ip: "internal-event",
+    valor_anterior: { estado_ecommerce: "LISTO_PARA_RETIRO", estado_pedido_venta: "FACTURADO" },
+    valor_nuevo: {
+      evento_id: "evento-e3-1", pedido_venta_id: "venta-e3-1",
+      estado_ecommerce: "ENTREGADO", estado_pedido_venta: "CERRADO",
+      qr_consumido: true, entrega_total: true, timestamp: "2026-10-06T12:00:00.000Z",
+    },
+  }]);
+});
+
+test("HU-E3 audita rechazo con ID de extensión o null, sin usar ID de venta como sustituto", async () => {
+  const llamadas: unknown[] = [];
+  const f = cargarFixture(async (params) => { llamadas.push(params); });
+  f.iniciarAuditLogListener();
+  const base = {
+    evento_id: "evento-e3-r", actor_id: "actor-e3-r",
+    motivo: "DNI_NO_COINCIDE", timestamp: "2026-10-06T12:01:00.000Z",
+  };
+  f.bus.emit("ecommerce:retiro_rechazado", {
+    ...base, pedido_venta_id: "venta-e3-r", pedido_venta_ecommerce_id: "extension-e3-r",
+  });
+  f.bus.emit("ecommerce:retiro_rechazado", {
+    ...base, evento_id: "evento-e3-sin-id", motivo: "TOKEN_NO_RESUELTO",
+  });
+  await drenarMicrotareas();
+  assert.equal(llamadas.length, 2);
+  assert.deepEqual(llamadas[0], {
+    usuario_id: "actor-e3-r", accion: "RETIRO_RECHAZADO",
+    tabla_afectada: "pedidos_venta_ecommerce", registro_id: "extension-e3-r",
+    ip: "internal-event", valor_anterior: null,
+    valor_nuevo: {
+      evento_id: "evento-e3-r", motivo: "DNI_NO_COINCIDE",
+      timestamp: "2026-10-06T12:01:00.000Z", pedido_venta_id: "venta-e3-r",
+    },
+  });
+  assert.deepEqual(llamadas[1], {
+    usuario_id: "actor-e3-r", accion: "RETIRO_RECHAZADO",
+    tabla_afectada: "pedidos_venta_ecommerce", registro_id: null,
+    ip: "internal-event", valor_anterior: null,
+    valor_nuevo: {
+      evento_id: "evento-e3-sin-id", motivo: "TOKEN_NO_RESUELTO",
+      timestamp: "2026-10-06T12:01:00.000Z",
+    },
+  });
+});
+
+test("HU-E3: fallo del ledger se captura sin exponer el error ni rechazar el bus", async (t) => {
+  const logs: unknown[][] = [];
+  const f = cargarFixture(
+    async () => { throw new Error(MARCADORES_SENSIBLES); },
+    { error: (...args: unknown[]) => logs.push(args) },
+  );
+  const u = observarUnhandledRejection(t);
+  f.iniciarAuditLogListener();
+  assert.equal(f.bus.emit("ecommerce:pedido_entregado", {
+    evento_id: "evento-e3-fallo", pedido_venta_id: "venta-e3-fallo",
+    pedido_venta_ecommerce_id: "extension-e3-fallo", actor_id: "actor-e3-fallo",
+    estado_anterior: "LISTO_PARA_RETIRO", estado_nuevo: "ENTREGADO",
+    timestamp: "2026-10-06T12:02:00.000Z",
+  }), true);
+  await drenarMicrotareas();
+  assert.equal(u.conteo, 0);
+  assert.equal(logs.length, 1);
+  assert.equal(JSON.stringify(logs).includes(MARCADORES_SENSIBLES), false);
+});

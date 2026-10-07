@@ -51,6 +51,7 @@ import {
 } from "./pick-pack-client";
 import { PreparacionPedidoPanel } from "./PreparacionPedidoPanel";
 import { ProgresoBarra } from "./ProgresoBarra";
+import { RetiroPedidoPanel } from "./RetiroPedidoPanel";
 
 const PAGE_SIZE = 20;
 
@@ -206,6 +207,8 @@ export interface ConsolaPickPackProps {
   puedePreparar: boolean;
   /** Permiso `ecommerce:priorizar_cola` del usuario actual. */
   puedePriorizar: boolean;
+  /** Permiso `ecommerce:validar_retiro_qr` del usuario actual. */
+  puedeValidarRetiro: boolean;
   /** `userId` de sesión — para saber qué pedidos están asignados al operador. */
   usuarioId: string;
 }
@@ -213,8 +216,10 @@ export interface ConsolaPickPackProps {
 export function ConsolaPickPack({
   puedePreparar,
   puedePriorizar,
+  puedeValidarRetiro,
   usuarioId,
 }: ConsolaPickPackProps) {
+  const [seccion, setSeccion] = useState<"preparacion" | "retiro">("preparacion");
   const [page, setPage] = useState(1);
   const [cola, setCola] = useState<ColaPreparacionJson | null>(null);
   const [cargando, setCargando] = useState(true);
@@ -344,11 +349,21 @@ export function ConsolaPickPack({
     );
   }
 
+  if (seccion === "retiro" && puedeValidarRetiro) {
+    return (
+      <div className="space-y-4">
+        <SelectorOperacion seccion={seccion} puedeValidarRetiro={puedeValidarRetiro} onCambiar={setSeccion} />
+        <RetiroPedidoPanel />
+      </div>
+    );
+  }
+
   // ── Vista de cola ──────────────────────────────────────────────────────────
   const totalPaginas = cola ? Math.max(1, Math.ceil(cola.total / cola.page_size)) : 1;
 
   return (
     <div className="space-y-4">
+      <SelectorOperacion seccion="preparacion" puedeValidarRetiro={puedeValidarRetiro} onCambiar={setSeccion} />
       <div className="flex items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
           {cola ? `${cola.total} pedido(s) en cola` : "Cola de preparación"}
@@ -432,6 +447,26 @@ export function ConsolaPickPack({
           </Button>
         </div>
       )}
+    </div>
+  );
+}
+
+export function SelectorOperacion({ seccion, puedeValidarRetiro, onCambiar }: {
+  seccion: "preparacion" | "retiro";
+  puedeValidarRetiro: boolean;
+  onCambiar: (seccion: "preparacion" | "retiro") => void;
+}) {
+  if (!puedeValidarRetiro) return null;
+  return (
+    <div className="flex w-full gap-2 rounded-lg border bg-white p-1 sm:w-fit" aria-label="Operaciones Click & Collect">
+      <Button type="button" variant={seccion === "preparacion" ? "default" : "ghost"}
+        className="min-w-0 flex-1 sm:flex-none" onClick={() => onCambiar("preparacion")}>
+        Preparación
+      </Button>
+      <Button type="button" variant={seccion === "retiro" ? "default" : "ghost"}
+        className="min-w-0 flex-1 sm:flex-none" onClick={() => onCambiar("retiro")}>
+        Retiro
+      </Button>
     </div>
   );
 }

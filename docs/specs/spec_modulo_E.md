@@ -1,5 +1,8 @@
 # Especificación Técnica — Módulo E (E-commerce / Tienda Online)
 ## ERP SWAT Indumentarias — Sprint 4
+## Revisión 9 — HU-E3 — Ajuste final de payload de retiro rechazado, 06/10/2026: modifica únicamente el contrato de `ecommerce:retiro_rechazado` en §2.3.d para incluir el ID opcional de la extensión y fijar su correspondencia con AuditLog. Todo el resto de las Revisiones 7 y 8 permanece vigente; Revisiones 1–8 conservan su numeración.
+## Revisión 8 — HU-E3 — Corrección de consistencia contractual previa a TASKS, 06/10/2026: modifica únicamente la firma contractual del helper transaccional de Módulo B (§2.3.c) y la clave de idempotencia F3 de `ecommerce:pedido_listo_para_retiro` (§2.3.d). Todo el resto de la Revisión 7 continúa vigente; Revisiones 1–7 conservan su numeración.
+## Revisión 7 — HU-E3 (retiro validado), 06/10/2026: contrato de `LISTO_PARA_RETIRO → ENTREGADO`, consumo de QR y aviso interno «listo». Revisión aditiva de §2.3 con sustituciones explícitas en §2.12 y §4; Revisiones 1–6 y las demás HU conservan prioridad y numeración.
 ## Revisión 6 — HU-E11 (Contenido comercial y búsqueda del catálogo online), 04/10/2026: contrato sincronizado con la implementación. Revisión aditiva: se agregan §2.11.a–§2.11.g, la extensión de eventos de la sección 4 y las notas Rev.6 de la sección 5. El contenido de §2.11 Rev.1 y de las Revisiones 1–5 se conserva íntegro; ninguna sección se renumera.
 ## Revisión 5 — HU-E7 (Anulación manual de orden web no abonada), 04/10/2026: contrato sincronizado con la implementación. Revisión aditiva: se agregan §2.7.a–§2.7.d, la extensión de eventos de la sección 4 y la nota Rev.5 de la sección 5. El contenido de §2.7 Rev.1, de §3.1 y de las Revisiones 1–4 se conserva íntegro; ninguna sección se renumera.
 ## Revisión 4 — HU-E5 (Visibilidad web independiente del inventario físico), 04/10/2026: contrato sincronizado con la implementación. Revisión aditiva: se agregan §2.5.a–§2.5.e, la extensión de eventos de la sección 4 y la nota Rev.4 de la sección 5. El contenido de §2.5 Rev.1 y de las Revisiones 1–3 se conserva íntegro; ninguna sección se renumera.
@@ -226,14 +229,127 @@ model PedidoVentaEcommerce {
 
 ### 2.3. Ciclo Click & Collect y código QR de retiro (HU-E3)
 
-**Sin endpoint propio de transición de estado:** esta HU no expone una ruta nueva — describe el **contrato de ciclo completo** definido en las secciones 2.2 (pago), 2.9 (Mis pedidos, visualización del QR) y 2.12 (cola de preparación, transición y validación del QR). HU-E8 provee la sesión Cliente Web, HU-E12 genera token y plazo, y HU-E9 ya publica los endpoints/pantallas autenticadas descritos en §2.9.
+**Revisión 7 — sustitución explícita:** queda reemplazada la afirmación de Revisión 1 «Sin endpoint propio de transición de estado». E3 **sí** expone una operación de validación y entrega. También quedan sustituidos la ruta por ID, el body `codigo_qr`/`dni_receptor`, el error `QR_INVALIDO` y la asignación de la entrega a E12 en 2.12; ese texto se conserva allí como antecedente histórico. E2 confirma pago y admite en la cola; E12 prepara y genera token/plazo; E9 presenta el QR propio; **E3 valida y entrega**; E13 vence/cancela/reintegra. E3 no rediseña esos flujos.
 
-**Comportamiento esperado:**
-- Ciclo: `Pago Confirmado` (2.2) → `En Preparación` (2.12, ingreso automático a la cola) → `Listo para Retiro` (2.12, al completar la preparación — genera `codigo_qr_retiro`) → `Entregado` (HU-E3, al validar QR + identidad).
-- `estado_ecommerce` es la autoridad del ciclo de vida. E9 muestra el QR únicamente en `LISTO_PARA_RETIRO`, con token existente y con `plazo_retiro_vencimiento` nulo o `>= ahora`. La comprobación del plazo es una defensa de presentación: si venció, E9 oculta el QR pero no cambia el estado; HU-E13 realiza posteriormente la transición a `VENCIDO_SIN_RETIRO`.
-- El QR se oculta antes de `LISTO_PARA_RETIRO` y al pasar a `ENTREGADO`, `CANCELADO`, `VENCIDO_SIN_RETIRO` o cualquier otro estado.
-- HU-E3 valida QR + identidad y transiciona a `ENTREGADO`; E9 no valida el QR ni solicita DNI.
-- El vencimiento y las cancelaciones, incluidas sus transiciones de estado, son responsabilidad de HU-E13 (sección 2.13).
+#### 2.3.a. Decisiones aprobadas y alcance
+
+| ID | Contrato congelado |
+|---|---|
+| D1 | Todo retiro exige QR válido y DNI físico presentado, coincidente con `Cliente.dni` del titular de `PedidoVenta`. La comprobación adicional por fuerza/legajo queda fuera de E3: el modelo C actual no la soporta. |
+| D2 | Solo notificación interna F3; sin WhatsApp, email ni SMS. |
+| D3 | E3 es owner de `LISTO_PARA_RETIRO → ENTREGADO`; E12 conserva preparación y generación de QR/plazo. |
+| D4 | E3 comprueba el plazo pero no transiciona a `VENCIDO_SIN_RETIRO`, cancela, libera stock ni reintegra; eso pertenece a E13. |
+| D5 | Baja de `CuentaClienteWeb` no cancela el retiro de un pedido pagado. Pedido, extensión y Cliente sí deben estar activos y no eliminados. |
+| D6 | Éxito: `estado_ecommerce = ENTREGADO`, `codigo_qr_retiro = null`; el plazo puede conservarse. |
+| D7 | Reutilización del QR, doble clic o segundo operador: rechazo sin mutación; jamás éxito idempotente ni confirmación de que el token fue válido. |
+| D8 | Sin `fecha_entrega`, `operador_entrega_id` ni clave de idempotencia nuevos; actor y hora quedan en evento/auditoría. Sin cambios de Prisma, migración o seed. |
+| D9 | Autorizar mediante `ecommerce:validar_retiro_qr` existente, nunca por nombre de rol. |
+| D10 | Retiro dentro de `/ecommerce/preparacion`, en sección/pestaña o composición equivalente, con scanner existente. |
+
+#### 2.3.b. HTTP y entrada
+
+**Endpoint único:** `POST /api/ecommerce/preparacion/validar-retiro` (`src/app/api/ecommerce/preparacion/validar-retiro/route.ts`). `withPermission("ecommerce:validar_retiro_qr")` resuelve al actor desde la sesión interna. No hay `pedido_venta_id` en URL, query ni body: el pedido se resuelve siempre a partir del token decodificado del QR. `Cache-Control: no-store` para la respuesta. Content type JSON y body estricto:
+
+**Pedido determinado por el QR:** `codigo_qr_retiro` es único y resuelve exactamente un `PedidoVentaEcommerce` y su `PedidoVenta`. QR del pedido A + DNI del titular A entrega A; QR del pedido B del mismo titular + ese DNI entrega B. QR de un pedido de otro titular + DNI presentado, o QR inexistente/inválido, recibe `RETIRO_NO_VALIDO` sin mutación. Tener varios pedidos del mismo titular no crea ambigüedad: el QR determina el pedido. Nota UX: si el Cliente posee varios pedidos listos, el Operador debe verificar el número mostrado por la interfaz antes de realizar la entrega física.
+
+```json
+{ "qr_token": "contenido-decodificado-del-qr", "dni": "12345678" }
+```
+
+Schema Zod contractual propuesto (la forma exacta de los mensajes de validación puede seguir el patrón HTTP existente):
+
+```typescript
+export const ValidarRetiroSchema = z.object({
+  qr_token: z.string().trim().min(1).max(128),
+  dni: z.string().trim().regex(/^\d{7,8}$/),
+}).strict();
+```
+
+`max(128)` limita entrada abusiva y admite el token productivo base64url de 32 bytes (43 caracteres) sin imponer una regex que pueda romper compatibilidad. El servidor normaliza con `trim`; para DNI, después del trim solo admite 7 u 8 dígitos, como los schemas existentes de Cliente. El formato no prueba identidad: la comparación contra `Cliente.dni` ocurre bajo la transacción. No se admiten campos extra, en particular IDs de pedido/extensión/cliente/cuenta/operador, estado, plazo o identidad derivada. El scanner entrega el **contenido completo decodificado** como `qr_token`; no se envía `data:image/...`, no se hace OCR y no se extrae ID del QR.
+
+| HTTP | Error público | Regla |
+|---|---|---|
+| 400 | `VALIDATION_ERROR` | JSON inválido, campo faltante/extra o schema inválido. No incluir el valor rechazado en el mensaje ni en `fieldErrors`. |
+| 401 | `UNAUTHORIZED` | Sin sesión RBAC interna. |
+| 403 | `FORBIDDEN` | Sin `ecommerce:validar_retiro_qr`. |
+| 422 | `RETIRO_NO_VALIDO` — «No fue posible validar el retiro» | Único rechazo público para QR inexistente, ajeno, ya consumido, estado no listo, plazo vencido, DNI incorrecto, pedido/extensión/Cliente dados de baja o Cliente inactivo. Un contenido formalmente aceptado por Zod pero no correspondiente a token real también cae aquí. |
+| 500 | `INTERNAL_ERROR` — mensaje genérico | Inconsistencia interna de B/E o fallo técnico; rollback, sin revelar pedido, token ni DNI. |
+
+No se define `409` para esta operación: revelaría diferencias de estado sin aportar una acción distinta al Operador. La ruta nunca devuelve motivos internos, SQL, valores recibidos ni presencia previa del token. Éxito `200`:
+
+```json
+{ "data": { "pedido_venta_id": "uuid", "numero": "V-2026-000123", "estado": "ENTREGADO" }, "error": null }
+```
+
+No incluye QR/token, DNI, email, datos de Cliente, pago, Mercado Pago ni hashes. La respuesta mínima muestra el número de venta tras el éxito; el Operador verifica el pedido determinado por el QR antes de la entrega física.
+
+#### 2.3.c. Resolución, transacción y Módulo B
+
+1. Tras autenticar/autorizar y validar el body, una **lectura preliminar sin locks** obtiene `pedido_venta_id` desde `PedidoVentaEcommerce.codigo_qr_retiro = qr_token`. No autoriza la entrega y su resultado jamás se comunica al cliente HTTP. Si no existe, emitir el rechazo auditable seguro de 2.3.d sin `pedido_venta_id` y devolver el `422` genérico.
+2. Abrir una transacción. Adquirir locks en el orden E12: **(1) `PedidoVenta` por ID, (2) `PedidoVentaEcommerce` por `pedido_venta_id`, (3) `PedidoVentaItem` activos ordenados por `created_at, id`**, usando `SELECT ... FOR UPDATE` o el patrón equivalente de E12. Para estabilizar también la identidad frente a una baja concurrente de Módulo C, bloquear **después** la fila `Cliente` ligada al pedido, antes de comparar su DNI/soft delete y de escribir la entrega. La lectura preliminar no cambia este orden porque no retiene locks. Cualquier futuro mutador E13 sobre el mismo agregado debe respetar los tres primeros locks.
+3. **Después de los locks**, volver a comprobar todas las condiciones: `PedidoVenta.canal = WEB`, `is_active = true`, `deleted_at = null`, `estado = FACTURADO`; extensión activa/no eliminada, `estado_ecommerce = LISTO_PARA_RETIRO`, token **igual al recibido** y no nulo, `plazo_retiro_vencimiento IS NULL OR >= ahora` (capturar `ahora` después de adquirir locks); `Cliente` ligado por `PedidoVenta.cliente_id`, activo/no eliminado y con DNI exactamente igual al normalizado. `CuentaClienteWeb` inactiva no bloquea. No aceptar un pedido sin Cliente titular.
+4. Con los ítems ya bloqueados, comprobar que existen, que todos están facturados por completo (`cantidad_facturada = cantidad`), que `0 <= cantidad_entregada <= cantidad_facturada` y que no hay entrega parcial previa (`cantidad_entregada = 0`) para este retiro único. La ausencia de ítems o cantidades/estado B incoherentes es error interno con rollback, no una entrega parcial ni un `422` que revele datos. El helper B realiza/repite sus propias precondiciones bajo esos locks.
+5. Invocar un helper transaccional **propiedad del dominio B**, por ejemplo `registrarEntregaTotalPedidoVentaTx(tx, pedidoVentaId)`. Debe usar el `tx` recibido, no abrir otra transacción; comprobar `PedidoVenta` WEB, `FACTURADO` y todos los ítems facturados; llevar cada `cantidad_entregada` de 0 a `cantidad_facturada = cantidad`, y el pedido por la secuencia contractual `FACTURADO → REMITO_EMITIDO → CERRADO` dentro del mismo commit. No crear entidad `Remito` nueva; en el modelo actual el estado y los contadores representan la entrega. No producir un segundo cobro ni comprobante fiscal. **Revisión 8:** el helper no recibe `actorId`: no audita ni emite eventos E3, no persiste operador de entrega y no necesita actor para modificar las entidades existentes. El orquestador E3 conserva `actor_id` en `ecommerce:pedido_entregado` y `ecommerce:retiro_rechazado` para auditoría post-commit. Si se demuestra una necesidad real del dominio B durante la implementación, **STOP y nueva revisión contractual** antes de cambiar la firma.
+6. En la **misma transacción**, cambiar condicionalmente `PedidoVentaEcommerce` desde `LISTO_PARA_RETIRO` con el token vigente a `ENTREGADO` y `codigo_qr_retiro = null`. Comprobar que se actualizó una sola fila; cualquier fallo revierte también las escrituras B. Conservar `plazo_retiro_vencimiento`, `fecha_pago_confirmado`, `operador_asignado_id` y `prioridad_manual`.
+7. Tras commit exitoso, emitir **una sola vez** `ecommerce:pedido_entregado` y devolver el DTO mínimo. Un fallo/rollback no emite éxito. El token consumido ya no es localizable por un segundo request; éste recibe el mismo `422` genérico que un token inexistente.
+
+Un rechazo de negocio después de resolver el pedido no escribe B/E. Se emite el evento seguro `ecommerce:retiro_rechazado` después de resolver la transacción fallida, nunca dentro de una transacción que terminará en rollback. El evento/audit es independiente de la mutación de entrega; errores de listener no convierten un rechazo en éxito ni revierten un commit. La auditoría de entrega es post-commit, conforme al patrón actual de Módulo D.
+
+**Concurrencia:** dos operadores o dos requests con el mismo QR compiten por `PedidoVenta`; el primero que confirma consume el token y cierra B/E. El segundo relee extensión bajo lock y rechaza sin entrega ni segundo evento `pedido_entregado`. En retiro frente a E13, quien obtiene primero los locks decide; el siguiente relee estado y plazo, y no realiza una transición incompatible. E13 conserva la lógica de vencimiento y debe usar el mismo orden. Nunca quedan `ENTREGADO` y `VENCIDO_SIN_RETIRO` para un mismo pedido.
+
+#### 2.3.d. Eventos, F3 y auditoría
+
+```typescript
+type MotivoRetiroRechazado =
+  | "TOKEN_NO_RESUELTO"
+  | "PEDIDO_NO_OPERABLE"
+  | "ESTADO_NO_LISTO"
+  | "PLAZO_VENCIDO"
+  | "DNI_NO_COINCIDE"
+  | "CLIENTE_NO_OPERABLE";
+
+type PedidoEntregadoPayload = {
+  evento_id: string;
+  pedido_venta_id: string;
+  pedido_venta_ecommerce_id: string;
+  actor_id: string;
+  estado_anterior: "LISTO_PARA_RETIRO";
+  estado_nuevo: "ENTREGADO";
+  timestamp: string;
+};
+
+type RetiroRechazadoPayload = {
+  evento_id: string;
+  actor_id: string;
+  motivo: MotivoRetiroRechazado;
+  timestamp: string;
+  pedido_venta_id?: string;
+  pedido_venta_ecommerce_id?: string;
+};
+```
+
+Módulo D registra `pedido_entregado` como transición estándar con actor/hora e IDs. **Revisión 9 — mapping de `retiro_rechazado`:** si el token permitió resolver de forma segura la extensión y su pedido, el evento incluye ambos IDs opcionales y AuditLog usa `tabla_afectada = "pedidos_venta_ecommerce"` y `registro_id = pedido_venta_ecommerce_id`; `pedido_venta_id` queda solo como contexto técnico y no reemplaza el ID de la extensión en `registro_id`. Si el token no resolvió ninguna extensión, el evento omite ambos IDs y AuditLog usa la misma `tabla_afectada` con `registro_id = null` (por ejemplo, `motivo = TOKEN_NO_RESUELTO`). No hacer búsquedas adicionales solo para completar IDs después de un fallo. El motivo es enum acotado, nunca texto del usuario. Ni el payload ni la auditoría incluyen `qr_token`, `codigo_qr_retiro`, DNI, email o datos de pago; ninguno de ellos puede usarse como `registro_id`. Un fallo de consistencia interna puede registrarse mediante logging técnico seguro, sin tratarlo como entrega ni incluir secretos. No se suscribe `pedido_entregado` a F3 en esta HU.
+
+**Cierre de brecha F3 al quedar listo:** E12 ya emite `ecommerce:pedido_listo_para_retiro` post-commit, pero el listener F3 actual no lo suscribe. Extender **solo** ese payload con `cliente_web_cuenta_id` y `numero_venta`, resueltos server-side desde el `PedidoVenta.cliente_id` y su `CuentaClienteWeb` dentro de la finalización E12; no aceptar destinatario desde el cliente, no incluir QR/token, DNI ni email. El registro de cuenta puede estar inactivo por baja posterior: eso no cambia el derecho de retiro; la visibilidad de la bandeja se rige por F3/E8. Para un pedido legacy sin cuenta vinculable, no inventar destinatario: permitir `cliente_web_cuenta_id: null`, omitir notificación y conservar estado/listo/auditoría. F3 suscribe el evento con prioridad `INFORMATIVA`, destinatario `cuenta_cliente_web_ids: [cliente_web_cuenta_id]` cuando no sea nulo, variables `{ numero_venta }`, `clave_origen = evento_id`. **Revisión 8:** `clave_origen` identifica la ocurrencia del evento, no el agregado; la misma ocurrencia de `ecommerce:pedido_listo_para_retiro` con el mismo destinatario produce una sola `Notificacion`. `numero_venta` es solo variable de plantilla y no integra la clave. `pedido_venta_id` conserva su uso como ID de dominio, pero no es `clave_origen` de F3. La plantilla `ecommerce:pedido_listo_para_retiro` ya existe en seed; no modificar seed ni crear mensajería externa. La falla de F3 post-commit no revierte `LISTO_PARA_RETIRO`.
+
+Ningún log, `AuditLog`, evento, mensaje HTTP, URL, querystring o consola incluye `qr_token`, DNI completo, email o datos de pago. El body POST es el único transporte de QR y DNI, y no se persiste el DNI presentado.
+
+#### 2.3.e. UI y pruebas contractuales
+
+En `/ecommerce/preparacion`, agregar sección/pestaña **Retiro**, accesible por `ecommerce:validar_retiro_qr`. Reutilizar `CameraBarcodeScanner`/`useBarcodeScanner` (QR nativo y ZXing fallback) y el patrón manual de `PreparacionPedidoPanel`. Campos mínimos: scanner QR, entrada manual alternativa del contenido QR, DNI, botón «Validar y entregar», feedback genérico de error y confirmación «Pedido V-… entregado correctamente». Deshabilitar el botón mientras se envía; después del éxito limpiar token y DNI. No mostrar token procesado, DNI almacenado del Cliente, pagos ni facturación. La UI no es fuente de autoridad: el servidor revalida todo.
+
+| Nivel | Casos obligatorios |
+|---|---|
+| Unitario | Zod: token vacío, límite, contenido formalmente aceptado, DNI trim + 7/8 dígitos, letras/puntuación/longitud inválidas, campos extra; reglas puras si se extraen. |
+| Servicio/integración | QR + DNI correctos; DNI incorrecto; token inexistente; QR de pedido B del **mismo titular** + DNI correcto entrega exactamente B; QR de pedido B de **otro titular** + DNI presentado rechaza sin mutación; `EN_PREPARACION`, `ENTREGADO`, `CANCELADO`, `VENCIDO_SIN_RETIRO`; plazo vencido aún `LISTO`; bajas lógicas de pedido/extensión; Cliente inactivo/eliminado; cuenta web inactiva **sí permite** retiro válido; ítems inactivos o cantidades inconsistentes producen rollback; B termina `CERRADO` con `cantidad_entregada` completa; E termina `ENTREGADO`, token nulo y plazo conservado; actor/hora y un solo evento exitoso; rechazo auditado sin QR/DNI. |
+| Concurrencia | Dos operadores con mismo QR y doble request: un éxito, un rechazo, una entrega B/E y una auditoría de entrega. QR reutilizado: rechazo. Carrera con mutación incompatible que siga el patrón E13: solo una transición gana y la otra relee bajo locks. |
+| HTTP/RBAC | `400` JSON/schema/campos extra, `401`, `403`, éxito mínimo, `422` uniforme para causas sensibles, `500` seguro para inconsistencia, permiso correcto sin comparar nombre de rol, ninguna respuesta contiene token/DNI/PII/pago. |
+| F3 | Evento `pedido_listo_para_retiro` crea exactamente una notificación interna para cuenta dueña, reemisión no duplica; payload sin token; sin WhatsApp/email; `pedido_entregado` no crea notificación. |
+| UI | Scanner y entrada manual envían contenido decodificado; DNI y botón; éxito/error; limpieza tras éxito; sin datos sensibles renderizados. |
+
+**Integración principal real:** Cliente A inicia sesión E8, crea carrito, hace checkout, E2 confirma pago y E12 admite; Operador toma, escanea ítems y completa; se comprueban `LISTO`, aviso interno F3 y QR propio E9; se decodifica el token real de ese QR y E3 entrega con DNI real; se verifican E `ENTREGADO`, B `CERRADO`, contadores, token `null` y QR ausente en E9. Cliente B/tercero con DNI incorrecto no puede retirar. La prueba no fija manualmente estado `LISTO`, token ni plazo.
+
+**Archivos probables al implementar (esta revisión solo redacta SPEC):** nuevos `src/lib/schemas/retiro-e3.schema.ts`, `src/lib/services/ecommerce/retiro-e3.service.ts`, `src/app/api/ecommerce/preparacion/validar-retiro/route.ts` y tests E3; modificados `src/lib/services/ventas/pedido-venta.service.ts` (helper B), `src/lib/events/event-types.ts`, `src/lib/events/listeners/audit-log.listener.ts`, `src/lib/events/listeners/notificacion.listener.ts`, `src/lib/services/ecommerce/pick-pack.service.ts` solo para datos de destinatario del evento `LISTO`, y UI/tests de `/ecommerce/preparacion`. No modificar `mis-pedidos.service.ts`/DTO E9, `pago-web.service.ts` E2, lógica E13, `prisma/schema.prisma`, migraciones ni `prisma/seed.ts`. La integración puede invocar servicios E2/E9 sin editarlos.
 
 ### 2.4. Cupones de descuento (HU-E4)
 
@@ -1049,6 +1165,8 @@ Tres claves nuevas de módulo `E`, sembradas con `upsert` y `update: {}`, con ge
 
 ### 2.12. Cola de preparación y entrega Click & Collect (HU-E12)
 
+**Revisión 7 — lectura obligatoria antes de los pasajes históricos siguientes:** la implementación E12 termina en `LISTO_PARA_RETIRO`; su ruta real es `/api/ecommerce/preparacion/**`. Toda referencia inferior a `/app/api/ecommerce/pick-pack/[id]/validar-retiro`, a `ValidarRetiroSchema` con `codigo_qr`/`dni_receptor`, a `422 QR_INVALIDO`, a la entrega como responsabilidad E12 o a la generación de notificación F3 ya operativa queda **sustituida por 2.3.b–2.3.d**. Las rutas/verbos de preparación escritos en la Revisión 1 son diseño histórico; consultar las rutas reales de E12 al implementar. E12 conserva la emisión del evento `pedido_listo_para_retiro`; E3 completa únicamente su payload de destinatario y la suscripción F3.
+
 **Ruta (consulta de cola):** `GET /app/api/ecommerce/pick-pack/cola/route.ts`
 **Ruta (tomar pedido):** `PATCH /app/api/ecommerce/pick-pack/[id]/tomar/route.ts`
 **Ruta (confirmar preparación, escaneo de código de barras por ítem):** `POST /app/api/ecommerce/pick-pack/[id]/confirmar-item/route.ts`
@@ -1191,6 +1309,8 @@ K1–K8 y Gate 3 aprobados el 02/10/2026: capacidad C+P global/cliente leída co
 Correcciones verificadas el 03/10/2026: F01 statement único y dos regresiones checkout/pago (global y cliente); F02 nueve cuerpos/rutas inválidos con mismo envelope español; CA07 conserva confirmada con TTL vencido. Matriz independiente **676 pass / 0 fail / 0 skip**, tsc/lint/migración/build completos; Chrome independiente cerrado, con límites de evidencia explícitos en `docs/modulos/modulo E/HU4_MODULO_E.md`. No se extiende esa evidencia a deploy/integración remota o stress no ejecutado.
 
 ## 4. Eventos de Dominio (EDA)
+
+**Revisión 7 — sustitución de la fila histórica E12/E3 de la tabla inferior:** `ecommerce:pedido_tomado` y `ecommerce:pedido_listo_para_retiro` pertenecen a E12; `ecommerce:pedido_entregado` y el nuevo `ecommerce:retiro_rechazado` pertenecen a E3. El nombre histórico `ecommerce:qr_invalido_rechazado` queda sustituido por `ecommerce:retiro_rechazado`, que cubre también DNI, estado, plazo y soft delete sin filtrar el motivo al HTTP. Los payloads exactos y las reglas de emisión son los de 2.3.d. F3 consume `pedido_listo_para_retiro` tras completar la suscripción; no consume `pedido_entregado`. Esta nota conserva la fila de Revisión 1 como historial sin considerarla contrato vigente.
 
 **Archivo:** `src/lib/events/event-types.ts` (extiende la tabla de `spec_modulo_D.md` §5, namespace `ecommerce:*` — con la excepción de los eventos ya definidos por otros módulos que Módulo E consume sin redefinir: `pago:webhook_confirmado` de Módulo F, `stock:reserva_congelada`/`stock:reserva_liberada` de Módulo A, `venta:comprobante_emitido` de Módulo B).
 

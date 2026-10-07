@@ -21,8 +21,8 @@
  *    (D.3/D.4 → Rol AUDITOR; `verificar-cadena` no emite evento) y OC
  *    pendiente de aprobación (H → Rol SUPERVISOR_COMPRAS; no existe el estado).
  *  - Pendientes de su dueño (agregan su fila al declarar el evento):
- *    `ecommerce:pedido_listo_para_retiro` (E12), `ecommerce:plazo_retiro_por_vencer`
- *    y `ecommerce:pedido_vencido_sin_retiro` (E13).
+ *    `ecommerce:plazo_retiro_por_vencer` y
+ *    `ecommerce:pedido_vencido_sin_retiro` (E13).
  */
 import { domainEventBus } from "@/lib/events/domain-event-bus";
 import type { DomainEventMap } from "@/lib/events/event-types";
@@ -104,6 +104,18 @@ export const SUSCRIPCIONES_NOTIFICACION = [
       variables: { pedido_venta_id: p.pedido_venta_id },
       destinatarios: { roles: ["OPERADOR_PICK_PACK"] },
     }),
+  }),
+  // HU-E3: E12 ya confirmó LISTO; solo la cuenta web operable recibe aviso.
+  suscripcion({
+    evento: "ecommerce:pedido_listo_para_retiro",
+    prioridad_default: "INFORMATIVA",
+    armar: (p) => p.cliente_web_cuenta_id
+      ? {
+          clave_origen: p.evento_id,
+          variables: { numero_venta: p.numero_venta },
+          destinatarios: { cuenta_cliente_web_ids: [p.cliente_web_cuenta_id] },
+        }
+      : null,
   }),
 ];
 

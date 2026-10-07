@@ -141,3 +141,19 @@ test("listarSupervisoresVentas filtra usuarios ACTIVOS con ventas:autorizar_exce
   assert.match(bloque, /estado: "ACTIVO"/);
   assert.match(bloque, /codigo: PERMISO_VENTAS_AUTORIZAR_EXCEPCION_DESCUENTO/);
 });
+
+// ── HU-E3 T3: límite transaccional del helper de entrega B ──────────────────
+
+const inicioEntregaTotal = fuente.indexOf("export async function registrarEntregaTotalPedidoVentaTx");
+const finEntregaTotal = fuente.indexOf("/**\n * HU-E2 (P4", inicioEntregaTotal);
+const sliceEntregaTotal = fuente.slice(inicioEntregaTotal, finEntregaTotal);
+
+test("registrarEntregaTotalPedidoVentaTx recibe solo tx e ID y deja el commit al llamador", () => {
+  assert.ok(inicioEntregaTotal > -1 && finEntregaTotal > inicioEntregaTotal);
+  assert.match(sliceEntregaTotal, /tx: Prisma\.TransactionClient,\s*pedidoVentaId: string,/);
+  assert.doesNotMatch(sliceEntregaTotal, /actorId|prisma\.\$transaction|domainEventBus\.emit/);
+});
+
+test("helper B no escribe extensión E, stock, pagos ni auditoría", () => {
+  assert.doesNotMatch(sliceEntregaTotal, /pedidoVentaEcommerce|ventaMedioPago|auditLog|reserva|stockDeposito/);
+});
