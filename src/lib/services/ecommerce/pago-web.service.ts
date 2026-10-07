@@ -19,6 +19,7 @@ import "server-only";
 
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
+import { encrypt } from "@/lib/crypto/aes";
 import { domainEventBus } from "@/lib/events/domain-event-bus";
 import type {
   DomainEventMap,
@@ -26,6 +27,7 @@ import type {
   PagoAnomaloPayload,
   PedidoPagoConfirmadoPayload,
   ReservaLiberadaPayload,
+  TransaccionPagoRegistradaPayload,
 } from "@/lib/events/event-types";
 import { ServiceError } from "@/lib/errors/service-error";
 import { cerrarCobro, consultarPago, iniciarCobro } from "@/lib/integraciones/mercadopago/adapter";
@@ -232,6 +234,47 @@ const esP2002PaymentId = (error: unknown) =>
   error.code === "P2002" &&
   JSON.stringify(error.meta?.target ?? "").includes("mercadopago_payment_id");
 
+// ──────────────────────────────────────────────────────────────────────────────
+// HU-E6 (R1) — log operativo de la transacción
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Datos de facturación del comprador que se persisten CIFRADOS en
+ * `TransaccionPagoLog.datos_facturacion_cifrados` (AES-256-GCM). Se arman
+ * dentro del mismo `$transaction` leyendo `Cliente` + `CuentaClienteWeb`
+ * (HU-E6 R1, design). Nunca se loguean ni viajan en claro.
+ */
+function datosFacturacionParaCifrar(
+  cliente: { nombre: string; dni: string; email: string | null; telefono: string | null } | null,
+  cuentaWebEmail: string | null,
+): Record<string, unknown> {
+  return {
+    nombre: cliente?.nombre ?? null,
+    dni: cliente?.dni ?? null,
+    email: cliente?.email ?? null,
+    telefono: cliente?.telefono ?? null,
+    cuenta_web_email: cuentaWebEmail,
+  };
+}
+
+/**
+ * `resultado_webhook` — payload relevante de Mercado Pago SIN datos de tarjeta
+ * (el sistema nunca los recibe) y sin datos de facturación. Solo estados,
+ * montos y la referencia externa.
+ */
+function resultadoWebhookSeguro(pago: PagoConsultado): string {
+  return JSON.stringify({
+    payment_id: pago.payment_id,
+    estado: pago.estado,
+    status_mp: pago.status_mp,
+    status_detail: pago.status_detail,
+    monto: pago.monto,
+    moneda: pago.moneda,
+    external_reference: pago.external_reference,
+    fecha_aprobacion: pago.fecha_aprobacion,
+  });
+}
+
 /**
  * Procesa una notificación de pago ya autenticada por firma (CA2). Consulta el
  * pago a MP y aplica confirmación (CA6), rechazo (CA7) o nada (idempotencia,
@@ -313,6 +356,7 @@ async function confirmarPago(
                 numero_venta: true,
                 total: true,
                 cliente_id: true,
+                cliente: { select: { nombre: true, dni: true, email: true, telefono: true } },
                 items: {
                   where: { is_active: true, deleted_at: null },
                   select: {
@@ -369,13 +413,31 @@ async function confirmarPago(
           : { limite_excedido: false, consumo: null };
 
         const cuenta = venta.cliente_id
-          ? await tx.cuentaClienteWeb.findUnique({ where: { cliente_id: venta.cliente_id }, select: { id: true } })
+          ? await tx.cuentaClienteWeb.findUnique({ where: { cliente_id: venta.cliente_id }, select: { id: true, email: true } })
           : null;
 
         // (7) Última mutación de dominio: admisión a Pick&Pack (HU-E12).
         // Debe ejecutarse después de todas las operaciones E2 para que ambos
         // módulos compartan un único commit atómico.
         const admision = await admitirPedidoPagoConfirmado(tx, venta.id);
+
+        // (8) HU-E6 (R1): log operativo de la transacción + dato de facturación
+        // cifrado (AES-256-GCM, Ley N.° 25.326), en el MISMO commit. El
+        // `resultado_webhook` no incluye datos de tarjeta (el sistema nunca
+        // los recibe). Idempotencia heredada de la transición condicionada (1).
+        const cifrado = encrypt(JSON.stringify(datosFacturacionParaCifrar(venta.cliente, cuenta?.email ?? null)));
+        const transaccion = await tx.transaccionPagoLog.create({
+          data: {
+            pedido_venta_ecommerce_id: ecommerceId,
+            mercadopago_payment_id: pago.payment_id,
+            monto: new Prisma.Decimal(pago.monto),
+            estado_pago: "APROBADO",
+            resultado_webhook: resultadoWebhookSeguro(pago),
+            datos_facturacion_cifrados: cifrado.ciphertext,
+            datos_facturacion_iv: cifrado.iv,
+          },
+          select: { id: true },
+        });
 
         return {
           venta,
@@ -387,6 +449,7 @@ async function confirmarPago(
           cuentaId: cuenta?.id ?? "",
           eventosReserva,
           eventoAdmision: admision.evento_pendiente,
+          transaccionId: transaccion.id,
         };
       },
       { timeout: TIMEOUT_TRANSACCION_MS },
@@ -433,6 +496,19 @@ async function confirmarPago(
     cupon_aplicacion_id: confirmado.cuponAplicacionId,
   };
   emitirEventoPostCommitSeguroE2("ecommerce:pedido_pago_confirmado", payloadPagoConfirmado, {
+    pedido_venta_id: confirmado.venta.id,
+    mercadopago_payment_id: pago.payment_id,
+  });
+  // HU-E6 (R1): log de la transacción registrado — evento post-COMMIT con el
+  // shape de spec E §4. Sin datos de facturación ni de tarjeta.
+  const payloadTransaccion: TransaccionPagoRegistradaPayload = {
+    transaccion_id: confirmado.transaccionId,
+    pedido_venta_id: confirmado.venta.id,
+    monto: confirmado.total.toNumber(),
+    estado_pago: "APROBADO",
+    mercadopago_payment_id: pago.payment_id,
+  };
+  emitirEventoPostCommitSeguroE2("ecommerce:transaccion_pago_registrada", payloadTransaccion, {
     pedido_venta_id: confirmado.venta.id,
     mercadopago_payment_id: pago.payment_id,
   });
@@ -523,6 +599,7 @@ async function rechazarPago(
                 numero_venta: true,
                 total: true,
                 cliente_id: true,
+                cliente: { select: { nombre: true, dni: true, email: true, telefono: true } },
                 items: {
                   where: { is_active: true, deleted_at: null },
                   select: { variante_sku_id: true, cantidad: true, reserva_id: true },
@@ -548,7 +625,7 @@ async function rechazarPago(
 
         // (5) Carrito reconstruido para reintentar con un checkout nuevo (P5).
         const cuenta = venta.cliente_id
-          ? await tx.cuentaClienteWeb.findUnique({ where: { cliente_id: venta.cliente_id }, select: { id: true } })
+          ? await tx.cuentaClienteWeb.findUnique({ where: { cliente_id: venta.cliente_id }, select: { id: true, email: true } })
           : null;
         if (!cuenta) throw new ServiceError("CUENTA_WEB_NO_ENCONTRADA", "El pedido web no tiene cuenta de Cliente Web");
         const carrito = await reconstruirCarritoDesdePedidoTx(
@@ -566,7 +643,24 @@ async function rechazarPago(
           ahora,
         });
 
-        return { venta, cuentaId: cuenta.id, carritoId: carrito.carrito_id, liberadas, preferenceId: pedido.mercadopago_preference_id, cuponLiberado };
+        // (7) HU-E6 (R1): log operativo de la transacción rechazada + dato de
+        // facturación cifrado, en el mismo commit. Idempotencia heredada de la
+        // transición condicionada (1): un webhook duplicado no crea otra fila.
+        const cifrado = encrypt(JSON.stringify(datosFacturacionParaCifrar(venta.cliente, cuenta.email)));
+        const transaccion = await tx.transaccionPagoLog.create({
+          data: {
+            pedido_venta_ecommerce_id: ecommerceId,
+            mercadopago_payment_id: pago.payment_id,
+            monto: new Prisma.Decimal(pago.monto),
+            estado_pago: "RECHAZADO",
+            resultado_webhook: resultadoWebhookSeguro(pago),
+            datos_facturacion_cifrados: cifrado.ciphertext,
+            datos_facturacion_iv: cifrado.iv,
+          },
+          select: { id: true },
+        });
+
+        return { venta, cuentaId: cuenta.id, carritoId: carrito.carrito_id, liberadas, preferenceId: pedido.mercadopago_preference_id, cuponLiberado, transaccionId: transaccion.id };
       },
       { timeout: TIMEOUT_TRANSACCION_MS },
     );
@@ -602,6 +696,18 @@ async function rechazarPago(
     reserva_ids: rechazado.liberadas.map((r) => r.reserva_id),
     carrito_id: rechazado.carritoId,
   }, {
+    pedido_venta_id: rechazado.venta.id,
+    mercadopago_payment_id: pago.payment_id,
+  });
+  // HU-E6 (R1): log de la transacción rechazada registrado — evento post-COMMIT.
+  const payloadTransaccionRechazo: TransaccionPagoRegistradaPayload = {
+    transaccion_id: rechazado.transaccionId,
+    pedido_venta_id: rechazado.venta.id,
+    monto: pago.monto,
+    estado_pago: "RECHAZADO",
+    mercadopago_payment_id: pago.payment_id,
+  };
+  emitirEventoPostCommitSeguroE2("ecommerce:transaccion_pago_registrada", payloadTransaccionRechazo, {
     pedido_venta_id: rechazado.venta.id,
     mercadopago_payment_id: pago.payment_id,
   });

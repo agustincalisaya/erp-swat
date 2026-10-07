@@ -71,13 +71,16 @@ function escenarioPostCommit(estado: "APROBADO" | "RECHAZADO", excedido = false)
     cuponAplicacionId: consumo.aplicacion_id, cuponExcedido: excedido,
     cuponConsumo: consumo, cuentaId: "cuenta-test", eventosReserva: [],
     eventoAdmision: { tipo: "ecommerce:pedido_admitido_cola", payload: { evento_id: "admision-test" } },
+    transaccionId: "transaccion-test",
   } : {
     venta, cuentaId: "cuenta-test", carritoId: "carrito-test", liberadas: [],
     preferenceId: "preferencia-test", cuponLiberado: { ...consumo, motivo: "Pago rechazado por Mercado Pago" },
+    transaccionId: "transaccion-test",
   };
   const dependencias: Record<string, unknown> = {
     "server-only": {},
     "@prisma/client": { Prisma },
+    "@/lib/crypto/aes": { encrypt: () => ({ ciphertext: "ciphertext-test", iv: "iv-test" }) },
     "@/lib/db/prisma": { prisma: {
       pedidoVentaEcommerce: { findUnique: async () => ({ id: "ecommerce-test", pedido_venta_id: venta.id }) },
       $transaction: async () => { orden.push("commit-simulado"); return resultadoTx; },

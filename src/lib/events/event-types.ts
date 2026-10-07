@@ -1260,6 +1260,32 @@ export interface PagoAnomaloPayload {
   monto_esperado: number | null;
 }
 
+/**
+ * HU-E6 (spec_modulo_E.md §2.6/§4) — se emite post-COMMIT tras insertar el
+ * `TransaccionPagoLog` de una transacción de pago web, aprobada o rechazada.
+ * Consumidor: Módulo D (auditoría forense). Sin datos de tarjeta y sin el
+ * valor de facturación: ese dato viaja SOLO cifrado (AES-256) en la tabla,
+ * nunca en el payload del evento (Ley N.° 25.326).
+ */
+export interface TransaccionPagoRegistradaPayload {
+  transaccion_id: string;
+  pedido_venta_id: string;
+  monto: number;
+  estado_pago: "APROBADO" | "RECHAZADO" | "PENDIENTE";
+  mercadopago_payment_id: string;
+}
+
+/**
+ * HU-E6 (spec_modulo_E.md §2.6/§4, R3) — se emite cada vez que un Auditor lee
+ * `datos_facturacion_cifrados` de una transacción: la consulta de un dato
+ * protegido es en sí misma auditable. No transporta el valor descifrado.
+ */
+export interface AccesoDatoCifradoAuditadoPayload {
+  transaccion_id: string;
+  usuario_auditor_id: string;
+  timestamp: string;
+}
+
 export interface CuentaWebEventoBase {
   cuenta_id: string;
   cliente_id: string;
@@ -1499,6 +1525,10 @@ export interface DomainEventMap {
   "ecommerce:pago_rechazado": PagoRechazadoPayload;
   /** HU-E2: pago de MP no aplicado (o cupón excedido al confirmar). */
   "ecommerce:pago_anomalo": PagoAnomaloPayload;
+  /** HU-E6: se emite post-COMMIT tras registrar una transacción de pago web (aprobada o rechazada). */
+  "ecommerce:transaccion_pago_registrada": TransaccionPagoRegistradaPayload;
+  /** HU-E6: se emite cada vez que un Auditor lee el dato de facturación cifrado de una transacción. */
+  "ecommerce:acceso_dato_cifrado_auditado": AccesoDatoCifradoAuditadoPayload;
   "ecommerce:cuenta_web_registrada": CuentaWebRegistradaPayload;
   "ecommerce:cuenta_web_bloqueada": CuentaWebBloqueadaPayload;
   "ecommerce:cuenta_web_vinculada": CuentaWebVinculadaPayload;
@@ -1625,6 +1655,8 @@ export const TIPOS_EVENTO_DOMINIO = [
   "ecommerce:pedido_pago_confirmado",
   "ecommerce:pago_rechazado",
   "ecommerce:pago_anomalo",
+  "ecommerce:transaccion_pago_registrada",
+  "ecommerce:acceso_dato_cifrado_auditado",
   "ecommerce:cuenta_web_registrada",
   "ecommerce:cuenta_web_bloqueada",
   "ecommerce:cuenta_web_vinculada",
