@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { randomUUID } from "node:crypto";
 
 /**
  * Test de integración de HU-B4 contra una base real (mismo patrón que
@@ -292,6 +293,172 @@ test(
       assert.equal(filasAudit.length, 1);
       const valorNuevo = filasAudit[0]!.valor_nuevo as { autorizacion_id?: string } | null;
       assert.equal(valorNuevo?.autorizacion_id, resultado.autorizacion_id);
+    });
+  },
+);
+
+const T3_DATABASE_URL = process.env.HU_E3_T3_INTEGRATION_DATABASE_URL;
+
+test(
+  "HU-E3 T3 registra entrega total B dentro del tx del llamador en PostgreSQL dedicado",
+  { skip: !T3_DATABASE_URL, timeout: 60_000 },
+  async (t) => {
+    if (!T3_DATABASE_URL) return;
+    process.env.DATABASE_URL = T3_DATABASE_URL;
+
+    const [{ prisma }, { registrarEntregaTotalPedidoVentaTx }, { ServiceError }] = await Promise.all([
+      import("../../db/prisma.ts"),
+      import("./pedido-venta.service.ts"),
+      import("../../errors/service-error.ts"),
+    ]);
+    t.after(async () => prisma.$disconnect());
+
+    type ItemFixture = {
+      cantidad: number;
+      cantidad_facturada: number;
+      cantidad_entregada: number;
+      is_active?: boolean;
+      deleted_at?: Date | null;
+    };
+    type PedidoFixture = {
+      canal?: "WEB" | "MOSTRADOR";
+      estado?: "FACTURADO" | "RESERVADO";
+      is_active?: boolean;
+      deleted_at?: Date | null;
+      items?: ItemFixture[];
+    };
+
+    async function crearPedidoFixture(opciones: PedidoFixture = {}) {
+      const items = opciones.items ?? [{ cantidad: 2, cantidad_facturada: 2, cantidad_entregada: 0 }];
+      return prisma.pedidoVenta.create({
+        data: {
+          numero_venta: `V-TEST-E3-T3-${randomUUID()}`,
+          registrado_por_id: USUARIO_CAJERO_SEED_ID,
+          canal: opciones.canal ?? "WEB",
+          estado: opciones.estado ?? "FACTURADO",
+          total: 100,
+          is_active: opciones.is_active ?? true,
+          deleted_at: opciones.deleted_at ?? null,
+          ...(items.length > 0 ? {
+            items: {
+              create: items.map((item) => ({
+                variante_sku_id: VARIANTE_BORCEGOS_2_ID,
+                precio_unitario: 50,
+                cantidad: item.cantidad,
+                cantidad_facturada: item.cantidad_facturada,
+                cantidad_entregada: item.cantidad_entregada,
+                is_active: item.is_active ?? true,
+                deleted_at: item.deleted_at ?? null,
+              })),
+            },
+          } : {}),
+        },
+        select: { id: true },
+      });
+    }
+
+    async function leerEstado(pedidoVentaId: string) {
+      return prisma.pedidoVenta.findUniqueOrThrow({
+        where: { id: pedidoVentaId },
+        select: {
+          estado: true,
+          items: {
+            orderBy: [{ created_at: "asc" }, { id: "asc" }],
+            select: { cantidad: true, cantidad_facturada: true, cantidad_entregada: true },
+          },
+        },
+      });
+    }
+
+    await t.test("WEB FACTURADO con dos ítems queda CERRADO y totalmente entregado", async () => {
+      const pedido = await crearPedidoFixture({
+        items: [
+          { cantidad: 2, cantidad_facturada: 2, cantidad_entregada: 0 },
+          { cantidad: 3, cantidad_facturada: 3, cantidad_entregada: 0 },
+        ],
+      });
+      await prisma.$transaction(async (tx) => {
+        await registrarEntregaTotalPedidoVentaTx(tx, pedido.id);
+        const dentroTx = await tx.pedidoVenta.findUniqueOrThrow({
+          where: { id: pedido.id },
+          select: { estado: true },
+        });
+        assert.equal(dentroTx.estado, "CERRADO");
+      });
+      const estado = await leerEstado(pedido.id);
+      assert.equal(estado.estado, "CERRADO");
+      assert.deepEqual(estado.items.map((item) => item.cantidad_entregada).sort(), [2, 3]);
+      assert.ok(estado.items.every((item) => item.cantidad_entregada === item.cantidad_facturada));
+      assert.equal(await prisma.ventaMedioPago.count({ where: { pedido_venta_id: pedido.id } }), 0);
+      assert.equal(await prisma.pedidoVentaEcommerce.count({ where: { pedido_venta_id: pedido.id } }), 0);
+
+      await assert.rejects(
+        () => prisma.$transaction((tx) => registrarEntregaTotalPedidoVentaTx(tx, pedido.id)),
+        (error: unknown) => error instanceof ServiceError && error.code === "TRANSICION_INVALIDA",
+      );
+    });
+
+    const casosInvalidos: { nombre: string; opciones: PedidoFixture; codigo: string }[] = [
+      { nombre: "canal no WEB", opciones: { canal: "MOSTRADOR" }, codigo: "TRANSICION_INVALIDA" },
+      { nombre: "venta inactiva", opciones: { is_active: false }, codigo: "TRANSICION_INVALIDA" },
+      { nombre: "venta eliminada", opciones: { deleted_at: new Date() }, codigo: "TRANSICION_INVALIDA" },
+      { nombre: "estado no FACTURADO", opciones: { estado: "RESERVADO" }, codigo: "TRANSICION_INVALIDA" },
+      { nombre: "sin ítems", opciones: { items: [] }, codigo: "ESTADO_INCONSISTENTE" },
+      {
+        nombre: "ítem inactivo",
+        opciones: { items: [{ cantidad: 2, cantidad_facturada: 2, cantidad_entregada: 0, is_active: false }] },
+        codigo: "ESTADO_INCONSISTENTE",
+      },
+      {
+        nombre: "ítem eliminado",
+        opciones: { items: [{ cantidad: 2, cantidad_facturada: 2, cantidad_entregada: 0, deleted_at: new Date() }] },
+        codigo: "ESTADO_INCONSISTENTE",
+      },
+      {
+        nombre: "facturación incompleta",
+        opciones: { items: [{ cantidad: 2, cantidad_facturada: 1, cantidad_entregada: 0 }] },
+        codigo: "ESTADO_INCONSISTENTE",
+      },
+      {
+        nombre: "entrega parcial previa",
+        opciones: { items: [{ cantidad: 2, cantidad_facturada: 2, cantidad_entregada: 1 }] },
+        codigo: "ESTADO_INCONSISTENTE",
+      },
+      {
+        nombre: "sobreentrega",
+        opciones: { items: [{ cantidad: 2, cantidad_facturada: 2, cantidad_entregada: 3 }] },
+        codigo: "ESTADO_INCONSISTENTE",
+      },
+    ];
+    for (const caso of casosInvalidos) {
+      await t.test(`rechaza ${caso.nombre} sin mutar venta ni ítems`, async () => {
+        const pedido = await crearPedidoFixture(caso.opciones);
+        const anterior = await leerEstado(pedido.id);
+        await assert.rejects(
+          () => prisma.$transaction((tx) => registrarEntregaTotalPedidoVentaTx(tx, pedido.id)),
+          (error: unknown) => error instanceof ServiceError && error.code === caso.codigo,
+        );
+        assert.deepEqual(await leerEstado(pedido.id), anterior);
+      });
+    }
+
+    await t.test("fallo del caller tras el helper revierte estado y entregas de todos los ítems", async () => {
+      const pedido = await crearPedidoFixture({
+        items: [
+          { cantidad: 2, cantidad_facturada: 2, cantidad_entregada: 0 },
+          { cantidad: 3, cantidad_facturada: 3, cantidad_entregada: 0 },
+        ],
+      });
+      await assert.rejects(
+        () => prisma.$transaction(async (tx) => {
+          await registrarEntregaTotalPedidoVentaTx(tx, pedido.id);
+          throw new Error("rollback del caller");
+        }),
+        /rollback del caller/,
+      );
+      const estado = await leerEstado(pedido.id);
+      assert.equal(estado.estado, "FACTURADO");
+      assert.ok(estado.items.every((item) => item.cantidad_entregada === 0));
     });
   },
 );

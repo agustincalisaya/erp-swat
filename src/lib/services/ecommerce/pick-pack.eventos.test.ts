@@ -370,10 +370,97 @@ test(
         assert.equal(eventos[0].estado_anterior, "EN_PREPARACION");
         assert.equal(eventos[0].estado_nuevo, "LISTO_PARA_RETIRO");
         assert.equal(eventos[0].actor_id, operador1Id);
+        assert.equal(eventos[0].cliente_web_cuenta_id, null);
+        const venta = await prisma.pedidoVenta.findUniqueOrThrow({
+          where: { id: pedidoId }, select: { numero_venta: true },
+        });
+        assert.equal(eventos[0].numero_venta, venta.numero_venta);
         assert.ok(eventos[0].plazo_retiro_vencimiento);
         assert.ok(!Reflect.get(eventos[0] as object, "codigo_qr_retiro"));
       } finally {
         off();
+      }
+    });
+
+    await t.test("E12 → F3: LISTO notifica solo a cuenta operable", async () => {
+      await configurarPlazoRetiro("10");
+      const sufijo = crypto.randomUUID();
+      const cuenta = await prisma.cuentaClienteWeb.create({
+        data: { cliente_id: clienteId, email: `e3t8.${sufijo}@test.local`, password_hash: "x" },
+        select: { id: true },
+      });
+      for (const caso of [
+        { nombre: "activa", is_active: true, deleted_at: null, destinatario: cuenta.id },
+        { nombre: "inactiva", is_active: false, deleted_at: null, destinatario: null },
+        { nombre: "eliminada", is_active: true, deleted_at: new Date(), destinatario: null },
+      ]) {
+        await prisma.cuentaClienteWeb.update({
+          where: { id: cuenta.id }, data: { is_active: caso.is_active, deleted_at: caso.deleted_at },
+        });
+        const notificacionesAntes = await prisma.notificacion.count({
+          where: { tipo_evento: "ecommerce:pedido_listo_para_retiro",
+            cuenta_cliente_web_destinatario_id: cuenta.id },
+        });
+        const { pedidoId, extId } = await crearPedido({
+          estado_ecommerce: "EN_PREPARACION", operador_asignado_id: operador1Id, escaneos: 1,
+        });
+        const { eventos, off } = capturar<EcommercePedidoListoParaRetiroPayload>("ecommerce:pedido_listo_para_retiro");
+        try {
+          const resultado = await completarPreparacion(pedidoId, operador1Id);
+          assert.equal(resultado.estado_ecommerce, "LISTO_PARA_RETIRO", caso.nombre);
+          assert.equal(eventos.length, 1, caso.nombre);
+          assert.equal(eventos[0].cliente_web_cuenta_id, caso.destinatario, caso.nombre);
+          assert.equal(eventos[0].pedido_venta_ecommerce_id, extId);
+          const venta = await prisma.pedidoVenta.findUniqueOrThrow({
+            where: { id: pedidoId }, select: { numero_venta: true },
+          });
+          assert.equal(eventos[0].numero_venta, venta.numero_venta);
+          assert.ok(!JSON.stringify(eventos[0]).includes("codigo_qr_retiro"));
+          assert.ok(!JSON.stringify(eventos[0]).includes("dni"));
+          if (caso.destinatario) {
+            let notificacion = await prisma.notificacion.findFirst({
+              where: { tipo_evento: "ecommerce:pedido_listo_para_retiro",
+                cuenta_cliente_web_destinatario_id: cuenta.id,
+                cuerpo: { contains: venta.numero_venta } },
+            });
+            for (let intento = 0; !notificacion && intento < 40; intento++) {
+              await new Promise((resolve) => setTimeout(resolve, 25));
+              notificacion = await prisma.notificacion.findFirst({
+                where: { tipo_evento: "ecommerce:pedido_listo_para_retiro",
+                  cuenta_cliente_web_destinatario_id: cuenta.id,
+                  cuerpo: { contains: venta.numero_venta } },
+              });
+            }
+            assert.ok(notificacion, "E12 debe alimentar F3 para una cuenta operable");
+            assert.equal(notificacion.prioridad, "INFORMATIVA");
+          }
+          let audit = await prisma.auditLog.findFirst({
+            where: { accion: "PEDIDO_LISTO_PARA_RETIRO", registro_id: extId },
+          });
+          for (let intento = 0; !audit && intento < 40; intento++) {
+            await new Promise((resolve) => setTimeout(resolve, 25));
+            audit = await prisma.auditLog.findFirst({
+              where: { accion: "PEDIDO_LISTO_PARA_RETIRO", registro_id: extId },
+            });
+          }
+          assert.ok(audit, "LISTO conserva auditoría con o sin destinatario F3");
+          if (!caso.destinatario) {
+            // El listener real ya está registrado (el caso activo produjo una fila).
+            // Esperar el asiento de LISTO y dar margen al trabajo async de F3
+            // antes de afirmar que no hubo una notificación tardía.
+            await new Promise((resolve) => setTimeout(resolve, 100));
+            assert.equal(await prisma.notificacion.count({
+              where: { tipo_evento: "ecommerce:pedido_listo_para_retiro",
+                cuenta_cliente_web_destinatario_id: cuenta.id },
+            }), notificacionesAntes, `${caso.nombre}: F3 no debe crear una fila`);
+            assert.equal(await prisma.notificacion.count({
+              where: { tipo_evento: "ecommerce:pedido_listo_para_retiro",
+                cuerpo: { contains: venta.numero_venta } },
+            }), 0, `${caso.nombre}: no debe notificarse este pedido a nadie`);
+          }
+        } finally {
+          off();
+        }
       }
     });
 

@@ -88,6 +88,12 @@ export interface ResultadoCompletarJson {
   progreso: ProgresoPreparacionJson;
 }
 
+export interface ResultadoRetiroJson {
+  pedido_venta_id: string;
+  numero: string;
+  estado: "ENTREGADO";
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // Respuesta API uniforme `{ data, error }`
 // ──────────────────────────────────────────────────────────────────────────────
@@ -180,6 +186,30 @@ export function confirmarScanApi(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ scan_id: scanId, codigo }),
   });
+}
+
+/** E3: el token y DNI viajan únicamente en el body POST. */
+export function validarRetiroApi(
+  qr_token: string,
+  dni: string,
+  fetchFn: FetchLike = fetchNativo,
+): Promise<RespuestaApi<ResultadoRetiroJson>> {
+  return llamarApi(fetchFn, "/api/ecommerce/preparacion/validar-retiro", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    cache: "no-store",
+    body: JSON.stringify({ qr_token, dni }),
+  });
+}
+
+/** Nunca usa el mensaje o motivo recibido del servidor para un rechazo sensible. */
+export function mensajeErrorRetiro(status: number): string {
+  if (status === 400) return "Revisá el QR y el DNI ingresados.";
+  if (status === 401) return "Tu sesión expiró. Volvé a iniciar sesión.";
+  if (status === 403) return "No tenés permisos para validar retiros.";
+  if (status === 422) return "No fue posible validar el retiro";
+  if (status === 0) return "Sin conexión con el servidor. Reintentá.";
+  return "Ocurrió un error interno. Reintentá más tarde.";
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

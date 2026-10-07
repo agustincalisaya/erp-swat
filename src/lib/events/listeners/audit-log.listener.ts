@@ -35,6 +35,8 @@ import type {
   EcommerceUnidadPreparacionConfirmadaPayload,
   IngresoWebRegistradoPayload,
   TransaccionPagoRegistradaPayload,
+  PedidoEntregadoPayload,
+  RetiroRechazadoPayload,
 } from "@/lib/events/event-types";
 import { registrarAuditLog } from "@/lib/services/auditoria/audit-log.service";
 
@@ -1723,6 +1725,51 @@ export function iniciarAuditLogListener(): void {
         qr_generado: true,
       },
     );
+  });
+
+  // HU-E3: efectos agregados B/E y rechazos seguros, emitidos fuera del tx.
+  domainEventBus.on("ecommerce:pedido_entregado", (payload: PedidoEntregadoPayload) => {
+    void registrarAuditLog({
+      usuario_id: payload.actor_id,
+      accion: "PEDIDO_ENTREGADO",
+      tabla_afectada: "pedidos_venta_ecommerce",
+      registro_id: payload.pedido_venta_ecommerce_id,
+      ip: "internal-event",
+      valor_anterior: {
+        estado_ecommerce: payload.estado_anterior,
+        estado_pedido_venta: "FACTURADO",
+      },
+      valor_nuevo: {
+        evento_id: payload.evento_id,
+        pedido_venta_id: payload.pedido_venta_id,
+        estado_ecommerce: payload.estado_nuevo,
+        estado_pedido_venta: "CERRADO",
+        qr_consumido: true,
+        entrega_total: true,
+        timestamp: payload.timestamp,
+      },
+    }).catch(() => {
+      console.error("[HU-E3] Falló la auditoría de entrega");
+    });
+  });
+
+  domainEventBus.on("ecommerce:retiro_rechazado", (payload: RetiroRechazadoPayload) => {
+    void registrarAuditLog({
+      usuario_id: payload.actor_id,
+      accion: "RETIRO_RECHAZADO",
+      tabla_afectada: "pedidos_venta_ecommerce",
+      registro_id: payload.pedido_venta_ecommerce_id ?? null,
+      ip: "internal-event",
+      valor_anterior: null,
+      valor_nuevo: {
+        evento_id: payload.evento_id,
+        motivo: payload.motivo,
+        timestamp: payload.timestamp,
+        ...(payload.pedido_venta_id ? { pedido_venta_id: payload.pedido_venta_id } : {}),
+      },
+    }).catch(() => {
+      console.error("[HU-E3] Falló la auditoría de rechazo de retiro");
+    });
   });
 
   // HU-F2 (Módulo F) — plantillas de notificación (spec_modulo_F.md §2.2/§4).

@@ -972,6 +972,7 @@ export async function completarPreparacion(
   pedidoVentaId: string,
   actorId: string,
 ): Promise<ResultadoCompletarPreparacion> {
+  let datosNotificacion: { numero_venta: string; cliente_web_cuenta_id: string | null } | null = null;
   const resultado = await prisma.$transaction(async (tx) => {
     const agregado = await bloquearAgregadoPickPack(tx, pedidoVentaId);
     if (!agregado) {
@@ -1058,6 +1059,17 @@ export async function completarPreparacion(
       }
     }
 
+    const pedidoDestinatario = await tx.pedidoVenta.findUniqueOrThrow({
+      where: { id: pedidoVentaId },
+      select: { numero_venta: true, cliente_id: true },
+    });
+    const cuentaOperable = pedidoDestinatario.cliente_id
+      ? await tx.cuentaClienteWeb.findFirst({
+          where: { cliente_id: pedidoDestinatario.cliente_id, is_active: true, deleted_at: null },
+          select: { id: true },
+        })
+      : null;
+
     const diasRetiro = await leerDiasRetiro(tx);
     const ahora = new Date();
     const vencimiento = sumarDiasCalendarioNegocio(ahora, diasRetiro);
@@ -1085,10 +1097,17 @@ export async function completarPreparacion(
       pve_id: agregado.pve_id,
       vencimiento_iso: vencimiento.toISOString(),
     };
+    datosNotificacion = {
+      numero_venta: pedidoDestinatario.numero_venta,
+      cliente_web_cuenta_id: cuentaOperable?.id ?? null,
+    };
     return txResult;
   });
 
   if (resultado.cambio_realizado) {
+    // El callback transaccional completa esta metadata solo en la transición real.
+    const destinatario = datosNotificacion as { numero_venta: string; cliente_web_cuenta_id: string | null } | null;
+    if (!destinatario) throw new Error("Faltan datos internos de notificación de retiro");
     const payload: EcommercePedidoListoParaRetiroPayload = {
       evento_id: crypto.randomUUID(),
       pedido_venta_id: pedidoVentaId,
@@ -1098,6 +1117,7 @@ export async function completarPreparacion(
       estado_nuevo: "LISTO_PARA_RETIRO",
       plazo_retiro_vencimiento: resultado.vencimiento_iso,
       timestamp: new Date().toISOString(),
+      ...destinatario,
     };
     emitirEventoPostCommitSeguro("ecommerce:pedido_listo_para_retiro", payload, { pedido_venta_id: pedidoVentaId });
   }

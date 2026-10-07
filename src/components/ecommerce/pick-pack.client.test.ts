@@ -10,10 +10,37 @@ import {
   formatearFechaPagoConfirmado,
   formatearPlazoRetiro,
   mensajeErrorPickPack,
+  mensajeErrorRetiro,
+  validarRetiroApi,
   TEXTO_FECHA_PAGO_LEGACY,
   type ItemColaPreparacionJson,
   type ResultadoConfirmarJson,
 } from "./pick-pack-client";
+
+test("retiro: POST envía exclusivamente token y DNI en body, sin URL ni storage", async () => {
+  let llamada: { url: string; init?: RequestInit } | undefined;
+  const fetchFn = async (url: string, init?: RequestInit) => {
+    llamada = { url, init };
+    return respuestaJson(200, {
+      data: { pedido_venta_id: "pv-1", numero: "V-2026-000099", estado: "ENTREGADO" }, error: null,
+    });
+  };
+  const respuesta = await validarRetiroApi("token:completo", "12345678", fetchFn);
+  assert.equal(llamada?.url, "/api/ecommerce/preparacion/validar-retiro");
+  assert.equal(llamada?.init?.method, "POST");
+  assert.equal(llamada?.init?.cache, "no-store");
+  assert.deepEqual(JSON.parse(String(llamada?.init?.body)), { qr_token: "token:completo", dni: "12345678" });
+  assert.equal(respuesta.data?.estado, "ENTREGADO");
+  assert.ok(!llamada?.url.includes("token:completo"));
+  assert.ok(!llamada?.url.includes("12345678"));
+});
+
+test("retiro: respuestas 422/401/403/500 se muestran sin motivos internos", () => {
+  assert.equal(mensajeErrorRetiro(422), "No fue posible validar el retiro");
+  assert.match(mensajeErrorRetiro(401), /sesi[oó]n/i);
+  assert.match(mensajeErrorRetiro(403), /permisos/i);
+  assert.match(mensajeErrorRetiro(500), /error interno/i);
+});
 
 function respuestaJson(status: number, cuerpo: unknown): Response {
   return new Response(JSON.stringify(cuerpo), {

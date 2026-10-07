@@ -3,7 +3,7 @@ import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { TarjetaPedidoCola } from "./ConsolaPickPack";
+import { SelectorOperacion, TarjetaPedidoCola } from "./ConsolaPickPack";
 import { ProgresoBarra } from "./ProgresoBarra";
 import { BotonCompletar, LineaPreparacionVista } from "./PreparacionPedidoPanel";
 import type { ItemColaPreparacionJson, LineaPreparacionJson } from "./pick-pack-client";
@@ -27,6 +27,18 @@ const pedidoBase: ItemColaPreparacionJson = {
   lineas: [lineaBase],
   progreso: { total_requerido: 3, total_confirmado: 1, porcentaje: 33, completo: false },
 };
+
+test("retiro: selector visible solo con permiso granular", () => {
+  const oculto = renderToStaticMarkup(createElement(SelectorOperacion, {
+    seccion: "preparacion", puedeValidarRetiro: false, onCambiar: () => {},
+  }));
+  const visible = renderToStaticMarkup(createElement(SelectorOperacion, {
+    seccion: "preparacion", puedeValidarRetiro: true, onCambiar: () => {},
+  }));
+  assert.equal(oculto, "");
+  assert.match(visible, />Retiro</);
+  assert.match(visible, />Preparación</);
+});
 
 function renderTarjeta(overrides: Partial<Parameters<typeof TarjetaPedidoCola>[0]> = {}) {
   return renderToStaticMarkup(
