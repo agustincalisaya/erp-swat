@@ -26,11 +26,13 @@ import { prisma } from "@/lib/db/prisma";
 import { domainEventBus } from "@/lib/events/domain-event-bus";
 import type {
   ConsentimientoDecisionRegistradaPayload,
+  ContraAsientoIngresoRegistradoPayload,
   EcommercePedidoAdmitidoColaPayload,
   EcommercePedidoListoParaRetiroPayload,
   EcommercePedidoTomadoPayload,
   EcommercePrioridadPreparacionCambiadaPayload,
   EcommerceUnidadPreparacionConfirmadaPayload,
+  IngresoWebRegistradoPayload,
 } from "@/lib/events/event-types";
 import { registrarAuditLog } from "@/lib/services/auditoria/audit-log.service";
 
@@ -1774,4 +1776,37 @@ export function iniciarAuditLogListener(): void {
       valor_nuevo: payload.valor_nuevo,
     });
   });
+
+  // HU-G11 (Módulo G) — ingresos de Tesorería por cobros web. El actor es el
+  // sistema (listener reactivo sin request HTTP): `usuario_id` null, mismo
+  // criterio que el resto de los eventos emitidos desde services. El payload ya
+  // viene sanitizado (sin datos de tarjeta, credenciales ni campos cifrados).
+  domainEventBus.on("tesoreria:ingreso_web_registrado", (payload: IngresoWebRegistradoPayload) => {
+    void registrarAuditLog({
+      usuario_id: null,
+      accion: "CREATE",
+      tabla_afectada: "ingresos_tesoreria",
+      registro_id: payload.ingreso_id,
+      ip: "internal-event",
+      valor_anterior: null,
+      valor_nuevo: payload,
+    });
+  });
+
+  // HU-G11 — contra-asiento de un reintegro (origen HU-E13). Asiento inmutable:
+  // solo alta, nunca edición ni baja.
+  domainEventBus.on(
+    "tesoreria:contra_asiento_ingreso_registrado",
+    (payload: ContraAsientoIngresoRegistradoPayload) => {
+      void registrarAuditLog({
+        usuario_id: null,
+        accion: "CREATE",
+        tabla_afectada: "contra_asientos_ingreso",
+        registro_id: payload.contra_asiento_id,
+        ip: "internal-event",
+        valor_anterior: null,
+        valor_nuevo: payload,
+      });
+    },
+  );
 }
