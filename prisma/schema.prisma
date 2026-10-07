@@ -88,6 +88,10 @@ model Usuario {
   notificaciones_recibidas       Notificacion[]             @relation("NotificacionUsuarioDestinatario")
   recuperaciones_cuenta_web      CuentaClienteWeb[]         @relation("RecuperacionCuentaWebEmitidaPor")
 
+  // --- Relaciones HU-E6 (acceso al log de pagos) ---
+  accesos_log_pagos_solicitados AccesoLogPagos[] @relation("AccesoLogPagosSolicitante")
+  accesos_log_pagos_aprobados   AccesoLogPagos[] @relation("AccesoLogPagosAprobador")
+
   @@map("usuarios")
 }
 
@@ -2420,6 +2424,40 @@ model TransaccionPagoLog {
   @@index([pedido_venta_ecommerce_id])
   @@index([mercadopago_payment_id])
   @@map("log_transacciones_pago")
+}
+
+/// HU-E6 (spec_modulo_E.md §2.6, R4) — solicitud/aprobación de acceso al log de
+/// pagos online. El Administrador E-commerce solicita; el Auditor aprueba. La
+/// solicitud aprobada expira según `ConfiguracionSistema`
+/// `ECOMMERCE_ACCESO_LOG_PAGOS_EXPIRACION_DIAS` (default 30). Sin soft delete
+/// estricto: la fila conserva su historial de estado y `is_active` solo marca
+/// vigencia; nunca se elimina físicamente (RULES.md Regla N.° 1).
+///
+/// No confundir con `AuditLog`: esta tabla registra el mecanismo de acceso, no
+/// el acceso en sí (ese vive en el ledger forense vía el evento R3).
+model AccesoLogPagos {
+  id               String    @id @default(uuid())
+  solicitante_id   String
+  aprobador_id     String?
+  /// "PENDIENTE" | "APROBADO" | "RECHAZADO"
+  estado           String    @default("PENDIENTE")
+  motivo_solicitud String?
+  motivo_rechazo   String?
+  solicitada_en    DateTime  @default(now())
+  aprobada_en      DateTime?
+  /// `now + N días` al aprobar (`N` = config del sistema, default 30).
+  expira_en        DateTime?
+  is_active        Boolean   @default(true)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  solicitante Usuario  @relation("AccesoLogPagosSolicitante", fields: [solicitante_id], references: [id], onDelete: Restrict)
+  aprobador   Usuario? @relation("AccesoLogPagosAprobador", fields: [aprobador_id], references: [id], onDelete: Restrict)
+
+  @@index([solicitante_id])
+  @@map("accesos_log_pagos")
 }
 
 // ============================================================================

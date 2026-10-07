@@ -3561,6 +3561,7 @@ async function main() {
     ["ECOMMERCE_FOTOS_MAX_POR_PRODUCTO", "8", "Cantidad máxima de fotos activas por contenido web (HU-E11; valor 8 pendiente de validar con el PO)", "E"],
     ["ECOMMERCE_FOTO_TAMANO_MAX_MB", "5", "Tamaño máximo por foto del catálogo web, en MB de 1024 × 1024 bytes (HU-E11; valor 5 pendiente de validar con el PO)", "E"],
     ["ECOMMERCE_FOTO_FORMATOS_PERMITIDOS", "JPG,PNG,WEBP", "Formatos de foto admitidos en el catálogo web, separados por coma; detectados por firma de bytes (HU-E11)", "E"],
+    ["ECOMMERCE_ACCESO_LOG_PAGOS_EXPIRACION_DIAS", "30", "Días de validez de un acceso aprobado al log de pagos online (HU-E6; valor 30 pendiente de validar con el PO)", "E"],
     ["VENTAS_MARGEN_SUGERIDO_PRECIO_VENTA", "0.35", "Margen para el precio sugerido: costo de reposición × (1 + margen) (HU-B9)", "B"],
   ] as const) {
     await prisma.configuracionSistema.upsert({
