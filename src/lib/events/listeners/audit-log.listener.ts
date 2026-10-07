@@ -1820,7 +1820,7 @@ export function iniciarAuditLogListener(): void {
   domainEventBus.on(
     "ecommerce:transaccion_pago_registrada",
     (payload: TransaccionPagoRegistradaPayload) => {
-      void registrarAuditLog({
+      registrarAuditLog({
         usuario_id: null,
         accion: "TRANSACCION_PAGO_REGISTRADA",
         tabla_afectada: "log_transacciones_pago",
@@ -1833,6 +1833,11 @@ export function iniciarAuditLogListener(): void {
           estado_pago: payload.estado_pago,
           mercadopago_payment_id: payload.mercadopago_payment_id,
         },
+      }).catch((error: unknown) => {
+        console.error("[audit-log.listener] Falló la escritura de auditoría para ecommerce:transaccion_pago_registrada:", {
+          registro_id: payload.transaccion_id,
+          codigo_error: codigoDiagnosticoAuditoria(error),
+        });
       });
     },
   );
@@ -1843,7 +1848,7 @@ export function iniciarAuditLogListener(): void {
   domainEventBus.on(
     "ecommerce:acceso_dato_cifrado_auditado",
     (payload: AccesoDatoCifradoAuditadoPayload) => {
-      void registrarAuditLog({
+      registrarAuditLog({
         usuario_id: payload.usuario_auditor_id,
         accion: "ACCESO_DATO_CIFRADO_AUDITADO",
         tabla_afectada: "log_transacciones_pago",
@@ -1851,6 +1856,11 @@ export function iniciarAuditLogListener(): void {
         ip: "internal-event",
         valor_anterior: null,
         valor_nuevo: { timestamp: payload.timestamp },
+      }).catch((error: unknown) => {
+        console.error("[audit-log.listener] Falló la escritura de auditoría para ecommerce:acceso_dato_cifrado_auditado:", {
+          registro_id: payload.transaccion_id,
+          codigo_error: codigoDiagnosticoAuditoria(error),
+        });
       });
     },
   );
