@@ -298,3 +298,8 @@ export type SolicitarAccesoLogPagosInput = z.infer<typeof SolicitarAccesoLogPago
 
 /** R4 — id de la solicitud de acceso (segmento `[id]` de la ruta de aprobación). */
 export const AccesoLogPagosIdSchema = z.string().uuid("El identificador de la solicitud es inválido");
+
+/** R3 — id de la transacción de pago (segmento `[id]` de la ruta de facturación). */
+export const TransaccionPagoLogIdSchema = z
+  .string()
+  .uuid("El identificador de la transacción es inválido");

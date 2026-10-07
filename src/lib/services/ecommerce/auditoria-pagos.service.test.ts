@@ -20,6 +20,7 @@ const eventoFuente = leer("../../events/event-types.ts");
 const rutaGet = leer("../../../app/api/ecommerce/auditoria/pagos/route.ts");
 const rutaPost = leer("../../../app/api/ecommerce/auditoria/pagos/solicitar-acceso/route.ts");
 const rutaPatch = leer("../../../app/api/ecommerce/auditoria/pagos/solicitar-acceso/[id]/route.ts");
+const rutaFacturacion = leer("../../../app/api/ecommerce/auditoria/pagos/[id]/facturacion/route.ts");
 
 /** Bloque de una función del servicio (hasta el próximo separador de sección). */
 function bloque(nombre: string): string {
@@ -57,6 +58,7 @@ const resolver = bloque("resolverAccesoLogPagos");
 const vigente = bloque("accesoAprobadoVigente");
 const obtener = bloque("obtenerLogPagos");
 const decryptBloque = bloque("decryptAndAuditBilling");
+const facturacionBloque = bloque("obtenerFacturacionPago");
 const verificar = bloque("verificarIntegridadLogPagos");
 
 // ── Permisos y gate (R2) ────────────────────────────────────────────────────
@@ -118,6 +120,19 @@ test("respuesta: shape { items, total, page } y NUNCA el campo cifrado", () => {
   assert.doesNotMatch(obtener, /datos_facturacion_cifrados/);
 });
 
+test("W1: obtenerLogPagos devuelve también la mitad forense (AuditLog filtrado) sin romper { items, total, page }", () => {
+  assert.match(obtener, /prisma\.auditLog\.findMany\(/);
+  assert.match(obtener, /tabla_afectada:\s*TABLA_AUDITORIA_LOG_PAGOS/);
+  assert.match(obtener, /auditoria:\s*\{/);
+  assert.match(obtener, /auditoria_id:\s*r\.id/);
+  assert.match(obtener, /hash_actual:\s*r\.hash_actual/);
+  assert.match(servicio, /TABLA_AUDITORIA_LOG_PAGOS = "log_transacciones_pago"/);
+  // El shape base sigue presente y en orden.
+  assert.match(obtener, /total,\s*page:\s*filtros\.page/);
+  // La proyección forense no filtra el json crudo del audit log.
+  assert.doesNotMatch(obtener, /valor_(anterior|nuevo):\s*true/);
+});
+
 test("el log de lectura es de solo lectura sobre TransaccionPagoLog (sin create/update/delete)", () => {
   assert.doesNotMatch(servicio, /transaccionPagoLog\.(create|createMany|update|updateMany|upsert|delete|deleteMany)/);
   assert.doesNotMatch(sinComentarios(servicio), /prisma\.[a-zA-Z]+\.delete\(/);
@@ -142,6 +157,28 @@ test("decryptAndAuditBilling emite ecommerce:acceso_dato_cifrado_auditado EXACTA
   assert.match(payloadSeg, /usuario_auditor_id:\s*auditorId/);
   assert.match(payloadSeg, /timestamp:/);
   assert.doesNotMatch(payloadSeg, /claro|datos_facturacion/);
+});
+
+test("obtenerFacturacionPago delega en decryptAndAuditBilling con el usuario de la sesión (sin duplicar la emisión)", () => {
+  assert.match(facturacionBloque, /decryptAndAuditBilling\(transaccionId,\s*sesion\.userId\)/);
+  // No re-emite acá: la emisión única vive en decryptAndAuditBilling.
+  assert.doesNotMatch(facturacionBloque, /domainEventBus\.emit/);
+  // Nunca loguea nada (mucho menos el valor descifrado).
+  assert.doesNotMatch(facturacionBloque, /console\./);
+});
+
+test("GET facturacion: solo Auditor (withPermission), id validado, service, 404/403 mapeados, sin prisma", () => {
+  assert.match(rutaFacturacion, /export const GET = withPermission\(/);
+  assert.match(rutaFacturacion, /PERMISO_AUDITORIA_LEER_FORENSE/);
+  assert.match(rutaFacturacion, /TransaccionPagoLogIdSchema\.safeParse/);
+  assert.match(rutaFacturacion, /obtenerFacturacionPago\(parsedId\.data, session\)/);
+  assert.match(rutaFacturacion, /TRANSACCION_NO_ENCONTRADA:\s*404/);
+  assert.match(rutaFacturacion, /FORBIDDEN:\s*403/);
+  assert.match(rutaFacturacion, /await \(rawContext as Context\)\.params/);
+  assert.doesNotMatch(rutaFacturacion, /@\/lib\/db\/prisma/);
+  assert.doesNotMatch(rutaFacturacion, /@\/lib\/crypto\/aes/);
+  // El id de la transacción se valida contra el schema UUID dedicado.
+  assert.match(leer("../../schemas/ecommerce.schema.ts"), /TransaccionPagoLogIdSchema = z/);
 });
 
 // ── Integridad (divergencia Backlog↔spec) ───────────────────────────────────

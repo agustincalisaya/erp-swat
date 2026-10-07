@@ -54,6 +54,13 @@ const ACCIONES_LOG_PAGOS: readonly string[] = [
 ];
 
 /**
+ * `tabla_afectada` con la que los handlers de HU-E6 escriben en `AuditLog`.
+ * Usada para aislar la mitad forense del log de pagos dentro de la cadena
+ * global (Módulo D). Debe coincidir con `audit-log.listener.ts`.
+ */
+const TABLA_AUDITORIA_LOG_PAGOS = "log_transacciones_pago";
+
+/**
  * `fecha_hasta` extendida a las 23:59:59.999 UTC del día indicado — mismo
  * criterio y mismo huso que `finDeDia()` de HU-A6/B6 (duplicado por módulo,
  * no compartido).
@@ -76,10 +83,30 @@ export interface RegistroLogPagos {
   timestamp: Date;
 }
 
+/**
+ * Fila forense del `AuditLog` (Módulo D) del dominio HU-E6 — proyección segura
+ * (sin `valor_anterior`/`valor_nuevo`, que podrían arrastrar metadatos de otros
+ * módulos) que acompaña a los registros operativos. La spec E §2.6 define la
+ * lectura del Auditor sobre `AuditLog` filtrado MÁS `TransaccionPagoLog`.
+ */
+export interface RegistroAuditoriaLogPagos {
+  auditoria_id: string;
+  accion: string;
+  registro_id: string | null;
+  usuario_id: string | null;
+  hash_actual: string;
+  timestamp: Date;
+}
+
 export interface ListadoLogPagos {
   items: RegistroLogPagos[];
   total: number;
   page: number;
+  /** Mitad forense: filas de `AuditLog` con `tabla_afectada` de HU-E6. */
+  auditoria: {
+    items: RegistroAuditoriaLogPagos[];
+    total: number;
+  };
 }
 
 export interface ResultadoVerificacionLogPagos {
@@ -152,10 +179,12 @@ export async function accesoAprobadoVigente(
 // ──────────────────────────────────────────────────────────────────────────────
 
 /**
- * Lista `TransaccionPagoLog` paginado y filtrado, solo si la sesión resuelve
- * acceso (Auditor o Administrador E-commerce aprobado). El campo cifrado
- * `datos_facturacion_cifrados` NUNCA se selecciona: no viaja en la respuesta
- * para ningún nivel.
+ * Lista el log de pagos paginado y filtrado, solo si la sesión resuelve acceso
+ * (Auditor o Administrador E-commerce aprobado). Devuelve las DOS mitades de
+ * spec E §2.6: `items` (detalle operativo `TransaccionPagoLog`) y `auditoria`
+ * (mitad forense `AuditLog` filtrada por `tabla_afectada` de HU-E6). El campo
+ * cifrado `datos_facturacion_cifrados` NUNCA se selecciona en ninguno de los
+ * dos: no viaja en la respuesta para ningún nivel.
  *
  * @throws {ServiceError} FORBIDDEN | ACCESO_LOG_PAGOS_NO_APROBADO
  */
@@ -169,14 +198,25 @@ export async function obtenerLogPagos(
 
   const where: Prisma.TransaccionPagoLogWhereInput = {};
   if (filtros.estado_pago) where.estado_pago = filtros.estado_pago;
-  if (filtros.fecha_desde || filtros.fecha_hasta) {
-    where.created_at = {
-      ...(filtros.fecha_desde ? { gte: filtros.fecha_desde } : {}),
-      ...(filtros.fecha_hasta ? { lte: finDeDia(filtros.fecha_hasta) } : {}),
-    };
-  }
 
-  const [registros, total] = await Promise.all([
+  const rangoFechas =
+    filtros.fecha_desde || filtros.fecha_hasta
+      ? {
+          ...(filtros.fecha_desde ? { gte: filtros.fecha_desde } : {}),
+          ...(filtros.fecha_hasta ? { lte: finDeDia(filtros.fecha_hasta) } : {}),
+        }
+      : undefined;
+  if (rangoFechas) where.created_at = rangoFechas;
+
+  // Mitad forense (W1): `AuditLog` filtrado por la `tabla_afectada` de HU-E6,
+  // con el mismo rango de fechas. Es la parte que spec E §2.6 pide junto al
+  // detalle operativo de `TransaccionPagoLog`.
+  const whereAuditoria: Prisma.AuditLogWhereInput = {
+    tabla_afectada: TABLA_AUDITORIA_LOG_PAGOS,
+  };
+  if (rangoFechas) whereAuditoria.created_at = rangoFechas;
+
+  const [registros, total, registrosAuditoria, totalAuditoria] = await Promise.all([
     prisma.transaccionPagoLog.findMany({
       where,
       orderBy: { created_at: "desc" },
@@ -191,6 +231,21 @@ export async function obtenerLogPagos(
       },
     }),
     prisma.transaccionPagoLog.count({ where }),
+    prisma.auditLog.findMany({
+      where: whereAuditoria,
+      orderBy: { created_at: "desc" },
+      skip: (filtros.page - 1) * filtros.page_size,
+      take: filtros.page_size,
+      select: {
+        id: true,
+        accion: true,
+        registro_id: true,
+        usuario_id: true,
+        hash_actual: true,
+        created_at: true,
+      },
+    }),
+    prisma.auditLog.count({ where: whereAuditoria }),
   ]);
 
   return {
@@ -203,6 +258,17 @@ export async function obtenerLogPagos(
     })),
     total,
     page: filtros.page,
+    auditoria: {
+      items: registrosAuditoria.map((r) => ({
+        auditoria_id: r.id,
+        accion: r.accion,
+        registro_id: r.registro_id,
+        usuario_id: r.usuario_id,
+        hash_actual: r.hash_actual,
+        timestamp: r.created_at,
+      })),
+      total: totalAuditoria,
+    },
   };
 }
 
@@ -260,6 +326,29 @@ export async function decryptAndAuditBilling(
   }
 
   return JSON.parse(claro) as Record<string, unknown>;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// 2b. R3: superficie HTTP del dato cifrado (solo Auditor)
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Lee el dato de facturación cifrado de UNA transacción para la superficie
+ * HTTP del Auditor. Delega en `decryptAndAuditBilling()`, que concentra la
+ * guarda `auditoria:leer_forense` (`403 FORBIDDEN` para cualquier otro rol,
+ * incluido el Administrador E-commerce con acceso aprobado),
+ * `404 TRANSACCION_NO_ENCONTRADA`, el descifrado con `lib/crypto/aes.ts` y la
+ * emisión ÚNICA de `ecommerce:acceso_dato_cifrado_auditado`.
+ *
+ * El valor descifrado se devuelve al llamador y NUNCA se loguea.
+ *
+ * @throws {ServiceError} FORBIDDEN | TRANSACCION_NO_ENCONTRADA
+ */
+export async function obtenerFacturacionPago(
+  transaccionId: string,
+  sesion: ServerSession,
+): Promise<Record<string, unknown>> {
+  return decryptAndAuditBilling(transaccionId, sesion.userId);
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

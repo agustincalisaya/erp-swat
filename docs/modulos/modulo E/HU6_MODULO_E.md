@@ -8,7 +8,7 @@ Documento de implementación. Fuente normativa: `docs/specs/spec_modulo_E.md` §
 |-----|---------|
 | R1 | Cada transacción de pago web (APROBADO/RECHAZADO) inserta UNA fila en `TransaccionPagoLog` dentro del `$transaction` del flujo de pago, con datos de facturación cifrados (AES-256-GCM) y `resultado_webhook` sin datos de tarjeta. Tras el COMMIT se emite `ecommerce:transaccion_pago_registrada`. |
 | R2 | `GET /api/ecommerce/auditoria/pagos` — doble permiso (Auditor completo; Administrador E-commerce solo con acceso aprobado y vigente, si no `403 ACCESO_LOG_PAGOS_NO_APROBADO`). Filtros por `estado_pago` y rango de fechas (`finDeDia` UTC), paginado. Solo lectura. |
-| R3 | `ecommerce:acceso_dato_cifrado_auditado` se emite EXACTAMENTE una vez por lectura del dato cifrado, vía `decryptAndAuditBilling()` (solo Auditor). El Administrador E-commerce nunca ve el campo cifrado. |
+| R3 | `ecommerce:acceso_dato_cifrado_auditado` se emite EXACTAMENTE una vez por lectura del dato cifrado. Superficie HTTP: `GET /api/ecommerce/auditoria/pagos/[id]/facturacion` (solo Auditor), que delega en `decryptAndAuditBilling()` vía `obtenerFacturacionPago()`. El Administrador E-commerce nunca ve el campo cifrado (`403 FORBIDDEN`). |
 | R4 | `AccesoLogPagos` (nueva tabla `accesos_log_pagos`) registra solicitud y aprobación. `POST …/solicitar-acceso` (Administrador) y `PATCH …/solicitar-acceso/[id]` (Auditor). Expiración desde `ConfiguracionSistema`. |
 
 ## Archivos
@@ -17,8 +17,8 @@ Documento de implementación. Fuente normativa: `docs/specs/spec_modulo_E.md` §
 - `src/lib/events/listeners/audit-log.listener.ts` — 2 handlers AGREGADOS (`TRANSACCION_PAGO_REGISTRADA`, `ACCESO_DATO_CIFRADO_AUDITADO`), con captura segura de fallos.
 - `src/lib/services/ecommerce/pago-web.service.ts` — R1 (modificado con autorización de Chiki, owner de HU-E2). Solo se agregó la inserción del log + la emisión del evento; la lógica E2 existente no se reescribió.
 - `src/lib/services/ecommerce/auditoria-pagos.service.ts` — R2/R3/R4 (nuevo, service de solo lectura + mecanismo de acceso).
-- `src/lib/schemas/ecommerce.schema.ts` — `ListarLogPagosQuerySchema`, `SolicitarAccesoLogPagosSchema`, `AccesoLogPagosIdSchema`.
-- `src/app/api/ecommerce/auditoria/pagos/**` — 3 rutas (GET, POST, PATCH).
+- `src/lib/schemas/ecommerce.schema.ts` — `ListarLogPagosQuerySchema`, `SolicitarAccesoLogPagosSchema`, `AccesoLogPagosIdSchema`, `TransaccionPagoLogIdSchema`.
+- `src/app/api/ecommerce/auditoria/pagos/**` — 4 rutas (GET, GET `[id]/facturacion`, POST, PATCH).
 - `prisma/schema.prisma` + `prisma/migrations/20261007021440_add_acceso_log_pagos/` — modelo `AccesoLogPagos` (migración aditiva).
 - `prisma/seed.ts` — clave `ECOMMERCE_ACCESO_LOG_PAGOS_EXPIRACION_DIAS = 30`.
 
@@ -35,7 +35,11 @@ Documento de implementación. Fuente normativa: `docs/specs/spec_modulo_E.md` §
 2. **`verificar_integridad` (Backlog ↔ spec).** El Product Backlog pide "encadenamiento SHA-256 verificable", pero el `ListarLogPagosQuerySchema` de spec §2.6 no lo incluye. Se implementó `verificarIntegridadLogPagos()` como función module-owned (patrón `verificarCadenaHashesVentas` de HU-B6) que recorre la cadena global de `AuditLog`; NO se expone en el query schema ni en la respuesta del endpoint. Divergencia reportada, pendiente de decisión del PO.
 3. **R4 — aprobador y expiración.** El Alcance Funcional nombra al Auditor como aprobador (implementado). La duración no está definida en ningún documento: se implementó expiración por parámetro (`ECOMMERCE_ACCESO_LOG_PAGOS_EXPIRACION_DIAS`, default 30 días). **Valor pendiente de validar con el PO.**
 4. **`pedido_venta_id` en la respuesta del log.** El shape de spec §2.6 pide `pedido_venta_id`; `TransaccionPagoLog` solo guarda `pedido_venta_ecommerce_id`. La respuesta devuelve el `PedidoVenta.id` real vía join a `PedidoVentaEcommerce.pedido_venta_id`, para consistencia con el payload del evento.
-5. **`decryptAndAuditBilling()`.** Implementado como entry point module-owned reservado al Auditor, sin ruta dedicada en esta HU (el query schema de spec §2.6 no expone el campo cifrado). Queda como punto de integración para una vista de detalle futura.
+5. **`decryptAndAuditBilling()`.** Reservado al Auditor; expuesto vía `GET /api/ecommerce/auditoria/pagos/[id]/facturacion` (wrapper `withPermission("auditoria:leer_forense")` + `obtenerFacturacionPago()`). Remediación de la verificación: antes era un entry point sin ruta dedicada, por lo que R3/CA6 quedaba inalcanzable por HTTP.
+
+## Mitad forense en la respuesta (R2)
+
+`obtenerLogPagos()` devuelve `{ items, total, page, auditoria: { items, total } }`: `items` es el detalle operativo (`TransaccionPagoLog`) y `auditoria` es la mitad forense — filas de `AuditLog` filtradas por `tabla_afectada = "log_transacciones_pago"` (mismo rango de fechas y paginación), con una proyección segura (`auditoria_id`, `accion`, `registro_id`, `usuario_id`, `hash_actual`, `timestamp`) que nunca incluye `valor_anterior`/`valor_nuevo`.
 
 ## Fuera de alcance (R5)
 
