@@ -3651,8 +3651,10 @@ async function main() {
   // ── Sprint 4 — permisos de D.4 / F / G ──────────────────────────────────────
   // Asignación según el texto de cada spec:
   //   - configuracion:administrar     → ADMINISTRADOR ("exclusivo Administrador", D §6.3)
-  //   - tesoreria:leer_ingresos_web   → TESORERO_CENTRAL (G §7, provisional: "se siembra
-  //                                     provisionalmente solo para TESORERO_CENTRAL")
+  //   - tesoreria:leer_ingresos_web   → TESORERO_CENTRAL, ADMINISTRADOR y AUDITOR
+  //                                     (G §7 lo sembraba provisional solo para
+  //                                     TESORERO_CENTRAL; HU-G11 amplía el alcance a
+  //                                     ADMINISTRADOR y AUDITOR, aprobado por el equipo)
   //   - integraciones:administrar_conector, notificaciones:administrar_plantillas →
   //     ADMINISTRADOR_PLATAFORMA (F §2.1.1/§2.2; rol sembrado abajo). Los otros
   //     roles que habilita la spec (Desarrollador/DevOps, Marketing/Atención al
@@ -3667,7 +3669,7 @@ async function main() {
         [PERMISO_NOTIFICACIONES_ADMINISTRAR_PLANTILLAS_ID, "notificaciones:administrar_plantillas", "Alta, edición y baja de plantillas de notificación — exclusivo Administrador de Plataforma (HU-F2)", "MODULO_F"],
         [PERMISO_CONFIGURACION_ADMINISTRAR_ID, "configuracion:administrar", "Actualizar valores de ConfiguracionSistema — exclusivo Administrador (D.4 §6.3)", "MODULO_D"],
         [PERMISO_CONFIGURACION_LEER_ID, "configuracion:leer", "Consultar ConfiguracionSistema por el Route Handler HTTP (D.4 §6.3; los servicios internos leen sin este permiso)", "MODULO_D"],
-        [PERMISO_TESORERIA_LEER_INGRESOS_WEB_ID, "tesoreria:leer_ingresos_web", "Consultar y reprocesar ingresos de Tesorería por cobros web (HU-G11) — alcance de roles provisional", "MODULO_G"],
+        [PERMISO_TESORERIA_LEER_INGRESOS_WEB_ID, "tesoreria:leer_ingresos_web", "Consultar y reprocesar ingresos de Tesorería por cobros web (HU-G11) — TESORERO_CENTRAL, ADMINISTRADOR y AUDITOR", "MODULO_G"],
       ] as const
     ).map(([id, codigo, descripcion, modulo]) =>
       prisma.permiso.upsert({
@@ -3719,6 +3721,8 @@ async function main() {
   for (const [rol_id, permiso_id] of [
     [rolAdministrador.id, PERMISO_CONFIGURACION_ADMINISTRAR_ID],
     [rolTesorero.id, PERMISO_TESORERIA_LEER_INGRESOS_WEB_ID],
+    [rolAdministrador.id, PERMISO_TESORERIA_LEER_INGRESOS_WEB_ID],
+    [rolAuditor.id, PERMISO_TESORERIA_LEER_INGRESOS_WEB_ID],
     [rolAdministradorPlataforma.id, PERMISO_INTEGRACIONES_ADMINISTRAR_CONECTOR_ID],
     [rolAdministradorPlataforma.id, PERMISO_NOTIFICACIONES_ADMINISTRAR_PLANTILLAS_ID],
   ] as const) {
