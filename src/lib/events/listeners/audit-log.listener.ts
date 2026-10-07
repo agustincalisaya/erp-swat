@@ -25,6 +25,7 @@ import "server-only";
 import { prisma } from "@/lib/db/prisma";
 import { domainEventBus } from "@/lib/events/domain-event-bus";
 import type {
+  AccesoDatoCifradoAuditadoPayload,
   ConsentimientoDecisionRegistradaPayload,
   ContraAsientoIngresoRegistradoPayload,
   EcommercePedidoAdmitidoColaPayload,
@@ -33,6 +34,7 @@ import type {
   EcommercePrioridadPreparacionCambiadaPayload,
   EcommerceUnidadPreparacionConfirmadaPayload,
   IngresoWebRegistradoPayload,
+  TransaccionPagoRegistradaPayload,
 } from "@/lib/events/event-types";
 import { registrarAuditLog } from "@/lib/services/auditoria/audit-log.service";
 
@@ -1806,6 +1808,49 @@ export function iniciarAuditLogListener(): void {
         ip: "internal-event",
         valor_anterior: null,
         valor_nuevo: payload,
+      });
+    },
+  );
+
+  // ── HU-E6 (Módulo E) — log de transacciones de pago online (spec E §2.6/§4).
+  // El actor es el sistema (listener reactivo sin request HTTP directo):
+  // `usuario_id` null, mismo criterio que el resto de los eventos de pago (E2).
+  // El payload NO trae datos de facturación ni de tarjeta; el valor cifrado
+  // queda exclusivamente en `log_transacciones_pago` (AES-256, Ley N.° 25.326).
+  domainEventBus.on(
+    "ecommerce:transaccion_pago_registrada",
+    (payload: TransaccionPagoRegistradaPayload) => {
+      void registrarAuditLog({
+        usuario_id: null,
+        accion: "TRANSACCION_PAGO_REGISTRADA",
+        tabla_afectada: "log_transacciones_pago",
+        registro_id: payload.transaccion_id,
+        ip: "internal-event",
+        valor_anterior: null,
+        valor_nuevo: {
+          pedido_venta_id: payload.pedido_venta_id,
+          monto: payload.monto,
+          estado_pago: payload.estado_pago,
+          mercadopago_payment_id: payload.mercadopago_payment_id,
+        },
+      });
+    },
+  );
+
+  // HU-E6 (R3) — lectura de un dato de facturación cifrado por un Auditor. El
+  // actor SÍ es un Usuario del ERP (Auditor): `usuario_id` = auditor. Se emite
+  // una vez por lectura; `valor_nuevo` solo lleva el timestamp, nunca el dato.
+  domainEventBus.on(
+    "ecommerce:acceso_dato_cifrado_auditado",
+    (payload: AccesoDatoCifradoAuditadoPayload) => {
+      void registrarAuditLog({
+        usuario_id: payload.usuario_auditor_id,
+        accion: "ACCESO_DATO_CIFRADO_AUDITADO",
+        tabla_afectada: "log_transacciones_pago",
+        registro_id: payload.transaccion_id,
+        ip: "internal-event",
+        valor_anterior: null,
+        valor_nuevo: { timestamp: payload.timestamp },
       });
     },
   );
