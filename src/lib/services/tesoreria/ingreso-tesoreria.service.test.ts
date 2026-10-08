@@ -243,10 +243,8 @@ test("reprocesarIngresoWeb: un pedido sin pago confirmado es no-op", async () =>
   const prismaFake = {
     pedidoVentaEcommerce: {
       findUnique: async () => ({
-        estado_ecommerce: "PAGO_PENDIENTE",
         mercadopago_payment_id: null,
         fecha_pago_confirmado: null,
-        created_at: new Date(),
         is_active: true,
       }),
     },
@@ -255,6 +253,92 @@ test("reprocesarIngresoWeb: un pedido sin pago confirmado es no-op", async () =>
   const f = cargarServicio(prismaFake);
   const r = await f.reprocesarIngresoWeb("pedido-1");
   assert.equal(r, null);
+});
+
+// P-R2 (task HU-E2-integracion §9): "pagado" = fecha_pago_confirmado y
+// mercadopago_payment_id no nulos, sin mirar estado_ecommerce. Tras E2+E12 el
+// pedido confirmado ya está en EN_PREPARACION (PAGO_CONFIRMADO nunca persiste).
+
+/** Prisma falso del reproceso: el pedido web leído + la tx de `registrarIngresoWeb`. */
+function prismaReproceso(
+  pve: Record<string, unknown>,
+  ingresoExistente: { id: string } | null,
+): { prisma: unknown; creados: Record<string, unknown>[] } {
+  const creados: Record<string, unknown>[] = [];
+  const tx = {
+    ingresoTesoreria: {
+      findFirst: async () => ingresoExistente,
+      create: async (args: { data: Record<string, unknown> }) => {
+        creados.push(args.data);
+        return {
+          id: "ingreso-reproceso",
+          monto: args.data.monto,
+          fecha: args.data.fecha,
+          estado: args.data.estado,
+          caja_virtual: args.data.caja_virtual,
+        };
+      },
+    },
+  };
+  return {
+    creados,
+    prisma: {
+      pedidoVentaEcommerce: { findUnique: async () => pve },
+      pedidoVenta: { findUnique: async () => ({ total: new Prisma.Decimal("19350.00") }) },
+      $transaction: async (fn: (t: unknown) => unknown) => fn(tx),
+    },
+  };
+}
+
+const pedidoEnPreparacion = {
+  mercadopago_payment_id: "mp-reproceso",
+  fecha_pago_confirmado: new Date("2026-10-08T15:30:00.000Z"),
+  is_active: true,
+};
+
+test("reprocesarIngresoWeb: un pedido EN_PREPARACION con pago confirmado registra el ingreso", async () => {
+  const { prisma, creados } = prismaReproceso(pedidoEnPreparacion, null);
+  const f = cargarServicio(prisma);
+  const r = await f.reprocesarIngresoWeb("pedido-1");
+
+  assert.equal(creados.length, 1);
+  assert.equal(creados[0].pedido_venta_id, "pedido-1");
+  assert.equal(creados[0].mercadopago_payment_id, "mp-reproceso");
+  assert.equal((creados[0].monto as Prisma.Decimal).toFixed(2), "19350.00");
+  assert.equal((creados[0].fecha as Date).toISOString(), "2026-10-08T15:30:00.000Z");
+  assert.ok(r);
+  assert.equal(r.ingreso_id, "ingreso-reproceso");
+  assert.equal(r.monto, "19350.00");
+  assert.equal(r.fecha, "2026-10-08T15:30:00.000Z");
+});
+
+test("reprocesarIngresoWeb: reprocesar un pedido EN_PREPARACION ya registrado es no-op (idempotente)", async () => {
+  const { prisma, creados } = prismaReproceso(pedidoEnPreparacion, { id: "ingreso-previo" });
+  const f = cargarServicio(prisma);
+  const r = await f.reprocesarIngresoWeb("pedido-1");
+  assert.equal(r, null);
+  assert.equal(creados.length, 0);
+});
+
+test("reprocesarIngresoWeb: un pago rechazado (payment_id sin fecha de pago) es no-op", async () => {
+  const { prisma, creados } = prismaReproceso(
+    { mercadopago_payment_id: "mp-rechazado", fecha_pago_confirmado: null, is_active: true },
+    null,
+  );
+  const f = cargarServicio(prisma);
+  const r = await f.reprocesarIngresoWeb("pedido-1");
+  assert.equal(r, null);
+  assert.equal(creados.length, 0);
+});
+
+test("reprocesarIngresoWeb: el criterio de pagado no depende de estado_ecommerce", () => {
+  const fuente = readFileSync(new URL("./ingreso-tesoreria.service.ts", import.meta.url), "utf8");
+  const inicio = fuente.indexOf("export async function reprocesarIngresoWeb");
+  const cuerpo = fuente.slice(inicio);
+  assert.ok(inicio > -1);
+  assert.doesNotMatch(cuerpo, /estado_ecommerce/);
+  assert.match(cuerpo, /!pve\.fecha_pago_confirmado/);
+  assert.match(cuerpo, /!pve\.mercadopago_payment_id/);
 });
 
 test("el service nunca usa prisma.*.delete() ni deleteMany()", () => {

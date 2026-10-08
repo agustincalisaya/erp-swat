@@ -13,7 +13,7 @@
  * Funciones puras (sin Prisma ni `server-only`): las usan el route, los tests
  * y `scripts/firmar-webhook-mp.ts`.
  *
- * // PROVISORIO HU-E2 — completar en HU-F1 (owner: Rama)
+ * Owner: HU-E2 (Chiki). Definitivo, acordado con Rama (HU-F1) el 2026-10-08.
  */
 import { createHmac, timingSafeEqual } from "node:crypto";
 

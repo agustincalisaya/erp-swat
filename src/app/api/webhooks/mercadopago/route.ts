@@ -12,7 +12,7 @@
  *    efectos (CA3). Error de procesamiento → 500, para que MP reintente (la
  *    idempotencia por transición hace seguro el reintento).
  *
- * // PROVISORIO HU-E2 — completar en HU-F1 (owner: Rama)
+ * Owner: HU-E2 (Chiki). Definitivo, acordado con Rama (HU-F1) el 2026-10-08.
  */
 import { NextResponse, type NextRequest } from "next/server";
 import { ServiceError } from "@/lib/errors/service-error";

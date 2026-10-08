@@ -299,10 +299,15 @@ export async function listarIngresosWeb(
  * "pendiente y reintentable" (no hay cola automática en el proyecto).
  *
  * `PedidoVentaEcommerce` NO tiene `monto` ni `fecha_aprobacion`: el monto
- * confirmado es `PedidoVenta.total` y la fecha es
- * `fecha_pago_confirmado ?? created_at`. Idempotente: repetir un pedido ya
- * registrado retorna `null` sin error. Si el pedido no está `PAGO_CONFIRMADO`
- * (o no tiene `mercadopago_payment_id`), es un no-op.
+ * confirmado es `PedidoVenta.total` y la fecha es `fecha_pago_confirmado`.
+ *
+ * "Pagado" = `fecha_pago_confirmado` y `mercadopago_payment_id` no nulos, sin
+ * mirar `estado_ecommerce` (task HU-E2-integracion §9, P-R2): HU-E2 fija la
+ * fecha en la misma transacción que confirma el pago, y HU-E12 admite el
+ * pedido a la cola en ese mismo commit, así que `PAGO_CONFIRMADO` nunca
+ * persiste — el pedido ya está en `EN_PREPARACION` o más adelante. Un pago
+ * rechazado guarda `mercadopago_payment_id` pero no la fecha: queda afuera.
+ * Idempotente: repetir un pedido ya registrado retorna `null` sin error.
  */
 export async function reprocesarIngresoWeb(
   pedidoVentaId: string,
@@ -310,17 +315,15 @@ export async function reprocesarIngresoWeb(
   const pve = await prisma.pedidoVentaEcommerce.findUnique({
     where: { pedido_venta_id: pedidoVentaId },
     select: {
-      estado_ecommerce: true,
       mercadopago_payment_id: true,
       fecha_pago_confirmado: true,
-      created_at: true,
       is_active: true,
     },
   });
   if (
     !pve ||
     !pve.is_active ||
-    pve.estado_ecommerce !== "PAGO_CONFIRMADO" ||
+    !pve.fecha_pago_confirmado ||
     !pve.mercadopago_payment_id
   ) {
     console.error(
@@ -342,11 +345,10 @@ export async function reprocesarIngresoWeb(
     return null;
   }
 
-  const fecha = pve.fecha_pago_confirmado ?? pve.created_at;
   return registrarIngresoWeb({
     pedido_venta_id: pedidoVentaId,
     mercadopago_payment_id: pve.mercadopago_payment_id,
     monto: pedido.total,
-    fecha_aprobacion: fecha.toISOString(),
+    fecha_aprobacion: pve.fecha_pago_confirmado.toISOString(),
   });
 }

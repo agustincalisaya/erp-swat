@@ -260,10 +260,13 @@ function datosFacturacionParaCifrar(
 /**
  * `resultado_webhook` — payload relevante de Mercado Pago SIN datos de tarjeta
  * (el sistema nunca los recibe) y sin datos de facturación. Solo estados,
- * montos y la referencia externa.
+ * montos y la referencia externa. Con `motivo` (P-R4 y CUPON_LIMITE_EXCEDIDO),
+ * el motivo crudo va PRIMERO: la deduplicación de las filas ANOMALIA busca el
+ * prefijo `{"motivo":"<MOTIVO>",`.
  */
-function resultadoWebhookSeguro(pago: PagoConsultado): string {
+function resultadoWebhookSeguro(pago: PagoConsultado, motivo?: MotivoPagoAnomalo): string {
   return JSON.stringify({
+    ...(motivo ? { motivo } : {}),
     payment_id: pago.payment_id,
     estado: pago.estado,
     status_mp: pago.status_mp,
@@ -273,6 +276,110 @@ function resultadoWebhookSeguro(pago: PagoConsultado): string {
     external_reference: pago.external_reference,
     fecha_aprobacion: pago.fecha_aprobacion,
   });
+}
+
+/**
+ * HU-E6 / P-R4 (acordado con Rama el 2026-10-08) — un pago que NO se aplica
+ * deja su fila en `TransaccionPagoLog` con `estado_pago = "ANOMALIA"`, el
+ * motivo crudo en `resultado_webhook` y los datos de facturación cifrados como
+ * en la confirmación. Aplica a MONTO_DISCREPANTE, PAGO_TARDIO y PAGO_DUPLICADO.
+ *
+ *  - PAGO_HUERFANO: sin fila — no hay pedido y `pedido_venta_ecommerce_id` es
+ *    FK obligatoria. Queda en `WebhookPagoLog` y en `AuditLog` (`pago_anomalo`).
+ *  - CUPON_LIMITE_EXCEDIDO: sin fila ANOMALIA — el pago SÍ se aplicó; su fila
+ *    APROBADO lleva el motivo en `resultado_webhook` (opción a).
+ *
+ * Corre FUERA de la transacción de confirmación (que ya se revirtió), así que
+ * es idempotente por `(mercadopago_payment_id, motivo)` sin migración: lock
+ * transaccional de PostgreSQL sobre esa clave + búsqueda de la fila previa. Un
+ * reenvío de MP no crea una segunda fila. Nunca hace fallar el webhook.
+ */
+async function registrarTransaccionAnomala(
+  pago: PagoConsultado,
+  ecommerceId: string,
+  motivo: MotivoPagoAnomalo,
+): Promise<void> {
+  if (motivo === "PAGO_HUERFANO" || motivo === "CUPON_LIMITE_EXCEDIDO") return;
+
+  let registrada: { transaccionId: string; pedidoVentaId: string } | null;
+  try {
+    registrada = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`transaccion_anomala:${pago.payment_id}:${motivo}`}))`;
+
+      const previa = await tx.transaccionPagoLog.findFirst({
+        where: {
+          mercadopago_payment_id: pago.payment_id,
+          estado_pago: "ANOMALIA",
+          resultado_webhook: { startsWith: `{"motivo":"${motivo}",` },
+        },
+        select: { id: true },
+      });
+      if (previa) return null;
+
+      const pedido = await tx.pedidoVentaEcommerce.findUniqueOrThrow({
+        where: { id: ecommerceId },
+        select: {
+          pedido_venta: {
+            select: {
+              id: true,
+              cliente_id: true,
+              cliente: { select: { nombre: true, dni: true, email: true, telefono: true } },
+            },
+          },
+        },
+      });
+      const venta = pedido.pedido_venta;
+      const cuenta = venta.cliente_id
+        ? await tx.cuentaClienteWeb.findUnique({ where: { cliente_id: venta.cliente_id }, select: { email: true } })
+        : null;
+
+      const cifrado = encrypt(JSON.stringify(datosFacturacionParaCifrar(venta.cliente, cuenta?.email ?? null)));
+      const transaccion = await tx.transaccionPagoLog.create({
+        data: {
+          pedido_venta_ecommerce_id: ecommerceId,
+          mercadopago_payment_id: pago.payment_id,
+          monto: new Prisma.Decimal(pago.monto),
+          estado_pago: "ANOMALIA",
+          resultado_webhook: resultadoWebhookSeguro(pago, motivo),
+          datos_facturacion_cifrados: cifrado.ciphertext,
+          datos_facturacion_iv: cifrado.iv,
+        },
+        select: { id: true },
+      });
+      return { transaccionId: transaccion.id, pedidoVentaId: venta.id };
+    });
+  } catch (error) {
+    console.error("[HU-E6] No se pudo registrar la transacción ANOMALIA:", {
+      mercadopago_payment_id: pago.payment_id,
+      motivo,
+      error: error instanceof Error ? error.message : "error desconocido",
+    });
+    return;
+  }
+  if (!registrada) return;
+
+  // Mismo payload que en la confirmación; `monto` = el informado por MP.
+  emitirEventoPostCommitSeguroE2(
+    "ecommerce:transaccion_pago_registrada",
+    {
+      transaccion_id: registrada.transaccionId,
+      pedido_venta_id: registrada.pedidoVentaId,
+      monto: pago.monto,
+      estado_pago: "ANOMALIA",
+      mercadopago_payment_id: pago.payment_id,
+    },
+    { pedido_venta_id: registrada.pedidoVentaId, mercadopago_payment_id: pago.payment_id },
+  );
+}
+
+/** Anomalía sobre un pedido identificado: fila ANOMALIA (P-R4) + evento `pago_anomalo`. */
+async function anomaliaRegistrada(
+  motivo: MotivoPagoAnomalo,
+  pago: PagoConsultado,
+  pedido: { ecommerce_id: string; venta_id: string | null; monto_esperado: number | null },
+): Promise<ResultadoProcesamientoPago> {
+  await registrarTransaccionAnomala(pago, pedido.ecommerce_id, motivo);
+  return emitirAnomalo(motivo, pago, pedido);
 }
 
 /**
@@ -432,7 +539,7 @@ async function confirmarPago(
             mercadopago_payment_id: pago.payment_id,
             monto: new Prisma.Decimal(pago.monto),
             estado_pago: "APROBADO",
-            resultado_webhook: resultadoWebhookSeguro(pago),
+            resultado_webhook: resultadoWebhookSeguro(pago, cupon.limite_excedido ? "CUPON_LIMITE_EXCEDIDO" : undefined),
             datos_facturacion_cifrados: cifrado.ciphertext,
             datos_facturacion_iv: cifrado.iv,
           },
@@ -457,14 +564,14 @@ async function confirmarPago(
   } catch (error) {
     if (error instanceof AbortoPago) {
       if (error.tipo === "NO_PENDIENTE") return resolverAprobadoSobreResuelto(pago, ecommerceId, pedidoVentaId);
-      return emitirAnomalo(error.tipo, pago, {
+      return anomaliaRegistrada(error.tipo, pago, {
         ecommerce_id: ecommerceId,
         venta_id: error.pedidoVentaId ?? pedidoVentaId,
         monto_esperado: error.montoEsperado,
       });
     }
     if (esP2002PaymentId(error)) {
-      return emitirAnomalo("PAGO_DUPLICADO", pago, { ecommerce_id: ecommerceId, venta_id: pedidoVentaId, monto_esperado: null });
+      return anomaliaRegistrada("PAGO_DUPLICADO", pago, { ecommerce_id: ecommerceId, venta_id: pedidoVentaId, monto_esperado: null });
     }
     throw error;
   }
@@ -557,7 +664,7 @@ async function resolverAprobadoSobreResuelto(
     pago.payment_id,
   );
   if (clasificacion === "SIN_EFECTO") return { resultado: "SIN_EFECTO", pedido_venta_id: pedidoVentaId };
-  return emitirAnomalo(clasificacion, pago, {
+  return anomaliaRegistrada(clasificacion, pago, {
     ecommerce_id: ecommerceId,
     venta_id: pedidoVentaId,
     monto_esperado: actual?.pedido_venta.total.toNumber() ?? null,
@@ -667,7 +774,7 @@ async function rechazarPago(
   } catch (error) {
     if (error instanceof AbortoPago) return { resultado: "SIN_EFECTO", pedido_venta_id: pedidoVentaId };
     if (esP2002PaymentId(error)) {
-      return emitirAnomalo("PAGO_DUPLICADO", pago, { ecommerce_id: ecommerceId, venta_id: pedidoVentaId, monto_esperado: null });
+      return anomaliaRegistrada("PAGO_DUPLICADO", pago, { ecommerce_id: ecommerceId, venta_id: pedidoVentaId, monto_esperado: null });
     }
     throw error;
   }
@@ -803,7 +910,7 @@ export async function obtenerResultadoPago(pedidoVentaId: string, clienteId: str
 // Traza de notificaciones (WebhookPagoLog, append-only)
 // ──────────────────────────────────────────────────────────────────────────────
 
-/** PROVISORIO HU-E2 — completar en HU-F1 (owner: Rama). Nunca hace fallar el webhook. */
+/** Traza de `WebhookPagoLog` (owner: HU-E2, Chiki). Nunca hace fallar el webhook. */
 export async function registrarTrazaWebhook(
   paymentId: string,
   topic: string,

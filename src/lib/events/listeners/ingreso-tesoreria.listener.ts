@@ -14,12 +14,13 @@ import "server-only";
  * `prisma.$transaction` y retorna el payload; el listener emite al resolver).
  *
  * DESVIACIÓN DE CONTRATO documentada: `spec_modulo_G.md` §2.6 manda consumir
- * `ecommerce:transaccion_pago_registrada`, pero ese evento NO EXISTE en el
- * código (pertenece a HU-E6, sin implementar; `TransaccionPagoLog` tampoco se
- * escribe). El evento REAL que emite HU-E2 es
- * `ecommerce:pedido_pago_confirmado` (`PedidoPagoConfirmadoPayload`), que ya
- * trae todo lo que G11 necesita. Esta desviación está resuelta y registrada en
- * `docs/specs/hu-f1-divergencias-evento.md`.
+ * `ecommerce:transaccion_pago_registrada`. Ese evento hoy SÍ existe (lo emite
+ * HU-E6 post-commit, en aprobados y rechazados), pero G11 escucha
+ * `ecommerce:pedido_pago_confirmado` (`PedidoPagoConfirmadoPayload`, HU-E2):
+ * solo se emite con el pago confirmado y trae `fecha_aprobacion`, que el
+ * payload de E6 no tiene. Decisión registrada en
+ * `docs/specs/hu-f1-divergencias-evento.md` y en
+ * `docs/tasks/HU-E2-integracion.md` §9 (P-R3).
  *
  * Una falla del listener NO revierte la venta (el pago ya está confirmado): se
  * loguea con `pedido_venta_id` + `mercadopago_payment_id` y queda recuperable

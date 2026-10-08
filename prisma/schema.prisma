@@ -2403,7 +2403,8 @@ model TransaccionPagoLog {
   pedido_venta_ecommerce_id  String
   mercadopago_payment_id     String
   monto                      Decimal @db.Decimal(12, 2)
-  /// "APROBADO" | "RECHAZADO" | "PENDIENTE"
+  /// "APROBADO" | "RECHAZADO" | "PENDIENTE" | "ANOMALIA" (pago no aplicado:
+  /// monto discrepante, tardío o duplicado; motivo en `resultado_webhook`).
   estado_pago                String
   /// Payload relevante del webhook, sin datos de tarjeta.
   resultado_webhook          String
@@ -2539,7 +2540,7 @@ model InvocacionConectorPago {
 /// `AuditLog`. Modelo no incluido en spec_modulo_F.md; agregado con
 /// confirmación del equipo (Sprint 4).
 ///
-/// PROVISORIO HU-E2 — completar en HU-F1 (owner: Rama). HU-E2 quitó la clave
+/// Owner: HU-E2 (Chiki). HU-E2 quitó la clave
 /// única `(mercadopago_payment_id, topic)`: con ella, la notificación
 /// "approved" posterior a una "pending" del mismo pago se descartaba, y un
 /// reintento de MP tras un fallo de procesamiento no se reprocesaba. La
