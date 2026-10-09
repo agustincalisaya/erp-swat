@@ -7,7 +7,46 @@ import {
   listarPedidosWebCliente,
   obtenerPedidoWebCliente,
   obtenerComprobanteWebCliente,
+  obtenerComprobanteOriginalWebCliente,
 } from "./mis-pedidos.service.ts";
+
+test("descarga fiscal resuelve solo el original propio sin escribir ni exponer datos internos", async () => {
+  const original = comprobante("factura-propia", "propio");
+  const notaCredito = comprobante("nota-propia", "propio", "NOTA_CREDITO", original.id);
+  const { db, calls } = fakeDb([
+    pedido("propio", clienteId, "WEB", "CANCELADO", { comprobantes: [notaCredito, original] }),
+    pedido("ajeno", otroClienteId, "WEB", "PAGO_CONFIRMADO"),
+    pedido("sin-comprobante", clienteId, "WEB", "PAGO_PENDIENTE", { comprobantes: [] }),
+    pedido("mostrador", clienteId, "MOSTRADOR", "ENTREGADO"),
+  ]);
+
+  const resultado = await obtenerComprobanteOriginalWebCliente(clienteId, "propio", { db });
+  assert.deepEqual(resultado, {
+    numero: "V-propio",
+    tipo: "FACTURA_B",
+    fecha_emision: ahora.toISOString(),
+    monto: 150,
+    cae_simulado: original.cae_simulado,
+    qr_data_url: original.qr_data_url,
+    es_simulado: true,
+  });
+  for (const id of ["ajeno", "inexistente", "sin-comprobante", "mostrador"]) {
+    await assert.rejects(
+      () => obtenerComprobanteOriginalWebCliente(clienteId, id, { db }),
+      (error: unknown) => error instanceof ServiceError && error.code === "PEDIDO_NO_ENCONTRADO",
+    );
+  }
+  assert.ok(calls.every((call) => call.operation === "findFirst"), "la descarga solo consulta");
+  const consulta = calls[0]!.args;
+  const consultaWhere = consulta.where as Record<string, unknown>;
+  assert.equal(consultaWhere.id, "propio");
+  assert.equal(consultaWhere.cliente_id, clienteId);
+  assert.equal(consultaWhere.canal, "WEB");
+  assert.deepEqual((consulta.select as { comprobantes: { where: unknown } }).comprobantes.where, {
+    tipo_comprobante: { not: "NOTA_CREDITO" },
+  });
+  assert.doesNotMatch(JSON.stringify(resultado), /emitido_por|cliente_id|mercadopago|operador|payment/i);
+});
 
 const clienteId = "11111111-1111-4111-8111-111111111111";
 const otroClienteId = "22222222-2222-4222-8222-222222222222";
@@ -42,18 +81,23 @@ function pedido(
     numero_venta: `V-${id}`,
     cliente_id: owner,
     canal,
+    estado: estado === "ANULADO" ? "ANULADO" : "FACTURADO",
     is_active: pedidoActivo,
     deleted_at: opciones.pedidoEliminado ? ahora : null,
+    deleted_by: opciones.pedidoEliminado ? "operador" : null,
+    deletion_reason: opciones.pedidoEliminado ? "Otra baja" : null,
     created_at: opciones.fecha ?? ahora,
     total: new Prisma.Decimal(150),
     mercadopago_payment_id: "mp-no-publico",
     ecommerce: canal === "WEB" ? {
+      id: `e-${id}`,
       estado_ecommerce: estado,
       plazo_retiro_vencimiento: opciones.plazo ?? null,
       codigo_qr_retiro: opciones.token ?? null,
       is_active: ecommerceActivo,
       deleted_at: opciones.ecommerceEliminado ? ahora : null,
-      deletion_reason: opciones.motivo ?? null,
+      deleted_by: opciones.ecommerceEliminado ? "operador" : null,
+      deletion_reason: opciones.motivo ?? (opciones.ecommerceEliminado ? "Otra baja" : null),
       operador_asignado_id: "operador-no-publico",
       prioridad_manual: 100,
     } : null,
@@ -96,26 +140,26 @@ function comprobante(
 type PedidoFixture = ReturnType<typeof pedido>;
 type Call = { operation: string; args: Record<string, unknown> };
 
-function fakeDb(rows: PedidoFixture[]) {
+type AuditFixture = { id: string; accion: string; tabla_afectada: string; registro_id: string | null; created_at: Date; valor_nuevo: Prisma.JsonValue | null };
+
+function fakeDb(rows: PedidoFixture[], auditRows: AuditFixture[] = []) {
   const calls: Call[] = [];
+  function campoCoincide(actual: unknown, esperado: unknown): boolean {
+    if (esperado && typeof esperado === "object" && !Array.isArray(esperado)) {
+      const criterio = esperado as Record<string, unknown>;
+      if ("not" in criterio) return actual !== criterio.not;
+      if ("in" in criterio) return (criterio.in as unknown[]).includes(actual);
+      if ("is" in criterio) return campoCoincide(actual, criterio.is);
+      if ("path" in criterio) return campoCoincide((actual as Record<string, unknown> | null)?.[(criterio.path as string[])[0]!], criterio.equals);
+      return actual !== null && typeof actual === "object" && Object.entries(criterio).every(([clave, valor]) =>
+        clave === "OR" ? (valor as Record<string, unknown>[]).some((rama) => campoCoincide(actual, rama)) :
+          campoCoincide((actual as Record<string, unknown>)[clave], valor));
+    }
+    return actual === esperado;
+  }
   function matches(row: PedidoFixture, where: Record<string, unknown>) {
-    const ecommerceWhere = (where.ecommerce as { is?: {
-      is_active?: boolean;
-      deleted_at?: null;
-      OR?: { is_active: boolean; deleted_at: null | { not: null }; estado_ecommerce?: { in: Estado[] } }[];
-    } } | undefined)?.is;
     const comprobanteWhere = (where.comprobantes as { some?: { id?: string; is_active?: boolean; deleted_at?: null } } | undefined)?.some;
-    return (!where.id || row.id === where.id) &&
-      row.cliente_id === where.cliente_id && row.canal === where.canal &&
-      (where.is_active === undefined || row.is_active === where.is_active) &&
-      (where.deleted_at === undefined || row.deleted_at === where.deleted_at) &&
-      row.ecommerce !== null &&
-      (!ecommerceWhere || (ecommerceWhere.OR
-        ? ecommerceWhere.OR.some((filtro) =>
-            row.ecommerce!.is_active === filtro.is_active &&
-            (filtro.deleted_at === null ? row.ecommerce!.deleted_at === null : row.ecommerce!.deleted_at !== null) &&
-            (!filtro.estado_ecommerce || filtro.estado_ecommerce.in.includes(row.ecommerce!.estado_ecommerce)))
-        : row.ecommerce.is_active === ecommerceWhere.is_active && row.ecommerce.deleted_at === ecommerceWhere.deleted_at)) &&
+    return campoCoincide(row, Object.fromEntries(Object.entries(where).filter(([clave]) => clave !== "comprobantes"))) &&
       (!comprobanteWhere || row.comprobantes.some((c) => c.id === comprobanteWhere.id));
   }
   const db = { pedidoVenta: {
@@ -132,6 +176,12 @@ function fakeDb(rows: PedidoFixture[]) {
     findFirst: async (args: { where: Record<string, unknown> }) => {
       calls.push({ operation: "findFirst", args: args as unknown as Record<string, unknown> });
       return rows.find((row) => matches(row, args.where)) ?? null;
+    },
+  }, auditLog: {
+    findMany: async (args: { where: Record<string, unknown> }) => {
+      calls.push({ operation: "auditFindMany", args: args as unknown as Record<string, unknown> });
+      return auditRows.filter((row) => campoCoincide(row, args.where))
+        .sort((a, b) => a.created_at.getTime() - b.created_at.getTime() || a.id.localeCompare(b.id));
     },
   } } as unknown as PrismaClient;
   return { db, calls };
@@ -161,30 +211,16 @@ test("listado filtra propietario, WEB y soft delete, ordena y pagina con proyecc
     pedido("ecommerce-eliminado", clienteId, "WEB", "CANCELADO", { ecommerceEliminado: true }),
   ]);
   const result = await listarPedidosWebCliente(clienteId, { db, pagina: 1, porPagina: 2 });
-  assert.equal(result.total, 5);
+  assert.equal(result.total, 6);
   assert.deepEqual(result.pedidos.map((p) => p.id), ["historico-cancelado", "historico-vencido"]);
-  assert.deepEqual((await listarPedidosWebCliente(clienteId, { db, pagina: 2, porPagina: 2 })).pedidos.map((p) => p.id), ["c", "b"]);
-  assert.deepEqual((await listarPedidosWebCliente(clienteId, { db, pagina: 3, porPagina: 2 })).pedidos.map((p) => p.id), ["a"]);
+  assert.deepEqual((await listarPedidosWebCliente(clienteId, { db, pagina: 2, porPagina: 2 })).pedidos.map((p) => p.id), ["legacy-anulado", "c"]);
+  assert.deepEqual((await listarPedidosWebCliente(clienteId, { db, pagina: 3, porPagina: 2 })).pedidos.map((p) => p.id), ["b", "a"]);
   assert.deepEqual(Object.keys(result.pedidos[0]).sort(), ["cantidad_items", "estado", "fecha", "id", "numero", "total"]);
 
   const findMany = calls.find((call) => call.operation === "findMany")?.args;
   assert.deepEqual(findMany?.orderBy, [{ created_at: "desc" }, { id: "desc" }]);
-  assert.deepEqual(findMany?.where, {
-    cliente_id: clienteId,
-    canal: "WEB",
-    is_active: true,
-    deleted_at: null,
-    ecommerce: { is: {
-      OR: [
-        { is_active: true, deleted_at: null },
-        {
-          is_active: false,
-          deleted_at: { not: null },
-          estado_ecommerce: { in: ["CANCELADO", "VENCIDO_SIN_RETIRO"] },
-        },
-      ],
-    } },
-  });
+  assert.equal((findMany?.where as Record<string, unknown>)?.cliente_id, clienteId);
+  assert.equal((findMany?.where as Record<string, unknown>)?.canal, "WEB");
   const serializedSelect = JSON.stringify(findMany?.select);
   for (const field of ["codigo_qr_retiro", "plazo_retiro_vencimiento", "operador_asignado_id", "prioridad_manual", "mercadopago"]) {
     assert.ok(!serializedSelect.includes(field), `El listado no debe seleccionar ${field}`);
@@ -247,23 +283,10 @@ test("detalle propio activo aplica IDOR uniforme y minimiza DTO", async () => {
     assert.ok(!json.toLowerCase().includes(field.toLowerCase()), `El detalle no debe exponer ${field}`);
   }
   const detailCall = calls.find((call) => call.operation === "findFirst")?.args;
-  assert.deepEqual(detailCall?.where, {
-    id: "propio",
-    cliente_id: clienteId,
-    canal: "WEB",
-    is_active: true,
-    deleted_at: null,
-    ecommerce: { is: {
-      OR: [
-        { is_active: true, deleted_at: null },
-        {
-          is_active: false,
-          deleted_at: { not: null },
-          estado_ecommerce: { in: ["CANCELADO", "VENCIDO_SIN_RETIRO"] },
-        },
-      ],
-    } },
-  });
+  assert.equal((detailCall?.where as Record<string, unknown>)?.id, "propio");
+  assert.equal((detailCall?.where as Record<string, unknown>)?.cliente_id, clienteId);
+  assert.equal((detailCall?.where as Record<string, unknown>)?.canal, "WEB");
+  assert.equal(((detailCall?.where as Record<string, unknown>)?.OR as unknown[]).length, 3);
   const detailSelect = JSON.stringify(detailCall?.select);
   assert.ok(detailSelect.includes("codigo_qr_retiro"));
   for (const field of ["mercadopago", "operador_asignado_id", "prioridad_manual", "cae_simulado", "es_simulado", "qr_data_url"]) {
@@ -354,7 +377,7 @@ test("post-T17: terminal expone motivo, fecha_terminacion y reintegro_estado; ac
   assert.equal(activo.fecha_terminacion, null);
   assert.equal(activo.reintegro_estado, null);
   assert.deepEqual(Object.keys(cancelado).sort(), [
-    "comprobante", "estado", "fecha", "fecha_terminacion", "id", "items", "motivo", "nota_credito",
+    "comprobante", "estado", "fecha", "fecha_terminacion", "historial_estados", "id", "items", "motivo", "nota_credito",
     "numero", "plazo_retiro_vencimiento", "qr_data_url", "reintegro_estado", "total",
   ]);
 });
@@ -413,10 +436,97 @@ test("post-T17: comprobante individual acepta la visibilidad histórica E9 y con
     await assert.rejects(() => obtenerComprobanteWebCliente(clienteId, id, `comprobante-${id}`, { db }), comprobanteNotFound);
   }
   const where = calls.find((call) => call.operation === "findFirst")?.args.where as Record<string, unknown>;
-  assert.deepEqual(where.ecommerce, { is: {
-    OR: [
-      { is_active: true, deleted_at: null },
-      { is_active: false, deleted_at: { not: null }, estado_ecommerce: { in: ["CANCELADO", "VENCIDO_SIN_RETIRO"] } },
-    ],
-  } });
+  assert.equal(where.cliente_id, clienteId);
+  assert.equal(where.canal, "WEB");
+});
+
+test("historial E9 proyecta las nueve transiciones auditadas en orden y descarta eventos ajenos u operativos", async () => {
+  const acciones: [string, Estado, string, string][] = [
+    ["CREATE", "PAGO_PENDIENTE", "pedidos_venta_ecommerce", "e-propio"],
+    ["PAGO_CONFIRMADO", "PAGO_CONFIRMADO", "pedidos_venta_ecommerce", "e-propio"],
+    ["PAGO_RECHAZADO", "PAGO_RECHAZADO", "pedidos_venta_ecommerce", "e-propio"],
+    ["PEDIDO_TOMADO", "EN_PREPARACION", "pedidos_venta_ecommerce", "e-propio"],
+    ["PEDIDO_LISTO_PARA_RETIRO", "LISTO_PARA_RETIRO", "pedidos_venta_ecommerce", "e-propio"],
+    ["PEDIDO_ENTREGADO", "ENTREGADO", "pedidos_venta_ecommerce", "e-propio"],
+    ["ecommerce:orden_anulada", "ANULADO", "pedidos_venta", "propio"],
+    ["PEDIDO_PAGADO_CANCELADO", "CANCELADO", "pedidos_venta_ecommerce", "reintegro-1"],
+    ["PEDIDO_VENCIDO_SIN_RETIRO", "VENCIDO_SIN_RETIRO", "pedidos_venta_ecommerce", "reintegro-2"],
+  ];
+  const entradas: AuditFixture[] = acciones.map(([accion, estado, tabla, registro], indice) => ({
+    id: `audit-${indice}`,
+    accion, tabla_afectada: tabla, registro_id: registro,
+    created_at: new Date(Date.UTC(2026, 9, 1, 12, indice)),
+    valor_nuevo: { estado_ecommerce: estado, pedido_venta_id: "propio", mercadopago_payment_id: "secreto" },
+  }));
+  entradas.push(
+    { ...entradas[1]!, id: "operativo", accion: "PEDIDO_ADMITIDO_COLA" },
+    { ...entradas[1]!, id: "ajeno", registro_id: "e-ajeno" },
+    { ...entradas[0]!, id: "malformado", valor_nuevo: { estado_ecommerce: "ENTREGADO", pedido_venta_id: "propio" } },
+    { ...entradas[7]!, id: "reintegro-ajeno", valor_nuevo: { estado_ecommerce: "CANCELADO", pedido_venta_id: "ajeno" } },
+  );
+  const { db, calls } = fakeDb([pedido("propio", clienteId, "WEB", "VENCIDO_SIN_RETIRO")], entradas.reverse());
+  const detalle = await obtenerPedidoWebCliente(clienteId, "propio", { db });
+  assert.deepEqual(detalle.historial_estados, acciones.map(([, estado], indice) => ({
+    estado, fecha: new Date(Date.UTC(2026, 9, 1, 12, indice)).toISOString(),
+  })));
+  assert.doesNotMatch(JSON.stringify(detalle.historial_estados), /audit-|secreto|pedido_venta_id|registro_id|hash|usuario|ip/i);
+  assert.equal(calls.filter((call) => call.operation === "auditFindMany").length, 1);
+  assert.deepEqual((calls.find((call) => call.operation === "auditFindMany")!.args.orderBy), [{ created_at: "asc" }, { id: "asc" }]);
+});
+
+test("historial E9 parcial o vacío no inventa el estado actual y un pedido ajeno no consulta AuditLog", async () => {
+  const evento: AuditFixture = { id: "solo-pago", accion: "PAGO_CONFIRMADO", tabla_afectada: "pedidos_venta_ecommerce",
+    registro_id: "e-propio", created_at: ahora, valor_nuevo: { estado_ecommerce: "PAGO_CONFIRMADO" } };
+  const { db, calls } = fakeDb([
+    pedido("propio", clienteId, "WEB", "ENTREGADO"),
+    pedido("vacio", clienteId, "WEB", "EN_PREPARACION"),
+    pedido("ajeno", otroClienteId, "WEB", "ENTREGADO"),
+  ], [evento]);
+  assert.deepEqual((await obtenerPedidoWebCliente(clienteId, "propio", { db })).historial_estados,
+    [{ estado: "PAGO_CONFIRMADO", fecha: ahora.toISOString() }]);
+  assert.deepEqual((await obtenerPedidoWebCliente(clienteId, "vacio", { db })).historial_estados, []);
+  const consultasAntes = calls.filter((call) => call.operation === "auditFindMany").length;
+  await assert.rejects(() => obtenerPedidoWebCliente(clienteId, "ajeno", { db }), notFound);
+  assert.equal(calls.filter((call) => call.operation === "auditFindMany").length, consultasAntes);
+});
+
+test("historial E9 desempata entradas con igual fecha por AuditLog.id", async () => {
+  const fecha = new Date("2026-10-08T18:40:00.000Z");
+  const { db } = fakeDb([pedido("propio", clienteId, "WEB", "PAGO_CONFIRMADO")], [
+    { id: "b", accion: "PAGO_CONFIRMADO", tabla_afectada: "pedidos_venta_ecommerce", registro_id: "e-propio",
+      created_at: fecha, valor_nuevo: { estado_ecommerce: "PAGO_CONFIRMADO" } },
+    { id: "a", accion: "CREATE", tabla_afectada: "pedidos_venta_ecommerce", registro_id: "e-propio",
+      created_at: fecha, valor_nuevo: { estado_ecommerce: "PAGO_PENDIENTE", pedido_venta_id: "propio" } },
+  ]);
+  assert.deepEqual((await obtenerPedidoWebCliente(clienteId, "propio", { db })).historial_estados.map((e) => e.estado),
+    ["PAGO_PENDIENTE", "PAGO_CONFIRMADO"]);
+});
+
+test("E7 ANULADO propio con baja lógica es visible en listado y detalle sin abrir otras bajas", async () => {
+  const anulado = pedido("anulado", clienteId, "WEB", "ANULADO", {
+    pedidoActivo: false, pedidoEliminado: true, ecommerceActivo: false, ecommerceEliminado: true,
+  });
+  const { db, calls } = fakeDb([
+    anulado,
+    pedido("ajeno", otroClienteId, "WEB", "ANULADO", {
+      pedidoActivo: false, pedidoEliminado: true, ecommerceActivo: false, ecommerceEliminado: true,
+    }),
+    pedido("otra-baja", clienteId, "WEB", "ENTREGADO", {
+      pedidoActivo: false, pedidoEliminado: true, ecommerceActivo: false, ecommerceEliminado: true,
+    }),
+    pedido("anulado-incoherente", clienteId, "WEB", "ANULADO", {
+      pedidoActivo: false, pedidoEliminado: true, ecommerceActivo: true,
+    }),
+    pedido("cancelado", clienteId, "WEB", "CANCELADO", { ecommerceActivo: false, ecommerceEliminado: true }),
+    pedido("vencido", clienteId, "WEB", "VENCIDO_SIN_RETIRO", { ecommerceActivo: false, ecommerceEliminado: true }),
+  ]);
+  const listado = await listarPedidosWebCliente(clienteId, { db });
+  assert.deepEqual(new Set(listado.pedidos.map((item) => item.id)), new Set(["anulado", "cancelado", "vencido"]));
+  assert.equal((await obtenerPedidoWebCliente(clienteId, "anulado", { db })).estado, "ANULADO");
+  for (const id of ["ajeno", "otra-baja", "anulado-incoherente", "ausente"]) {
+    await assert.rejects(() => obtenerPedidoWebCliente(clienteId, id, { db }), notFound);
+  }
+  const listadoWhere = calls.find((call) => call.operation === "findMany")!.args.where as Record<string, unknown>;
+  const detalleWhere = calls.find((call) => call.operation === "findFirst")!.args.where as Record<string, unknown>;
+  assert.deepEqual(listadoWhere.OR, detalleWhere.OR);
 });

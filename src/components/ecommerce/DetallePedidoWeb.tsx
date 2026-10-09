@@ -5,7 +5,7 @@ import Image from "next/image";
 import { useState } from "react";
 import type { ComprobanteWeb, PedidoWebDetalle } from "@/lib/services/ecommerce/mis-pedidos.service";
 import { CancelarPedidoWeb } from "@/components/ecommerce/CancelarPedidoWeb";
-import { EstadoPedidoWebBadge } from "@/components/ecommerce/MisPedidosListado";
+import { EstadoPedidoWebBadge, etiquetaEstadoPedidoWeb } from "@/components/ecommerce/MisPedidosListado";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatearFechaHoraNegocio } from "@/lib/utils/fecha-negocio";
@@ -53,6 +53,28 @@ export function DetallePedidoWeb({
             estado={pedidoActual.estado}
             onCancelado={() => setPedidoActual((actual) => actual ? { ...actual, estado: "CANCELADO", qr_data_url: null } : actual)}
           />
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Historial del pedido</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {pedidoActual.historial_estados.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No hay historial de estados disponible.</p>
+              ) : (
+                <ol className="space-y-4 border-l pl-4">
+                  {pedidoActual.historial_estados.map((entrada, indice) => (
+                    <li key={`${entrada.estado}-${entrada.fecha}-${indice}`} className="text-sm">
+                      <p className="font-medium">{etiquetaEstadoPedidoWeb(entrada.estado)}</p>
+                      <time dateTime={entrada.fecha} className="text-muted-foreground">
+                        {formatearFechaHoraNegocio(entrada.fecha)}
+                      </time>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </CardContent>
+          </Card>
 
           <PedidoFinalizado pedido={pedidoActual} />
 
@@ -119,7 +141,14 @@ export function DetallePedidoWeb({
               </CardHeader>
               <CardContent className="space-y-2 text-sm">
                 <DatosComprobante comprobante={pedidoActual.comprobante} />
-                <p className="border-t pt-3 text-muted-foreground">Comprobante no disponible para descarga.</p>
+                <div className="border-t pt-3">
+                  <a
+                    href={`/api/tienda/mis-pedidos/${pedidoActual.id}/comprobante/descargar`}
+                    className={buttonVariants({ variant: "outline", size: "sm" })}
+                  >
+                    Descargar comprobante
+                  </a>
+                </div>
               </CardContent>
             </Card>
           )}
@@ -154,7 +183,7 @@ function PedidoFinalizado({ pedido }: { pedido: PedidoWebDetalle }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{pedido.estado === "VENCIDO_SIN_RETIRO" ? "Pedido vencido" : "Pedido cancelado"}</CardTitle>
+        <CardTitle>{pedido.estado === "VENCIDO_SIN_RETIRO" ? "Pedido vencido" : pedido.estado === "ANULADO" ? "Pedido anulado" : "Pedido cancelado"}</CardTitle>
       </CardHeader>
       <CardContent>
         <dl className="grid gap-3 text-sm sm:grid-cols-3">

@@ -10,6 +10,7 @@ import type { PedidoWebDetalle } from "../../lib/services/ecommerce/mis-pedidos.
 const resumen = { id: "own-id", numero: "V-2026-100", fecha: "2026-10-01T12:00:00.000Z", total: 150,
   estado: "ENTREGADO" as const, cantidad_items: 1 };
 const detalle: PedidoWebDetalle = { ...resumen, items: [{ producto: "Camisa", sku: "SKU-1", talle: "M", color: "Negro", cantidad: 2, precio_unitario: 75 }], plazo_retiro_vencimiento: null,
+  historial_estados: [],
   qr_data_url: null, comprobante: null, nota_credito: null, motivo: null, fecha_terminacion: null, reintegro_estado: null };
 
 test("listado responsive contiene número, fecha, total, estado, enlace al detalle y estados de UI", () => {
@@ -58,6 +59,22 @@ test("detalle no muestra QR sin data URL y ofrece estados indistinguibles de ped
   assert.ok(renderToStaticMarkup(createElement(DetallePedidoWeb, { pedido: null, estado: "cargando" })).includes("Cargando pedido"));
 });
 
+test("detalle muestra cronología con etiquetas de negocio y mensaje para historial vacío", () => {
+  const vacio = renderToStaticMarkup(createElement(DetallePedidoWeb, { pedido: detalle }));
+  assert.ok(vacio.includes("Historial del pedido"));
+  assert.ok(vacio.includes("No hay historial de estados disponible."));
+  const conHistorial = renderToStaticMarkup(createElement(DetallePedidoWeb, { pedido: {
+    ...detalle, historial_estados: [
+      { estado: "PAGO_PENDIENTE", fecha: "2026-10-08T18:40:00.000Z" },
+      { estado: "PAGO_CONFIRMADO", fecha: "2026-10-08T18:42:00.000Z" },
+    ],
+  } }));
+  assert.ok(conHistorial.includes("Pago pendiente"));
+  assert.ok(conHistorial.includes("Pago confirmado"));
+  assert.ok(conHistorial.includes('dateTime="2026-10-08T18:40:00.000Z"') || conHistorial.includes('dateTime="2026-10-08T18:40:00.000Z"'.toLowerCase()) || conHistorial.includes('datetime="2026-10-08T18:40:00.000Z"'));
+  assert.ok(!conHistorial.includes("PAGO_CONFIRMADO"));
+});
+
 test("detalle listo muestra QR solo si servicio entrega imagen y un mensaje funcional cuando no está disponible", () => {
   const listo = { ...detalle, estado: "LISTO_PARA_RETIRO" as const, qr_data_url: "data:image/png;base64,AAAA" };
   const html = renderToStaticMarkup(createElement(DetallePedidoWeb, { pedido: listo }));
@@ -68,14 +85,16 @@ test("detalle listo muestra QR solo si servicio entrega imagen y un mensaje func
   assert.ok(!sinQr.includes("data:image/png"));
 });
 
-test("comprobante se presenta sin jerga técnica ni descarga fiscal inventada", () => {
+test("comprobante original ofrece descarga propia y sin comprobante no muestra la acción", () => {
   const html = renderToStaticMarkup(createElement(DetallePedidoWeb, { pedido: { ...detalle,
     comprobante: { tipo: "FACTURA_B", fecha_emision: detalle.fecha, monto: 150 },
   } }));
   assert.ok(html.includes("FACTURA B"));
   assert.ok(html.includes("Monto"));
-  assert.ok(html.includes("Comprobante no disponible para descarga"));
-  assert.ok(!html.includes("Descargar comprobante"));
+  assert.ok(html.includes("Descargar comprobante"));
+  assert.ok(html.includes("/api/tienda/mis-pedidos/own-id/comprobante/descargar"));
+  assert.ok(!html.includes("/api/ventas/comprobantes/"));
+  assert.ok(!renderToStaticMarkup(createElement(DetallePedidoWeb, { pedido: detalle })).includes("Descargar comprobante"));
   assert.doesNotMatch(html, /simulado|fixture|seed|mock|\/api\/ventas\/comprobantes/i);
 });
 
@@ -125,7 +144,7 @@ test("factura original sigue visible y la NC aparece por separado solo si existe
   assert.ok(html.includes("Nota de crédito"));
   assert.ok(html.includes("NOTA CREDITO"));
   assert.ok(html.indexOf("FACTURA B") < html.indexOf("NOTA CREDITO"));
-  assert.ok(!html.includes("Descargar"));
+  assert.equal(html.match(/Descargar comprobante/g)?.length, 1);
   const sinNc = renderToStaticMarkup(createElement(DetallePedidoWeb, { pedido: { ...terminal, nota_credito: null } }));
   assert.ok(sinNc.includes("FACTURA B"));
   assert.ok(!sinNc.includes("Nota de crédito"));
