@@ -20,6 +20,10 @@ const estados: Record<EstadoEcommerce, { etiqueta: string; estilo: string }> = {
 
 const pesos = new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS" });
 
+export function etiquetaEstadoPedidoWeb(estado: EstadoEcommerce): string {
+  return estados[estado].etiqueta;
+}
+
 export function EstadoPedidoWebBadge({ estado }: { estado: EstadoEcommerce }) {
   const { etiqueta, estilo } = estados[estado];
   return <Badge className={estilo}>{etiqueta}</Badge>;

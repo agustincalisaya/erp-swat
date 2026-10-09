@@ -381,7 +381,9 @@ HU-E9 quedó implementada y verificada. T2–T8 están completadas; no hay bloqu
 
 - Las suites T6.1/T7 son opt-in y requieren PostgreSQL dedicado, seed y servidor Next local; fuera de ese entorno quedan skipped por diseño.
 - No se creó un harness RSC artificial para invocar páginas con `cookies()`/`redirect()`; esa superficie quedó cubierta por helpers, componentes, build y pruebas HTTP reales.
-- El historial de cambios de estado con fecha y hora permanece pendiente de una corrección separada de HU-E9.
+- La corrección final de HU-E9 proyecta desde `AuditLog` una cronología mínima `{ estado, fecha }` después de validar el pedido WEB propio. Ordena por `created_at ASC, id ASC`, excluye eventos operativos y no fabrica transiciones ausentes. La escritura post-commit de mejor esfuerzo puede producir huecos y un pequeño desfase respecto de la transición real.
+- Listado y detalle comparten la política de visibilidad. La excepción histórica `ANULADO` exige el estado en `PedidoVenta` y `PedidoVentaEcommerce`, baja lógica de la extensión con fecha/autor/motivo y pedido base activo o dado de baja con fecha/autor/motivo; no abre otras bajas. La descarga fiscal conserva sus filtros previos.
+- El detalle presenta «Historial del pedido» con etiquetas de negocio y fecha/hora. Tras la cancelación se recarga el detalle para obtener la transición auditada, sin agregar una entrada local ficticia. QR y descarga fiscal mantienen sus contratos previos.
 
 ## Corrección posterior — comprobante original descargable (HU-E9 ↔ HU-B7)
 

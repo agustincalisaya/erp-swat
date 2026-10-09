@@ -908,18 +908,22 @@ Cada diferencia entre el borrador de la Rev.2 y el código de `fix/HU-E8-deuda` 
 **Story Points:** 3.
 **Objetivo:** el Cliente Web consulta el historial de sus pedidos `WEB`, su estado actual y detalle, el comprobante asociado cuando está disponible y el QR de retiro únicamente si el pedido está efectivamente listo para retirar.
 
-**Modelo:** no se crea `PedidoWeb` ni `OrdenWeb`. Se reutiliza el `PedidoVenta` del Módulo B con `canal = WEB` y su extensión 1:1 `PedidoVentaEcommerce` para el estado y los datos propios del canal online (2.2). "Historial" significa listado de compras propias y estado actual de cada una, no una cronología persistida de transiciones: HU-E9 no crea otra tabla, campos ni enum y no consulta `AuditLog` para construir `historial_estados`.
+**Modelo:** no se crea `PedidoWeb` ni `OrdenWeb`. Se reutiliza el `PedidoVenta` del Módulo B con `canal = WEB` y su extensión 1:1 `PedidoVentaEcommerce` para el estado actual. El detalle incluye `historial_estados`, una proyección de las transiciones existentes en `AuditLog` (Módulo D). No se crea otra tabla, campo ni enum. La fecha de cada entrada es `AuditLog.created_at`; por la auditoría post-commit de mejor esfuerzo puede haber desfase o huecos. No se reconstruyen transiciones ni fechas ausentes a partir del estado actual o de `PedidoVenta.created_at`.
+
+**Visibilidad histórica ANULADO:** listado y detalle comparten el mismo predicado. Además de los pedidos activos y las extensiones terminales `CANCELADO`/`VENCIDO_SIN_RETIRO` ya visibles, se admite solo la forma de baja lógica de HU-E7: pedido WEB propio y extensión con estado `ANULADO`, extensión inactiva/eliminada con autor y motivo de baja, y pedido base `ANULADO` activo o igualmente dado de baja con autor y motivo. Otras bajas del pedido base siguen excluidas. No se reactiva ninguna entidad.
+
+**Proyección de estados:** la consulta de auditoría ocurre exclusivamente después de validar propiedad y visibilidad. Incluye `CREATE`/`PAGO_PENDIENTE`, `PAGO_CONFIRMADO`, `PAGO_RECHAZADO`, `PEDIDO_TOMADO`/`EN_PREPARACION`, `PEDIDO_LISTO_PARA_RETIRO`, `PEDIDO_ENTREGADO`, `ecommerce:orden_anulada`, `PEDIDO_PAGADO_CANCELADO` y `PEDIDO_VENCIDO_SIN_RETIRO`. Usa el ID de extensión, el ID de `PedidoVenta` o `valor_nuevo.pedido_venta_id` según el evento, valida estado y ordena por `created_at ASC, id ASC`. El DTO público contiene exclusivamente `{ estado, fecha }`; la UI muestra etiquetas de negocio y un mensaje discreto si no hay entradas. No expone metadatos forenses ni eventos operativos.
 
 **Rutas definitivas implementadas:** `GET /app/api/tienda/mis-pedidos/route.ts` (`/api/tienda/mis-pedidos`) y `GET /app/api/tienda/mis-pedidos/[id]/route.ts` (`/api/tienda/mis-pedidos/[id]`). Las pantallas implementadas son `/tienda/cuenta/pedidos` y `/tienda/cuenta/pedidos/[id]`. HU-E8 provee `withSesionClienteWeb()` y la cookie `swat_tienda_session`; E9 las reutiliza. Cliente Web no usa `/api/ecommerce/**`, `/ecommerce/mis-pedidos` ni las antiguas rutas `/cuenta/pedidos`.
 
 **Comportamiento implementado:**
 - **Identidad y mitigación IDOR:** el flujo obligatorio es `sesión E8 → sesion.clienteId → servicio E9`. El frontend puede enviar únicamente `page`, `page_size` y el `pedidoId` de la URL; nunca `clienteId`, `cuentaId`, email o DNI. Sin sesión válida responde `401`; una cuenta con vinculación pendiente responde `403 CUENTA_VINCULACION_PENDIENTE`. El detalle consulta en un único predicado ID solicitado + `cliente_id` autenticado + canal WEB + registros activos. Pedido ajeno e inexistente producen el mismo `404 PEDIDO_NO_ENCONTRADO`.
-- **Listado y baja lógica:** paginación server-side de 1–50 elementos (20 por defecto), pedidos `WEB` propios con extensión e-commerce y registros de negocio activos: `PedidoVenta.is_active = true`, `PedidoVenta.deleted_at = null`, `PedidoVentaEcommerce.is_active = true`, `PedidoVentaEcommerce.deleted_at = null`. Estados como `CANCELADO`, `ANULADO` o `PAGO_RECHAZADO` pueden mostrarse si el registro sigue activo. E9 no salta el soft delete para exponer inactivos.
+- **Listado y baja lógica:** paginación server-side de 1–50 elementos (20 por defecto), pedidos `WEB` propios. Se admiten los activos, las extensiones terminales `CANCELADO`/`VENCIDO_SIN_RETIRO` ya previstas y la excepción estricta de `ANULADO` de HU-E7 descrita arriba. Listado y detalle usan el mismo predicado; otras bajas siguen excluidas.
 - **Fecha principal:** se ordena por `PedidoVenta.created_at DESC` (con desempate estable por ID) y se presenta como «Fecha del pedido». `fecha_pago_confirmado` no sustituye esa fecha; puede incorporarse en el futuro como dato adicional.
-- **Estados y detalle:** se usan los nueve valores existentes de `EstadoEcommerce`, sin crear estados nuevos. El detalle presenta número, fecha del pedido, total, ítems (producto, SKU, talle, color, cantidad y precio congelado), estado actual y comprobante asociado; omite datos de Mercado Pago, logs, auditoría, datos cifrados e información operativa Pick & Pack.
+- **Estados y detalle:** se usan los nueve valores existentes de `EstadoEcommerce`, sin crear estados nuevos. El detalle presenta número, fecha del pedido, total, ítems (producto, SKU, talle, color, cantidad y precio congelado), estado actual, cronología auditada de estado/fecha y comprobante asociado; omite datos de Mercado Pago, metadatos forenses, datos cifrados e información operativa Pick & Pack.
 - **QR de retiro:** HU-E12 ya genera `codigo_qr_retiro` y `plazo_retiro_vencimiento`; E9 solo los lee y genera `qr_data_url` server-side. Se expone exclusivamente para el detalle propio cuando el estado es `LISTO_PARA_RETIRO`, el token existe y el plazo es nulo o `>= ahora`. Si el plazo venció, E9 oculta el QR pero no cambia el estado; es una defensa de presentación hasta que HU-E13 transicione a `VENCIDO_SIN_RETIRO`. También se oculta antes y después del estado listo.
 - **Secreto y caché:** el token literal nunca se devuelve como campo JSON, aparece en listados, logs o eventos, ni se guarda en `localStorage`/`sessionStorage`. La respuesta que contiene `qr_data_url` usa `Cache-Control: private, no-store`; las páginas evitan prerender y caché compartida. El QR solo codifica el token opaco y no contiene DNI, nombre, email, monto ni Mercado Pago. No se reutiliza el QR fiscal.
-- **Comprobante:** HU-E9 no lo genera. El DTO público mínimo es `{ tipo, fecha_emision, monto }` y exige pedido propio WEB activo con comprobante asociado. No expone `cae_simulado`, `es_simulado`, QR fiscal ni IDs internos innecesarios; tampoco reutiliza `/api/ventas/comprobantes/[id]`. Mientras no exista un PDF/documento real, la UI muestra «Comprobante no disponible para descarga» y no ofrece enlaces inválidos.
+- **Comprobante:** HU-E9 no lo genera. El DTO público mínimo es `{ tipo, fecha_emision, monto }`; la descarga del original persistido por HU-B7 se ofrece desde la ruta propia del Cliente Web. El JSON no expone `cae_simulado`, `es_simulado`, QR fiscal ni IDs internos innecesarios y no reutiliza `/api/ventas/comprobantes/[id]`.
 
 **Responsabilidades entre HU:** HU-E8 ya autentica al Cliente Web y provee `sesion.clienteId`; HU-E12 ya genera token y plazo al transicionar a `LISTO_PARA_RETIRO`; HU-E9 solo lee historial/detalle y presenta el QR y metadatos mínimos del comprobante. HU-E3 valida QR + identidad y transiciona a `ENTREGADO`. HU-E13 implementa cancelación, vencimiento y sus transiciones. HU-E9 no valida QR, solicita DNI, transiciona pedidos, genera notificaciones ni emite eventos de lectura.
 
@@ -928,6 +932,7 @@ Cada diferencia entre el borrador de la Rev.2 y el código de `fix/HU-E8-deuda` 
 {
   "id": "uuid", "numero": "V-2026-004821", "fecha": "2026-09-28T14:02:11.000Z",
   "total": 87000.00, "estado": "LISTO_PARA_RETIRO",
+  "historial_estados": [ { "estado": "PAGO_CONFIRMADO", "fecha": "2026-09-28T14:05:01.000Z" } ],
   "items": [ { "producto": "Campera táctica", "sku": "SKU-EJEMPLO", "talle": "L", "color": "Verde oliva", "cantidad": 1, "precio_unitario": 87000.00 } ],
   "plazo_retiro_vencimiento": "2026-10-02T14:02:11.000Z",
   "qr_data_url": "data:image/png;base64,...",
@@ -941,13 +946,14 @@ Cada diferencia entre el borrador de la Rev.2 y el código de `fix/HU-E8-deuda` 
 ```
 
 **Criterios de aceptación verificables:**
-1. Historial y detalle solo de pedidos propios WEB activos; pedido ajeno e inexistente responden el mismo 404.
+1. Historial y detalle solo de pedidos propios WEB visibles según la política histórica; pedido ajeno e inexistente responden el mismo 404.
 2. Sesión E8 obligatoria: sin sesión 401; cuenta pendiente 403; identidad siempre desde `sesion.clienteId`.
 3. Paginación por `page`/`page_size`, fecha principal `PedidoVenta.created_at` y navegación bajo `/tienda/cuenta/pedidos`.
 4. QR ausente antes y después de `LISTO_PARA_RETIRO`; visible solo con token y plazo vigente/nulo; oculto tras vencer sin mutar el estado.
 5. Token literal y datos Mercado Pago/Pick & Pack ausentes del contrato público, listados, logs, eventos y storage del navegador.
 6. Respuestas con QR privadas y no cacheables; páginas sin prerender o caché compartida.
-7. Comprobante reducido a `tipo`, `fecha_emision` y `monto`, sin descarga ficticia ni endpoint administrativo.
+7. Comprobante JSON reducido a `tipo`, `fecha_emision` y `monto`, con descarga funcional en ruta propia del Cliente Web.
+9. Cronología de estados auditados con fecha/hora; ausencia o huecos del ledger no generan transiciones ficticias.
 8. Sin cambios Prisma, migraciones o seed y sin mutaciones/eventos producidos por la lectura.
 
 **Archivos implementados:**
@@ -962,7 +968,7 @@ Cada diferencia entre el borrador de la Rev.2 y el código de `fix/HU-E8-deuda` 
 **Estado de implementación:**
 - **IMPLEMENTADA Y VERIFICADA:** sesión E8, historial propio, detalle, IDOR uniforme, soft delete, paginación, QR condicional, comprobante mínimo, páginas finales y caché privada.
 - **DEPENDENCIAS RESUELTAS:** HU-E8 autentica; HU-E2 confirma el pago y dispara admisión; HU-E12 genera token/plazo reales.
-- **FUERA DE ALCANCE/PENDIENTE DE OTRAS HU:** validación y entrega HU-E3; cancelación/vencimiento HU-E13; documento descargable real HU-E2/Módulo B.
+- **INTEGRACIONES EXISTENTES:** HU-E3 valida la entrega; HU-E13 cancela o vence pedidos; HU-B7 aporta el comprobante original descargable. E9 solo consulta estos resultados.
 
 **Persistencia:** HU-E9 no requirió cambios en `prisma/schema.prisma`, migraciones ni `prisma/seed.ts`.
 

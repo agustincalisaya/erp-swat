@@ -10,6 +10,7 @@ import type { PedidoWebDetalle } from "../../lib/services/ecommerce/mis-pedidos.
 const resumen = { id: "own-id", numero: "V-2026-100", fecha: "2026-10-01T12:00:00.000Z", total: 150,
   estado: "ENTREGADO" as const, cantidad_items: 1 };
 const detalle: PedidoWebDetalle = { ...resumen, items: [{ producto: "Camisa", sku: "SKU-1", talle: "M", color: "Negro", cantidad: 2, precio_unitario: 75 }], plazo_retiro_vencimiento: null,
+  historial_estados: [],
   qr_data_url: null, comprobante: null, nota_credito: null, motivo: null, fecha_terminacion: null, reintegro_estado: null };
 
 test("listado responsive contiene número, fecha, total, estado, enlace al detalle y estados de UI", () => {
@@ -56,6 +57,22 @@ test("detalle no muestra QR sin data URL y ofrece estados indistinguibles de ped
   assert.ok(renderToStaticMarkup(createElement(DetallePedidoWeb, { pedido: null, estado: "sesion_no_disponible" })).includes("Iniciá sesión como Cliente Web"));
   assert.ok(renderToStaticMarkup(createElement(DetallePedidoWeb, { pedido: null, estado: "error" })).includes("No pudimos cargar el pedido"));
   assert.ok(renderToStaticMarkup(createElement(DetallePedidoWeb, { pedido: null, estado: "cargando" })).includes("Cargando pedido"));
+});
+
+test("detalle muestra cronología con etiquetas de negocio y mensaje para historial vacío", () => {
+  const vacio = renderToStaticMarkup(createElement(DetallePedidoWeb, { pedido: detalle }));
+  assert.ok(vacio.includes("Historial del pedido"));
+  assert.ok(vacio.includes("No hay historial de estados disponible."));
+  const conHistorial = renderToStaticMarkup(createElement(DetallePedidoWeb, { pedido: {
+    ...detalle, historial_estados: [
+      { estado: "PAGO_PENDIENTE", fecha: "2026-10-08T18:40:00.000Z" },
+      { estado: "PAGO_CONFIRMADO", fecha: "2026-10-08T18:42:00.000Z" },
+    ],
+  } }));
+  assert.ok(conHistorial.includes("Pago pendiente"));
+  assert.ok(conHistorial.includes("Pago confirmado"));
+  assert.ok(conHistorial.includes('dateTime="2026-10-08T18:40:00.000Z"') || conHistorial.includes('dateTime="2026-10-08T18:40:00.000Z"'.toLowerCase()) || conHistorial.includes('datetime="2026-10-08T18:40:00.000Z"'));
+  assert.ok(!conHistorial.includes("PAGO_CONFIRMADO"));
 });
 
 test("detalle listo muestra QR solo si servicio entrega imagen y un mensaje funcional cuando no está disponible", () => {

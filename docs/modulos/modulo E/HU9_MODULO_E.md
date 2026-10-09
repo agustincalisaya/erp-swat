@@ -6,7 +6,7 @@
 **Metodología:** Specification-Driven Development (SDD).
 **Stack real:** Next.js 16 · TypeScript · Prisma ORM · PostgreSQL 16 · `qrcode` · `pdf-lib` · Node.js `node:test`.
 **Fuente:** `docs/specs/spec_modulo_E.md` §2.9 y código de HU-E9.
-**Estado:** **IMPLEMENTADA Y VERIFICADA**. Lista para commit/PR manual.
+**Estado:** corrección de cronología implementada; verificación con base de integración dedicada pendiente por falta de configuración local.
 
 ---
 
@@ -16,9 +16,9 @@ Como Cliente Web,
 necesito consultar el historial y estado actual de mis pedidos y disponer del código QR cuando estén listos para retiro,
 para conocer el avance de mis compras y contar con la identificación necesaria para retirarlas en la sucursal.
 
-- [x] **CA1 — Historial propio:** una cuenta vinculada consulta únicamente pedidos `WEB` propios, activos (`is_active = true`, `deleted_at = null`) y con extensión e-commerce activa/no eliminada, ordenados por `PedidoVenta.created_at DESC` y paginados server-side (`page`/`page_size`, 20 por defecto y máximo 50).
+- [x] **CA1 — Historial propio:** una cuenta vinculada consulta únicamente pedidos `WEB` propios según la política de visibilidad histórica de la sección 3, ordenados por `PedidoVenta.created_at DESC` y paginados server-side (`page`/`page_size`, 20 por defecto y máximo 50).
 - [x] **CA2 — Fecha principal:** listado y detalle presentan `PedidoVenta.created_at` como «Fecha del pedido»; `fecha_pago_confirmado` no la sustituye.
-- [x] **CA3 — Detalle propio:** muestra estado actual, productos, cantidades, precios congelados, total y metadatos mínimos del comprobante, sin datos de Mercado Pago, auditoría ni operación Pick & Pack.
+- [x] **CA3 — Detalle propio:** muestra estado actual, cronología pública, productos, cantidades, precios congelados, total y metadatos mínimos del comprobante, sin datos de Mercado Pago, metadatos forenses ni operación Pick & Pack.
 - [x] **CA4 — Sesión E8:** ambos endpoints exigen `swat_tienda_session` mediante `withSesionClienteWeb`; sin sesión responden `401` y una cuenta pendiente responde `403 CUENTA_VINCULACION_PENDIENTE`.
 - [x] **CA5 — IDOR:** el servidor obtiene `clienteId` exclusivamente de `sesion.clienteId`; pedido ajeno, inexistente, de otro canal o no visible produce el mismo `404 PEDIDO_NO_ENCONTRADO`.
 - [x] **CA6 — QR antes y después de listo:** el QR no se expone antes de `LISTO_PARA_RETIRO` ni después de ese estado.
@@ -29,7 +29,8 @@ para conocer el avance de mis compras y contar con la identificación necesaria 
 - [x] **CA11 — Comprobante:** el JSON del detalle expone solo `tipo`, `fecha_emision` y `monto`; CAE, QR fiscal e indicador simulado se leen únicamente en el servidor para el PDF autorizado.
 - [x] **CA12 — Descarga fiscal HU-B7:** «Descargar comprobante» entrega un PDF del único comprobante original ya emitido. La Nota de Crédito no lo reemplaza y no se reutiliza el endpoint RBAC interno.
 - [x] **CA13 — Navegación:** las páginas finales son `/tienda/cuenta/pedidos` y `/tienda/cuenta/pedidos/[id]`, con estados de carga, vacío, error y no encontrado.
-- [ ] **Pendiente separado del issue #196:** historial de cambios de estado con fecha y hora en el detalle. Esta corrección fiscal no lo implementa.
+- [x] **CA14 — Cronología de estados:** el detalle muestra las transiciones auditadas con fecha y hora, sin fabricar entradas faltantes ni exponer datos internos de auditoría.
+- [x] **CA15 — ANULADO histórico:** la baja lógica de HU-E7 conserva el pedido WEB propio en listado y detalle bajo la excepción estricta compartida por ambas consultas.
 
 ---
 
@@ -68,16 +69,15 @@ Las páginas son Server Components y llaman directamente a los helpers de sesió
 
 No se creó `PedidoWeb`, `OrdenWeb`, tabla, enum, campo, migración ni seed. Se reutilizan `PedidoVenta` con `canal = WEB`, `PedidoVentaEcommerce`, `PedidoVentaItem`, `VarianteSKU`, `ProductoMaestro` y el único comprobante fiscal original asociado.
 
-Filtros obligatorios:
+Filtros obligatorios de identidad:
 
 - `PedidoVenta.cliente_id = sesion.clienteId`;
 - `PedidoVenta.canal = WEB`;
-- `PedidoVenta.is_active = true`;
-- `PedidoVenta.deleted_at IS NULL`;
-- `PedidoVentaEcommerce.is_active = true`;
-- `PedidoVentaEcommerce.deleted_at IS NULL`.
+- el estado activo o una de las excepciones históricas estrictas descritas abajo.
 
-`CANCELADO`, `ANULADO` y `PAGO_RECHAZADO` pueden mostrarse si los registros siguen activos. `ComprobanteFiscal` no recibe filtros de soft delete porque el modelo actual no posee esas columnas.
+`CANCELADO`, `ANULADO` y `PAGO_RECHAZADO` pueden mostrarse si los registros siguen activos. También permanecen visibles las extensiones terminales `CANCELADO`/`VENCIDO_SIN_RETIRO` ya admitidas. HU-E7 puede dejar `ANULADO` con baja lógica en ambos registros: la excepción exige estado `ANULADO` en el pedido base y la extensión, baja de la extensión con fecha/autor/motivo, y pedido base activo o dado de baja con fecha/autor/motivo. Listado y detalle comparten el predicado. La descarga fiscal conserva su protección y filtros previos; `ComprobanteFiscal` no posee columnas de soft delete.
+
+La cronología se lee de `AuditLog` solo después de validar la propiedad y visibilidad. Se proyectan únicamente `estado` y `fecha` (`AuditLog.created_at`), ordenados por fecha e ID ascendente. La auditoría post-commit de mejor esfuerzo puede dejar huecos o un pequeño desfase temporal; no se inventan fechas ni transiciones y el estado actual continúa leyéndose de `PedidoVentaEcommerce`. La UI muestra «Historial del pedido» o un mensaje discreto si no hay entradas válidas.
 
 ---
 
@@ -105,6 +105,7 @@ Filtros obligatorios:
   fecha: string;
   total: number;
   estado: EstadoEcommerce;
+  historial_estados: { estado: EstadoEcommerce; fecha: string }[];
   items: {
     producto: string;
     sku: string;
