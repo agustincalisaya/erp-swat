@@ -7,7 +7,10 @@
  * registra `npm run mp:firmar -- --pago … --estado … --monto … --ref …`, que
  * además imprime la firma del webhook. Función pura de archivo, sin Prisma.
  *
- * // PROVISORIO HU-E2 — completar en HU-F1 (owner: Rama)
+ * Solo cubre `consultarPago`; las ramas simuladas de `iniciarCobro`,
+ * `cerrarCobro`, `solicitarReembolso` y `healthCheck` viven en `adapter.ts`.
+ *
+ * Owner: HU-E2 (Chiki). Definitivo, acordado con Rama (HU-F1) el 2026-10-08.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";

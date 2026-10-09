@@ -1,9 +1,11 @@
 /**
  * @module conector-pago.service
  * @description HU-F1 (spec_modulo_F.md §2.1.1–§2.1.5) — Gestión del Conector
- * de Mercado Pago: alta con cifrado AES-256 y unicidad de un único Conector
- * ACTIVO por entorno, health-check (con la puerta de PRODUCCION), bitácora
- * paginada, listado enmascarado para la UI y baja lógica.
+ * de Mercado Pago: alta con cifrado AES-256 (pueden coexistir varios
+ * INACTIVO), health-check con la puerta de PRODUCCION y la unicidad de un único
+ * Conector ACTIVO por entorno controlada al ACTIVAR (P-R5, acordado con Rama
+ * el 2026-10-08), bitácora paginada, listado enmascarado para la UI y baja
+ * lógica.
  *
  * Reglas: el service NO conoce la API de MP — el health-check se hace SIEMPRE
  * por el Adapter (`lib/integraciones/mercadopago/adapter.ts`, spec F §3.1);
@@ -14,7 +16,7 @@
  */
 import "server-only";
 
-import type { EstadoConectorPago, EntornoConectorPago } from "@prisma/client";
+import type { EstadoConectorPago, EntornoConectorPago, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { decrypt, encrypt } from "@/lib/crypto/aes";
 import { ServiceError } from "@/lib/errors/service-error";
@@ -113,15 +115,15 @@ function aEnmascarado(c: {
 
 /**
  * Crea un Conector (nace `INACTIVO`) cifrando las 3 credenciales con AES-256
- * ANTES de persistir. Unicidad: un único Conector `ACTIVO` por entorno,
- * validada DENTRO de la transacción → `409 CONECTOR_ACTIVO_EXISTENTE`.
+ * ANTES de persistir. El alta NO controla la unicidad: pueden coexistir varios
+ * `INACTIVO` en un entorno aunque haya uno `ACTIVO` (P-R5). El invariante "un
+ * único ACTIVO por entorno" se controla al activar (`ejecutarHealthCheck`).
  *
  * La respuesta es SIEMPRE enmascarada: el valor en claro no llega a Prisma,
  * ni a la respuesta HTTP, ni a ningún log.
  *
  * @param _usuarioId - Actor de la operación (el modelo `ConectorPago` no tiene
  *   columna de creador; el actor queda trazado por el AuditLog de Módulo D).
- * @throws {ServiceError} CONECTOR_ACTIVO_EXISTENTE (409)
  */
 export async function crearConector(
   input: CrearConectorMercadoPagoInput,
@@ -132,39 +134,26 @@ export async function crearConector(
   const publicKey = encrypt(input.public_key);
   const webhookSecret = encrypt(input.webhook_secret);
 
-  const creado = await prisma.$transaction(async (tx) => {
-    const activo = await tx.conectorPago.findFirst({
-      where: { entorno: input.entorno, estado: "ACTIVO", is_active: true, deleted_at: null },
-      select: { id: true },
-    });
-    if (activo) {
-      throw new ServiceError(
-        "CONECTOR_ACTIVO_EXISTENTE",
-        `Ya existe un Conector ACTIVO en el entorno ${input.entorno}`,
-      );
-    }
-
-    return tx.conectorPago.create({
-      data: {
-        nombre: input.nombre,
-        entorno: input.entorno,
-        estado: "INACTIVO",
-        access_token_cifrado: accessToken.ciphertext,
-        access_token_iv: accessToken.iv,
-        public_key_cifrada: publicKey.ciphertext,
-        public_key_iv: publicKey.iv,
-        webhook_secret_cifrado: webhookSecret.ciphertext,
-        webhook_secret_iv: webhookSecret.iv,
-      },
-      select: {
-        id: true,
-        nombre: true,
-        entorno: true,
-        estado: true,
-        is_active: true,
-        ultimo_health_check_exitoso_at: true,
-      },
-    });
+  const creado = await prisma.conectorPago.create({
+    data: {
+      nombre: input.nombre,
+      entorno: input.entorno,
+      estado: "INACTIVO",
+      access_token_cifrado: accessToken.ciphertext,
+      access_token_iv: accessToken.iv,
+      public_key_cifrada: publicKey.ciphertext,
+      public_key_iv: publicKey.iv,
+      webhook_secret_cifrado: webhookSecret.ciphertext,
+      webhook_secret_iv: webhookSecret.iv,
+    },
+    select: {
+      id: true,
+      nombre: true,
+      entorno: true,
+      estado: true,
+      is_active: true,
+      ultimo_health_check_exitoso_at: true,
+    },
   });
 
   return aEnmascarado({
@@ -180,6 +169,29 @@ export async function crearConector(
 // ──────────────────────────────────────────────────────────────────────────────
 
 /**
+ * P-R5 — un único Conector `ACTIVO` por entorno. Lanza 409 si hay OTRO activo
+ * (el propio Conector, si ya estaba ACTIVO, no cuenta: re-verificarlo es válido).
+ *
+ * @throws {ServiceError} CONECTOR_ACTIVO_EXISTENTE (409)
+ */
+async function exigirSinOtroActivo(
+  cliente: Prisma.TransactionClient,
+  entorno: EntornoConectorPago,
+  conectorId: string,
+): Promise<void> {
+  const otro = await cliente.conectorPago.findFirst({
+    where: { entorno, estado: "ACTIVO", is_active: true, deleted_at: null, id: { not: conectorId } },
+    select: { id: true },
+  });
+  if (otro) {
+    throw new ServiceError(
+      "CONECTOR_ACTIVO_EXISTENTE",
+      `Ya existe otro Conector ACTIVO en el entorno ${entorno}: dalo de baja antes de activar este`,
+    );
+  }
+}
+
+/**
  * Descifra las credenciales del Conector y verifica contra MP a través del
  * Adapter (`GET /v1/payment_methods`). Éxito → `estado = ACTIVO` +
  * `ultimo_health_check_exitoso_at`. Fallo → mantiene el estado previo y
@@ -190,11 +202,16 @@ export async function crearConector(
  * `INACTIVO` y responde `422 HEALTH_CHECK_REQUERIDO`; el segundo éxito lo
  * promueve a `ACTIVO` (decisión de PO, dos pasos).
  *
- * @throws {ServiceError} CONECTOR_NO_ENCONTRADO (404) · HEALTH_CHECK_FALLIDO (422)
- *   · HEALTH_CHECK_REQUERIDO (422)
+ * Unicidad (P-R5): si ya hay OTRO Conector `ACTIVO` en el entorno → 409, antes
+ * de llamar a MP y otra vez al activar, dentro de una transacción con un lock
+ * por entorno (dos activaciones simultáneas no dejan dos `ACTIVO`).
+ *
+ * @throws {ServiceError} CONECTOR_NO_ENCONTRADO (404) · CONECTOR_ACTIVO_EXISTENTE (409)
+ *   · HEALTH_CHECK_FALLIDO (422) · HEALTH_CHECK_REQUERIDO (422)
  */
 export async function ejecutarHealthCheck(conectorId: string): Promise<ConectorEnmascarado> {
   const conector = await obtenerConectorPorId(conectorId);
+  await exigirSinOtroActivo(prisma, conector.entorno, conector.id);
 
   const ok = await healthCheck({ conectorId: conector.id, accessToken: conector.access_token });
   if (!ok) {
@@ -216,9 +233,13 @@ export async function ejecutarHealthCheck(conectorId: string): Promise<ConectorE
     );
   }
 
-  await prisma.conectorPago.update({
-    where: { id: conector.id },
-    data: { estado: "ACTIVO", ultimo_health_check_exitoso_at: ahora },
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`conector_activo:${conector.entorno}`}))`;
+    await exigirSinOtroActivo(tx, conector.entorno, conector.id);
+    await tx.conectorPago.update({
+      where: { id: conector.id },
+      data: { estado: "ACTIVO", ultimo_health_check_exitoso_at: ahora },
+    });
   });
 
   return aEnmascarado({

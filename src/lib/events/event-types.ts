@@ -1359,7 +1359,8 @@ export interface TransaccionPagoRegistradaPayload {
   transaccion_id: string;
   pedido_venta_id: string;
   monto: number;
-  estado_pago: "APROBADO" | "RECHAZADO" | "PENDIENTE";
+  /** `ANOMALIA`: pago no aplicado (P-R4: monto discrepante, tardío o duplicado). */
+  estado_pago: "APROBADO" | "RECHAZADO" | "PENDIENTE" | "ANOMALIA";
   mercadopago_payment_id: string;
 }
 

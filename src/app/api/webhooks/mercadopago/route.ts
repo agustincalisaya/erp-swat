@@ -4,20 +4,30 @@
  * del sistema sin sesión: se autentica por FIRMA (CA2) — `x-signature` +
  * `x-request-id` validados con la clave secreta del Conector ACTIVO.
  *
- *  - Firma inválida, ausente o sin Conector → 401 `FIRMA_INVALIDA`, sin procesar
- *    ni registrar nada (no se distingue la causa, spec F §2.1.3).
+ *  - Formato IPN (`?id=…&topic=…` sin `type`) → 200 `SIN_EFECTO` sin validar
+ *    firma ni procesar; solo se registra la traza (evita reintentos de MP).
+ *  - Formato webhook (`?data.id=…&type=…`) con firma inválida, ausente o sin
+ *    Conector → 401 `FIRMA_INVALIDA`, sin procesar ni registrar nada (no se
+ *    distingue la causa, spec F §2.1.3).
+ *  - Excepción SOLO SANDBOX: aviso de pago (`?data.id=…&type=payment`) con
+ *    headers completos y `ts` en ventana pero HMAC distinto → se procesa igual,
+ *    con traza `FIRMA_NO_VERIFICADA_SANDBOX` (limitación de MP con cuentas de
+ *    prueba; ver `decidirFirmaWebhook`). En PRODUCCION → 401 sin excepción.
+ *  - Los avisos se reciben solo por la URL configurada en el panel de Webhooks
+ *    de MP: la preferencia NO envía `notification_url` (sus avisos no firman con
+ *    la clave del panel).
  *  - `type` distinto de `payment` → 200 sin efectos.
  *  - Pago → se procesa SÍNCRONAMENTE (task HU-E2 P12, desviación de spec F
  *    §2.1.3) y recién ahí 200. Duplicados y pedidos ya resueltos → 200 sin
  *    efectos (CA3). Error de procesamiento → 500, para que MP reintente (la
  *    idempotencia por transición hace seguro el reintento).
  *
- * // PROVISORIO HU-E2 — completar en HU-F1 (owner: Rama)
+ * Owner: HU-E2 (Chiki). Definitivo, acordado con Rama (HU-F1) el 2026-10-08.
  */
 import { NextResponse, type NextRequest } from "next/server";
 import { ServiceError } from "@/lib/errors/service-error";
-import { obtenerConectorActivo } from "@/lib/integraciones/mercadopago/conector";
-import { validarFirmaWebhook } from "@/lib/integraciones/mercadopago/firma";
+import { obtenerConectorActivo, type ConectorActivo } from "@/lib/integraciones/mercadopago/conector";
+import { decidirFirmaWebhook, verificarFirmaWebhook } from "@/lib/integraciones/mercadopago/firma";
 import { procesarNotificacionPago, registrarTrazaWebhook } from "@/lib/services/ecommerce/pago-web.service";
 
 interface CuerpoNotificacion {
@@ -49,16 +59,43 @@ export async function POST(request: NextRequest) {
   const tipo = query.get("type") ?? cuerpo.type ?? cuerpo.topic ?? "";
   const xRequestId = request.headers.get("x-request-id");
 
-  let secreto: string;
+  // Formato IPN (`?id=…&topic=…`, sin `type`): no se firma ni se procesa. 200 para
+  // que MP no lo reintente; queda la traza. No autentica nada ni cambia datos.
+  if (query.has("topic") && !query.has("type")) {
+    const topic = query.get("topic") ?? "";
+    await registrarTrazaWebhook(query.get("id") ?? "", topic, xRequestId, "SIN_EFECTO");
+    return NextResponse.json({ data: { recibido: true, resultado: "SIN_EFECTO" }, error: null });
+  }
+
+  let conector: ConectorActivo;
   try {
-    secreto = (await obtenerConectorActivo()).webhook_secret;
+    conector = await obtenerConectorActivo();
   } catch {
     return firmaInvalida();
   }
-  if (!validarFirmaWebhook({ xSignature: request.headers.get("x-signature"), xRequestId, dataId, secret: secreto })) {
-    return firmaInvalida();
-  }
+  const decision = decidirFirmaWebhook({
+    verificacion: verificarFirmaWebhook({
+      xSignature: request.headers.get("x-signature"),
+      xRequestId,
+      dataId,
+      secret: conector.webhook_secret,
+    }),
+    entorno: conector.entorno,
+    esAvisoDePago: query.has("data.id") && query.get("type") === "payment",
+  });
+  if (decision === "RECHAZAR") return firmaInvalida();
   const paymentId = dataId!;
+
+  if (decision === "PROCESAR_SIN_FIRMA_SANDBOX") {
+    // Limitación de MP con cuentas de prueba (ver `decidirFirmaWebhook`): el pago
+    // se valida igual contra la API de MP en `procesarNotificacionPago`.
+    console.warn(
+      "[POST /api/webhooks/mercadopago] SANDBOX: HMAC distinto, se procesa sin firma verificada",
+      paymentId,
+      xRequestId,
+    );
+    await registrarTrazaWebhook(paymentId, tipo, xRequestId, "FIRMA_NO_VERIFICADA_SANDBOX");
+  }
 
   if (tipo !== "payment") {
     return NextResponse.json({ data: { recibido: true, payment_id: paymentId, resultado: "SIN_EFECTO" }, error: null });

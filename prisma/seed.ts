@@ -3756,53 +3756,78 @@ async function main() {
   // HU-E2 (task §3.2, P3): si están definidas MP_SANDBOX_ACCESS_TOKEN,
   // MP_SANDBOX_PUBLIC_KEY y MP_SANDBOX_WEBHOOK_SECRET (credenciales de PRUEBA de
   // una cuenta real de Mercado Pago), se cifran ESAS; si falta alguna, quedan
-  // las ficticias (sirven con MP_MODO=simulado). `update` reescribe las tres
-  // para que cargar las variables y re-sembrar las aplique. Nunca se imprimen.
+  // las ficticias (sirven con MP_MODO=simulado). Nunca se imprimen.
+  //
+  // P-R5 opción (a) (acordado con Rama el 2026-10-08): el seed crea el Conector
+  // SANDBOX SOLO si no hay ningún Conector SANDBOX ACTIVO y la fila sembrada no
+  // existe. Nunca reactiva, nunca pisa credenciales y nunca limpia una baja: en
+  // una base existente, las credenciales reales se cargan por el panel de F1
+  // (baja del sembrado → alta → health-check), no re-sembrando.
   const credencialesMpReales = Boolean(
     process.env.MP_SANDBOX_ACCESS_TOKEN && process.env.MP_SANDBOX_PUBLIC_KEY && process.env.MP_SANDBOX_WEBHOOK_SECRET,
   );
+  let conectorSandboxResumen = "OMITIDO (sin ENCRYPTION_KEY_PROVEEDORES)";
   if (hayClaveCifrado) {
-    if (!credencialesMpReales) {
-      console.warn(
-        "[seed] MP_SANDBOX_* incompletas: el Conector SANDBOX queda con credenciales FICTICIAS " +
-          "(usar MP_MODO=simulado para probar HU-E2 sin Mercado Pago).",
-      );
-    }
-    const accessToken = encrypt(process.env.MP_SANDBOX_ACCESS_TOKEN || "TEST-0000000000000000-SEED-ACCESS-TOKEN-FICTICIO");
-    const publicKey = encrypt(process.env.MP_SANDBOX_PUBLIC_KEY || "TEST-SEED-PUBLIC-KEY-FICTICIA");
-    const webhookSecret = encrypt(process.env.MP_SANDBOX_WEBHOOK_SECRET || "seed-webhook-secret-ficticio");
-    const credencialesCifradas = {
-      access_token_cifrado: accessToken.ciphertext,
-      access_token_iv: accessToken.iv,
-      public_key_cifrada: publicKey.ciphertext,
-      public_key_iv: publicKey.iv,
-      webhook_secret_cifrado: webhookSecret.ciphertext,
-      webhook_secret_iv: webhookSecret.iv,
-    };
-
-    const conectorSandbox = await prisma.conectorPago.upsert({
-      where: { id: CONECTOR_PAGO_SANDBOX_ID },
-      update: { ...credencialesCifradas, estado: "ACTIVO", is_active: true, deleted_at: null },
-      create: {
-        id: CONECTOR_PAGO_SANDBOX_ID,
-        nombre: "Mercado Pago — Sandbox (seed)",
-        entorno: "SANDBOX",
-        estado: "ACTIVO",
-        ...credencialesCifradas,
-      },
+    const sandboxActivo = await prisma.conectorPago.findFirst({
+      where: { entorno: "SANDBOX", estado: "ACTIVO", is_active: true, deleted_at: null },
+      select: { id: true },
     });
+    const conectorSembrado = await prisma.conectorPago.findUnique({
+      where: { id: CONECTOR_PAGO_SANDBOX_ID },
+      select: { id: true },
+    });
+    const crearConectorSandbox = !sandboxActivo && !conectorSembrado;
 
+    if (crearConectorSandbox) {
+      if (!credencialesMpReales) {
+        console.warn(
+          "[seed] MP_SANDBOX_* incompletas: el Conector SANDBOX queda con credenciales FICTICIAS " +
+            "(usar MP_MODO=simulado para probar HU-E2 sin Mercado Pago).",
+        );
+      }
+        const accessToken = encrypt(process.env.MP_SANDBOX_ACCESS_TOKEN || "TEST-0000000000000000-SEED-ACCESS-TOKEN-FICTICIO");
+      const publicKey = encrypt(process.env.MP_SANDBOX_PUBLIC_KEY || "TEST-SEED-PUBLIC-KEY-FICTICIA");
+      const webhookSecret = encrypt(process.env.MP_SANDBOX_WEBHOOK_SECRET || "seed-webhook-secret-ficticio");
+      await prisma.conectorPago.create({
+        data: {
+          id: CONECTOR_PAGO_SANDBOX_ID,
+          nombre: "Mercado Pago — Sandbox (seed)",
+          entorno: "SANDBOX",
+          estado: "ACTIVO",
+          access_token_cifrado: accessToken.ciphertext,
+          access_token_iv: accessToken.iv,
+          public_key_cifrada: publicKey.ciphertext,
+          public_key_iv: publicKey.iv,
+          webhook_secret_cifrado: webhookSecret.ciphertext,
+          webhook_secret_iv: webhookSecret.iv,
+        },
+      });
+      conectorSandboxResumen = `${CONECTOR_PAGO_SANDBOX_ID}  (creado; credenciales ${credencialesMpReales ? "MP_SANDBOX_* del entorno" : "FICTICIAS"})`;
+    } else {
+      conectorSandboxResumen = sandboxActivo
+        ? `${sandboxActivo.id}  (ya había un Conector SANDBOX ACTIVO: no se toca)`
+        : `${CONECTOR_PAGO_SANDBOX_ID}  (existe sin estar ACTIVO: no se reactiva)`;
+      if (credencialesMpReales) {
+        console.warn(
+          "[seed] MP_SANDBOX_* definidas pero ignoradas: ya existe un Conector SANDBOX y el seed no pisa " +
+            "credenciales (P-R5). Cargalas por el panel de F1: baja del sembrado → alta → health-check.",
+        );
+      }
+    }
+
+    // Bitácora de ejemplo: solo si la fila sembrada existe (FK al Conector).
     for (const [id, operacion, exitosa, detalle_error, hace_horas] of [
       [INVOCACION_CONECTOR_COBRO_OK_ID, "INICIAR_COBRO", true, null, 30],
       [INVOCACION_CONECTOR_CONSULTA_FALLIDA_ID, "CONSULTAR_PAGO", false, "timeout", 29],
       [INVOCACION_CONECTOR_CONSULTA_OK_ID, "CONSULTAR_PAGO", true, null, 28],
     ] as const) {
+      if (!crearConectorSandbox && !conectorSembrado) break;
       await prisma.invocacionConectorPago.upsert({
         where: { id },
         update: {},
         create: {
           id,
-          conector_id: conectorSandbox.id,
+          conector_id: CONECTOR_PAGO_SANDBOX_ID,
           operacion,
           exitosa,
           detalle_error,
@@ -4592,6 +4617,21 @@ async function main() {
       },
     });
 
+    // HU-E2 integración (P-R2): "pagado" = `fecha_pago_confirmado` no nula
+    // (G11 `reprocesarIngresoWeb`). El `create` ya la carga, pero el `update`
+    // vacío no la completa en bases sembradas antes de que E12 agregara la
+    // columna: se completa solo si falta, sin pisar una fecha existente.
+    if (pagoAprobado) {
+      await prisma.pedidoVentaEcommerce.updateMany({
+        where: {
+          id: p.ids.ecommerce,
+          estado_ecommerce: { in: ["EN_PREPARACION", "LISTO_PARA_RETIRO", "ENTREGADO"] },
+          fecha_pago_confirmado: null,
+        },
+        data: { fecha_pago_confirmado: fechaPago },
+      });
+    }
+
     // HU-E2: mientras el fixture PAGO_PENDIENTE siga pendiente, re-sembrar le
     // quita la preferencia de Mercado Pago (la reserva se refrescó arriba y la
     // preferencia vieja ya venció): el próximo checkout/pago crea una nueva.
@@ -4952,9 +4992,7 @@ async function main() {
     ecommerce_deposito_canal_web_id: depositoShowroom.id,
     cuenta_web_juan_perez: `${cuentaWebJuanPerez.email}  (password: "${PASSWORD_SEED}")`,
     cuenta_web_maria_gomez_pendiente: `${cuentaWebMariaGomez.email}  (vinculacion_pendiente)`,
-    conector_pago_sandbox: hayClaveCifrado
-      ? `${CONECTOR_PAGO_SANDBOX_ID}  (credenciales ${credencialesMpReales ? "MP_SANDBOX_* del entorno" : "FICTICIAS"})`
-      : "OMITIDO (sin ENCRYPTION_KEY_PROVEEDORES)",
+    conector_pago_sandbox: conectorSandboxResumen,
     hu_e2_pedido_pendiente_external_reference: `${PEDIDO_WEB_PAGO_PENDIENTE_IDS.ecommerce}  (V-2026-000004, Juan Pérez)`,
     cupones: "SWAT10 (vigente) · INVIERNO5000 (vencido) · LANZAMIENTO15 (agotado)",
     producto_web_no_visible: productoGorraTactica.nombre,

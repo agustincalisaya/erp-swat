@@ -45,15 +45,39 @@ test("crearConector cifra los 3 campos sensibles antes de llamar a Prisma", () =
   assert.match(cuerpo, /webhook_secret_cifrado: webhookSecret\.ciphertext/);
 });
 
-test("crearConector nace INACTIVO y valida unicidad ACTIVO por entorno dentro de la transacción", () => {
+// P-R5 (acordado con Rama el 2026-10-08): la unicidad "un único ACTIVO por
+// entorno" pasa del alta a la activación. Se pueden crear varios INACTIVO.
+test("crearConector nace INACTIVO y NO controla la unicidad (pueden coexistir varios INACTIVO)", () => {
   const cuerpo = fuente.slice(
     fuente.indexOf("export async function crearConector"),
+    fuente.indexOf("// R3.2 — Health-check"),
+  );
+  assert.match(cuerpo, /estado: "INACTIVO"/);
+  assert.doesNotMatch(cuerpo, /CONECTOR_ACTIVO_EXISTENTE/);
+  assert.doesNotMatch(cuerpo, /estado: "ACTIVO"/);
+  assert.doesNotMatch(cuerpo, /exigirSinOtroActivo/);
+});
+
+test("la activación exige que no haya OTRO Conector ACTIVO en el entorno → 409 CONECTOR_ACTIVO_EXISTENTE", () => {
+  const helper = fuente.slice(
+    fuente.indexOf("async function exigirSinOtroActivo"),
     fuente.indexOf("export async function ejecutarHealthCheck"),
   );
-  assert.match(cuerpo, /prisma\.\$transaction\(/);
-  assert.match(cuerpo, /entorno: input\.entorno, estado: "ACTIVO", is_active: true, deleted_at: null/);
-  assert.match(cuerpo, /estado: "INACTIVO"/);
-  assert.match(cuerpo, /throw new ServiceError\(\s*"CONECTOR_ACTIVO_EXISTENTE"/);
+  assert.match(helper, /entorno, estado: "ACTIVO", is_active: true, deleted_at: null, id: \{ not: conectorId \}/);
+  assert.match(helper, /throw new ServiceError\(\s*"CONECTOR_ACTIVO_EXISTENTE"/);
+
+  const cuerpo = fuente.slice(fuente.indexOf("export async function ejecutarHealthCheck"));
+  // Antes de llamar a MP (también cubre el primer paso de PRODUCCION)…
+  const idxPrevio = cuerpo.indexOf("await exigirSinOtroActivo(prisma, conector.entorno, conector.id)");
+  const idxHealth = cuerpo.indexOf("await healthCheck(");
+  assert.ok(idxPrevio > 0 && idxPrevio < idxHealth, "control previo antes del health-check");
+  // …y otra vez al activar, en una transacción con lock por entorno.
+  const idxTx = cuerpo.indexOf("prisma.$transaction(");
+  const idxLock = cuerpo.indexOf("pg_advisory_xact_lock(hashtext(${`conector_activo:${conector.entorno}`}))");
+  const idxRecheck = cuerpo.indexOf("await exigirSinOtroActivo(tx, conector.entorno, conector.id)");
+  const idxActivar = cuerpo.indexOf('data: { estado: "ACTIVO", ultimo_health_check_exitoso_at: ahora }');
+  assert.ok(idxTx > idxHealth, "la activación corre en una transacción");
+  assert.ok(idxTx < idxLock && idxLock < idxRecheck && idxRecheck < idxActivar, "lock → re-control → ACTIVO");
 });
 
 test("enmascararCredencial conserva prefijo y últimos 4 y nunca devuelve el valor completo", () => {

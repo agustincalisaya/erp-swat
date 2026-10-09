@@ -97,6 +97,7 @@ test(
       "ecommerce:pedido_admitido_cola",
       "ecommerce:pago_rechazado",
       "ecommerce:pago_anomalo",
+      "ecommerce:transaccion_pago_registrada",
     ] as const) {
       domainEventBus.on(nombre, (payload) => eventos.push({ nombre, payload: payload as unknown as Record<string, unknown> }));
     }
@@ -155,6 +156,20 @@ test(
         },
       });
 
+    // HU-E6 / P-R4 — filas de `TransaccionPagoLog` del pedido y su motivo.
+    const filasLog = (ecommerceId: string) =>
+      prisma.transaccionPagoLog.findMany({ where: { pedido_venta_ecommerce_id: ecommerceId }, orderBy: { created_at: "asc" } });
+    const motivoDe = (fila: { resultado_webhook: string }) =>
+      (JSON.parse(fila.resultado_webhook) as { motivo?: string }).motivo ?? null;
+    const resumenLog = async (ecommerceId: string) =>
+      (await filasLog(ecommerceId)).map((f) => [f.estado_pago, motivoDe(f)]);
+    // G11 escribe en un listener asíncrono post-commit: se espera a que aparezca.
+    async function esperarHasta(condicion: () => Promise<boolean>): Promise<void> {
+      for (let intento = 0; intento < 50 && !(await condicion()); intento++) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    }
+
     // ── CA5 / P2 — checkout con cupón: total neto calculado en el servidor ──
     await t.test("CA5 — checkout con cupón: total neto, CuponAplicacion sin confirmar y checkout_url", async () => {
       const cupon = await crearCupon(10);
@@ -191,6 +206,8 @@ test(
 
     // ── CA6 — aprobado ───────────────────────────────────────────────────────
     await t.test("CA6 — pago aprobado: VENDIDO + FACTURADO + Factura B + PAGO_CONFIRMADO + cupón consumido + evento", async () => {
+      // G11 se auto-registra desde `domain-event-bus.ts` (import dinámico).
+      await (await import("../../events/domain-event-bus.ts")).listenersRegistrados;
       const cupon = await crearCupon(10);
       const { articulo, iniciado } = await compra({ stock: 5, cantidad: 2, cupon });
       assert.equal(await stockShowroom(articulo.varianteId), 3);
@@ -231,6 +248,64 @@ test(
       assert.equal(despues.pedido_venta.medios_pago.length, 1);
       assert.equal(eventosDe("ecommerce:pedido_pago_confirmado", iniciado.pedido_venta_id).length, 1);
       assert.equal(eventosDe("ecommerce:pedido_admitido_cola", iniciado.pedido_venta_id).length, 1);
+
+      // HU-E6 — una sola fila APROBADO, sin motivo, con facturación cifrada.
+      const filas = await filasLog(iniciado.pedido_venta_ecommerce_id);
+      assert.deepEqual(filas.map((f) => [f.estado_pago, motivoDe(f)]), [["APROBADO", null]]);
+      assert.equal(filas[0].mercadopago_payment_id, pid);
+      assert.equal(filas[0].monto.toNumber(), 18000);
+      assert.ok(filas[0].datos_facturacion_cifrados.length > 0 && filas[0].datos_facturacion_iv.length > 0);
+      assert.doesNotMatch(filas[0].resultado_webhook, /dni|email|nombre/i, "sin datos de facturación en claro");
+      const transacciones = eventosDe("ecommerce:transaccion_pago_registrada", iniciado.pedido_venta_id);
+      assert.deepEqual(transacciones.map((e) => e.payload.estado_pago), ["APROBADO"]);
+
+      // HU-G11 — un solo IngresoTesoreria aunque llegaron dos notificaciones.
+      const ingresos = () => prisma.ingresoTesoreria.findMany({ where: { pedido_venta_id: iniciado.pedido_venta_id } });
+      await esperarHasta(async () => (await ingresos()).length > 0);
+      await pagoWeb.procesarNotificacionPago(pid, pasarela);
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      const registrados = await ingresos();
+      assert.equal(registrados.length, 1, "G11 idempotente ante notificaciones repetidas");
+      assert.equal(registrados[0].mercadopago_payment_id, pid);
+      assert.equal(registrados[0].monto.toNumber(), 18000);
+      assert.equal(registrados[0].fecha.toISOString(), p.fecha_pago_confirmado!.toISOString());
+    });
+
+    // ── P-R2 (task HU-E2-integracion §9) — reproceso G11 tras perder el evento ─
+    await t.test("P-R2 — reproceso G11 de un pedido EN_PREPARACION cuyo evento post-commit se perdió (R8)", async () => {
+      const [{ reprocesarIngresoWeb }, { listenersRegistrados }] = await Promise.all([
+        import("../tesoreria/ingreso-tesoreria.service.ts"),
+        import("../../events/domain-event-bus.ts"),
+      ]);
+      await listenersRegistrados;
+      const { iniciado } = await compra({ precio: 7000, cantidad: 1 });
+
+      // Riesgo R8: ningún consumidor recibe `pedido_pago_confirmado` (G11 incluido).
+      const evento = "ecommerce:pedido_pago_confirmado" as const;
+      const suscriptos = domainEventBus.listeners(evento);
+      domainEventBus.removeAllListeners(evento);
+      try {
+        const pid = pagoMp(iniciado.pedido_venta_ecommerce_id, "approved", 7000);
+        assert.equal((await pagoWeb.procesarNotificacionPago(pid, pasarela)).resultado, "CONFIRMADO");
+      } finally {
+        for (const listener of suscriptos) domainEventBus.on(evento, listener as never);
+      }
+
+      const p = await estadoPedido(iniciado.pedido_venta_id);
+      assert.equal(p.estado_ecommerce, "EN_PREPARACION");
+      assert.ok(p.fecha_pago_confirmado);
+      const ingresos = () => prisma.ingresoTesoreria.findMany({ where: { pedido_venta_id: iniciado.pedido_venta_id } });
+      assert.equal((await ingresos()).length, 0, "sin evento, G11 no registró el ingreso");
+
+      const registrado = await reprocesarIngresoWeb(iniciado.pedido_venta_id);
+      assert.ok(registrado, "un pedido EN_PREPARACION con fecha de pago se reprocesa");
+      assert.equal(registrado.mercadopago_payment_id, p.mercadopago_payment_id);
+      assert.equal(registrado.monto, "7000.00");
+      assert.equal(registrado.fecha, p.fecha_pago_confirmado.toISOString());
+
+      // Idempotente: reprocesar otra vez no crea una segunda fila.
+      assert.equal(await reprocesarIngresoWeb(iniciado.pedido_venta_id), null);
+      assert.equal((await ingresos()).length, 1);
     });
 
     await t.test("CA3 — dos notificaciones concurrentes del mismo pago: una sola confirmación", async () => {
@@ -248,16 +323,32 @@ test(
     await t.test("D-E2-5 — segundo pago aprobado (otro payment_id) → PAGO_DUPLICADO, sin efectos", async () => {
       const { iniciado } = await compra({ precio: 5000, cantidad: 1 });
       await pagoWeb.procesarNotificacionPago(pagoMp(iniciado.pedido_venta_ecommerce_id, "approved", 5000), pasarela);
-      const r = await pagoWeb.procesarNotificacionPago(pagoMp(iniciado.pedido_venta_ecommerce_id, "approved", 5000), pasarela);
+      const segundo = pagoMp(iniciado.pedido_venta_ecommerce_id, "approved", 5000);
+      const r = await pagoWeb.procesarNotificacionPago(segundo, pasarela);
       assert.equal(r.resultado, "ANOMALIA");
       assert.equal(r.motivo, "PAGO_DUPLICADO");
       assert.equal((await estadoPedido(iniciado.pedido_venta_id)).pedido_venta.comprobantes.length, 1);
+
+      // P-R4 — fila ANOMALIA del segundo pago; un reenvío de MP no agrega otra.
+      await pagoWeb.procesarNotificacionPago(segundo, pasarela);
+      assert.deepEqual(await resumenLog(iniciado.pedido_venta_ecommerce_id), [
+        ["APROBADO", null],
+        ["ANOMALIA", "PAGO_DUPLICADO"],
+      ]);
+      const anomala = (await filasLog(iniciado.pedido_venta_ecommerce_id))[1];
+      assert.equal(anomala.mercadopago_payment_id, segundo);
+      assert.ok(anomala.datos_facturacion_cifrados.length > 0);
+      assert.deepEqual(
+        eventosDe("ecommerce:transaccion_pago_registrada", iniciado.pedido_venta_id).map((e) => e.payload.estado_pago),
+        ["APROBADO", "ANOMALIA"],
+      );
     });
 
     // ── P13 ──────────────────────────────────────────────────────────────────
     await t.test("P13 — monto distinto: no confirma, no libera la reserva, evento de discrepancia", async () => {
       const { articulo, iniciado } = await compra({ precio: 5000, cantidad: 1, stock: 4 });
-      const r = await pagoWeb.procesarNotificacionPago(pagoMp(iniciado.pedido_venta_ecommerce_id, "approved", 4999.99), pasarela);
+      const pid = pagoMp(iniciado.pedido_venta_ecommerce_id, "approved", 4999.99);
+      const r = await pagoWeb.procesarNotificacionPago(pid, pasarela);
       assert.equal(r.resultado, "ANOMALIA");
       assert.equal(r.motivo, "MONTO_DISCREPANTE");
       const p = await estadoPedido(iniciado.pedido_venta_id);
@@ -268,6 +359,14 @@ test(
       assert.equal(await stockShowroom(articulo.varianteId), 3);
       const anomalo = eventos.find((e) => e.nombre === "ecommerce:pago_anomalo" && e.payload.pedido_venta_id === iniciado.pedido_venta_id);
       assert.equal(anomalo?.payload.monto_esperado, 5000);
+
+      // P-R4 — una fila ANOMALIA con el monto informado; dos reenvíos
+      // concurrentes de la misma notificación no agregan filas (lock por pago + motivo).
+      await Promise.all([pagoWeb.procesarNotificacionPago(pid, pasarela), pagoWeb.procesarNotificacionPago(pid, pasarela)]);
+      const filas = await filasLog(iniciado.pedido_venta_ecommerce_id);
+      assert.deepEqual(filas.map((f) => [f.estado_pago, motivoDe(f)]), [["ANOMALIA", "MONTO_DISCREPANTE"]]);
+      assert.equal(filas[0].mercadopago_payment_id, pid);
+      assert.equal(filas[0].monto.toNumber(), 4999.99);
     });
 
     // ── CA7 — rechazado ──────────────────────────────────────────────────────
@@ -305,9 +404,18 @@ test(
       assert.equal(await stockShowroom(articulo.varianteId), 3);
 
       // Q2 — un aprobado tardío sobre el pedido rechazado no se confirma.
-      const tardio = await pagoWeb.procesarNotificacionPago(pagoMp(iniciado.pedido_venta_ecommerce_id, "approved", 18000), pasarela);
+      const pidTardio = pagoMp(iniciado.pedido_venta_ecommerce_id, "approved", 18000);
+      const tardio = await pagoWeb.procesarNotificacionPago(pidTardio, pasarela);
       assert.equal(tardio.motivo, "PAGO_TARDIO");
       assert.equal((await estadoPedido(iniciado.pedido_venta_id)).estado_ecommerce, "PAGO_RECHAZADO");
+
+      // HU-E6 + P-R4 — RECHAZADO del primer pago y ANOMALIA del tardío; el
+      // reenvío del tardío no agrega otra fila.
+      await pagoWeb.procesarNotificacionPago(pidTardio, pasarela);
+      assert.deepEqual(await resumenLog(iniciado.pedido_venta_ecommerce_id), [
+        ["RECHAZADO", null],
+        ["ANOMALIA", "PAGO_TARDIO"],
+      ]);
     });
 
     await t.test("Q2 — aprobado con la reserva vencida (aunque no liberada) → PAGO_TARDIO, nada se confirma", async () => {
@@ -317,11 +425,16 @@ test(
         where: { id: { in: items.map((i) => i.reserva_id!) } },
         data: { fecha_expiracion: new Date(Date.now() - 60_000) },
       });
-      const r = await pagoWeb.procesarNotificacionPago(pagoMp(iniciado.pedido_venta_ecommerce_id, "approved", 5000), pasarela);
+      const pid = pagoMp(iniciado.pedido_venta_ecommerce_id, "approved", 5000);
+      const r = await pagoWeb.procesarNotificacionPago(pid, pasarela);
       assert.equal(r.motivo, "PAGO_TARDIO");
       const p = await estadoPedido(iniciado.pedido_venta_id);
       assert.equal(p.estado_ecommerce, "PAGO_PENDIENTE");
       assert.equal(p.pedido_venta.comprobantes.length, 0);
+
+      // P-R4 — una sola fila ANOMALIA aunque MP reenvíe la notificación.
+      await pagoWeb.procesarNotificacionPago(pid, pasarela);
+      assert.deepEqual(await resumenLog(iniciado.pedido_venta_ecommerce_id), [["ANOMALIA", "PAGO_TARDIO"]]);
     });
 
     // HU-E4 (spec E §2.4.b): la reserva del primer checkout ocupa el único
@@ -343,9 +456,33 @@ test(
     });
 
     await t.test("D-E2-6 — pago huérfano (sin external_reference o pedido inexistente) → ANOMALIA", async () => {
-      assert.equal((await pagoWeb.procesarNotificacionPago(pagoMp(null, "approved", 100), pasarela)).motivo, "PAGO_HUERFANO");
-      assert.equal((await pagoWeb.procesarNotificacionPago(pagoMp(randomUUID(), "approved", 100), pasarela)).motivo, "PAGO_HUERFANO");
+      const sinReferencia = pagoMp(null, "approved", 100);
+      const pedidoInexistente = pagoMp(randomUUID(), "approved", 100);
+      assert.equal((await pagoWeb.procesarNotificacionPago(sinReferencia, pasarela)).motivo, "PAGO_HUERFANO");
+      assert.equal((await pagoWeb.procesarNotificacionPago(pedidoInexistente, pasarela)).motivo, "PAGO_HUERFANO");
       assert.equal((await pagoWeb.procesarNotificacionPago("no-existe-en-mp", pasarela)).resultado, "SIN_EFECTO");
+      // P-R4 — sin fila: no hay pedido y la FK es obligatoria (queda en WebhookPagoLog + AuditLog).
+      assert.equal(
+        await prisma.transaccionPagoLog.count({ where: { mercadopago_payment_id: { in: [sinReferencia, pedidoInexistente] } } }),
+        0,
+      );
+    });
+
+    // Opción (a): el pago SÍ se aplica; solo su fila APROBADO, con el motivo.
+    // Con la capacidad C + P de E4 solo pasa con datos previos a E4: se simula
+    // bajando el límite del cupón a 0 después del checkout.
+    await t.test("CUPON_LIMITE_EXCEDIDO — confirma y deja solo la fila APROBADO con el motivo (sin fila ANOMALIA)", async () => {
+      const cupon = await crearCupon(10, 5);
+      const { iniciado } = await compra({ precio: 10000, cantidad: 1, cupon });
+      await prisma.cuponDescuento.update({ where: { codigo: cupon }, data: { limite_uso_global: 0 } });
+
+      const r = await pagoWeb.procesarNotificacionPago(pagoMp(iniciado.pedido_venta_ecommerce_id, "approved", 9000), pasarela);
+      assert.equal(r.resultado, "CONFIRMADO");
+      const anomalo = eventos.find(
+        (e) => e.nombre === "ecommerce:pago_anomalo" && e.payload.pedido_venta_id === iniciado.pedido_venta_id,
+      );
+      assert.equal(anomalo?.payload.motivo, "CUPON_LIMITE_EXCEDIDO");
+      assert.deepEqual(await resumenLog(iniciado.pedido_venta_ecommerce_id), [["APROBADO", "CUPON_LIMITE_EXCEDIDO"]]);
     });
   },
 );

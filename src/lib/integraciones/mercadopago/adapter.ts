@@ -195,7 +195,8 @@ export async function iniciarCobro(input: IniciarCobroInput): Promise<CobroInici
       },
     ],
     external_reference: input.external_reference,
-    notification_url: input.notification_url,
+    // Sin `notification_url`: los avisos llegan solo por la URL del panel de Webhooks de MP,
+    // los únicos firmados con la clave secreta del panel (los de `notification_url` no validan).
     back_urls: input.back_urls,
     auto_return: "approved",
     binary_mode: true,
