@@ -18,7 +18,7 @@ Permitir que el Cliente Web complete el pago online de su pedido mediante Mercad
 **Implementado:**
 
 - **CA1 — Pago íntegro en Mercado Pago:** Checkout Pro con una preferencia por pedido (`external_reference` = `PedidoVentaEcommerce.id`); la tarjeta se carga en Mercado Pago. SWAT solo persiste `mercadopago_preference_id`, `mercadopago_checkout_url` y `mercadopago_payment_id`.
-- **CA2 — Webhook autenticado:** `POST /api/webhooks/mercadopago` valida `x-signature` + `x-request-id` contra la clave secreta del Conector `ACTIVO`; una firma inválida o ausente responde `401 FIRMA_INVALIDA` sin procesar ni registrar nada.
+- **CA2 — Webhook autenticado:** `POST /api/webhooks/mercadopago` valida `x-signature` + `x-request-id` contra la clave secreta del Conector `ACTIVO`; una firma inválida o ausente responde `401 FIRMA_INVALIDA` sin procesar ni registrar nada. Excepciones: los avisos en formato IPN (`?id=…&topic=…`, sin `type`) responden `200 SIN_EFECTO` sin procesar y solo dejan traza; y **solo en SANDBOX**, un aviso de pago con HMAC distinto se procesa igual (ver "Limitación de Mercado Pago con cuentas de prueba" en deuda técnica).
 - **CA3 — Idempotencia:** transición condicionada `UPDATE … WHERE estado_ecommerce = 'PAGO_PENDIENTE'` como guarda de negocio, más `mercadopago_payment_id @unique`. Una notificación repetida o concurrente nunca genera una segunda confirmación.
 - **CA4 — Pedido de Venta del Módulo B:** `PedidoVenta` con `canal = WEB`, registrado por el usuario de sistema `canal.web.sistema`, sin turno de caja (`turno_caja_id = null`) ni intervención de un Cajero POS.
 - **CA5 — Importe del servidor:** el total sale de los precios congelados al iniciar el checkout (HU-B9) menos el cupón (HU-E4); el body del checkout solo admite `cupon_codigo` (un body con `total` o `monto` responde `400`). Al confirmar, el monto informado por Mercado Pago debe coincidir centavo a centavo con `PedidoVenta.total` y la moneda debe ser `ARS`.
@@ -233,13 +233,13 @@ Permite pagar en línea un pedido de la tienda web mediante Mercado Pago. Al ini
 
 ## Verificación
 
-**Resultados de la última corrida** (2026-10-08, rama `feature/HU-E2-integracion`, base descartable `swat_erp_test_e2` recreada y sembrada; nunca sobre la base de desarrollo):
+**Resultados de la última corrida** (2026-10-08, rama `feature/HU-E2-integracion`, base descartable `swat_erp_test_e2`, nunca sobre la base de desarrollo; regresión final después de quitar el log temporal de diagnóstico, sin recrear la base: `tsc`, lint, unitarios, `e2` y `hu-e2-e12`; el resto de las filas son de la corrida anterior con la base recreada y sembrada):
 
 | Corrida | Resultado |
 |---|---|
 | `npx tsc --noEmit` | 0 errores |
 | `npm run lint` | 0 errores, 4 warnings preexistentes (ajenos a E2) |
-| `npm test` (unitarios) | 806/809. Las 3 fallas son preexistentes y de otros owners (ver deuda técnica) |
+| `npm test` (unitarios) | 812/815. Las 3 fallas son preexistentes y de otros owners (ver deuda técnica) |
 | `test:integration:e2` | 13/13 |
 | `hu-e2-e12.integration.test.ts` (HU-E12, sin script npm) | 12/12 |
 | `test:integration:e1` / `e1-http` | 21/21 / 15/15 |
@@ -249,7 +249,24 @@ Permite pagar en línea un pedido de la tienda web mediante Mercado Pago. Al ini
 
 `test:integration:e2` cubre: checkout con cupón (total neto, `CuponAplicacion` sin confirmar, misma preferencia en el reintento); cupón inexistente; confirmación completa (stock, Factura B, `EN_PREPARACION`, eventos, `TransaccionPagoLog` `APROBADO` cifrado e `IngresoTesoreria` único ante notificaciones repetidas); reproceso de G11 de un pedido `EN_PREPARACION` sin ingreso; dos notificaciones concurrentes del mismo pago; pago duplicado, monto distinto (con reenvíos concurrentes) y pagos tardíos, cada uno con una sola fila `ANOMALIA`; rechazo completo (fila `RECHAZADO`, carrito reconstruido, preferencia cerrada, nuevo checkout); límite del cupón con dos checkouts; pago huérfano sin fila; y `CUPON_LIMITE_EXCEDIDO` con solo la fila `APROBADO`.
 
-**Casos probados manualmente:** los escenarios de la guía de Postman (aprobado, duplicado, firma alterada, monto distinto, rechazado, pago tardío) se ejecutaron el 2026-10-01 como prueba HTTP sobre un `next dev` temporal contra la base de test, con `MP_MODO=simulado` (registro de `docs/tasks/HU-E2.md` §8). La ejecución por el owner en Postman sobre la versión integrada: (a confirmar). La prueba contra Mercado Pago sandbox real con credenciales válidas: pendiente.
+**Casos probados manualmente:** los escenarios de la guía de Postman (aprobado, duplicado, firma alterada, monto distinto, rechazado, pago tardío) se ejecutaron el 2026-10-01 como prueba HTTP sobre un `next dev` temporal contra la base de test, con `MP_MODO=simulado` (registro de `docs/tasks/HU-E2.md` §8). La ejecución por el owner en Postman sobre la versión integrada: (a confirmar). La prueba contra Mercado Pago sandbox real: **aprobada el 2026-10-08** (detalle abajo).
+
+**Prueba en Mercado Pago sandbox real (2026-10-08, OK).** Sobre `swat_erp_db` local con `MP_MODO` vacío y túnel ngrok. El Conector `SANDBOX` tenía las credenciales `APP_USR-` de la cuenta vendedor de prueba y la clave secreta del panel, y el health-check dio OK. El webhook estaba configurado en el panel de MP (modo de prueba y productivo, evento Pagos) y la preferencia no envía `notification_url`. Se pagó con el comprador de prueba y una tarjeta de prueba aprobada (`APRO`).
+- Los avisos IPN (`topic=payment` y `topic=merchant_order`) respondieron `200 SIN_EFECTO` con su traza.
+- Los avisos `data.id` + `type=payment` llegaron con HMAC distinto (limitación de MP con cuentas de prueba) y se procesaron por el fallback SANDBOX: `200 CONFIRMADO`.
+- "Simular notificación" del panel pasó la firma (`200 SIN_EFECTO`, pago inexistente `123456`).
+- Pagos confirmados y estado de la base después de la prueba:
+
+| Tabla | `182164365927` → V-2026-000018 | `183171107114` → V-2026-000015 |
+|---|---|---|
+| `log_webhooks_pago` | `FIRMA_NO_VERIFICADA_SANDBOX` + `CONFIRMADO` | `FIRMA_NO_VERIFICADA_SANDBOX` + `CONFIRMADO` (antes: una fila `SIN_EFECTO` de su aviso IPN) |
+| `pedidos_venta_ecommerce` | `EN_PREPARACION`, `fecha_pago_confirmado` 2026-10-08 23:57:01 | `EN_PREPARACION`, `fecha_pago_confirmado` 2026-10-08 23:07:57 |
+| `pedidos_venta` | `FACTURADO`, total 22800.00 | `FACTURADO`, total 22800.00 |
+| `comprobantes_fiscales` | 1 `FACTURA_B` | 1 `FACTURA_B` |
+| `log_transacciones_pago` | 1 `APROBADO` | 1 `APROBADO` |
+| `ingresos_tesoreria` | 1 `PENDIENTE_CONCILIACION` | 1 `PENDIENTE_CONCILIACION` |
+
+El caso rechazado (`OTHE`) no se probó en sandbox real; está cubierto por `test:integration:e2` y por la prueba con el simulador.
 
 ### Guía de prueba con el simulador (Postman + mp:firmar)
 
@@ -285,14 +302,15 @@ npm run dev
 
 1. En Mercado Pago Developers: crear una aplicación (Checkout Pro), obtener las **credenciales de prueba** (Access Token y Public Key) y crear **usuarios de prueba** (vendedor y comprador).
 2. Exponer la app con un túnel HTTPS (`ngrok http 3000` o `cloudflared tunnel --url http://localhost:3000`).
-3. En Mercado Pago → la aplicación → **Webhooks** (modo de prueba): URL `https://<túnel>/api/webhooks/mercadopago`, evento **Pagos**; copiar la **clave secreta**.
-4. `.env`: `APP_PUBLIC_URL=https://<túnel>`, **`MP_MODO` vacío** y `ENCRYPTION_KEY_PROVEEDORES` definida (no cambiarla después de cargar credenciales). Reiniciar `npm run dev`.
+3. En Mercado Pago → la aplicación → **Webhooks**, en **modo de prueba y en modo productivo**: URL `https://<túnel>/api/webhooks/mercadopago`, evento **Pagos**; copiar la **clave secreta**. Es la **única** vía de notificación: la preferencia no envía `notification_url`, porque los avisos que llegan por ella no firman con la clave del panel (comprobado en sandbox: `401` por HMAC distinto). Con cuentas de prueba los pagos llegan con `live_mode: true`, por eso hace falta también la URL de modo productivo.
+4. `.env`: `APP_PUBLIC_URL=https://<túnel>` (solo para las `back_urls`), **`MP_MODO` vacío** y `ENCRYPTION_KEY_PROVEEDORES` definida (no cambiarla después de cargar credenciales). Reiniciar `npm run dev`.
 5. Cargar las credenciales en el Conector:
    - **Base existente:** en `/administracion/integraciones` (rol `ADMINISTRADOR_PLATAFORMA`, permiso `integraciones:administrar_conector`): dar de baja el Conector sembrado → alta de un Conector `SANDBOX` con Access Token, Public Key y clave secreta (nace `INACTIVO`) → **health-check** (lo activa; si todavía hay otro `ACTIVO` en `SANDBOX` responde `409 CONECTOR_ACTIVO_EXISTENTE`). Volver a sembrar después es seguro: el seed no toca el Conector nuevo ni reactiva el sembrado.
    - **Base nueva:** alternativamente, cargar `MP_SANDBOX_ACCESS_TOKEN`, `MP_SANDBOX_PUBLIC_KEY` y `MP_SANDBOX_WEBHOOK_SECRET` en el `.env` antes del **primer** `npx prisma db seed`.
 6. Navegar la tienda por la URL del túnel, iniciar la compra, "Pagar con Mercado Pago" y pagar con el usuario comprador de prueba y las tarjetas de prueba de Mercado Pago (el nombre del titular define el resultado: `APRO` aprobado, `OTHE` rechazado).
-7. Si la URL del túnel cambia: actualizar `APP_PUBLIC_URL` y el webhook en Mercado Pago. Las preferencias ya creadas conservan la URL anterior; iniciar una compra nueva.
-8. Control: `invocaciones_conector_pago` (cada llamada real a Mercado Pago) y `log_webhooks_pago` (cada notificación con firma válida). Si llegan dos notificaciones por pago (la del panel y la de `notification_url`), la idempotencia por transición las absorbe; que ambas lleguen firmadas con la clave del panel: (a confirmar).
+7. Si la URL del túnel cambia: actualizar `APP_PUBLIC_URL` y la URL del webhook en el panel de Mercado Pago (ambos modos). Las preferencias ya creadas conservan las `back_urls` anteriores; iniciar una compra nueva.
+8. **Firma de los pagos reales (limitación de MP):** con cuentas de prueba de Checkout Pro, MP firma los avisos de pagos reales con la clave del usuario **vendedor de prueba**, que no tiene acceso al panel de Webhooks; la clave cargada en el Conector (la del panel de la cuenta real) no la reproduce y el HMAC no coincide, aunque el manifest y los headers sean correctos. "Simular notificación" del panel sí pasa la firma. Por eso, **solo con el Conector `SANDBOX`**, un aviso `?data.id=…&type=payment` con `x-signature` y `x-request-id` presentes y `ts` dentro de la ventana pero **HMAC distinto** se procesa igual: `console.warn` en el servidor y una fila `FIRMA_NO_VERIFICADA_SANDBOX` en `log_webhooks_pago` (además de la fila del resultado normal). El pago se valida igual contra la API de MP (`consultarPago`: `external_reference` y monto). Faltan headers, formato inválido o `ts` fuera de ventana → `401` también en SANDBOX. En PRODUCCION no hay excepción.
+9. Control: `invocaciones_conector_pago` (cada llamada real a Mercado Pago) y `log_webhooks_pago` (cada notificación con firma válida, más los avisos en formato IPN). Los avisos en formato IPN (`?id=…&topic=payment|merchant_order`, sin `type`) responden `200 SIN_EFECTO` sin validar firma ni procesar, y dejan una fila `SIN_EFECTO` con su `topic`; así Mercado Pago no los reintenta. Solo se procesa el formato webhook (`?data.id=…&type=payment`) con firma válida.
 
 ### Recetas de tests de integración
 
@@ -372,4 +390,5 @@ La entrega original (2026-10-01) incluyó mínimos provisorios de HU-F1, HU-E4 y
   - **Emir (HU-E3):** dos tests de fuente de `pedido-venta.service.test.ts` (líneas 151 y 157) fallan en Windows por buscar un salto de línea `\n` en un archivo con CRLF.
   - **Emir (HU-E12):** `hu-e2-e12.integration.test.ts` no tiene script en `package.json` y su receta apunta a otro contenedor y puerto.
   - **Cali (HU-F3):** el test `notificacion.service.test.ts:93` no incluye `ecommerce:pedido_listo_para_retiro`, y el comentario de `prisma/seed.ts` sobre las plantillas indica que la de `pedido_pago_confirmado` no se siembra, aunque sí se siembra.
-- **Prueba en sandbox real pendiente:** no se probó todavía contra Mercado Pago con credenciales de prueba válidas y un túnel.
+- **Limitación de Mercado Pago con cuentas de prueba (fallback de firma SOLO SANDBOX):** MP firma los webhooks de pagos reales de cuentas de prueba con la clave del usuario vendedor de prueba, inaccesible desde el panel; el HMAC nunca coincide con la clave del Conector. `decidirFirmaWebhook()` (`firma.ts`) acepta en SANDBOX un aviso de pago con HMAC distinto (solo esa causa) y lo deja trazado como `FIRMA_NO_VERIFICADA_SANDBOX`; la autenticidad del pago descansa en la consulta a la API de MP. Consecuencia: en SANDBOX cualquiera que conozca la URL puede forzar consultas a MP por un `payment_id` (sin efectos si el pago no es de un pedido nuestro o el monto no coincide). En PRODUCCION la firma es obligatoria y **no se pudo probar con un pago real** hasta tener credenciales productivas: hay que verificar en la primera venta real que los avisos firmen con la clave del panel. Tests: `firma.test.ts` (decisión por entorno y causa).
+- **Prueba en sandbox real:** el pago aprobado se probó el 2026-10-08 (ver Verificación). El rechazado (`OTHE`) quedó sin probar contra MP real. La firma en PRODUCCION queda por verificar con la primera venta real.

@@ -110,7 +110,7 @@ async function bloquearPedidoVentaParaPago(
 // Preferencia de Checkout Pro
 // ──────────────────────────────────────────────────────────────────────────────
 
-/** Base pública para `notification_url`/`back_urls` (P16). */
+/** Base pública para las `back_urls` (P16). El webhook se configura en el panel de MP. */
 function urlPublica(): string {
   const base = process.env.APP_PUBLIC_URL?.trim().replace(/\/+$/, "");
   if (!base) {
@@ -161,7 +161,6 @@ export async function obtenerOCrearPreferencia(pedidoVentaEcommerceId: string): 
     monto: pedido.pedido_venta.total.toNumber(),
     moneda: MONEDA_CANAL_WEB,
     expiracion,
-    notification_url: `${base}/api/webhooks/mercadopago`,
     back_urls: { success: retorno, failure: retorno, pending: retorno },
   });
 
@@ -915,7 +914,7 @@ export async function registrarTrazaWebhook(
   paymentId: string,
   topic: string,
   requestId: string | null,
-  resultado: ResultadoNotificacion | "ERROR",
+  resultado: ResultadoNotificacion | "ERROR" | "FIRMA_NO_VERIFICADA_SANDBOX",
 ): Promise<void> {
   try {
     await prisma.webhookPagoLog.create({

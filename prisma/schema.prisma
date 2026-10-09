@@ -2553,7 +2553,8 @@ model WebhookPagoLog {
   topic                  String
   /// Header `x-request-id` de la notificación (null en filas previas a HU-E2).
   request_id             String?
-  /// CONFIRMADO | RECHAZADO | PENDIENTE | SIN_EFECTO | ANOMALIA | ERROR.
+  /// CONFIRMADO | RECHAZADO | PENDIENTE | SIN_EFECTO | ANOMALIA | ERROR |
+  /// FIRMA_NO_VERIFICADA_SANDBOX (aviso de pago aceptado sin firma válida, solo SANDBOX).
   /// `RECIBIDO` para las filas previas a HU-E2.
   resultado              String  @default("RECIBIDO")
 
