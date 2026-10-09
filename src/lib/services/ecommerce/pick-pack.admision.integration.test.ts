@@ -133,32 +133,37 @@ test(
 
     await fixtureBase();
 
-    await t.test("admite PAGO_CONFIRMADO con fecha → EN_PREPARACION", async () => {
+    await t.test("admite PAGO_CONFIRMADO en cola sin iniciar preparación", async () => {
       const pedidoId = await crearPedidoWeb({ estado_ecommerce: "PAGO_CONFIRMADO", fecha_pago: new Date() });
       const resultado = await prisma.$transaction(async (tx) =>
         admitirPedidoPagoConfirmado(tx, pedidoId),
       );
       assert.equal(resultado.transicion_realizada, true);
       const ext = await prisma.pedidoVentaEcommerce.findUnique({ where: { pedido_venta_id: pedidoId } });
-      assert.equal(ext?.estado_ecommerce, "EN_PREPARACION");
+      assert.equal(ext?.estado_ecommerce, "PAGO_CONFIRMADO");
+      assert.equal(ext?.operador_asignado_id, null);
+      assert.equal(resultado.evento_pendiente?.payload.estado_nuevo, "PAGO_CONFIRMADO");
     });
 
-    await t.test("es idempotente si ya está EN_PREPARACION", async () => {
-      const pedidoId = await crearPedidoWeb({ estado_ecommerce: "EN_PREPARACION", fecha_pago: new Date() });
+    await t.test("repetición conserva el evento lógico estable y PAGO_CONFIRMADO", async () => {
+      const pedidoId = await crearPedidoWeb({ estado_ecommerce: "PAGO_CONFIRMADO", fecha_pago: new Date() });
       const r1 = await prisma.$transaction(async (tx) => admitirPedidoPagoConfirmado(tx, pedidoId));
       const r2 = await prisma.$transaction(async (tx) => admitirPedidoPagoConfirmado(tx, pedidoId));
-      assert.equal(r1.transicion_realizada, false);
-      assert.equal(r2.transicion_realizada, false);
+      assert.equal(r1.evento_pendiente?.payload.evento_id, r2.evento_pendiente?.payload.evento_id);
+      assert.equal((await prisma.pedidoVentaEcommerce.findUniqueOrThrow({
+        where: { pedido_venta_id: pedidoId },
+      })).estado_ecommerce, "PAGO_CONFIRMADO");
     });
 
-    await t.test("idempotente aunque EN_PREPARACION ya tenga operador asignado", async () => {
+    await t.test("no reinterpreta un pedido legacy EN_PREPARACION", async () => {
       const pedidoId = await crearPedidoWeb({ estado_ecommerce: "EN_PREPARACION", fecha_pago: new Date() });
-      await prisma.pedidoVentaEcommerce.update({
+      await assert.rejects(
+        () => prisma.$transaction(async (tx) => admitirPedidoPagoConfirmado(tx, pedidoId)),
+        (error: unknown) => error instanceof ServiceError && error.code === "PEDIDO_NO_ADMITIBLE",
+      );
+      assert.equal((await prisma.pedidoVentaEcommerce.findUniqueOrThrow({
         where: { pedido_venta_id: pedidoId },
-        data: { operador_asignado_id: operadorId },
-      });
-      const r = await prisma.$transaction(async (tx) => admitirPedidoPagoConfirmado(tx, pedidoId));
-      assert.equal(r.transicion_realizada, false);
+      })).estado_ecommerce, "EN_PREPARACION");
     });
 
     await t.test("rechaza PAGO_CONFIRMADO sin fecha_pago_confirmado", async () => {

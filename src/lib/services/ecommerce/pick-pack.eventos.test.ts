@@ -216,7 +216,7 @@ test(
     await fixtureBase();
 
     await t.test("eventos: toma nueva emite exactamente un evento", async () => {
-      const { pedidoId } = await crearPedido({ estado_ecommerce: "EN_PREPARACION" });
+      const { pedidoId } = await crearPedido({ estado_ecommerce: "PAGO_CONFIRMADO" });
       const { eventos, off } = capturar<EcommercePedidoTomadoPayload>("ecommerce:pedido_tomado");
       try {
         await tomarPedido(pedidoId, operador1Id);
@@ -232,7 +232,7 @@ test(
     });
 
     await t.test("eventos: retry de toma no emite evento", async () => {
-      const { pedidoId } = await crearPedido({ estado_ecommerce: "EN_PREPARACION" });
+      const { pedidoId } = await crearPedido({ estado_ecommerce: "PAGO_CONFIRMADO" });
       await tomarPedido(pedidoId, operador1Id);
       const { eventos, off } = capturar<EcommercePedidoTomadoPayload>("ecommerce:pedido_tomado");
       try {
@@ -244,7 +244,7 @@ test(
     });
 
     await t.test("eventos: conflicto de toma no emite evento", async () => {
-      const { pedidoId } = await crearPedido({ estado_ecommerce: "EN_PREPARACION" });
+      const { pedidoId } = await crearPedido({ estado_ecommerce: "PAGO_CONFIRMADO" });
       await tomarPedido(pedidoId, operador1Id);
       const { eventos, off } = capturar<EcommercePedidoTomadoPayload>("ecommerce:pedido_tomado");
       try {
@@ -527,12 +527,15 @@ test(
       }
     });
 
-    await t.test("eventos: admisión idempotente no devuelve evento pendiente", async () => {
+    await t.test("eventos: admisión repetida conserva identidad estable sin mutar estado", async () => {
       const { pedidoId } = await crearPedido({ estado_ecommerce: "PAGO_CONFIRMADO" });
-      await prisma.$transaction(async (tx) => admitirPedidoPagoConfirmado(tx, pedidoId));
-      const r = await prisma.$transaction(async (tx) => admitirPedidoPagoConfirmado(tx, pedidoId));
-      assert.equal(r.transicion_realizada, false);
-      assert.equal(r.evento_pendiente, undefined);
+      const r1 = await prisma.$transaction(async (tx) => admitirPedidoPagoConfirmado(tx, pedidoId));
+      const r2 = await prisma.$transaction(async (tx) => admitirPedidoPagoConfirmado(tx, pedidoId));
+      assert.equal(r1.evento_pendiente?.payload.evento_id, r2.evento_pendiente?.payload.evento_id);
+      assert.equal(r2.evento_pendiente?.payload.estado_nuevo, "PAGO_CONFIRMADO");
+      assert.equal((await prisma.pedidoVentaEcommerce.findUniqueOrThrow({
+        where: { pedido_venta_id: pedidoId },
+      })).estado_ecommerce, "PAGO_CONFIRMADO");
     });
 
     await t.test("eventos: rollback externo no emite nada desde E12", async () => {

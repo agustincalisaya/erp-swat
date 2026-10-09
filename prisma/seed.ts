@@ -3557,6 +3557,7 @@ async function main() {
     ["ECOMMERCE_CUENTA_WEB_MAX_INTENTOS", "5", "Intentos fallidos antes de bloquear temporalmente una cuenta web (HU-E8)", "E"],
     ["ECOMMERCE_CUENTA_WEB_BLOQUEO_MINUTOS", "15", "Duración en minutos del bloqueo temporal de una cuenta web (HU-E8)", "E"],
     ["ECOMMERCE_PLAZO_RETIRO_DIAS", "10", "Días desde LISTO_PARA_RETIRO hasta VENCIDO_SIN_RETIRO (HU-E13)", "E"],
+    ["ECOMMERCE_RECORDATORIO_RETIRO_HORAS", "24", "Horas de antelación para recordar el retiro de pedidos Click & Collect (HU-E13)", "E"],
     ["ECOMMERCE_CARRITO_ABANDONADO_DIAS", "7", "Días sin actividad (carritos_web.updated_at) tras los que un carrito web se da de baja lógica por abandono (HU-E5; valor 7 pendiente de validar con el PO)", "E"],
     ["ECOMMERCE_FOTOS_MAX_POR_PRODUCTO", "8", "Cantidad máxima de fotos activas por contenido web (HU-E11; valor 8 pendiente de validar con el PO)", "E"],
     ["ECOMMERCE_FOTO_TAMANO_MAX_MB", "5", "Tamaño máximo por foto del catálogo web, en MB de 1024 × 1024 bytes (HU-E11; valor 5 pendiente de validar con el PO)", "E"],

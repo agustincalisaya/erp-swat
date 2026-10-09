@@ -154,7 +154,7 @@ test(
     const eventosDe = (nombre: string, pedidoVentaId: string) =>
       eventos.filter((e) => e.nombre === nombre && e.payload.pedido_venta_id === pedidoVentaId);
 
-    await t.test("pago aprobado → PAGO_CONFIRMADO + EN_PREPARACION + ambos eventos", async () => {
+    await t.test("pago aprobado → PAGO_CONFIRMADO visible en cola + ambos eventos", async () => {
       const { iniciado } = await compra({ precio: 8000, cantidad: 1 });
       const pid = pagoMp(iniciado.pedido_venta_ecommerce_id, "approved", 8000);
 
@@ -162,7 +162,7 @@ test(
       assert.equal(r.resultado, "CONFIRMADO");
 
       const p = await estadoPedido(iniciado.pedido_venta_id);
-      assert.equal(p.estado_ecommerce, "EN_PREPARACION");
+      assert.equal(p.estado_ecommerce, "PAGO_CONFIRMADO");
       assert.equal(p.mercadopago_payment_id, pid);
       assert.equal(p.operador_asignado_id, null);
       assert.ok(p.fecha_pago_confirmado);
@@ -175,8 +175,16 @@ test(
       assert.equal(eventosDe("ecommerce:pedido_pago_confirmado", iniciado.pedido_venta_id).length, 1);
       const admisiones = eventosDe("ecommerce:pedido_admitido_cola", iniciado.pedido_venta_id);
       assert.equal(admisiones.length, 1);
-      assert.equal(admisiones[0].payload.estado_nuevo, "EN_PREPARACION");
+      assert.equal(admisiones[0].payload.estado_nuevo, "PAGO_CONFIRMADO");
       assert.equal(admisiones[0].payload.actor_id, null);
+      let pendiente: Awaited<ReturnType<typeof pickPack.listarColaPreparacion>>["items"][number] | undefined;
+      for (let page = 1; !pendiente && page <= 20; page++) {
+        const cola = await pickPack.listarColaPreparacion({ page, page_size: 100 });
+        pendiente = cola.items.find((item) => item.pedido_venta_id === iniciado.pedido_venta_id);
+        if (page * cola.page_size >= cola.total) break;
+      }
+      assert.equal(pendiente?.estado_ecommerce, "PAGO_CONFIRMADO");
+      assert.equal(pendiente?.operador_asignado_id, null);
     });
 
     await t.test("fecha de aprobación: fallback cuando MP no envía date_approved", async () => {
@@ -199,7 +207,7 @@ test(
       assert.equal(r2.resultado, "SIN_EFECTO");
 
       const p = await estadoPedido(iniciado.pedido_venta_id);
-      assert.equal(p.estado_ecommerce, "EN_PREPARACION");
+      assert.equal(p.estado_ecommerce, "PAGO_CONFIRMADO");
       assert.equal(p.pedido_venta.comprobantes.length, 1);
       assert.equal(p.pedido_venta.medios_pago.length, 1);
       assert.equal(eventosDe("ecommerce:pedido_pago_confirmado", iniciado.pedido_venta_id).length, 1);
@@ -217,7 +225,7 @@ test(
       assert.deepEqual([r1.resultado, r2.resultado].sort(), ["CONFIRMADO", "SIN_EFECTO"]);
 
       const p = await estadoPedido(iniciado.pedido_venta_id);
-      assert.equal(p.estado_ecommerce, "EN_PREPARACION");
+      assert.equal(p.estado_ecommerce, "PAGO_CONFIRMADO");
       assert.equal(p.pedido_venta.comprobantes.length, 1);
       assert.equal(eventosDe("ecommerce:pedido_pago_confirmado", iniciado.pedido_venta_id).length, 1);
       assert.equal(eventosDe("ecommerce:pedido_admitido_cola", iniciado.pedido_venta_id).length, 1);
@@ -286,7 +294,7 @@ test(
         assert.equal(r.resultado, "CONFIRMADO");
 
         const p = await estadoPedido(iniciado.pedido_venta_id);
-        assert.equal(p.estado_ecommerce, "EN_PREPARACION");
+        assert.equal(p.estado_ecommerce, "PAGO_CONFIRMADO");
         assert.ok(p.fecha_pago_confirmado);
         assert.equal(eventosDe("ecommerce:pedido_admitido_cola", iniciado.pedido_venta_id).length, 1);
       } finally {
@@ -306,7 +314,7 @@ test(
         assert.equal(r.resultado, "CONFIRMADO");
 
         const p = await estadoPedido(iniciado.pedido_venta_id);
-        assert.equal(p.estado_ecommerce, "EN_PREPARACION");
+        assert.equal(p.estado_ecommerce, "PAGO_CONFIRMADO");
         assert.ok(p.fecha_pago_confirmado);
       } finally {
         domainEventBus.off("ecommerce:pedido_admitido_cola" as never, throwing as never);

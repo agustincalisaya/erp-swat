@@ -197,3 +197,41 @@ export function sumarDiasCalendarioNegocio(instante: Date, dias: number): Date {
   const conDiasSumados = addDays(tiempoArgentino, dias);
   return new Date(conDiasSumados.getTime() - OFFSET_ARGENTINA_MS);
 }
+
+/**
+ * Formateo de PRESENTACIÓN determinista (hydration SSR ↔ navegador, T19 HU-E13).
+ *
+ * `Intl.DateTimeFormat` sin `timeZone` usa la zona del runtime (el servidor y
+ * el navegador pueden diferir), y `dateStyle`/`timeStyle` delegan el texto
+ * ("oct", "p. m." con espacios especiales) a los datos ICU de cada runtime.
+ * Acá la zona es la del negocio, el locale es-AR, el reloj de 24 h, y el texto
+ * se arma desde las partes numéricas: mismo resultado en Node y en cualquier
+ * navegador. Formato: `dd/mm/aaaa` y `dd/mm/aaaa HH:mm`.
+ */
+const FORMATEADOR_PARTES_NEGOCIO = new Intl.DateTimeFormat("es-AR", {
+  timeZone: ZONA_HORARIA_NEGOCIO,
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
+
+function partesNegocio(instante: Date | string): Record<"day" | "month" | "year" | "hour" | "minute", string> {
+  const partes: Record<string, string> = {};
+  for (const parte of FORMATEADOR_PARTES_NEGOCIO.formatToParts(new Date(instante))) partes[parte.type] = parte.value;
+  return partes as Record<"day" | "month" | "year" | "hour" | "minute", string>;
+}
+
+/** `dd/mm/aaaa` en huso horario de negocio. */
+export function formatearFechaNegocio(instante: Date | string): string {
+  const p = partesNegocio(instante);
+  return `${p.day}/${p.month}/${p.year}`;
+}
+
+/** `dd/mm/aaaa HH:mm` (24 h) en huso horario de negocio. */
+export function formatearFechaHoraNegocio(instante: Date | string): string {
+  const p = partesNegocio(instante);
+  return `${p.day}/${p.month}/${p.year} ${p.hour}:${p.minute}`;
+}

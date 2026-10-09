@@ -200,14 +200,14 @@ test("fecha legacy: null muestra texto de registro anterior sin inventar fecha",
   assert.equal(formatearFechaPagoConfirmado("no-es-fecha"), TEXTO_FECHA_PAGO_LEGACY);
   const conFecha = formatearFechaPagoConfirmado("2026-10-02T10:00:00.000Z");
   assert.notEqual(conFecha, TEXTO_FECHA_PAGO_LEGACY);
-  assert.match(conFecha, /10\/26|2026/);
+  assert.equal(conFecha, "02/10/2026 07:00", "hora Argentina, 24 h, sin depender de la TZ del runtime");
 });
 
 test("formato: estado, plazo, pendiente y descripción de línea", () => {
   assert.equal(formatearEstadoEcommerce("EN_PREPARACION"), "En preparación");
   assert.equal(formatearEstadoEcommerce("LISTO_PARA_RETIRO"), "Listo para retiro");
   assert.equal(formatearPlazoRetiro(null), null);
-  assert.ok(formatearPlazoRetiro("2026-10-10T13:00:00.000Z")!.includes("2026"));
+  assert.equal(formatearPlazoRetiro("2026-10-10T13:00:00.000Z"), "10/10/2026 10:00");
 
   const linea = pedidoBase.lineas[0];
   assert.equal(cantidadPendiente(linea), 2);

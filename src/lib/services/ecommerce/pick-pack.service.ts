@@ -339,10 +339,9 @@ async function calcularProgresoPedido(
 // ──────────────────────────────────────────────────────────────────────────────
 
 /**
- * Admite un pedido WEB pagado a la cola de preparación. Debe ejecutarse dentro
- * del mismo `Prisma.TransactionClient` que confirma el pago (HU-E2).
- *
- * Idempotente cuando el pedido ya está en `EN_PREPARACION`.
+ * Declara disponible en cola un pedido WEB confirmado, sin iniciar preparación.
+ * Debe ejecutarse dentro del mismo `Prisma.TransactionClient` que confirma el pago (HU-E2).
+ * La identidad estable del evento permite deduplicar una eventual reemisión.
  *
  * @throws {ServiceError} PEDIDO_NO_OPERABLE (404)
  * @throws {ServiceError} PEDIDO_SIN_FECHA_PAGO (409)
@@ -364,10 +363,6 @@ export async function admitirPedidoPagoConfirmado(
     throw new ServiceError("PEDIDO_NO_OPERABLE", "La admisión solo aplica a pedidos del canal WEB");
   }
 
-  if (agregado.estado_ecommerce === "EN_PREPARACION") {
-    return { pedido_venta_id: pedidoVentaId, transicion_realizada: false };
-  }
-
   if (agregado.fecha_pago_confirmado === null) {
     throw new ServiceError(
       "PEDIDO_SIN_FECHA_PAGO",
@@ -382,28 +377,21 @@ export async function admitirPedidoPagoConfirmado(
     );
   }
 
-  await tx.pedidoVentaEcommerce.update({
-    where: { id: agregado.pve_id },
-    data: { estado_ecommerce: "EN_PREPARACION" },
-  });
-
-  const resultado: AdmisionResultado = {
+  return {
     pedido_venta_id: pedidoVentaId,
     transicion_realizada: true,
     evento_pendiente: {
       tipo: "ecommerce:pedido_admitido_cola",
       payload: {
-        evento_id: crypto.randomUUID(),
+        evento_id: `${agregado.pve_id}:PAGO_CONFIRMADO`,
         pedido_venta_id: pedidoVentaId,
         pedido_venta_ecommerce_id: agregado.pve_id,
         actor_id: null,
-        estado_nuevo: "EN_PREPARACION",
+        estado_nuevo: "PAGO_CONFIRMADO",
         timestamp: new Date().toISOString(),
       },
     },
   };
-
-  return resultado;
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -429,7 +417,7 @@ export function calcularProgreso(
 // ──────────────────────────────────────────────────────────────────────────────
 
 /**
- * Lista paginada de pedidos WEB en `EN_PREPARACION`.
+ * Lista pedidos WEB `PAGO_CONFIRMADO` pendientes y `EN_PREPARACION` tomados/legacy.
  *
  * Orden contractual:
  * 1. `prioridad_manual DESC NULLS LAST`
@@ -445,7 +433,7 @@ export async function listarColaPreparacion(
   const [total, idsRows] = await Promise.all([
     prisma.pedidoVentaEcommerce.count({
       where: {
-        estado_ecommerce: "EN_PREPARACION",
+        estado_ecommerce: { in: ["PAGO_CONFIRMADO", "EN_PREPARACION"] },
         is_active: true,
         deleted_at: null,
         pedido_venta: {
@@ -464,7 +452,10 @@ export async function listarColaPreparacion(
         AND pv.deleted_at IS NULL
         AND pve.is_active = true
         AND pve.deleted_at IS NULL
-        AND pve.estado_ecommerce = 'EN_PREPARACION'::"EstadoEcommerce"
+        AND pve.estado_ecommerce IN (
+          'PAGO_CONFIRMADO'::"EstadoEcommerce",
+          'EN_PREPARACION'::"EstadoEcommerce"
+        )
       ORDER BY
         pve.prioridad_manual DESC NULLS LAST,
         pve.fecha_pago_confirmado ASC NULLS LAST,
@@ -582,7 +573,7 @@ export async function listarColaPreparacion(
 // ──────────────────────────────────────────────────────────────────────────────
 
 /**
- * Asigna un pedido `EN_PREPARACION` al operador indicado.
+ * Toma atómicamente un `PAGO_CONFIRMADO` y preserva pedidos legacy `EN_PREPARACION` aún no asignados.
  *
  * @throws {ServiceError} PEDIDO_NO_OPERABLE (404)
  * @throws {ServiceError} PEDIDO_YA_TOMADO (409)
@@ -605,14 +596,14 @@ export async function tomarPedido(
       throw new ServiceError("PEDIDO_NO_OPERABLE", "La operación solo aplica a pedidos del canal WEB");
     }
 
-    if (agregado.estado_ecommerce !== "EN_PREPARACION") {
+    if (!(["PAGO_CONFIRMADO", "EN_PREPARACION"] as string[]).includes(agregado.estado_ecommerce)) {
       throw new ServiceError(
         "ESTADO_INVALIDO",
         `El pedido no está disponible para preparación (estado: ${agregado.estado_ecommerce})`,
       );
     }
 
-    if (agregado.operador_asignado_id === actorId) {
+    if (agregado.operador_asignado_id === actorId && agregado.estado_ecommerce === "EN_PREPARACION") {
       return { cambio_realizado: false, pve_id: agregado.pve_id };
     }
 
@@ -623,9 +614,17 @@ export async function tomarPedido(
       );
     }
 
+    const operador = await tx.usuario.findFirst({
+      where: { id: actorId, is_active: true, deleted_at: null },
+      select: { id: true },
+    });
+    if (!operador) {
+      throw new ServiceError("OPERADOR_NO_AUTORIZADO", "El operador no existe o no está activo", 403);
+    }
+
     await tx.pedidoVentaEcommerce.update({
       where: { id: agregado.pve_id },
-      data: { operador_asignado_id: actorId },
+      data: { operador_asignado_id: actorId, estado_ecommerce: "EN_PREPARACION" },
     });
 
     return { cambio_realizado: true, pve_id: agregado.pve_id };

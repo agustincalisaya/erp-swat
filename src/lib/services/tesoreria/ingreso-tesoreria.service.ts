@@ -68,6 +68,10 @@ export interface ContraAsientoIngresoInput {
   motivo: string;
 }
 
+export type ResultadoRegistrarContraAsiento =
+  | ({ resultado: "CREADO" | "YA_EXISTENTE" } & ContraAsientoIngresoRegistradoPayload)
+  | { resultado: "INGRESO_ORIGINAL_NO_ENCONTRADO"; pedido_venta_id: string };
+
 /** Filtros del listado (`GET /api/tesoreria/ingresos-web`). Sin soft delete. */
 export interface FiltrosIngresosWeb {
   estado?: string;
@@ -178,30 +182,38 @@ export async function registrarIngresoWeb(
  * Crea UN `ContraAsientoIngreso` vinculado al `IngresoTesoreria` original
  * (resuelto por `pedido_venta_id`) para el reintegro de HU-E13.
  * `pedido_venta_id @unique` ⇒ un pedido nunca genera dos contra-asientos
- * (repetir = no-op por pre-check o por `P2002`). NUNCA edita ni elimina el
- * ingreso original (asiento inmutable).
+ * (repetir = `YA_EXISTENTE` por pre-check o por `P2002`). NUNCA edita ni elimina
+ * el ingreso original (asiento inmutable).
  */
 export async function registrarContraAsiento(
   input: ContraAsientoIngresoInput,
-): Promise<ContraAsientoIngresoRegistradoPayload | null> {
+): Promise<ResultadoRegistrarContraAsiento> {
   try {
     return await prisma.$transaction(async (tx) => {
       const existente = await tx.contraAsientoIngreso.findUnique({
         where: { pedido_venta_id: input.pedido_venta_id },
-        select: { id: true },
+        select: { id: true, ingreso_original_id: true, pedido_venta_id: true, monto: true, motivo: true },
       });
-      if (existente) return null;
+      if (existente) {
+        return {
+          resultado: "YA_EXISTENTE",
+          contra_asiento_id: existente.id,
+          ingreso_original_id: existente.ingreso_original_id,
+          pedido_venta_id: existente.pedido_venta_id,
+          monto: existente.monto.toFixed(2),
+          motivo: existente.motivo,
+        };
+      }
 
       const ingreso = await tx.ingresoTesoreria.findUnique({
         where: { pedido_venta_id: input.pedido_venta_id },
         select: { id: true },
       });
       if (!ingreso) {
-        console.error(
-          "[ingreso-tesoreria.service] registrarContraAsiento: sin IngresoTesoreria para el pedido",
-          { pedido_venta_id: input.pedido_venta_id },
-        );
-        return null;
+        return {
+          resultado: "INGRESO_ORIGINAL_NO_ENCONTRADO",
+          pedido_venta_id: input.pedido_venta_id,
+        };
       }
 
       const creado = await tx.contraAsientoIngreso.create({
@@ -215,6 +227,7 @@ export async function registrarContraAsiento(
       });
 
       return {
+        resultado: "CREADO",
         contra_asiento_id: creado.id,
         ingreso_original_id: ingreso.id,
         pedido_venta_id: input.pedido_venta_id,
@@ -223,8 +236,20 @@ export async function registrarContraAsiento(
       };
     });
   } catch (error) {
-    if (esConflictoUnicidad(error)) return null;
-    throw error;
+    if (!esConflictoUnicidad(error)) throw error;
+    const existente = await prisma.contraAsientoIngreso.findUnique({
+      where: { pedido_venta_id: input.pedido_venta_id },
+      select: { id: true, ingreso_original_id: true, pedido_venta_id: true, monto: true, motivo: true },
+    });
+    if (!existente) throw error;
+    return {
+      resultado: "YA_EXISTENTE",
+      contra_asiento_id: existente.id,
+      ingreso_original_id: existente.ingreso_original_id,
+      pedido_venta_id: existente.pedido_venta_id,
+      monto: existente.monto.toFixed(2),
+      motivo: existente.motivo,
+    };
   }
 }
 

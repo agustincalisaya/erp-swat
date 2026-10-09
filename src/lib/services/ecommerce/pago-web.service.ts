@@ -416,9 +416,9 @@ async function confirmarPago(
           ? await tx.cuentaClienteWeb.findUnique({ where: { cliente_id: venta.cliente_id }, select: { id: true, email: true } })
           : null;
 
-        // (7) Última mutación de dominio: admisión a Pick&Pack (HU-E12).
-        // Debe ejecutarse después de todas las operaciones E2 para que ambos
-        // módulos compartan un único commit atómico.
+        // (7) Validación y proyección de disponibilidad Pick&Pack (HU-E12).
+        // No inicia preparación: conserva PAGO_CONFIRMADO y prepara el evento
+        // que se publica únicamente después del commit atómico de E2.
         const admision = await admitirPedidoPagoConfirmado(tx, venta.id);
 
         // (8) HU-E6 (R1): log operativo de la transacción + dato de facturación

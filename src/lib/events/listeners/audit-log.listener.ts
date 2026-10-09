@@ -29,8 +29,12 @@ import type {
   ConsentimientoDecisionRegistradaPayload,
   ContraAsientoIngresoRegistradoPayload,
   EcommercePedidoAdmitidoColaPayload,
+  EcommercePedidoCanceladoPayload,
   EcommercePedidoListoParaRetiroPayload,
   EcommercePedidoTomadoPayload,
+  EcommercePedidoVencidoSinRetiroPayload,
+  EcommercePlazoRetiroPorVencerPayload,
+  EcommerceReintegroEstadoCambiadoPayload,
   EcommercePrioridadPreparacionCambiadaPayload,
   EcommerceUnidadPreparacionConfirmadaPayload,
   IngresoWebRegistradoPayload,
@@ -38,7 +42,10 @@ import type {
   PedidoEntregadoPayload,
   RetiroRechazadoPayload,
 } from "@/lib/events/event-types";
-import { registrarAuditLog } from "@/lib/services/auditoria/audit-log.service";
+import {
+  registrarAuditLog,
+  registrarAuditLogIdempotente,
+} from "@/lib/services/auditoria/audit-log.service";
 
 let registrado = false;
 
@@ -1673,8 +1680,8 @@ export function iniciarAuditLogListener(): void {
       "PEDIDO_ADMITIDO_COLA",
       payload,
       payload.pedido_venta_ecommerce_id,
-      { estado_ecommerce: "PAGO_CONFIRMADO" },
-      { estado_ecommerce: payload.estado_nuevo },
+      { estado_ecommerce: "PAGO_CONFIRMADO", visible_cola: false },
+      { estado_ecommerce: payload.estado_nuevo, visible_cola: true },
     );
   });
 
@@ -1770,6 +1777,96 @@ export function iniciarAuditLogListener(): void {
     }).catch(() => {
       console.error("[HU-E3] Falló la auditoría de rechazo de retiro");
     });
+  });
+
+  domainEventBus.on("ecommerce:pedido_cancelado", (payload: EcommercePedidoCanceladoPayload) => {
+    void registrarAuditLogIdempotente({
+      usuario_id: payload.actor_tipo === "USUARIO" ? payload.actor_id : null,
+      accion: "PEDIDO_PAGADO_CANCELADO",
+      tabla_afectada: "pedidos_venta_ecommerce",
+      registro_id: payload.reintegro_id,
+      ip: "internal-event",
+      valor_anterior: { estado_ecommerce: payload.estado_anterior },
+      valor_nuevo: {
+        evento_id: payload.evento_id,
+        pedido_venta_id: payload.pedido_venta_id,
+        reintegro_id: payload.reintegro_id,
+        estado_ecommerce: payload.estado_nuevo,
+        causa: payload.actor_tipo === "CLIENTE_WEB" ? "CANCELACION_CLIENTE" : "CANCELACION_ADMIN",
+        actor_tipo: payload.actor_tipo,
+        actor_id: payload.actor_id,
+        motivo: payload.motivo,
+        timestamp: payload.timestamp,
+      },
+    }).catch(() => console.error("[HU-E13] Falló la auditoría idempotente de cancelación"));
+  });
+
+  domainEventBus.on("ecommerce:pedido_vencido_sin_retiro", (payload: EcommercePedidoVencidoSinRetiroPayload) => {
+    void registrarAuditLogIdempotente({
+      usuario_id: null,
+      accion: "PEDIDO_VENCIDO_SIN_RETIRO",
+      tabla_afectada: "pedidos_venta_ecommerce",
+      registro_id: payload.reintegro_id,
+      ip: "internal-event",
+      valor_anterior: { estado_ecommerce: payload.estado_anterior },
+      valor_nuevo: {
+        evento_id: payload.evento_id,
+        pedido_venta_id: payload.pedido_venta_id,
+        reintegro_id: payload.reintegro_id,
+        estado_ecommerce: payload.estado_nuevo,
+        causa: "VENCIMIENTO",
+        actor_tipo: payload.actor_tipo,
+        actor_id: null,
+        motivo: payload.motivo,
+        timestamp: payload.timestamp,
+      },
+    }).catch(() => console.error("[HU-E13] Falló la auditoría idempotente de vencimiento"));
+  });
+
+  domainEventBus.on("ecommerce:plazo_retiro_por_vencer", (payload: EcommercePlazoRetiroPorVencerPayload) => {
+    void registrarAuditLogIdempotente({
+      usuario_id: null,
+      accion: "PLAZO_RETIRO_POR_VENCER",
+      tabla_afectada: "pedidos_venta_ecommerce",
+      registro_id: payload.clave_origen,
+      ip: "internal-event",
+      valor_anterior: null,
+      valor_nuevo: {
+        evento_id: payload.evento_id,
+        pedido_venta_id: payload.pedido_venta_id,
+        plazo_retiro_vencimiento: payload.plazo_retiro_vencimiento,
+        actor_tipo: "SISTEMA",
+        timestamp: payload.timestamp,
+      },
+    }).catch(() => console.error("[HU-E13] Falló la auditoría idempotente del recordatorio"));
+  });
+
+  domainEventBus.on("ecommerce:reintegro_estado_cambiado", (payload: EcommerceReintegroEstadoCambiadoPayload) => {
+    const accion = payload.estado_nuevo === "APROBADO"
+      ? "REINTEGRO_APROBADO"
+      : payload.estado_nuevo === "RECHAZADO"
+        ? "REINTEGRO_RECHAZADO"
+        : "REINTEGRO_REINTENTO_MANUAL";
+    void registrarAuditLogIdempotente({
+      usuario_id: accion === "REINTEGRO_REINTENTO_MANUAL" ? payload.actor_id : null,
+      accion,
+      tabla_afectada: "reintegro_refund_intentos",
+      registro_id: payload.intento_refund_id,
+      ip: "internal-event",
+      valor_anterior: { estado: payload.estado_anterior },
+      valor_nuevo: {
+        evento_id: payload.evento_id,
+        reintegro_id: payload.reintegro_id,
+        intento_refund_id: payload.intento_refund_id,
+        numero_intento: payload.numero_intento,
+        origen_intento: payload.origen_intento,
+        pedido_venta_id: payload.pedido_venta_id,
+        estado: payload.estado_nuevo,
+        actor_id: payload.actor_id,
+        motivo: payload.motivo,
+        timestamp: payload.timestamp,
+      },
+    }).catch(() => console.error("[HU-E13] Falló la auditoría idempotente del reintegro"));
   });
 
   // HU-F2 (Módulo F) — plantillas de notificación (spec_modulo_F.md §2.2/§4).

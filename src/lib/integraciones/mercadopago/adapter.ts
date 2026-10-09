@@ -23,7 +23,7 @@
  */
 import "server-only";
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { ServiceError } from "@/lib/errors/service-error";
 import { obtenerConectorActivo, registrarInvocacion, type OperacionConector } from "./conector";
 import { obtenerPagoSimulado, simuladorActivo } from "./simulador";
@@ -38,6 +38,28 @@ import type {
 
 const API_BASE = "https://api.mercadopago.com";
 const TIMEOUT_MS = 10_000;
+
+export type CausaErrorTecnicoMercadoPago =
+  | "TIMEOUT"
+  | "RED"
+  | "HTTP_429"
+  | "HTTP_5XX"
+  | "RESPUESTA_AMBIGUA";
+
+export class ErrorTecnicoMercadoPago extends ServiceError {
+  readonly reintentable = true;
+  readonly causa: CausaErrorTecnicoMercadoPago;
+
+  constructor(code: string, message: string, causa: CausaErrorTecnicoMercadoPago) {
+    super(code, message);
+    this.name = "ErrorTecnicoMercadoPago";
+    this.causa = causa;
+  }
+}
+
+export function esErrorTecnicoReintentableMercadoPago(error: unknown): error is ErrorTecnicoMercadoPago {
+  return error instanceof ErrorTecnicoMercadoPago;
+}
 
 /**
  * Mapeo `status` HTTP → código de `ServiceError` (spec F §3.1). El `404` se
@@ -78,7 +100,11 @@ async function llamarMercadoPago(
   ruta: string,
   body?: unknown,
   ctx?: ContextoConector,
+  idempotencyKey?: string,
 ): Promise<unknown> {
+  if (operacion === "SOLICITAR_REEMBOLSO" && !idempotencyKey) {
+    throw new ServiceError("IDEMPOTENCY_KEY_INVALIDA", "La clave idempotente es obligatoria");
+  }
   const conector = ctx
     ? { id: ctx.conectorId, access_token: ctx.accessToken }
     : await obtenerConectorActivo();
@@ -92,7 +118,7 @@ async function llamarMercadoPago(
       headers: {
         Authorization: `Bearer ${conector.access_token}`,
         "Content-Type": "application/json",
-        ...(metodo === "POST" ? { "X-Idempotency-Key": randomUUID() } : {}),
+        ...(metodo === "POST" ? { "X-Idempotency-Key": idempotencyKey ?? randomUUID() } : {}),
       },
       body: body === undefined ? undefined : JSON.stringify(body),
       signal: controlador.signal,
@@ -101,7 +127,11 @@ async function llamarMercadoPago(
   } catch (error) {
     const esTimeout = error instanceof Error && error.name === "AbortError";
     await registrarInvocacion(conector.id, operacion, false, esTimeout ? "timeout" : "error de red");
-    throw new ServiceError("PASARELA_TIMEOUT", "Mercado Pago no respondió a tiempo");
+    throw new ErrorTecnicoMercadoPago(
+      "PASARELA_TIMEOUT",
+      esTimeout ? "Mercado Pago no respondió a tiempo" : "No se pudo conectar con Mercado Pago",
+      esTimeout ? "TIMEOUT" : "RED",
+    );
   } finally {
     clearTimeout(temporizador);
   }
@@ -109,10 +139,15 @@ async function llamarMercadoPago(
   if (!respuesta.ok) {
     await registrarInvocacion(conector.id, operacion, false, `HTTP ${respuesta.status}`);
     const codigo = codigoErrorPorStatus(respuesta.status, operacion);
-    throw new ServiceError(
-      codigo,
-      MENSAJE_POR_CODIGO[codigo] ?? `Mercado Pago respondió HTTP ${respuesta.status}`,
-    );
+    const mensaje = MENSAJE_POR_CODIGO[codigo] ?? `Mercado Pago respondió HTTP ${respuesta.status}`;
+    if (respuesta.status === 429 || respuesta.status >= 500) {
+      throw new ErrorTecnicoMercadoPago(
+        codigo,
+        mensaje,
+        respuesta.status === 429 ? "HTTP_429" : "HTTP_5XX",
+      );
+    }
+    throw new ServiceError(codigo, mensaje);
   }
 
   try {
@@ -121,6 +156,13 @@ async function llamarMercadoPago(
     return json;
   } catch {
     await registrarInvocacion(conector.id, operacion, false, "JSON inválido");
+    if (operacion === "SOLICITAR_REEMBOLSO") {
+      throw new ErrorTecnicoMercadoPago(
+        "PASARELA_RESPUESTA_AMBIGUA",
+        "Mercado Pago confirmó HTTP pero la respuesta del reembolso es ilegible",
+        "RESPUESTA_AMBIGUA",
+      );
+    }
     throw new ServiceError("PASARELA_RESPUESTA_INVALIDA", "Respuesta de Mercado Pago ilegible");
   }
 }
@@ -237,10 +279,25 @@ export function mapearEstadoReembolso(statusMp: string): EstadoReembolsoDominio 
  * `PASARELA_RESPUESTA_INVALIDA` (otro 4xx o JSON inesperado).
  *
  * @param paymentId - `payment_id` de Mercado Pago a reembolsar.
+ * @param idempotencyKey - Clave durable provista por el caller para el header.
  * @param monto - Monto parcial; si se omite, el reembolso es total (MP usa el
  *                total del pago). El body `{ amount }` viaja solo si es parcial.
  */
-export async function solicitarReembolso(paymentId: string, monto?: number): Promise<ReembolsoSolicitado> {
+export async function solicitarReembolso(
+  paymentId: string,
+  idempotencyKey: string,
+  monto?: number,
+): Promise<ReembolsoSolicitado> {
+  if (!paymentId || paymentId.trim() !== paymentId || /\s/.test(paymentId)) {
+    throw new ServiceError("PAYMENT_ID_INVALIDO", "El payment ID de Mercado Pago es inválido");
+  }
+  if (!idempotencyKey || idempotencyKey.trim().length === 0) {
+    throw new ServiceError("IDEMPOTENCY_KEY_INVALIDA", "La clave idempotente es obligatoria");
+  }
+  if (monto !== undefined && (!Number.isFinite(monto) || monto <= 0)) {
+    throw new ServiceError("MONTO_REEMBOLSO_INVALIDO", "El monto del reembolso debe ser positivo");
+  }
+
   let json: Record<string, unknown>;
 
   if (simuladorActivo()) {
@@ -250,21 +307,28 @@ export async function solicitarReembolso(paymentId: string, monto?: number): Pro
       if (!pago) throw new ServiceError("PAGO_NO_ENCONTRADO", "Pago simulado inexistente");
       amount = pago.transaction_amount;
     }
-    json = { id: `SIM-REF-${paymentId}`, payment_id: paymentId, amount, status: "approved" };
+    const refundId = createHash("sha256").update(`${paymentId}:${idempotencyKey}`).digest("hex").slice(0, 24);
+    json = { id: `SIM-REF-${refundId}`, payment_id: paymentId, amount, status: "approved" };
   } else {
     json = (await llamarMercadoPago(
       "SOLICITAR_REEMBOLSO",
       "POST",
       `/v1/payments/${encodeURIComponent(paymentId)}/refunds`,
       monto === undefined ? undefined : { amount: monto },
+      undefined,
+      idempotencyKey,
     )) as Record<string, unknown>;
   }
 
   const refundId = campoTexto(json, "id");
   const status = campoTexto(json, "status");
   const amount = json.amount;
-  if (!refundId || !status || typeof amount !== "number") {
-    throw new ServiceError("PASARELA_RESPUESTA_INVALIDA", "El reembolso de Mercado Pago no trae id/status/amount");
+  if (!refundId || !status || typeof amount !== "number" || !Number.isFinite(amount) || amount <= 0) {
+    throw new ErrorTecnicoMercadoPago(
+      "PASARELA_RESPUESTA_AMBIGUA",
+      "El reembolso fue aceptado por HTTP pero no trae id/status/amount",
+      "RESPUESTA_AMBIGUA",
+    );
   }
   return {
     refund_id: refundId,

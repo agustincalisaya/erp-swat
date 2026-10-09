@@ -1,5 +1,8 @@
 # Especificación Técnica — Módulo E (E-commerce / Tienda Online)
 ## ERP SWAT Indumentarias — Sprint 4
+## Cierre HU-E13, 08/10/2026 — registro NO normativo: HU-E13 COMPLETADA / VERIFY PASS (T00–T20). Agrega §2.13.17 como registro de cierre; no modifica ningún contrato de Rev.3 ni de sus addenda. Evidencia en `docs/modulos/modulo E/HU13_MODULO_E.md` §10.
+## Addendum HU-E13 post-T17 — Reconciliación contractual aprobada: agrega §2.13.16. Sustituye, solo para HU-E13, los destinatarios F3 de cancelación/vencimiento (únicamente Cliente Web; vencimiento con prioridad `CRITICA`), amplía el DTO E9 con motivo, fecha de terminación, estado agregado del reintegro y Nota de Crédito separada del comprobante original, y formaliza la respuesta pública de cancelación Cliente Web. No modifica estados, saga, permisos, schema ni migrations.
+## Addendum HU-E13 posterior a Rev.3 — Lectura administrativa mínima para T15: agrega §2.13.15 sin reescribir contratos anteriores. Mantiene `/ecommerce/pedidos` bajo HU-E7 y congela `/ecommerce/pedidos/pagados`, su permiso, alcance, DTO seguro, elegibilidad de acciones y paginación para la UI administrativa HU-E13.
 ## Revisión 9 — HU-E3 — Ajuste final de payload de retiro rechazado, 06/10/2026: modifica únicamente el contrato de `ecommerce:retiro_rechazado` en §2.3.d para incluir el ID opcional de la extensión y fijar su correspondencia con AuditLog. Todo el resto de las Revisiones 7 y 8 permanece vigente; Revisiones 1–8 conservan su numeración.
 ## Revisión 8 — HU-E3 — Corrección de consistencia contractual previa a TASKS, 06/10/2026: modifica únicamente la firma contractual del helper transaccional de Módulo B (§2.3.c) y la clave de idempotencia F3 de `ecommerce:pedido_listo_para_retiro` (§2.3.d). Todo el resto de la Revisión 7 continúa vigente; Revisiones 1–7 conservan su numeración.
 ## Revisión 7 — HU-E3 (retiro validado), 06/10/2026: contrato de `LISTO_PARA_RETIRO → ENTREGADO`, consumo de QR y aviso interno «listo». Revisión aditiva de §2.3 con sustituciones explícitas en §2.12 y §4; Revisiones 1–6 y las demás HU conservan prioridad y numeración.
@@ -1216,41 +1219,507 @@ export const PriorizarPedidoSchema = z.object({
 { "data": null, "error": { "code": "QR_INVALIDO", "message": "El código QR no es válido, está vencido o pertenece a otro pedido" } }
 ```
 
-### 2.13. Cancelación de pedidos web pagados (HU-E13)
+### 2.13. Cancelación y vencimiento de pedidos pagados (HU-E13)
 
-**Ruta (cancelación por el cliente, antes de preparación):** `PATCH /app/api/tienda/mis-pedidos/[id]/cancelar/route.ts`
-**Ruta (cancelación por el Administrador, en cualquier estado previo a `ENTREGADO`):** `PATCH /app/api/ecommerce/pedidos/[id]/cancelar/route.ts`
-**Server Action equivalente:** `cancelarPedidoPropio()` en `app/(tienda)/mis-pedidos/actions.ts`; `cancelarPedidoWeb()` en `app/(dashboard)/ecommerce/pedidos/actions.ts`
-**Permiso requerido:** sesión de Cliente Web (ruta propia, exclusiva de su propio pedido — mismo criterio de alcance por sesión que 2.9); `ecommerce:cancelar_pedido_pagado` (ruta de Administrador).
+#### Revisión 3 — propuesta para revisión
+
+Esta revisión sustituye íntegramente las Revisiones 1 y 2 de §2.13 y, únicamente para HU-E13, prevalece sobre las referencias históricas incompatibles de §2.2, §2.12, §3.1, §3.6, §4 y §5. Conserva D1–D17 y R1–R22, y ajusta exclusivamente stock multi-item, historial de intentos de refund, contrato F1 y constraints de Nota de Crédito. No constituye PLAN ni TASKS.
+
+##### 2.13.1. Máquina de estados E y correspondencia con B
+
+| Operación | Estado E de origen | Estado E final | Estado B antes/después | QR |
+|---|---|---|---|---|
+| Pago aprobado E2 | `PAGO_PENDIENTE` | `PAGO_CONFIRMADO` | `RESERVADO → FACTURADO` | sin cambio |
+| Operador toma/inicia E12 | `PAGO_CONFIRMADO` | `EN_PREPARACION` | `FACTURADO`, sin cambio | sin cambio |
+| Completar preparación E12 | `EN_PREPARACION` | `LISTO_PARA_RETIRO` | `FACTURADO`, sin cambio | genera `codigo_qr_retiro` y plazo |
+| Cancelación por Cliente Web | solo `PAGO_CONFIRMADO` | `CANCELADO` | `FACTURADO`, sin cambio | `null` |
+| Cancelación administrativa | `PAGO_CONFIRMADO`, `EN_PREPARACION` o `LISTO_PARA_RETIRO` | `CANCELADO` | `FACTURADO`, sin cambio | `null` |
+| Vencimiento automático | solo `LISTO_PARA_RETIRO`, con `plazo_retiro_vencimiento < ahora` | `VENCIDO_SIN_RETIRO` | `FACTURADO`, sin cambio | `null` |
+| Retiro E3 | `LISTO_PARA_RETIRO`, sin plazo vencido | `ENTREGADO` | transición comercial vigente de E3 hasta `CERRADO` | `null` |
+
+`CANCELADO`, `VENCIDO_SIN_RETIRO` y `ENTREGADO` son terminales para E. No se admite cancelación desde `ENTREGADO`, `CANCELADO`, `VENCIDO_SIN_RETIRO`, `ANULADO` ni `PAGO_RECHAZADO`. HU-E13 no agrega estados a B y nunca ejecuta `FACTURADO → ANULADO`: la factura y `PedidoVenta.estado = FACTURADO` conservan la historia fiscal; la reversión se representa por hechos compensatorios nuevos.
+
+**Contrato R1–R2 sobre E2/E12:** confirmar el pago persiste `PAGO_CONFIRMADO` e ingresa el pedido inmediatamente a la cola Pick & Pack, sin cambiarlo a `EN_PREPARACION`. La consulta de cola muestra `PAGO_CONFIRMADO` no tomado y `EN_PREPARACION` ya tomado, excluyendo siempre estados terminales e extensiones inactivas. El evento/notificación de nuevo pedido en cola se emite después del pago y no depende de adelantar el estado. Tomar/iniciar es una única operación atómica que, bajo los locks de §2.13.8, ejecuta conjuntamente `PAGO_CONFIRMADO → EN_PREPARACION` y asigna `operador_asignado_id`; nunca puede quedar `EN_PREPARACION` sin operador ni operador asignado en `PAGO_CONFIRMADO`. Completar o escanear preparación exige `EN_PREPARACION`.
+
+##### 2.13.2. Cancelación por Cliente Web y por Administrador
+
+**Rutas públicas de contrato:**
+
+| Actor | Método y ruta | Autorización | Estados admitidos |
+|---|---|---|---|
+| Cliente Web | `PATCH /api/tienda/mis-pedidos/[id]/cancelar` | `withSesionClienteWeb`; el pedido debe pertenecer a `sesion.clienteId` | solo `PAGO_CONFIRMADO` |
+| Administrador E-commerce | `PATCH /api/ecommerce/pedidos/[id]/cancelar` | sesión interna + `ecommerce:cancelar_pedido_pagado` | `PAGO_CONFIRMADO`, `EN_PREPARACION`, `LISTO_PARA_RETIRO` |
+
+Ambas rutas reciben exclusivamente:
 
 ```typescript
-export const CancelarPedidoWebSchema = z.object({
-  motivo: z.string().min(1, "El motivo es obligatorio"),
-});
-export type CancelarPedidoWebInput = z.infer<typeof CancelarPedidoWebSchema>;
+const CancelarPedidoPagadoSchema = z.object({
+  motivo: z.string().trim().min(1, "El motivo es obligatorio"),
+}).strict();
 ```
 
-**Comportamiento esperado:**
-- **Ventana de autoservicio del cliente (criterio de aceptación explícito, no negociable):** el cliente cancela desde "Mis pedidos" únicamente en `estado_ecommerce = PAGO_CONFIRMADO`, antes de `EN_PREPARACION`. Una vez tomado por el Operador, la cancelación es exclusiva del Administrador E-commerce — la ruta de cliente responde `409 TRANSICION_INVALIDA` fuera de esa ventana.
-- **Motivo obligatorio, baja lógica (criterio de aceptación explícito):** ambas rutas exigen `motivo`; el `PedidoVentaEcommerce.estado_ecommerce → CANCELADO` es baja lógica (`is_active = false`, `deleted_at/by/reason`) — el `PedidoVenta` de Módulo B **no** se anula (su `estado` permanece `FACTURADO`/`REMITO_EMITIDO`, según en qué punto se canceló): la reversión fiscal es exclusivamente vía Nota de Crédito (ver abajo), nunca una baja lógica del comprobante ya emitido (`spec_modulo_B.md` sección 3.4).
-- **Reintegro, en un único flujo (criterio de aceptación explícito, no negociable):** (1) Nota de Crédito sobre el comprobante original (`spec_modulo_B.md` sección 2.7 patrón de reversión, nunca anulación de la factura); (2) contra-asiento en Tesorería (`spec_modulo_G.md`, HU-G11); (3) solicitud de reembolso a Mercado Pago a través del Conector (`spec_modulo_F.md` sección 2.1, endpoint de reembolso **a confirmar contra el contrato real del Conector** — HU-F1 tal como quedó especificado en `spec_modulo_F.md` no define explícitamente una ruta de reembolso saliente, solo alta/health-check/webhook/bitácora/baja — ver Nota de relevamiento abajo).
-- **Idempotencia (criterio de aceptación explícito, no negociable):** un mismo pedido nunca genera dos reintegros — mismo patrón de clave de idempotencia que el resto del sistema (constraint único sobre `pedido_venta_id` en la entidad de reintegro, **a modelar** — este documento no define una entidad `ReintegroPedidoWeb` explícita porque el Backlog no detalla su forma; se dejan sus datos como parte del payload del evento de la sección 4 hasta que se confirme si necesita persistencia propia).
-- **Vencimiento del plazo de retiro (criterio de aceptación explícito, comparte esta sección con la cancelación):** el plazo máximo (`ConfiguracionSistema.ECOMMERCE_PLAZO_RETIRO_DIAS`, `spec_modulo_D.md` sección 6, ya reservada) se cuenta desde `LISTO_PARA_RETIRO`. El cliente recibe un recordatorio (HU-F3) antes del vencimiento (momento exacto del recordatorio no especificado por el Backlog — **a definir**, no bloqueante). Vencido, `estado_ecommerce → VENCIDO_SIN_RETIRO` (job programado, mismo patrón de cron que la liberación de reservas de Módulo A) y las unidades vuelven a `Disponible` **a través del servicio de Módulo A** — ver Nota de relevamiento crítica abajo, esta operación no existe todavía en `spec_modulo_A.md`.
-- **Notificación y evento sensible (criterio de aceptación explícito):** cancelación y vencimiento notifican internamente al cliente (HU-F3) y se registran como evento sensible con SHA-256 hacia Módulo D (sección 4).
+El actor, `deleted_by` y alcance de propiedad nunca salen del body. La cancelación real aplica baja lógica a `PedidoVentaEcommerce` (`is_active = false`, `deleted_at`, `deleted_by`, `deletion_reason = motivo`) y mantiene `estado_ecommerce = CANCELADO`. No desactiva `PedidoVenta`, no edita ni anula la factura y no elimina ítems, movimientos, pagos, comprobantes o registros del reintegro.
 
-**Respuesta `200 OK`:**
+La respuesta exitosa representa el snapshot durable alcanzado y no promete que Mercado Pago ya haya aprobado el refund. Los IDs de pasos aún no completados son `null`:
+
 ```json
-{ "data": { "pedido_venta_id": "uuid", "estado_ecommerce": "CANCELADO", "nota_credito_id": "uuid" }, "error": null }
+{
+  "data": {
+    "pedido_venta_id": "uuid",
+    "estado_ecommerce": "CANCELADO",
+    "reintegro_id": "uuid",
+    "estado_reintegro": "PENDIENTE",
+    "nota_credito_id": null
+  },
+  "error": null
+}
 ```
 
-**Respuesta `409 Conflict` (fuera de ventana de autoservicio):**
+> **Addendum post-T17:** para la ruta Cliente Web, este ejemplo queda sustituido por el contrato público de §2.13.16.4.
+
+Una repetición sobre el mismo pedido devuelve `200` con los mismos identificadores y estado persistido, sin duplicar efectos. Un estado origen no autorizado responde `409 TRANSICION_INVALIDA`; pedido inexistente, ajeno, no WEB o no operable responde `404 PEDIDO_NO_ENCONTRADO` sin revelar existencia; motivo inválido responde `400 VALIDATION_ERROR`; falta de sesión/permiso interno responde `401/403`.
+
+##### 2.13.3. Vencimiento automático y recordatorio
+
+El mantenimiento compartido de §2.13.10 selecciona extensiones activas en `LISTO_PARA_RETIRO`:
+
+- **recordatorio:** cuando `ahora >= plazo_retiro_vencimiento - ECOMMERCE_RECORDATORIO_RETIRO_HORAS` y todavía `ahora <= plazo_retiro_vencimiento`, emite `ecommerce:plazo_retiro_por_vencer` con una clave de origen estable derivada de `pedido_venta_id + plazo_retiro_vencimiento`; `Notificacion.clave_idempotencia` impide repetirlo. No se agrega columna de “recordatorio enviado”.
+- **vencimiento:** solo cuando `plazo_retiro_vencimiento < ahora`; igualdad exacta todavía no está vencida. Bajo lock y transición condicionada cambia E a `VENCIDO_SIN_RETIRO`, consume el QR, aplica baja lógica con motivo estable `Plazo de retiro vencido`, y crea/reutiliza el mismo flujo de reintegro de una cancelación.
+
+El recordatorio se dirige a la cuenta del Cliente Web operable. Cancelación y vencimiento generan notificación interna F3 para la cuenta operable y para el rol `ADMINISTRADOR_ECOMMERCE`. No se introducen email, SMS, WhatsApp ni otros canales externos.
+
+> **Addendum post-T17:** los destinatarios de cancelación y vencimiento quedan sustituidos por §2.13.16.1: únicamente la cuenta del Cliente Web operable; ninguna notificación HU-E13 al rol `ADMINISTRADOR_ECOMMERCE`.
+
+##### 2.13.4. Restitución de stock multi-item — contrato requerido de Módulo A
+
+Módulo E nunca escribe directamente `StockDeposito`, `Reserva`, `MovimientoStock` ni `MovimientoStockItem`. Al crear la cabecera de saga genera una fila hija por cada `PedidoVentaItem` activo, congelando item, SKU, depósito y cantidad total vendida que debe restituirse:
+
+```prisma
+model ReintegroStockCompensacion {
+  id                    String  @id @default(uuid())
+  reintegro_id          String
+  pedido_venta_item_id  String
+  variante_sku_id       String
+  deposito_id           String
+  cantidad              Int
+  clave_idempotencia    String  @unique
+  movimiento_stock_id   String? @unique
+  created_at            DateTime @default(now())
+  completed_at          DateTime?
+
+  reintegro             ReintegroPedidoWeb @relation(fields: [reintegro_id], references: [id], onDelete: Restrict)
+  pedido_venta_item     PedidoVentaItem     @relation(fields: [pedido_venta_item_id], references: [id], onDelete: Restrict)
+  movimiento_stock      MovimientoStock?    @relation(fields: [movimiento_stock_id], references: [id], onDelete: Restrict)
+
+  @@unique([reintegro_id, pedido_venta_item_id])
+  @@index([reintegro_id])
+}
+```
+
+La clave estable es `HU-E13:STOCK:<pedido_venta_id>:<pedido_venta_item_id>`; identifica la operación E13 sobre esa línea aunque dos líneas compartan SKU. Módulo A expone una operación transaccional por compensación que recibe esa clave, item/SKU, depósito, cantidad, actor y motivo, y registra un movimiento inmutable:
+
+```text
+VENDIDO → DISPONIBLE
+```
+
+Cada ejecución retorna `CREADO { movimiento_stock_id } | YA_EXISTENTE { movimiento_stock_id }`. La unicidad de `clave_idempotencia` en la operación de A —además de la fila hija de E— cierra el crash entre aplicar stock y vincular el movimiento. El retry recorre las hijas sin `movimiento_stock_id`, recupera movimientos existentes y ejecuta solo faltantes; una hija completada nunca vuelve a incrementar stock. La etapa stock de la saga se considera completa únicamente cuando todas las compensaciones esperadas tienen `movimiento_stock_id` y `completed_at`.
+
+Un pedido multi-item puede producir varios `MovimientoStock`, uno por línea compensada. La cabecera `ReintegroPedidoWeb` no guarda un `stock_movimiento_id` único. `liberarReservasTx()` no satisface este contrato porque solo opera `RESERVADO → DISPONIBLE` sobre reservas abiertas.
+
+**Dependencia inter-módulo para revisión:** esta transición todavía no existe en el contrato vigente de Módulo A. R9 la exige y es compatible con la inmutabilidad de inventario si se implementa como movimiento compensatorio idempotente; HU-E13 queda bloqueada hasta que el owner de A acepte el contrato y su persistencia por clave.
+
+##### 2.13.5. Nota de Crédito vinculada
+
+La factura original es inmutable. HU-E13 admite exclusivamente reintegro **total**: no contempla montos parciales, selección de ítems ni múltiples devoluciones. Módulo B debe exponer una operación transaccional idempotente que cree una nueva `ComprobanteFiscal` de tipo `NOTA_CREDITO`, por exactamente el total efectivamente cobrado y facturado, con `comprobante_original_id` obligatorio apuntando al comprobante fiscal original del pedido. La Nota de Crédito conserva CAE/QR simulados bajo las mismas reglas de HU-B7 y nunca actualiza o desactiva el original.
+
+Persistencia mínima prevista:
+
+```prisma
+enum TipoComprobanteVenta {
+  FACTURA_A
+  FACTURA_B
+  TICKET
+  NOTA_CREDITO
+}
+
+model ComprobanteFiscal {
+  // campos vigentes
+  comprobante_original_id String?
+  comprobante_original    ComprobanteFiscal?  @relation("ReversionFiscal", fields: [comprobante_original_id], references: [id], onDelete: Restrict)
+  notas_credito           ComprobanteFiscal[] @relation("ReversionFiscal")
+
+  @@index([comprobante_original_id])
+}
+```
+
+Para `NOTA_CREDITO`, `comprobante_original_id` es obligatorio a nivel de servicio; para factura/ticket debe ser `null`. El vínculo es inmutable, pero **no** es globalmente único: un comprobante original podría admitir en el futuro otras NC fiscales ajenas a HU-E13. La unicidad específica de esta historia se garantiza por `ReintegroPedidoWeb.pedido_venta_id @unique` —una saga por pedido— y `ReintegroPedidoWeb.nota_credito_id @unique` —una NC no puede pertenecer a dos reintegros—, más la validación de que esa NC sea `NOTA_CREDITO`, pertenezca al pedido y apunte a su comprobante original. El servicio B usa la clave estable `HU-E13:NC:<pedido_venta_id>` o una persistencia equivalente propia de B para crear/recuperar exactamente la NC de HU-E13; no deduce idempotencia de que el original tenga cualquier otra NC.
+
+##### 2.13.6. Modelo persistente y máquina durable de la saga
+
+HU-E13 agrega una única intención durable por pedido y pago. La fila se crea en la misma transacción que gana la transición E y **antes de cualquier llamada externa**. Sus marcadores permiten reconocer cada paso local incompleto sin depender de logs:
+
+```prisma
+enum EstadoReintegroPedidoWeb {
+  PENDIENTE
+  APROBADO
+  RECHAZADO
+}
+
+enum TipoActorReintegro {
+  CLIENTE_WEB
+  USUARIO
+  SISTEMA
+}
+
+model ReintegroPedidoWeb {
+  id                          String                    @id @default(uuid())
+  pedido_venta_id             String                    @unique
+  mercadopago_payment_id      String                    @unique
+  estado                      EstadoReintegroPedidoWeb  @default(PENDIENTE)
+  monto_total                 Decimal                   @db.Decimal(12, 2)
+  motivo                      String
+  solicitado_por_tipo         TipoActorReintegro
+  solicitado_por_id           String?
+  nota_credito_id             String?                   @unique
+  contra_asiento_ingreso_id   String?                   @unique
+  intento_aprobado_id         String?                   @unique
+  ultimo_error_codigo         String?
+  proximo_reintento_at        DateTime?
+  resuelto_at                 DateTime?
+  created_at                  DateTime                  @default(now())
+  updated_at                  DateTime                  @updatedAt
+
+  compensaciones_stock        ReintegroStockCompensacion[]
+  intentos_refund             ReintegroRefundIntento[]  @relation("IntentosRefund")
+  intento_aprobado            ReintegroRefundIntento?   @relation("IntentoRefundAprobado", fields: [intento_aprobado_id], references: [id], onDelete: Restrict)
+}
+
+enum EstadoIntentoRefund {
+  PENDIENTE
+  APROBADO
+  RECHAZADO
+}
+
+enum OrigenIntentoRefund {
+  INICIAL
+  REINTENTO_MANUAL
+}
+
+model ReintegroRefundIntento {
+  id                    String               @id @default(uuid())
+  reintegro_id          String
+  numero                Int
+  origen                OrigenIntentoRefund
+  clave_idempotencia    String               @unique
+  estado                EstadoIntentoRefund  @default(PENDIENTE)
+  refund_id             String?              @unique
+  error_codigo          String?
+  motivo_reintento      String?
+  creado_por_id         String?
+  intentos_tecnicos     Int                  @default(0)
+  ultimo_intento_at     DateTime?
+  resuelto_at           DateTime?
+  created_at            DateTime             @default(now())
+  updated_at            DateTime             @updatedAt
+
+  reintegro             ReintegroPedidoWeb   @relation("IntentosRefund", fields: [reintegro_id], references: [id], onDelete: Restrict)
+  aprobado_para         ReintegroPedidoWeb?  @relation("IntentoRefundAprobado")
+
+  @@unique([reintegro_id, numero])
+  @@index([reintegro_id, estado])
+}
+```
+
+La cabecera es histórica, única por pedido/pago y nunca se elimina. `nota_credito_id`, todas las `compensaciones_stock` completas y `contra_asiento_ingreso_id` determinan el progreso local sin depender de logs. El refund tiene historial 1:N: cada intento lógico conserva su propia clave, resultado y evidencia; nunca se sobrescribe un rechazo anterior.
+
+Máquina durable de cabecera:
+
+- `PENDIENTE`: pasos locales incompletos, intento refund pendiente o reintento manual habilitado en curso.
+- `APROBADO`: exactamente un intento hijo aprobado está enlazado por `intento_aprobado_id`; terminal y no admite otro intento.
+- `RECHAZADO`: el último intento lógico recibió rechazo remoto definitivo; detiene retries automáticos, permanece visible y admite únicamente la acción administrativa de §2.13.7 para crear un intento lógico posterior.
+
+Máquina de cada intento hijo:
+
+- `PENDIENTE`: admite retries **técnicos** con la misma `clave_idempotencia`.
+- `APROBADO`: guarda `refund_id`; terminal.
+- `RECHAZADO`: conserva rechazo y clave; terminal, nunca se reutiliza como nuevo intento lógico.
+
+`ultimo_error_codigo`/`error_codigo` no contienen credenciales, payload completo de MP ni PII. El lock de cabecera, la condición `intento_aprobado_id IS NULL` y su unicidad impiden crear un intento manual después de una aprobación o enlazar dos refunds aprobados al mismo pedido.
+
+##### 2.13.7. Orden exacto de la saga, crashes y fallas parciales
+
+No existe ni se afirma atomicidad entre PostgreSQL y Mercado Pago. La saga avanza en el siguiente orden estricto; cada paso relee la cabecera y sus hijas, omite hechos completos y usa una transacción local corta:
+
+0. **Ganar la operación y crear intención:** bajo los locks de §2.13.8, validar actor/estado y ejecutar la transición condicionada E a `CANCELADO` o `VENCIDO_SIN_RETIRO`; consumir QR; aplicar baja lógica; insertar `ReintegroPedidoWeb(PENDIENTE)` y todas las `ReintegroStockCompensacion` esperadas. Todo ocurre en un commit PostgreSQL antes de cualquier llamada externa. La unicidad pedido/pago recupera la misma cabecera en una repetición.
+1. **Nota de Crédito total:** si `nota_credito_id` es nulo, B crea o recupera la NC HU-E13 por su clave estable y luego la vincula mediante update condicionado.
+2. **Stock multi-item:** recorrer en orden estable las compensaciones sin movimiento; A crea o recupera cada `VENDIDO → DISPONIBLE` por la clave de la hija y se vincula el ID. Avanza aunque otras líneas ya estén completas; F1 queda bloqueado hasta completar todas.
+3. **Contra-asiento:** si `contra_asiento_ingreso_id` es nulo, G11 devuelve `CREADO`, `YA_EXISTENTE` o `INGRESO_ORIGINAL_NO_ENCONTRADO`. Los dos primeros vinculan el mismo ID. El tercero deja cabecera `PENDIENTE`, persiste diagnóstico y programa retry; no revierte E, NC ni stock.
+4. **Crear/recuperar intento refund:** solo con NC, todas las compensaciones y G11 completos. Si no existe intento hijo `PENDIENTE`, crear el primero con `numero = 1` y clave estable `HU-E13:REFUND:<pedido_venta_id>:<mercadopago_payment_id>:1`. La fila se confirma antes de llamar a F1.
+5. **Refund total F1:** llamar fuera de toda transacción DB a `POST /v1/payments/{id}/refunds`, sin body parcial, enviando exactamente `X-Idempotency-Key: <intento.clave_idempotencia>`.
+6. **Resultado remoto:** aprobado marca hijo `APROBADO`, guarda `refund_id` y enlaza atómicamente `intento_aprobado_id`, dejando cabecera `APROBADO`. Rechazo remoto definitivo marca hijo y cabecera `RECHAZADO`, audita y detiene retry automático. Timeout, red, rate limit, indisponibilidad o resultado incierto conservan hijo/cabecera `PENDIENTE` y programan retry técnico.
+
+Persistencia observable ante cada crash:
+
+| Punto de crash | Estado durable | Continuación idempotente |
+|---|---|---|
+| antes del commit 0 | E sin cambio; no existe saga | repetir operación completa |
+| después del commit 0 | E terminal; cabecera `PENDIENTE`; hijas stock esperadas; pasos sin completar | comenzar por NC; no reabrir E |
+| después de crear NC y antes de vincular | NC HU-E13 única existente; ID de cabecera puede ser nulo | recuperar por clave HU-E13 y vincular |
+| entre líneas de stock | algunas hijas tienen movimiento y otras no | reutilizar completas y ejecutar solo hijas faltantes |
+| después de aplicar una línea y antes de vincular | movimiento A existente; hija todavía nula | recuperar por clave de esa hija y vincular sin incrementar otra vez |
+| con ingreso G11 ausente | E/NC/stock persistidos; contra-asiento nulo | retry de saga; no llamar F1 |
+| después del contra-asiento y antes de vincular | contra-asiento único existente; campo nulo | G11 devuelve `YA_EXISTENTE`; vincular |
+| después de crear intento y antes de F1 | hijo `PENDIENTE` con clave persistida | llamar F1 con esa clave |
+| durante F1 o después de MP y antes de guardar | hijo `PENDIENTE`; resultado incierto | retry técnico con exactamente la misma clave |
+| después de guardar rechazo definitivo | hijo y cabecera `RECHAZADO`; evidencia intacta | sin retry automático; queda habilitada acción manual |
+| después de guardar aprobación | hijo/cabecera `APROBADO`, `intento_aprobado_id` y `refund_id` | no crear ni ejecutar otro intento |
+
+**Retry técnico vs reintento manual:** timeout, red y resultado incierto nunca crean un hijo: incrementan `intentos_tecnicos` del intento `PENDIENTE` y reutilizan exactamente su clave. Un rechazo remoto definitivo cierra ese hijo. Luego, exclusivamente un Administrador E-commerce con `ecommerce:cancelar_pedido_pagado` puede ejecutar `POST /api/ecommerce/pedidos/[id]/reintegro/reintentar` con body estricto `{ motivo: string no vacío }`. Bajo lock de cabecera, la creación exige `estado = RECHAZADO`, `intento_aprobado_id = null` y ningún hijo `PENDIENTE`; crea un hijo `origen = REINTENTO_MANUAL` con `numero = max + 1`, nueva clave estable terminada en ese número, `motivo_reintento` y `creado_por_id`, conserva todos los hijos anteriores, cambia cabecera a `PENDIENTE`, audita y puede continuar la saga. Si la request se repite tras perder la respuesta y la cabecera ya está `PENDIENTE`, devuelve el último hijo manual pendiente sin crear otro; cualquier otro `PENDIENTE` responde `409 REINTEGRO_EN_PROCESO`. No existe acción manual después de `APROBADO`.
+
+NC, cada compensación de stock y contra-asiento tienen unicidad propia y contrato `CREADO | YA_EXISTENTE`; el vínculo en E no es la única defensa. Los eventos de cancelación/vencimiento se emiten post-commit 0; cada rechazo, reintento manual y aprobación emite evento sensible post-commit. Un fallo de listener no revierte dominio.
+
+**Contrato F1 cerrado:** Mercado Pago soporta y requiere `X-Idempotency-Key` en `POST /v1/payments/{id}/refunds`. Para HU-E13, F1 debe recibir la clave del intento persistido y enviarla literalmente en ese header. Todo retry técnico del mismo intento usa la misma clave; solo la acción manual posterior a un rechazo definitivo crea otro intento lógico y otra clave. La garantía remota de no duplicación se apoya en este contrato de MP, no solamente en la BD local.
+
+##### Addendum posterior a Revisión 3 — política temporal congelada de retry
+
+Este addendum aclara exclusivamente la programación temporal de los intentos ya definidos; no agrega estados, permisos, entidades ni variantes de idempotencia.
+
+1. **Error técnico:** `TIMEOUT`, `RED`, `HTTP_429`, `HTTP_5XX` y `RESPUESTA_AMBIGUA` conservan el mismo `ReintegroRefundIntento`, `numero` y `clave_idempotencia`, e incrementan `intentos_tecnicos` en uno. Sea `n` el valor posterior al incremento: `delay_minutos = min(5 * 2^(n - 1), 360)` y `proximo_reintento_at = ahora + delay_minutos`. La secuencia es `5, 10, 20, 40, 80, 160, 320, 360, 360...`, sin jitter ni máximo de intentos técnicos. La cantidad de retries nunca cambia el intento o la cabecera a `RECHAZADO`.
+2. **Respuesta remota `PENDING`:** intento y cabecera permanecen `PENDIENTE`, no se incrementa `intentos_tecnicos`, se fija `proximo_reintento_at = ahora + 15 minutos` y la próxima ejecución reutiliza la misma fila y clave.
+3. **Creación durable:** al crear y confirmar cualquier intento `PENDIENTE`, tanto `INICIAL` como `REINTENTO_MANUAL`, se fija `proximo_reintento_at = ahora` antes de llamar F1. Así, un crash después del commit y antes o durante HTTP deja el mismo intento inmediatamente recuperable.
+4. **Resultado terminal:** `APROBADO` y `RECHAZADO` fijan `proximo_reintento_at = null`.
+5. **HTTP definitivo:** HTTP `400`, `401`, `403` y `404` se mapean a `RECHAZADO`, con diagnóstico seguro, sin retry automático y sin revertir efectos locales; queda habilitado el reintento manual posterior. HTTP `429` y todo HTTP `5xx` permanecen técnicos/reintentables.
+6. **Selector automático T12:** solo es elegible una cabecera con `ReintegroPedidoWeb.estado = PENDIENTE`, `proximo_reintento_at IS NOT NULL` y `proximo_reintento_at <= now()`. El mantenimiento recupera el intento `PENDIENTE` existente; nunca crea otro intento automático por un retry técnico.
+
+##### 2.13.8. Locks y concurrencia
+
+Cancelación cliente, cancelación administrativa, vencimiento, toma E12 y retiro E3 usan el mismo orden global:
+
+1. `PedidoVenta` por `pedido_venta_id FOR UPDATE`;
+2. `PedidoVentaEcommerce FOR UPDATE`;
+3. `PedidoVentaItem` activos en orden estable `created_at, id FOR UPDATE`;
+4. registros dependientes adicionales en orden estable, sin invertir 1–3.
+
+El reloj para vencimiento/retiro se toma después de adquirir los locks. Cada transición E usa `updateMany` condicionado por ID, estado origen, `is_active = true` y `deleted_at IS NULL`; exactamente una operación gana:
+
+- retiro gana: E queda `ENTREGADO`; cancelación/vencimiento devuelven conflicto/no-op de job;
+- cancelación gana: E queda `CANCELADO`; toma/retiro/vencimiento no avanzan;
+- vencimiento gana: E queda `VENCIDO_SIN_RETIRO`; retiro/cancelación no avanzan;
+- toma E12 gana contra cancelación cliente: E queda `EN_PREPARACION`; el cliente recibe `409`, mientras el Administrador todavía puede cancelar.
+
+Los conflictos serializables/deadlocks reintentables repiten la transacción completa con límite acotado y releen el estado. Nunca se invoca F1 desde un intento transaccional reintentable.
+
+##### 2.13.9. Baja lógica e historial E9
+
+`CANCELADO` y `VENCIDO_SIN_RETIRO` permanecen visibles en listado y detalle de Mis pedidos aunque `PedidoVentaEcommerce.is_active = false`. E9 debe incluir expresamente extensiones terminales de HU-E13 dadas de baja, siempre restringidas por `PedidoVenta.cliente_id`, `canal = WEB` y propiedad de sesión. `PedidoVenta` permanece activo. La vista del cliente muestra estado, motivo, fechas y estado del reintegro, pero nunca `refund_id`, claves idempotentes, errores internos o datos de pago sensibles. El QR no se devuelve en estados terminales. El listado/detalle administrativo de pedidos debe mostrar `PENDIENTE`, `APROBADO` o `RECHAZADO` y un código operativo seguro para que `RECHAZADO` pueda resolverse manualmente; tampoco expone credenciales ni payload de MP.
+
+Esta excepción de lectura histórica no reactiva la extensión ni permite operaciones posteriores; el resto de las consultas operativas continúa filtrando `is_active = true`.
+
+> **Addendum post-T17:** la representación exacta de motivo, fechas, estado del reintegro, comprobante original y Nota de Crédito para el Cliente Web queda fijada en §2.13.16.2 y §2.13.16.3.
+
+##### 2.13.10. Automatización y configuración
+
+HU-E13 reutiliza `ejecutarMantenimientoProgramado()`, el endpoint protegido `POST /api/cron/check-pruebas-vencidas` y el script de mantenimiento existente. Agrega tres procesos idempotentes y aislados: (1) recordatorios, (2) vencimientos y (3) avance/retry de sagas `PENDIENTE` cuyo `proximo_reintento_at` sea nulo o haya llegado. El fallo de uno no impide reservas, cupones, carritos ni los otros procesos HU-E13; cada resultado se informa sin PII. `RECHAZADO` y `APROBADO` nunca son seleccionados por el retry automático.
+
+Configuración de Módulo E:
+
+| Clave | Valor por defecto | Validación | Uso |
+|---|---:|---|---|
+| `ECOMMERCE_PLAZO_RETIRO_DIAS` | existente | entero positivo | calcular `plazo_retiro_vencimiento` desde la transición a LISTO |
+| `ECOMMERCE_RECORDATORIO_RETIRO_HORAS` | `24` | entero `> 0` y menor que `ECOMMERCE_PLAZO_RETIRO_DIAS × 24` | anticipación configurable del recordatorio |
+
+`ECOMMERCE_RECORDATORIO_RETIRO_HORAS` se siembra con `24`. Una configuración ausente/inválida hace fallar solo la tarea de recordatorios con `CONFIGURACION_INVALIDA`; no impide el vencimiento por su plazo persistido ni vence anticipadamente ningún pedido.
+
+##### 2.13.11. RBAC, eventos, F3 y AuditLog
+
+- Cliente Web: autorización por sesión y propiedad, sin permiso RBAC interno.
+- Administrador E-commerce: permiso ya reservado `ecommerce:cancelar_pedido_pagado`.
+- Cron: autenticación técnica existente por `CRON_SECRET`, sin sesión humana.
+
+Eventos post-COMMIT, incluidos en `DomainEventMap` y `TIPOS_EVENTO_DOMINIO`:
+
+| Evento | Payload mínimo | F3 | AuditLog |
+|---|---|---|---|
+| `ecommerce:plazo_retiro_por_vencer` | `{ evento_id, pedido_venta_id, pedido_venta_ecommerce_id, numero_venta, cliente_web_cuenta_id, plazo_retiro_vencimiento, clave_origen }` | Cliente Web, `ADVERTENCIA`, clave estable | auditoría estándar de proceso automático |
+| `ecommerce:pedido_cancelado` | `{ evento_id, pedido_venta_id, pedido_venta_ecommerce_id, reintegro_id, actor_tipo, actor_id, motivo, estado_anterior, estado_nuevo: "CANCELADO", timestamp }` | Cliente Web + rol Administrador E-commerce | sensible, transición terminal + intención durable |
+| `ecommerce:pedido_vencido_sin_retiro` | `{ evento_id, pedido_venta_id, pedido_venta_ecommerce_id, reintegro_id, actor_tipo: "SISTEMA", actor_id: null, motivo, estado_anterior: "LISTO_PARA_RETIRO", estado_nuevo: "VENCIDO_SIN_RETIRO", timestamp }` | Cliente Web + rol Administrador E-commerce | sensible, actor automático |
+| `ecommerce:reintegro_estado_cambiado` | `{ evento_id, reintegro_id, intento_refund_id, numero_intento, origen_intento, pedido_venta_id, estado_anterior, estado_nuevo, refund_id? }` | sin notificación adicional | sensible; rechazo, reintento manual y aprobación conservan historial; no incluye error remoto ni credenciales |
+
+> **Addendum post-T17:** la columna F3 de `ecommerce:pedido_cancelado` y `ecommerce:pedido_vencido_sin_retiro` queda sustituida por §2.13.16.1 (Cliente Web únicamente; vencimiento `CRITICA`).
+
+Idempotencia F3: `sha256(tipo_evento + clave_origen + destinatario)`. Para recordatorio, `clave_origen = pedido_venta_id + plazo_retiro_vencimiento`; para cancelación/vencimiento, `clave_origen = reintegro_id`; un retry del mismo hecho no duplica notificaciones.
+
+Actor humano: cancelación web conserva `actor_tipo = CLIENTE_WEB` y cuenta en payload, con `AuditLog.usuario_id = null`; cancelación administrativa usa `actor_tipo = USUARIO`, `actor_id` y `AuditLog.usuario_id = actor_id`. Vencimiento/recordatorio usan `actor_tipo = SISTEMA`, `actor_id = null`, `AuditLog.usuario_id = null`; la baja lógica E usa como `deleted_by` el usuario técnico Canal Web existente porque el campo referencia un Usuario. Ningún evento incluye DNI, email, token QR, credenciales, payload de MP ni motivo técnico completo.
+
+##### 2.13.12. Cambios Prisma, migration y seed estrictamente necesarios
+
+1. Agregar `NOTA_CREDITO` a `TipoComprobanteVenta`.
+2. Agregar `ComprobanteFiscal.comprobante_original_id` opcional, indexado e inmutable, **sin** constraint única global.
+3. Crear enums `EstadoReintegroPedidoWeb`, `TipoActorReintegro`, `EstadoIntentoRefund` y `OrigenIntentoRefund`.
+4. Crear cabecera `ReintegroPedidoWeb`, hijas `ReintegroStockCompensacion` 1:N e intentos `ReintegroRefundIntento` 1:N, con constraints de §§2.13.4–2.13.6.
+5. Mantener `ReintegroPedidoWeb.pedido_venta_id`, `mercadopago_payment_id`, `nota_credito_id`, `contra_asiento_ingreso_id` e `intento_aprobado_id` únicos; en intentos, `clave_idempotencia`, `refund_id` y `[reintegro_id, numero]` únicos; en stock, `clave_idempotencia`, `movimiento_stock_id` y `[reintegro_id, pedido_venta_item_id]` únicos.
+6. Agregar relaciones Prisma inversas necesarias, todas con `onDelete: Restrict`.
+7. Crear migration aditiva para enums, columnas, tablas, FK, índices y constraints; sin reescribir comprobantes históricos.
+8. Sembrar `ECOMMERCE_RECORDATORIO_RETIRO_HORAS = 24`.
+9. No crear permiso nuevo: se reutiliza `ecommerce:cancelar_pedido_pagado` también para el reintento manual.
+10. No agregar columna de recordatorio.
+
+Módulo A debe persistir o reconocer la misma clave por compensación para que la unicidad no dependa solo de la hija E.
+
+##### 2.13.13. Matriz de regresión obligatoria D17
+
+| Dominio/HU | Garantías mínimas a conservar y ampliar |
+|---|---|
+| E2 | pago aprobado factura una sola vez, confirma stock `RESERVADO → VENDIDO`, registra pago/auditoría y ahora persiste `PAGO_CONFIRMADO`; webhook repetido no duplica; evento de cola sigue emitido |
+| E3 | retiro válido conserva atomicidad B/E; plazo vencido no entrega; carrera retiro/vencimiento/cancelación deja un único terminal; QR consumido |
+| E6 | log de pagos y dato cifrado no cambian ni exponen refund/motivos técnicos; accesos siguen protegidos |
+| E9 | propiedad por cliente; CANCELADO/VENCIDO visibles históricamente; QR y datos sensibles ocultos; demás filtros activos sin regresión |
+| E12 | cola incluye `PAGO_CONFIRMADO`; tomar hace `PAGO_CONFIRMADO → EN_PREPARACION`; prioridad, asignación, escaneo, completar y aviso LISTO permanecen; no se prepara un terminal |
+| A | compensación exacta por cada item/SKU `VENDIDO → DISPONIBLE`; retry ejecuta solo faltantes y no duplica stock/movimientos; E no escribe tablas A |
+| B | factura original intacta; una NC HU-E13 vinculada sin impedir otras NC futuras; B permanece FACTURADO; no `FACTURADO → ANULADO` |
+| G11 | resultado exacto `CREADO | YA_EXISTENTE | INGRESO_ORIGINAL_NO_ENCONTRADO`; un contra-asiento; ingreso original inmutable; ausencia deja saga pendiente |
+| F1 | refund total; retry técnico conserva `X-Idempotency-Key`; reintento manual crea intento/clave nuevos solo tras rechazo definitivo; jamás dos aprobados; sin secretos en logs |
+| F3 | una notificación por evento/destinatario; recordatorio estable; solo canal interno |
+| D | eventos sensibles encadenados; actor humano/web/sistema correcto; retries/no-op no duplican AuditLog de negocio |
+| HTTP/RBAC | propiedad Cliente Web, permiso admin, motivos estrictos, envelopes/status y no enumeración de pedidos ajenos |
+| Crash recovery | crash antes/después de cada frontera local/F1 no duplica stock, NC, contra-asiento o refund; intención PENDIENTE recuperable |
+
+##### 2.13.14. Riesgos y contradicciones todavía abiertas
+
+1. **R1–R2 contradicen el comportamiento E2/E12 vigente y el texto histórico de §2.12:** hoy el pago persiste directamente `EN_PREPARACION`. Rev.3 exige ingreso inmediato a cola conservando `PAGO_CONFIRMADO` y transición atómica al tomar. El contrato está cerrado, pero su implementación afecta consultas, eventos y regresiones E2/E12.
+2. **R9 depende de contrato nuevo en A:** no existe hoy el movimiento idempotente multi-item `VENDIDO → DISPONIBLE`; no puede implementarse desde E ni reutilizar `liberarReservasTx`.
+3. **No hay atomicidad PostgreSQL/MP:** el diseño acepta E terminal y efectos locales persistidos con saga `PENDIENTE`. La recuperación está definida en §2.13.7; no debe presentarse como transacción distribuida ni como “exactly once” basado solo en BD.
+4. **Modelo fiscal nuevo:** `ComprobanteFiscal` vigente no soporta `NOTA_CREDITO` ni vínculo al original; B debe incorporar el vínculo no único y la idempotencia específica HU-E13.
+5. **R15 amplía G11:** el contrato actual no distingue `YA_EXISTENTE` de `INGRESO_ORIGINAL_NO_ENCONTRADO`; debe ampliarse sin degradar consumidores vigentes.
+6. **R6 contradice filtros actuales de E9:** hoy se excluyen extensiones inactivas. Rev.3 exige una excepción histórica por propiedad exclusivamente para `CANCELADO`/`VENCIDO_SIN_RETIRO`, mientras Pick & Pack debe seguir excluyéndolos.
+
+Ya no es contradicción abierta el soporte de idempotencia de Mercado Pago: Rev.3 fija como contrato F1 que el endpoint requiere `X-Idempotency-Key`. Tampoco quedan abiertas la cifra del recordatorio (`24` horas), la representación del actor automático (`AuditLog.usuario_id = null`, Canal Web en `deleted_by`) ni el permiso administrativo.
+
+##### 2.13.15. Addendum posterior a Rev.3 — lectura administrativa mínima para T15
+
+Este addendum es aditivo y desbloquea exclusivamente la UI administrativa T15. No modifica HU-E7, T07/T08/T11, permisos, estados, saga, retry, F3/AuditLog, schema ni migrations.
+
+**Separación de pantallas y permiso.** `/ecommerce/pedidos` permanece sin cambios como pantalla HU-E7 de órdenes no abonadas `PAGO_PENDIENTE | PAGO_RECHAZADO`, con su permiso vigente. HU-E13 utiliza la pantalla separada `/ecommerce/pedidos/pagados`, denominada **Pedidos pagados / Gestión de pedidos pagados**, accesible por el permiso existente `PERMISO_CANCELAR_PEDIDO_PAGADO = ecommerce:cancelar_pedido_pagado`. No se autoriza por nombre de rol, no se exige además el permiso HU-E7 y no se crea un permiso nuevo. La navegación puede incorporar una entrada separada “Pedidos pagados” bajo ese permiso sin cambiar la semántica de la entrada HU-E7.
+
+**Lectura específica.** Un Server Component y servicio administrativo dedicado, conceptualmente `listarPedidosPagadosAdmin(...)` y adaptado al naming del repositorio, leen exclusivamente `PAGO_CONFIRMADO | EN_PREPARACION | LISTO_PARA_RETIRO | CANCELADO | VENCIDO_SIN_RETIRO`. No incluyen automáticamente `PAGO_PENDIENTE`, `PAGO_RECHAZADO`, `ENTREGADO` ni `ANULADO`. No se crea API pública de lectura adicional salvo necesidad técnica real.
+
+La excepción de baja lógica es local a esta lectura:
+
+- extensiones activas con `is_active = true AND deleted_at IS NULL` para `PAGO_CONFIRMADO | EN_PREPARACION | LISTO_PARA_RETIRO`;
+- extensiones inactivas con `is_active = false AND deleted_at IS NOT NULL` exclusivamente para `CANCELADO | VENCIDO_SIN_RETIRO`.
+
+`PedidoVenta` conserva los criterios normales aplicables al canal WEB. No se relaja ningún filtro global ni se hacen visibles `ANULADO` u otros inactivos.
+
+**DTO administrativo mínimo por fila:**
+
+```typescript
+{
+  pedido_venta_id: string;
+  numero: string;
+  fecha: string;
+  total: string;
+  estado_ecommerce:
+    | "PAGO_CONFIRMADO"
+    | "EN_PREPARACION"
+    | "LISTO_PARA_RETIRO"
+    | "CANCELADO"
+    | "VENCIDO_SIN_RETIRO";
+  plazo_retiro_vencimiento: string | null;
+  reintegro: null | {
+    estado: "PENDIENTE" | "APROBADO" | "RECHAZADO";
+    tiene_intento_pendiente: boolean;
+  };
+  acciones: {
+    cancelar_pedido: boolean;
+    reintentar_reintegro: boolean;
+  };
+}
+```
+
+Puede reutilizar identificadores comerciales seguros de la lista administrativa vigente sin ampliar PII. `reintegro = null` cuando no existe `ReintegroPedidoWeb`; cuando existe, solo expone su estado agregado y si existe al menos un `ReintegroRefundIntento.estado = PENDIENTE`. No expone IDs de cabecera/intento, número de intento, clave idempotente, payment/refund ID, NC, contra-asiento, errores técnicos, actor/motivo histórico ni respuesta MP.
+
+El backend calcula las ayudas de presentación:
+
+```text
+acciones.cancelar_pedido =
+  estado_ecommerce IN (PAGO_CONFIRMADO, EN_PREPARACION, LISTO_PARA_RETIRO)
+
+acciones.reintentar_reintegro =
+  reintegro.estado = RECHAZADO
+  AND reintegro.tiene_intento_pendiente = false
+```
+
+En cualquier otro caso son `false`. La UI no infiere elegibilidad desde `CANCELADO`, `VENCIDO_SIN_RETIRO`, tiempo, ausencia de refund ID ni mensajes visuales. T07/T11 siguen siendo autoridad al ejecutar.
+
+**Paginación.** PostgreSQL aplica el filtro completo de estados, canal y baja lógica antes de `count`, `orderBy`, `skip` y `take`. Se reutilizan orden y límites del listado administrativo existente cuando sean compatibles. Está prohibido paginar activos y anexar terminales después.
+
+T15 consume `acciones.cancelar_pedido` para `PATCH /api/ecommerce/pedidos/[id]/cancelar` y `acciones.reintentar_reintegro` para `POST /api/ecommerce/pedidos/[id]/reintegro/reintentar`; tras cada mutación refresca/revalida esta lectura durable. T11 resuelve carreras y conserva la autoridad definitiva.
+
+##### 2.13.16. Addendum post-T17 — reconciliación contractual aprobada
+
+Este addendum registra las decisiones aprobadas tras la integración PostgreSQL end-to-end de T17. Para HU-E13 prevalece sobre los textos de Rev.3 que contradice, citados en cada punto. No modifica máquina de estados, saga de reintegro, retry, permisos, schema ni migrations.
+
+**2.13.16.1. Destinatarios y prioridad F3.** HU-E13 genera notificaciones internas F3 exclusivamente para la cuenta del Cliente Web operable:
+
+| Evento | Destinatario F3 | Prioridad default |
+|---|---|---|
+| `ecommerce:plazo_retiro_por_vencer` | Cliente Web operable únicamente | `ADVERTENCIA` (sin cambio) |
+| `ecommerce:pedido_cancelado` | Cliente Web operable únicamente | sin cambio por este addendum |
+| `ecommerce:pedido_vencido_sin_retiro` | Cliente Web operable únicamente | `CRITICA`, según `spec_modulo_F.md` §3.3 |
+| `ecommerce:reintegro_estado_cambiado` | sin notificación adicional (sin cambio) | — |
+
+Ninguna notificación HU-E13 se dirige al rol `ADMINISTRADOR_ECOMMERCE`. La trazabilidad administrativa corresponde al AuditLog (§2.13.11) y a las vistas administrativas HU-E13 (§2.13.15). Esta decisión reemplaza, solo para HU-E13, la frase «Cancelación y vencimiento generan notificación interna F3 para la cuenta operable y para el rol `ADMINISTRADOR_ECOMMERCE`» de §2.13.3 y la columna F3 «Cliente Web + rol Administrador E-commerce» de §2.13.11. Las claves de idempotencia F3 de §2.13.11 no cambian.
+
+**2.13.16.2. Contrato Cliente Web E9 ampliado.** Se mantiene la visibilidad histórica de §2.13.9 para `CANCELADO` y `VENCIDO_SIN_RETIRO`. El contrato E9 del Cliente Web agrega:
+
+```typescript
+{
+  motivo: string | null;
+  fecha_terminacion: string | null;
+  reintegro_estado: "PENDIENTE" | "APROBADO" | "RECHAZADO" | null;
+}
+```
+
+- `motivo` = `PedidoVentaEcommerce.deletion_reason`.
+- `fecha_terminacion` = `PedidoVentaEcommerce.deleted_at`.
+- `reintegro_estado` = `ReintegroPedidoWeb.estado` si existe saga; `null` si no existe, incluido un terminal legacy sin saga.
+- En pedidos no terminales donde no corresponda: `motivo = null` y `fecha_terminacion = null`.
+- Se conservan las fechas ya existentes: fecha del pedido y `plazo_retiro_vencimiento`.
+
+Nunca se expone al Cliente Web: `reintegro_id`, ID de intento, número de intento, `refund_id`, `mercadopago_payment_id`, clave idempotente, `ultimo_error_codigo`, errores técnicos, datos G11, actor administrativo ni motivo de reintento manual.
+
+**2.13.16.3. Comprobante original y Nota de Crédito en E9.**
+
+- `comprobante` = comprobante fiscal **original** del pedido. Una Nota de Crédito HU-E13 nunca lo reemplaza en ese campo; el original permanece visible e inmutable.
+- Se agrega `nota_credito: { tipo, fecha_emision, monto } | null`, que representa la NC vinculada al original; si no existe NC, `nota_credito = null`.
+- Ambos usan el mismo DTO mínimo `{ tipo, fecha_emision, monto }`, sin IDs internos.
+- La lectura individual de comprobante de E9 acepta la misma visibilidad histórica `CANCELADO`/`VENCIDO_SIN_RETIRO` que el detalle del pedido, siempre restringida al dueño, canal WEB y `PedidoVenta` activo.
+
+**2.13.16.4. Respuesta pública de cancelación Cliente Web.** `PATCH /api/tienda/mis-pedidos/[id]/cancelar` responde en éxito, incluida la repetición idempotente:
+
 ```json
-{ "data": null, "error": { "code": "TRANSICION_INVALIDA", "message": "El pedido ya está en preparación; la cancelación debe solicitarse al Administrador E-commerce" } }
+{
+  "data": {
+    "pedido_venta_id": "uuid",
+    "estado_ecommerce": "CANCELADO",
+    "reintegro_iniciado": true
+  },
+  "error": null
+}
 ```
 
-**Nota de relevamiento crítica — reversión de stock `Vendido → Disponible`, sin endpoint en Módulo A:** `spec_modulo_A.md` sección 2.9 (HU-A10) expone únicamente: congelamiento (`Disponible → Reservado`), confirmación por venta (`Reservado → Vendido`, sin reversión) y liberación por TTL (`Reservado → Disponible`, solo aplica a reservas **no confirmadas**). Ninguna de las tres cubre el caso de HU-E13/HU-E7-vencimiento: una unidad ya `Vendido` (pago confirmado, comprobante ya emitido) que debe volver a `Disponible` por cancelación post-venta o por vencimiento del plazo de retiro. Esto **no** es una variación del TTL de reserva — es una reversión de venta ya cerrada, conceptualmente más cercana a la devolución de HU-A9 (`spec_modulo_A.md` sección 2.8, reclasificación de unidad en estado "Devuelto") que a una liberación de reserva. Este documento **no define unilateralmente** el endpoint necesario en Módulo A (violaría la exclusividad de Módulo A sobre la máquina de estados de stock, `spec_modulo_B.md` sección 3.2, aplicable también a Módulo E) — queda como bloqueante a resolver con el owner de Módulo A antes de implementar HU-E13: o se extiende HU-A9 para cubrir este caso, o se define una cuarta transición nueva en HU-A10. Reportado, no asumido.
+No expone `reintegro_id`, `nota_credito_id`, ID de intento, `refund_id`, payment ID, clave idempotente ni diagnóstico técnico. Esta forma es el contrato vigente y sustituye, para la ruta Cliente Web, el ejemplo de §2.13.2. No cambia la lógica ni los códigos de error de §2.13.2.
 
-**Nota de relevamiento — endpoint de reembolso saliente, ausente del contrato de HU-F1:** ver arriba, en "Reintegro, en un único flujo".
+##### 2.13.17. Registro de cierre HU-E13 (no normativo) — 08/10/2026
+
+Esta sección es un registro y **no** agrega, quita ni reinterpreta contratos: la autoridad sigue siendo Rev.3 con el addendum de retry, §2.13.15 y §2.13.16.
+
+- **Estado:** HU-E13 COMPLETADA / VERIFY PASS; T00–T20 aprobadas. Implementación, evidencia, checklist de despliegue y riesgos en `docs/modulos/modulo E/HU13_MODULO_E.md` §10.
+- **Dependencias resueltas:** las dependencias marcadas como bloqueantes en §2.13.4 y §5 (movimiento `VENDIDO → DISPONIBLE` de Módulo A y refund saliente de F1) quedaron implementadas en T04 y T06; esos pasajes se conservan como antecedente histórico.
+- **Cambio transversal en Módulo D (T18):** el append del AuditLog se serializa en PostgreSQL con `pg_advisory_xact_lock` sobre una clave fija del ledger; lectura del anterior por `created_at DESC, id DESC` y verificación por `created_at ASC, id ASC`. Es una corrección de concurrencia multiproceso: el algoritmo SHA-256 y la canonicalización no cambiaron.
+- **Presentación (T19):** las fechas de Mis pedidos, Pedidos pagados y Pick & Pack se formatean de forma determinista (`dd/mm/aaaa`, `dd/mm/aaaa HH:mm`, zona de negocio argentina) mediante `src/lib/utils/fecha-negocio.ts`.
+- **R1–R22:** este documento declara que Rev.3 «conserva D1–D17 y R1–R22», pero R1–R22 no están enumerados en el repositorio (solo se citan R1, R2, R6, R9 y R15). Queda registrado como deuda documental preexistente; no es un defecto funcional de HU-E13.
+- **Operación legacy:** no ejecutar el seed global sobre bases legacy mientras `ecommerce:priorizar_cola` conserve un UUID histórico distinto (P2002); usar `migrate deploy` más configuración dirigida.
 
 ---
 

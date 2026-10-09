@@ -200,7 +200,7 @@ test(
       assert.equal(r.resultado, "CONFIRMADO");
 
       const p = await estadoPedido(iniciado.pedido_venta_id);
-      assert.equal(p.estado_ecommerce, "EN_PREPARACION", "E2→E12: pago confirmado pasa directo a Pick&Pack");
+      assert.equal(p.estado_ecommerce, "PAGO_CONFIRMADO", "E2 deja el pedido pago visible y sin iniciar preparación");
       assert.equal(p.mercadopago_payment_id, pid);
       assert.ok(p.fecha_pago_confirmado);
       assert.equal(p.pedido_venta.estado, "FACTURADO");

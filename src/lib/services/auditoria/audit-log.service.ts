@@ -78,41 +78,54 @@ export type ResultadoVerificacionCadena =
 // ──────────────────────────────────────────────────────────────────────────────
 
 /**
- * Candado de serialización del ledger (spec_modulo_D.md §4.2).
+ * Serialización del ledger (spec_modulo_D.md §4.2; HU-E13 T18, PLAN §9.4).
  *
- * `escribirRegistroAuditLog()` hace `findFirst`(último hash) + `create` de
- * forma NO atómica. Sin serializar, dos escrituras al ledger que arrancan casi
- * a la vez leen el mismo `hash_anterior` antes de que la primera commitee y
- * bifurcan la cadena SHA-256 (evidencia real: filas idx 157/158 y 159/160 del
- * ledger, 2026-09-03 — los dos eventos post-commit de `registrarRecepcion` de
- * HU-H4, `recepcion:registrada` + `inventario:ingreso_stock_registrado`,
- * emitidos sincrónicamente uno detrás del otro).
+ * Leer el último hash e insertar el siguiente no es atómico: dos escrituras
+ * que leen el mismo `hash_anterior` bifurcan la cadena SHA-256 (evidencia:
+ * filas 157/158 y 159/160 del ledger, 2026-09-03, HU-H4; y la bifurcación
+ * servidor + proceso de test detectada en T17). El servidor Next y
+ * `job:reservas` son procesos distintos que escriben el mismo ledger, así que
+ * la frontera de corrección es PostgreSQL, no la memoria del proceso:
  *
- * `colaLedger` encadena cada llamada a `registrarAuditLog()` detrás de la
- * anterior, de modo que las escrituras corren estrictamente de a una y ninguna
- * lee un `hash_anterior` obsoleto. El bus de eventos de este proyecto es
- * in-process (`domain-event-bus.ts`, `EventEmitter`), así que TODA invocación
- * —de cualquier módulo, actual o futuro— nace en este mismo proceso y queda
- * cubierta por esta cola. Por eso alcanza con serializar en memoria y no hace
- * falta un `Serializable` / `pg_advisory_xact_lock` de Postgres: no hay
- * escritura al ledger desde otro proceso.
+ *   BEGIN → pg_advisory_xact_lock(CLAVE fija del ledger) → [deduplicación]
+ *         → último registro (created_at DESC, id DESC) → SHA-256 → INSERT → COMMIT
  *
- * Un fallo puntual de una escritura NO rompe la cola: la siguiente igual corre
- * (ver el `.catch(() => {})` sobre la continuación, no sobre el valor devuelto
- * al llamador).
+ * El commit (o el rollback) libera el lock: un fallo antes del commit no deja
+ * fila parcial ni lock tomado.
+ *
+ * `colaLedger` se conserva SOLO como optimización local: evita que las
+ * escrituras de un mismo proceso compitan entre sí por el lock y por
+ * conexiones del pool. No es necesaria para la corrección. Un fallo puntual no
+ * rompe la cola (el `.catch(() => {})` va sobre la continuación, no sobre el
+ * valor devuelto al llamador).
  */
 let colaLedger: Promise<unknown> = Promise.resolve();
+
+/**
+ * Clave advisory fija y exclusiva del ledger AuditLog: un único orden total
+ * para todos los appends, nunca derivada de pedido, usuario, tabla o acción.
+ * Forma de dos int4 ('AUDI', 'TLOG'): ocupa un espacio de claves distinto del
+ * de las claves bigint de un argumento (p. ej. `hashtext(...)::bigint` de
+ * Pick & Pack), así que no puede colisionar con ellas.
+ */
+export const CLAVE_ADVISORY_LEDGER_AUDITLOG = [0x41554449, 0x544c4f47] as const;
+
+/** Margen de la transacción de append: incluye la espera del lock bajo contención multiproceso. */
+const OPCIONES_TRANSACCION_LEDGER = { maxWait: 10_000, timeout: 20_000 } as const;
+
+type IdentidadIdempotente = Pick<RegistrarAuditLogParams, "accion" | "tabla_afectada" | "registro_id">;
 
 /**
  * Inserta un nuevo registro en el Ledger de Auditoría, calculando su
  * `hash_actual` encadenado con el `hash_actual` del registro más reciente
  * (o `HASH_GENESIS` si el ledger está vacío).
  *
- * Serializada vía `colaLedger` (ver arriba): dos llamadas concurrentes nunca
- * leen el mismo `hash_anterior`. La cola aplica también cuando se pasa `tx`
- * — hoy ningún llamador lo hace (el `audit-log.listener.ts` unificado siempre
- * llama sin `tx`); un futuro llamador con `tx` no debe estar él mismo dentro
- * de la cola (no hay reentrancia).
+ * Cada append corre en su propia transacción PostgreSQL bajo el advisory lock
+ * del ledger (ver arriba), así que dos procesos nunca leen el mismo
+ * `hash_anterior`. Si el llamador pasa `tx`, el append (y el lock) viven en esa
+ * transacción y se confirman o revierten con ella; hoy ningún llamador lo hace
+ * (`audit-log.listener.ts` siempre llama sin `tx`). Un llamador con `tx` no
+ * debe estar él mismo dentro de la cola (no hay reentrancia).
  *
  * @param params - Datos del evento a auditar.
  * @param tx - Cliente de transacción del llamador, si corresponde (para que
@@ -122,20 +135,56 @@ export async function registrarAuditLog(
   params: RegistrarAuditLogParams,
   tx?: Prisma.TransactionClient,
 ): Promise<void> {
-  const ejecucion = colaLedger.then(() => escribirRegistroAuditLog(params, tx));
+  const ejecucion = colaLedger.then(async () => {
+    if (tx) {
+      await anexarRegistroAuditLog(tx, params, null);
+      return;
+    }
+    await prisma.$transaction((t) => anexarRegistroAuditLog(t, params, null), OPCIONES_TRANSACCION_LEDGER);
+  });
   colaLedger = ejecucion.catch(() => {});
   return ejecucion;
 }
 
-async function escribirRegistroAuditLog(
+/**
+ * Append idempotente por identidad lógica `accion + tabla_afectada +
+ * registro_id`. La búsqueda del hecho existente ocurre DENTRO del mismo lock y
+ * transacción que el INSERT: dos procesos que auditan el mismo hecho a la vez
+ * producen exactamente una fila (uno recibe `CREADO`, el otro `YA_EXISTENTE`).
+ */
+export async function registrarAuditLogIdempotente(
   params: RegistrarAuditLogParams,
-  tx?: Prisma.TransactionClient,
-): Promise<void> {
-  const db = tx ?? prisma;
+): Promise<"CREADO" | "YA_EXISTENTE"> {
+  const ejecucion = colaLedger.then(() =>
+    prisma.$transaction((t) => anexarRegistroAuditLog(t, params, params), OPCIONES_TRANSACCION_LEDGER));
+  colaLedger = ejecucion.catch(() => {});
+  return ejecucion;
+}
 
-  const ultimoRegistro = await db.auditLog.findFirst({
-    orderBy: { created_at: "desc" },
-    select: { hash_actual: true },
+async function anexarRegistroAuditLog(
+  tx: Prisma.TransactionClient,
+  params: RegistrarAuditLogParams,
+  identidad: IdentidadIdempotente | null,
+): Promise<"CREADO" | "YA_EXISTENTE"> {
+  const [claveA, claveB] = CLAVE_ADVISORY_LEDGER_AUDITLOG;
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(${claveA}::int4, ${claveB}::int4)`;
+
+  if (identidad) {
+    const existente = await tx.auditLog.findFirst({
+      where: {
+        accion: identidad.accion,
+        tabla_afectada: identidad.tabla_afectada,
+        registro_id: identidad.registro_id,
+      },
+      select: { id: true },
+    });
+    if (existente) return "YA_EXISTENTE";
+  }
+
+  // Orden total determinista: el mismo que recorre `verificarCadenaIntegridad()` al revés.
+  const ultimoRegistro = await tx.auditLog.findFirst({
+    orderBy: [{ created_at: "desc" }, { id: "desc" }],
+    select: { hash_actual: true, created_at: true },
   });
   const hashAnterior = ultimoRegistro?.hash_actual ?? HASH_GENESIS;
 
@@ -155,7 +204,19 @@ async function escribirRegistroAuditLog(
     hashAnterior,
   );
 
-  await db.auditLog.create({
+  // `created_at` (fuera del hash) conserva la semántica de Prisma (instante
+  // UTC, milisegundos), pero se toma bajo el lock y con el reloj de PostgreSQL,
+  // común a todos los procesos. Si cae en el mismo milisegundo que el anterior,
+  // avanza 1 ms: `created_at` es estrictamente creciente y el orden por
+  // `created_at, id` coincide con el orden real de la cadena.
+  const [{ ahora }] = await tx.$queryRaw<{ ahora: Date }[]>`
+    SELECT (clock_timestamp() AT TIME ZONE 'UTC')::timestamp(3) AS ahora
+  `;
+  const createdAt = ultimoRegistro && ahora.getTime() <= ultimoRegistro.created_at.getTime()
+    ? new Date(ultimoRegistro.created_at.getTime() + 1)
+    : ahora;
+
+  await tx.auditLog.create({
     data: {
       usuario_id: params.usuario_id,
       accion: params.accion,
@@ -166,8 +227,10 @@ async function escribirRegistroAuditLog(
       valor_nuevo: valorNuevo as Prisma.InputJsonValue | undefined,
       hash_anterior: hashAnterior,
       hash_actual: hashActual,
+      created_at: createdAt,
     },
   });
+  return "CREADO";
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -300,8 +363,9 @@ export async function listarUsuariosParaFiltro(): Promise<UsuarioParaFiltro[]> {
  * responsabilidad del Route Handler (`withPermission`), no de este service.
  */
 export async function verificarCadenaIntegridad(): Promise<ResultadoVerificacionCadena> {
+  // Mismo orden total que el append (created_at, id), en sentido ascendente.
   const registros = await prisma.auditLog.findMany({
-    orderBy: { created_at: "asc" },
+    orderBy: [{ created_at: "asc" }, { id: "asc" }],
     select: {
       id: true,
       usuario_id: true,

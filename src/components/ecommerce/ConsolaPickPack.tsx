@@ -12,7 +12,7 @@
  * No renderiza PII, QR, payment ids ni códigos escaneados — solo los campos
  * seguros del DTO de cola.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -127,6 +127,7 @@ export function TarjetaPedidoCola({
   onPrioridad: (prioridad: number | null) => void;
 }) {
   const libre = pedido.operador_asignado_id === null;
+  const pendienteDeToma = pedido.estado_ecommerce === "PAGO_CONFIRMADO" && libre;
   const enPreparacion = pedido.estado_ecommerce === "EN_PREPARACION";
 
   return (
@@ -158,6 +159,18 @@ export function TarjetaPedidoCola({
           <ProgresoBarra porcentaje={pedido.progreso.porcentaje} />
         </div>
 
+        <p className="text-xs text-muted-foreground">
+          {pendienteDeToma
+            ? "Disponible para tomar · Sin operador asignado"
+            : enPreparacion && libre
+              ? "Registro anterior · Sin operador asignado"
+              : esPropio && enPreparacion
+                ? "Asignado a vos"
+                : enPreparacion
+                  ? "Asignado a otro operador"
+                  : "Estado no operable"}
+        </p>
+
         {puedePriorizar && libre && enPreparacion && (
           <ControlPrioridad
             prioridadActual={pedido.prioridad_manual}
@@ -168,7 +181,7 @@ export function TarjetaPedidoCola({
 
         {puedePreparar && (
           <div className="mt-auto pt-1">
-            {libre && enPreparacion ? (
+            {pendienteDeToma ? (
               <Button
                 className="w-full bg-blue-600 text-white hover:bg-blue-700"
                 disabled={accionEnCurso}
@@ -225,6 +238,7 @@ export function ConsolaPickPack({
   const [cargando, setCargando] = useState(true);
   const [errorCarga, setErrorCarga] = useState<string | null>(null);
   const [accionEnCurso, setAccionEnCurso] = useState<string | null>(null);
+  const accionEnCursoRef = useRef<string | null>(null);
   const [pedidoActivo, setPedidoActivo] = useState<ItemColaPreparacionJson | null>(null);
 
   const aplicarRespuestaCola = useCallback((r: Awaited<ReturnType<typeof obtenerColaPreparacion>>) => {
@@ -278,14 +292,18 @@ export function ConsolaPickPack({
   }, []);
 
   async function manejarTomar(pedido: ItemColaPreparacionJson) {
-    if (accionEnCurso) return;
+    if (accionEnCursoRef.current) return;
+    accionEnCursoRef.current = pedido.pedido_venta_id;
     setAccionEnCurso(pedido.pedido_venta_id);
     try {
       const r = await tomarPedidoApi(pedido.pedido_venta_id);
       if (r.ok && r.data) {
-        // La toma exitosa abre la preparación — la línea/progreso del ítem ya
-        // están en el DTO de cola, no hace falta otro endpoint.
-        setPedidoActivo({ ...pedido, operador_asignado_id: r.data.operador_asignado_id });
+        refrescar();
+        setPedidoActivo({
+          ...pedido,
+          estado_ecommerce: "EN_PREPARACION",
+          operador_asignado_id: r.data.operador_asignado_id,
+        });
         return;
       }
       toast.add({
@@ -298,6 +316,7 @@ export function ConsolaPickPack({
     } catch {
       toast.add({ title: "Sin conexión", description: mensajeErrorPickPack(0), type: "error" });
     } finally {
+      accionEnCursoRef.current = null;
       setAccionEnCurso(null);
     }
   }

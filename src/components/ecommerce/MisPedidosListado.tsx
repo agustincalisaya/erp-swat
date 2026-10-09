@@ -4,6 +4,7 @@ import type { PedidoWebResumen } from "@/lib/services/ecommerce/mis-pedidos.serv
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { formatearFechaNegocio } from "@/lib/utils/fecha-negocio";
 
 const estados: Record<EstadoEcommerce, { etiqueta: string; estilo: string }> = {
   PAGO_PENDIENTE: { etiqueta: "Pago pendiente", estilo: "bg-amber-100 text-amber-900" },
@@ -18,7 +19,6 @@ const estados: Record<EstadoEcommerce, { etiqueta: string; estilo: string }> = {
 };
 
 const pesos = new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS" });
-const fecha = new Intl.DateTimeFormat("es-AR", { dateStyle: "medium" });
 
 export function EstadoPedidoWebBadge({ estado }: { estado: EstadoEcommerce }) {
   const { etiqueta, estilo } = estados[estado];
@@ -67,7 +67,7 @@ export function MisPedidosListado({
                 <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div className="space-y-1">
                     <CardTitle>Pedido {pedido.numero}</CardTitle>
-                    <CardDescription>Fecha del pedido: {fecha.format(new Date(pedido.fecha))}</CardDescription>
+                    <CardDescription>Fecha del pedido: {formatearFechaNegocio(pedido.fecha)}</CardDescription>
                   </div>
                   <EstadoPedidoWebBadge estado={pedido.estado} />
                 </CardHeader>

@@ -332,7 +332,7 @@ test(
         where: { accion: "PEDIDO_ADMITIDO_COLA", registro_id: extId },
       });
       assert.equal(logs.length, 1);
-      assert.equal((logs[0].valor_nuevo as Record<string, unknown>).estado_ecommerce, "EN_PREPARACION");
+      assert.equal((logs[0].valor_nuevo as Record<string, unknown>).estado_ecommerce, "PAGO_CONFIRMADO");
     });
 
     await t.test("audit: cadena de hash mantiene integridad", async () => {

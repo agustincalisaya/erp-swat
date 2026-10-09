@@ -283,6 +283,12 @@ const SECCIONES: SeccionConfig[] = [
         icon: Ban,
         permiso: "ecommerce:anular_orden_no_abonada",
       },
+      {
+        label: "Pedidos pagados",
+        href: "/ecommerce/pedidos/pagados",
+        icon: Receipt,
+        permiso: "ecommerce:cancelar_pedido_pagado",
+      },
     ],
   },
   {
