@@ -87,6 +87,8 @@ model Usuario {
   escaneos_preparacion           PedidoPreparacionEscaneo[] @relation("EscaneoPreparacionOperador")
   notificaciones_recibidas       Notificacion[]             @relation("NotificacionUsuarioDestinatario")
   recuperaciones_cuenta_web      CuentaClienteWeb[]         @relation("RecuperacionCuentaWebEmitidaPor")
+  reintegros_solicitados         ReintegroPedidoWeb[]       @relation("ReintegroSolicitadoPor")
+  reintentos_refund_creados      ReintegroRefundIntento[]   @relation("ReintegroRefundCreadoPor")
 
   // --- Relaciones HU-E6 (acceso al log de pagos) ---
   accesos_log_pagos_solicitados AccesoLogPagos[] @relation("AccesoLogPagosSolicitante")
@@ -372,8 +374,9 @@ model VarianteSKU {
   pedido_venta_items PedidoVentaItem[]
 
   // --- Relaciones Sprint 4 (Módulos B / E) ---
-  lista_precio_venta_items ListaPrecioVentaItem[]
-  carrito_web_items        CarritoWebItem[]
+  lista_precio_venta_items        ListaPrecioVentaItem[]
+  carrito_web_items               CarritoWebItem[]
+  reintegros_stock_compensaciones ReintegroStockCompensacion[]
 
   @@index([proveedor_id])
   @@map("variantes_sku")
@@ -396,12 +399,13 @@ model Deposito {
   updated_at DateTime @updatedAt
 
   // --- Relaciones ---
-  stock_items            StockDeposito[]
-  movimientos_origen     MovimientoStock[]    @relation("MovimientoOrigen")
-  movimientos_destino    MovimientoStock[]    @relation("MovimientoDestino")
-  transferencias_origen  TransferenciaStock[] @relation("TransferenciaOrigen")
-  transferencias_destino TransferenciaStock[] @relation("TransferenciaDestino")
-  reservas               Reserva[]
+  stock_items                     StockDeposito[]
+  movimientos_origen              MovimientoStock[]            @relation("MovimientoOrigen")
+  movimientos_destino             MovimientoStock[]            @relation("MovimientoDestino")
+  transferencias_origen           TransferenciaStock[]         @relation("TransferenciaOrigen")
+  transferencias_destino          TransferenciaStock[]         @relation("TransferenciaDestino")
+  reservas                        Reserva[]
+  reintegros_stock_compensaciones ReintegroStockCompensacion[]
 
   // --- Relación HU-A9 (Reclasificación de Devueltos) ---
   reclasificaciones_solicitudes ReclasificacionSolicitud[]
@@ -468,11 +472,12 @@ model MovimientoStock {
   updated_at DateTime @updatedAt
 
   // --- Relaciones ---
-  deposito_origen  Deposito?             @relation("MovimientoOrigen", fields: [deposito_origen_id], references: [id], onDelete: Restrict)
-  deposito_destino Deposito?             @relation("MovimientoDestino", fields: [deposito_destino_id], references: [id], onDelete: Restrict)
-  registrado_por   Usuario               @relation("MovimientoRegistradoPor", fields: [registrado_por_id], references: [id], onDelete: Restrict)
-  recepcion        Recepcion?            @relation(fields: [recepcion_id], references: [id], onDelete: Restrict)
-  items            MovimientoStockItem[]
+  deposito_origen              Deposito?                   @relation("MovimientoOrigen", fields: [deposito_origen_id], references: [id], onDelete: Restrict)
+  deposito_destino             Deposito?                   @relation("MovimientoDestino", fields: [deposito_destino_id], references: [id], onDelete: Restrict)
+  registrado_por               Usuario                     @relation("MovimientoRegistradoPor", fields: [registrado_por_id], references: [id], onDelete: Restrict)
+  recepcion                    Recepcion?                  @relation(fields: [recepcion_id], references: [id], onDelete: Restrict)
+  items                        MovimientoStockItem[]
+  reintegro_stock_compensacion ReintegroStockCompensacion?
 
   @@index([deposito_origen_id])
   @@index([deposito_destino_id])
@@ -1672,6 +1677,7 @@ model PedidoVenta {
   aplicaciones_cupon     CuponAplicacion[]
   ingreso_tesoreria      IngresoTesoreria?
   contra_asiento_ingreso ContraAsientoIngreso?
+  reintegro_web          ReintegroPedidoWeb?
 
   /// Fuente directa de HU-C7 (spec_modulo_C.md §2.7): filtro por
   /// `cliente_id` + `estado IN (FACTURADO, REMITO_EMITIDO, CERRADO)`.
@@ -1738,11 +1744,12 @@ model PedidoVentaItem {
   updated_at DateTime @updatedAt
 
   // --- Relaciones ---
-  pedido_venta         PedidoVenta                @relation(fields: [pedido_venta_id], references: [id], onDelete: Restrict)
-  variante_sku         VarianteSKU                @relation(fields: [variante_sku_id], references: [id], onDelete: Restrict)
-  reserva              Reserva?                   @relation("PedidoVentaItemReserva", fields: [reserva_id], references: [id], onDelete: Restrict)
-  autorizado_por       Usuario?                   @relation("PedidoVentaItemAutorizadoPor", fields: [autorizado_por_id], references: [id], onDelete: Restrict)
-  escaneos_preparacion PedidoPreparacionEscaneo[] @relation("EscaneoPreparacionItem")
+  pedido_venta                    PedidoVenta                  @relation(fields: [pedido_venta_id], references: [id], onDelete: Restrict)
+  variante_sku                    VarianteSKU                  @relation(fields: [variante_sku_id], references: [id], onDelete: Restrict)
+  reserva                         Reserva?                     @relation("PedidoVentaItemReserva", fields: [reserva_id], references: [id], onDelete: Restrict)
+  autorizado_por                  Usuario?                     @relation("PedidoVentaItemAutorizadoPor", fields: [autorizado_por_id], references: [id], onDelete: Restrict)
+  escaneos_preparacion            PedidoPreparacionEscaneo[]   @relation("EscaneoPreparacionItem")
+  reintegros_stock_compensaciones ReintegroStockCompensacion[]
 
   @@index([pedido_venta_id])
   @@map("pedido_venta_items")
@@ -1840,27 +1847,32 @@ enum MedioPagoVenta {
 /// `CuentaPorPagarComprobante` (Módulo G, ADR-3): fila-hecho inmutable,
 /// solo `created_at`, sin `updated_at`.
 model ComprobanteFiscal {
-  id               String               @id @default(uuid())
-  pedido_venta_id  String
-  tipo_comprobante TipoComprobanteVenta
+  id                      String               @id @default(uuid())
+  pedido_venta_id         String
+  tipo_comprobante        TipoComprobanteVenta
   /// Cadena numérica determinística con formato visual de CAE real (14
   /// dígitos) — no proviene de ninguna autorización externa, no debe
   /// usarse como constancia fiscal válida fuera del sistema.
-  cae_simulado     String
+  cae_simulado            String
   /// Código QR (estructura de datos exigida por la normativa vigente para
   /// comprobantes electrónicos), codificado localmente, sin llamada de red.
-  qr_data_url      String               @db.Text
-  es_simulado      Boolean              @default(true)
-  monto_total      Decimal              @db.Decimal(12, 2)
-  emitido_por_id   String
+  qr_data_url             String               @db.Text
+  es_simulado             Boolean              @default(true)
+  monto_total             Decimal              @db.Decimal(12, 2)
+  emitido_por_id          String
+  comprobante_original_id String?
 
   created_at DateTime @default(now())
 
   // --- Relaciones ---
-  pedido_venta PedidoVenta @relation(fields: [pedido_venta_id], references: [id], onDelete: Restrict)
-  emitido_por  Usuario     @relation("ComprobanteFiscalEmitidoPor", fields: [emitido_por_id], references: [id], onDelete: Restrict)
+  pedido_venta         PedidoVenta         @relation(fields: [pedido_venta_id], references: [id], onDelete: Restrict)
+  emitido_por          Usuario             @relation("ComprobanteFiscalEmitidoPor", fields: [emitido_por_id], references: [id], onDelete: Restrict)
+  comprobante_original ComprobanteFiscal?  @relation("ReversionFiscal", fields: [comprobante_original_id], references: [id], onDelete: Restrict)
+  notas_credito        ComprobanteFiscal[] @relation("ReversionFiscal")
+  reintegro_web        ReintegroPedidoWeb? @relation("ReintegroNotaCredito")
 
   @@index([pedido_venta_id])
+  @@index([comprobante_original_id])
   @@map("comprobantes_fiscales")
 }
 
@@ -1871,6 +1883,7 @@ enum TipoComprobanteVenta {
   FACTURA_A
   FACTURA_B
   TICKET
+  NOTA_CREDITO
 }
 
 /// Cuenta corriente de un Cliente (HU-B5 §2.5). Relación 1:1 con `Cliente`
@@ -2077,8 +2090,9 @@ model ContraAsientoIngreso {
   created_at DateTime @default(now())
 
   // --- Relaciones ---
-  ingreso_original IngresoTesoreria @relation(fields: [ingreso_original_id], references: [id], onDelete: Restrict)
-  pedido_venta     PedidoVenta      @relation(fields: [pedido_venta_id], references: [id], onDelete: Restrict)
+  ingreso_original IngresoTesoreria    @relation(fields: [ingreso_original_id], references: [id], onDelete: Restrict)
+  pedido_venta     PedidoVenta         @relation(fields: [pedido_venta_id], references: [id], onDelete: Restrict)
+  reintegro_web    ReintegroPedidoWeb?
 
   @@index([ingreso_original_id])
   @@map("contra_asientos_ingreso")
@@ -2204,8 +2218,120 @@ model PedidoVentaEcommerce {
   cupon_aplicacion  CuponAplicacion?     @relation(fields: [cupon_aplicacion_id], references: [id], onDelete: Restrict)
   operador_asignado Usuario?             @relation("PedidoEcommerceOperadorAsignado", fields: [operador_asignado_id], references: [id], onDelete: Restrict)
   transacciones     TransaccionPagoLog[]
+  reintegro_pago    ReintegroPedidoWeb?  @relation("ReintegroPagoMercadoPago")
 
   @@map("pedidos_venta_ecommerce")
+}
+
+enum EstadoReintegroPedidoWeb {
+  PENDIENTE
+  APROBADO
+  RECHAZADO
+}
+
+enum TipoActorReintegro {
+  CLIENTE_WEB
+  USUARIO
+  SISTEMA
+}
+
+enum EstadoIntentoRefund {
+  PENDIENTE
+  APROBADO
+  RECHAZADO
+}
+
+enum OrigenIntentoRefund {
+  INICIAL
+  REINTENTO_MANUAL
+}
+
+/// Cabecera durable de la saga de cancelación/vencimiento de un pedido pagado.
+/// Es histórica y no admite baja física ni lógica.
+model ReintegroPedidoWeb {
+  id                        String                   @id @default(uuid())
+  pedido_venta_id           String                   @unique
+  mercadopago_payment_id    String                   @unique
+  estado                    EstadoReintegroPedidoWeb @default(PENDIENTE)
+  monto_total               Decimal                  @db.Decimal(12, 2)
+  motivo                    String
+  solicitado_por_tipo       TipoActorReintegro
+  solicitado_por_id         String?
+  nota_credito_id           String?                  @unique
+  contra_asiento_ingreso_id String?                  @unique
+  intento_aprobado_id       String?                  @unique
+  ultimo_error_codigo       String?
+  proximo_reintento_at      DateTime?
+  resuelto_at               DateTime?
+  created_at                DateTime                 @default(now())
+  updated_at                DateTime                 @updatedAt
+
+  pedido_venta           PedidoVenta                  @relation(fields: [pedido_venta_id], references: [id], onDelete: Restrict)
+  pago                   PedidoVentaEcommerce         @relation("ReintegroPagoMercadoPago", fields: [mercadopago_payment_id], references: [mercadopago_payment_id], onDelete: Restrict)
+  solicitado_por         Usuario?                     @relation("ReintegroSolicitadoPor", fields: [solicitado_por_id], references: [id], onDelete: Restrict)
+  nota_credito           ComprobanteFiscal?           @relation("ReintegroNotaCredito", fields: [nota_credito_id], references: [id], onDelete: Restrict)
+  contra_asiento_ingreso ContraAsientoIngreso?        @relation(fields: [contra_asiento_ingreso_id], references: [id], onDelete: Restrict)
+  compensaciones_stock   ReintegroStockCompensacion[]
+  intentos_refund        ReintegroRefundIntento[]     @relation("IntentosRefund")
+  intento_aprobado       ReintegroRefundIntento?      @relation("IntentoRefundAprobado", fields: [intento_aprobado_id], references: [id], onDelete: Restrict)
+
+  @@index([estado, proximo_reintento_at])
+  @@map("reintegros_pedido_web")
+}
+
+/// Compensación de stock esperada para una línea vendida del pedido reintegrado.
+model ReintegroStockCompensacion {
+  id                   String    @id @default(uuid())
+  reintegro_id         String
+  pedido_venta_item_id String
+  variante_sku_id      String
+  deposito_id          String
+  cantidad             Int
+  clave_idempotencia   String    @unique
+  movimiento_stock_id  String?   @unique
+  created_at           DateTime  @default(now())
+  completed_at         DateTime?
+
+  reintegro         ReintegroPedidoWeb @relation(fields: [reintegro_id], references: [id], onDelete: Restrict)
+  pedido_venta_item PedidoVentaItem    @relation(fields: [pedido_venta_item_id], references: [id], onDelete: Restrict)
+  variante_sku      VarianteSKU        @relation(fields: [variante_sku_id], references: [id], onDelete: Restrict)
+  deposito          Deposito           @relation(fields: [deposito_id], references: [id], onDelete: Restrict)
+  movimiento_stock  MovimientoStock?   @relation(fields: [movimiento_stock_id], references: [id], onDelete: Restrict)
+
+  @@unique([reintegro_id, pedido_venta_item_id])
+  @@index([reintegro_id])
+  @@index([pedido_venta_item_id])
+  @@index([variante_sku_id])
+  @@index([deposito_id])
+  @@map("reintegro_stock_compensaciones")
+}
+
+/// Intento lógico e inmutable en su identidad para el refund externo.
+model ReintegroRefundIntento {
+  id                 String              @id @default(uuid())
+  reintegro_id       String
+  numero             Int
+  origen             OrigenIntentoRefund
+  clave_idempotencia String              @unique
+  estado             EstadoIntentoRefund @default(PENDIENTE)
+  refund_id          String?             @unique
+  error_codigo       String?
+  motivo_reintento   String?
+  creado_por_id      String?
+  intentos_tecnicos  Int                 @default(0)
+  ultimo_intento_at  DateTime?
+  resuelto_at        DateTime?
+  created_at         DateTime            @default(now())
+  updated_at         DateTime            @updatedAt
+
+  reintegro     ReintegroPedidoWeb  @relation("IntentosRefund", fields: [reintegro_id], references: [id], onDelete: Restrict)
+  creado_por    Usuario?            @relation("ReintegroRefundCreadoPor", fields: [creado_por_id], references: [id], onDelete: Restrict)
+  aprobado_para ReintegroPedidoWeb? @relation("IntentoRefundAprobado")
+
+  @@unique([reintegro_id, numero])
+  @@index([reintegro_id, estado])
+  @@index([creado_por_id])
+  @@map("reintegro_refund_intentos")
 }
 
 /// Persistencia de cada unidad confirmada durante la preparación Pick&Pack (HU-E12).
@@ -2269,12 +2395,12 @@ model CuponDescuento {
 /// confirmadas más las pendientes con reserva vigente (spec §2.4.b). Si el pago
 /// se rechaza o la reserva vence, la aplicación pasa a inactiva por baja lógica.
 model CuponAplicacion {
-  id               String  @id @default(uuid())
+  id               String    @id @default(uuid())
   cupon_id         String
   pedido_venta_id  String
   cliente_id       String
-  monto_descontado Decimal @db.Decimal(12, 2)
-  confirmada       Boolean @default(false)
+  monto_descontado Decimal   @db.Decimal(12, 2)
+  confirmada       Boolean   @default(false)
   /// HU-E4: vencimiento de la reserva de stock del pedido (mismo TTL de E2).
   /// Una aplicación pendiente solo ocupa capacidad mientras `reserva_hasta > ahora`.
   reserva_hasta    DateTime?

@@ -980,7 +980,7 @@ export interface VentaRegistradaPayload {
 // ──────────────────────────────────────────────────────────────────────────────
 
 /**
- * HU-E12 — Admisión de un pedido PAGO_CONFIRMADO a la cola de preparación.
+ * HU-E12 — Disponibilidad de un pedido PAGO_CONFIRMADO en la cola de preparación.
  * Se emite post-COMMIT por el caller E2; `admitirPedidoPagoConfirmado` solo
  * devuelve la metadata del evento pendiente porque no controla el commit.
  */
@@ -989,7 +989,7 @@ export interface EcommercePedidoAdmitidoColaPayload {
   pedido_venta_id: string;
   pedido_venta_ecommerce_id: string;
   actor_id: string | null;
-  estado_nuevo: "EN_PREPARACION";
+  estado_nuevo: "PAGO_CONFIRMADO";
   timestamp: string;
 }
 
@@ -1039,6 +1039,63 @@ export interface EcommercePedidoListoParaRetiroPayload {
   /** HU-E3 T8: destinatario operable, o null sin cuenta web notificable. */
   cliente_web_cuenta_id: string | null;
   numero_venta: string;
+}
+
+export interface EcommercePlazoRetiroPorVencerPayload {
+  evento_id: string;
+  pedido_venta_id: string;
+  pedido_venta_ecommerce_id: string;
+  numero_venta: string;
+  cliente_web_cuenta_id: string | null;
+  plazo_retiro_vencimiento: string;
+  clave_origen: string;
+  actor_tipo: "SISTEMA";
+  actor_id: null;
+  timestamp: string;
+}
+
+export interface EcommercePedidoCanceladoPayload {
+  evento_id: string;
+  pedido_venta_id: string;
+  pedido_venta_ecommerce_id: string;
+  reintegro_id: string;
+  numero_venta: string;
+  cliente_web_cuenta_id: string | null;
+  actor_tipo: "CLIENTE_WEB" | "USUARIO";
+  actor_id: string;
+  motivo: string;
+  estado_anterior: "PAGO_CONFIRMADO" | "EN_PREPARACION" | "LISTO_PARA_RETIRO";
+  estado_nuevo: "CANCELADO";
+  timestamp: string;
+}
+
+export interface EcommercePedidoVencidoSinRetiroPayload {
+  evento_id: string;
+  pedido_venta_id: string;
+  pedido_venta_ecommerce_id: string;
+  reintegro_id: string;
+  numero_venta: string;
+  cliente_web_cuenta_id: string | null;
+  actor_tipo: "SISTEMA";
+  actor_id: null;
+  motivo: string;
+  estado_anterior: "LISTO_PARA_RETIRO";
+  estado_nuevo: "VENCIDO_SIN_RETIRO";
+  timestamp: string;
+}
+
+export interface EcommerceReintegroEstadoCambiadoPayload {
+  evento_id: string;
+  reintegro_id: string;
+  intento_refund_id: string;
+  numero_intento: number;
+  origen_intento: "INICIAL" | "REINTENTO_MANUAL";
+  pedido_venta_id: string;
+  estado_anterior: "PENDIENTE" | "RECHAZADO";
+  estado_nuevo: "PENDIENTE" | "APROBADO" | "RECHAZADO";
+  actor_id: string | null;
+  motivo: string | null;
+  timestamp: string;
 }
 
 // HU-E3 — retiro validado. T2 declara contratos; la emisión corresponde a T6.
@@ -1542,6 +1599,10 @@ export interface DomainEventMap {
   "ecommerce:unidad_preparacion_confirmada": EcommerceUnidadPreparacionConfirmadaPayload;
   /** HU-E12: pedido completamente preparado, listo para retiro. */
   "ecommerce:pedido_listo_para_retiro": EcommercePedidoListoParaRetiroPayload;
+  "ecommerce:plazo_retiro_por_vencer": EcommercePlazoRetiroPorVencerPayload;
+  "ecommerce:pedido_cancelado": EcommercePedidoCanceladoPayload;
+  "ecommerce:pedido_vencido_sin_retiro": EcommercePedidoVencidoSinRetiroPayload;
+  "ecommerce:reintegro_estado_cambiado": EcommerceReintegroEstadoCambiadoPayload;
   /** HU-E3: retiro completado después del commit B/E. */
   "ecommerce:pedido_entregado": PedidoEntregadoPayload;
   /** HU-E3: intento de retiro rechazado, incluso sin token resuelto. */
@@ -1683,6 +1744,10 @@ export const TIPOS_EVENTO_DOMINIO = [
   "ecommerce:prioridad_preparacion_cambiada",
   "ecommerce:unidad_preparacion_confirmada",
   "ecommerce:pedido_listo_para_retiro",
+  "ecommerce:plazo_retiro_por_vencer",
+  "ecommerce:pedido_cancelado",
+  "ecommerce:pedido_vencido_sin_retiro",
+  "ecommerce:reintegro_estado_cambiado",
   "ecommerce:pedido_entregado",
   "ecommerce:retiro_rechazado",
   "ecommerce:carrito_articulo_no_disponible",

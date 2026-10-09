@@ -16,7 +16,7 @@ import { Prisma } from "@prisma/client";
 
 interface Servicio {
   registrarIngresoWeb: (input: unknown) => Promise<Record<string, unknown> | null>;
-  registrarContraAsiento: (input: unknown) => Promise<Record<string, unknown> | null>;
+  registrarContraAsiento: (input: unknown) => Promise<Record<string, unknown>>;
   listarIngresosWeb: (filtros: unknown) => Promise<Record<string, unknown>>;
   reprocesarIngresoWeb: (pedidoVentaId: string) => Promise<Record<string, unknown> | null>;
 }
@@ -151,11 +151,17 @@ test("registrarIngresoWeb: un P2002 concurrente se trata como no-op (race-safe)"
   assert.equal(r, null);
 });
 
-test("registrarContraAsiento: repetir un pedido ya contra-asentado es no-op", async () => {
+test("registrarContraAsiento: repetir devuelve YA_EXISTENTE con el ID persistido", async () => {
   let creó = false;
   const tx = {
     contraAsientoIngreso: {
-      findUnique: async () => ({ id: "contra-existente" }),
+      findUnique: async () => ({
+        id: "contra-existente",
+        ingreso_original_id: "ingreso-1",
+        pedido_venta_id: "pedido-1",
+        monto: new Prisma.Decimal("50.00"),
+        motivo: "reintegro original",
+      }),
       create: async () => {
         creó = true;
         return {};
@@ -165,7 +171,9 @@ test("registrarContraAsiento: repetir un pedido ya contra-asentado es no-op", as
   };
   const f = cargarServicio(prismaConTx(tx));
   const r = await f.registrarContraAsiento({ pedido_venta_id: "pedido-1", monto: 50, motivo: "reintegro" });
-  assert.equal(r, null);
+  assert.equal(r.resultado, "YA_EXISTENTE");
+  assert.equal(r.contra_asiento_id, "contra-existente");
+  assert.equal(r.motivo, "reintegro original");
   assert.equal(creó, false);
 });
 
@@ -186,13 +194,13 @@ test("registrarContraAsiento: resuelve ingreso_original_id por pedido_venta_id y
 
   assert.equal(dataRecibida.ingreso_original_id, "ingreso-original");
   assert.equal(dataRecibida.pedido_venta_id, "pedido-1");
-  assert.ok(r);
+  assert.equal(r.resultado, "CREADO");
   assert.equal(r.contra_asiento_id, "contra-nuevo");
   assert.equal(r.ingreso_original_id, "ingreso-original");
   assert.equal(r.monto, "50.00");
 });
 
-test("registrarContraAsiento: sin IngresoTesoreria previo es no-op (no crea huérfano)", async () => {
+test("registrarContraAsiento: sin IngresoTesoreria devuelve INGRESO_ORIGINAL_NO_ENCONTRADO", async () => {
   let creó = false;
   const tx = {
     contraAsientoIngreso: {
@@ -206,8 +214,39 @@ test("registrarContraAsiento: sin IngresoTesoreria previo es no-op (no crea hué
   };
   const f = cargarServicio(prismaConTx(tx));
   const r = await f.registrarContraAsiento({ pedido_venta_id: "pedido-sin", monto: 50, motivo: "x" });
-  assert.equal(r, null);
+  assert.deepEqual(r, { resultado: "INGRESO_ORIGINAL_NO_ENCONTRADO", pedido_venta_id: "pedido-sin" });
   assert.equal(creó, false);
+});
+
+test("registrarContraAsiento: P2002 relee el ganador y devuelve YA_EXISTENTE", async () => {
+  const existente = {
+    id: "contra-ganador",
+    ingreso_original_id: "ingreso-1",
+    pedido_venta_id: "pedido-1",
+    monto: new Prisma.Decimal("50.00"),
+    motivo: "ganador",
+  };
+  const tx = {
+    contraAsientoIngreso: {
+      findUnique: async () => null,
+      create: async () => {
+        throw new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
+          code: "P2002",
+          clientVersion: "6.19.3",
+        });
+      },
+    },
+    ingresoTesoreria: { findUnique: async () => ({ id: "ingreso-1" }) },
+  };
+  const prismaFake = {
+    $transaction: async (fn: (t: unknown) => unknown) => fn(tx),
+    contraAsientoIngreso: { findUnique: async () => existente },
+  };
+  const f = cargarServicio(prismaFake);
+  const r = await f.registrarContraAsiento({ pedido_venta_id: "pedido-1", monto: 50, motivo: "perdedor" });
+  assert.equal(r.resultado, "YA_EXISTENTE");
+  assert.equal(r.contra_asiento_id, "contra-ganador");
+  assert.equal(r.motivo, "ganador");
 });
 
 test("listarIngresosWeb: shape paginado con monto y fecha serializados", async () => {

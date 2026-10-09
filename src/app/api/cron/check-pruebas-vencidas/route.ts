@@ -70,7 +70,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // ── 2. Liberación de Reservas con TTL vencido (RESERVADO → DISPONIBLE) ───────
   // ── 3. HU-E4: mantenimiento de cupones, independiente del paso 2 ────────────
   // ── 4. HU-E5: baja de carritos abandonados, independiente de los anteriores ──
-  const { reservas, cupones, carritos } = await ejecutarMantenimientoProgramado(ahora);
+  const { reservas, cupones, carritos, recordatorios_hu_e13, vencimientos_hu_e13, retries_hu_e13 } =
+    await ejecutarMantenimientoProgramado(ahora);
 
   const mantenimientoCupones = cupones.ok
     ? {
@@ -95,6 +96,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
+  const mantenimientoHuE13 = {
+    recordatorios: recordatorios_hu_e13.ok
+      ? { ok: true, ...recordatorios_hu_e13.valor }
+      : { ok: false, error: "Error en recordatorios HU-E13" },
+    vencimientos: vencimientos_hu_e13.ok
+      ? { ok: true, ...vencimientos_hu_e13.valor }
+      : { ok: false, error: "Error en vencimientos HU-E13" },
+    retries: retries_hu_e13.ok
+      ? { ok: true, ...retries_hu_e13.valor }
+      : { ok: false, error: "Error en retries HU-E13" },
+  };
+
   if (!reservas.ok) {
     // El error ya quedó logueado por `ejecutarMantenimientoProgramado()`.
     return NextResponse.json(
@@ -104,6 +117,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         error: "Error al liberar reservas vencidas.",
         mantenimiento_cupones: mantenimientoCupones,
         mantenimiento_carritos: mantenimientoCarritos,
+        mantenimiento_hu_e13: mantenimientoHuE13,
       },
       { status: 500 },
     );
@@ -130,6 +144,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       total_reservas_liberadas: resultado.total_liberadas,
       mantenimiento_cupones: mantenimientoCupones,
       mantenimiento_carritos: mantenimientoCarritos,
+      mantenimiento_hu_e13: mantenimientoHuE13,
     },
     { status: 200 },
   );

@@ -1,12 +1,23 @@
 import "server-only";
 
-import type { EstadoEcommerce, PrismaClient, TipoComprobanteVenta } from "@prisma/client";
+import type { EstadoEcommerce, EstadoReintegroPedidoWeb, Prisma, PrismaClient, TipoComprobanteVenta } from "@prisma/client";
 import QRCode from "qrcode";
 import { prisma } from "@/lib/db/prisma";
 import { ServiceError } from "@/lib/errors/service-error";
 
 type OpcionesConsulta = { db?: Pick<PrismaClient, "pedidoVenta">; ahora?: Date };
 type OpcionesListado = OpcionesConsulta & { pagina?: number; porPagina?: number };
+
+const VISIBILIDAD_EXTENSION_E9 = {
+  OR: [
+    { is_active: true, deleted_at: null },
+    {
+      is_active: false,
+      deleted_at: { not: null },
+      estado_ecommerce: { in: ["CANCELADO", "VENCIDO_SIN_RETIRO"] },
+    },
+  ],
+} satisfies Prisma.PedidoVentaEcommerceWhereInput;
 
 export interface PedidoWebResumen {
   id: string;
@@ -34,8 +45,18 @@ export interface PedidoWebDetalle extends Omit<PedidoWebResumen, "cantidad_items
   }[];
   plazo_retiro_vencimiento: string | null;
   qr_data_url: string | null;
+  /** Comprobante fiscal original; una Nota de Crédito nunca lo reemplaza (SPEC §2.13.16.3). */
   comprobante: ComprobanteWeb | null;
+  /** NC HU-E13 vinculada al original, o `null`. */
+  nota_credito: ComprobanteWeb | null;
+  /** `deletion_reason` y `deleted_at` de la extensión, solo en terminales HU-E13 (SPEC §2.13.16.2). */
+  motivo: string | null;
+  fecha_terminacion: string | null;
+  /** Estado agregado de `ReintegroPedidoWeb`; `null` sin saga. */
+  reintegro_estado: EstadoReintegroPedidoWeb | null;
 }
+
+const ESTADOS_TERMINALES_HU_E13: readonly EstadoEcommerce[] = ["CANCELADO", "VENCIDO_SIN_RETIRO"];
 
 function comprobanteDto(comprobante: {
   tipo_comprobante: TipoComprobanteVenta;
@@ -65,7 +86,7 @@ export async function listarPedidosWebCliente(
     canal: "WEB" as const,
     is_active: true,
     deleted_at: null,
-    ecommerce: { is: { is_active: true, deleted_at: null } },
+    ecommerce: { is: VISIBILIDAD_EXTENSION_E9 },
   };
   const [pedidos, total] = await Promise.all([
     db.pedidoVenta.findMany({
@@ -111,14 +132,22 @@ export async function obtenerPedidoWebCliente(
       canal: "WEB",
       is_active: true,
       deleted_at: null,
-      ecommerce: { is: { is_active: true, deleted_at: null } },
+      ecommerce: { is: VISIBILIDAD_EXTENSION_E9 },
     },
     select: {
       id: true,
       numero_venta: true,
       created_at: true,
       total: true,
-      ecommerce: { select: { estado_ecommerce: true, plazo_retiro_vencimiento: true, codigo_qr_retiro: true } },
+      ecommerce: {
+        select: {
+          estado_ecommerce: true,
+          plazo_retiro_vencimiento: true,
+          codigo_qr_retiro: true,
+          deleted_at: true,
+          deletion_reason: true,
+        },
+      },
       items: {
         orderBy: { created_at: "asc" },
         select: {
@@ -134,10 +163,29 @@ export async function obtenerPedidoWebCliente(
           },
         },
       },
+      // Mismo criterio de original que la saga (T07): el único comprobante
+      // no-NC del pedido. `take: 2` detecta ambigüedad sin depender del orden.
       comprobantes: {
-        orderBy: { created_at: "desc" },
-        take: 1,
-        select: { tipo_comprobante: true, monto_total: true, created_at: true },
+        where: { tipo_comprobante: { not: "NOTA_CREDITO" } },
+        orderBy: [{ created_at: "asc" }, { id: "asc" }],
+        take: 2,
+        select: { id: true, tipo_comprobante: true, monto_total: true, created_at: true },
+      },
+      // La NC HU-E13 sale del vínculo único de la saga, nunca de "cualquier NC
+      // del pedido": un original admite otras NC ajenas a HU-E13 (§2.13.5).
+      reintegro_web: {
+        select: {
+          estado: true,
+          nota_credito: {
+            select: {
+              pedido_venta_id: true,
+              comprobante_original_id: true,
+              tipo_comprobante: true,
+              monto_total: true,
+              created_at: true,
+            },
+          },
+        },
       },
     },
   });
@@ -148,6 +196,16 @@ export async function obtenerPedidoWebCliente(
   const { estado_ecommerce: estado, plazo_retiro_vencimiento: plazo, codigo_qr_retiro: token } = pedido.ecommerce;
   const listo = estado === "LISTO_PARA_RETIRO" && (!plazo || plazo >= ahora);
   const qr = listo && token ? await QRCode.toDataURL(token, { errorCorrectionLevel: "M" }) : null;
+  const terminal = ESTADOS_TERMINALES_HU_E13.includes(estado);
+  const originales = pedido.comprobantes.filter((comprobante) => comprobante.tipo_comprobante !== "NOTA_CREDITO");
+  const original = originales.length === 1 ? originales[0]! : null;
+  const nc = pedido.reintegro_web?.nota_credito ?? null;
+  const notaCredito = original && nc &&
+    nc.tipo_comprobante === "NOTA_CREDITO" &&
+    nc.pedido_venta_id === pedido.id &&
+    nc.comprobante_original_id === original.id
+    ? nc
+    : null;
   return {
     id: pedido.id,
     numero: pedido.numero_venta,
@@ -164,7 +222,11 @@ export async function obtenerPedidoWebCliente(
     })),
     plazo_retiro_vencimiento: plazo?.toISOString() ?? null,
     qr_data_url: qr,
-    comprobante: pedido.comprobantes[0] ? comprobanteDto(pedido.comprobantes[0]) : null,
+    comprobante: original ? comprobanteDto(original) : null,
+    nota_credito: notaCredito ? comprobanteDto(notaCredito) : null,
+    motivo: terminal ? pedido.ecommerce.deletion_reason ?? null : null,
+    fecha_terminacion: terminal ? pedido.ecommerce.deleted_at?.toISOString() ?? null : null,
+    reintegro_estado: pedido.reintegro_web?.estado ?? null,
   };
 }
 
@@ -181,7 +243,7 @@ export async function obtenerComprobanteWebCliente(
       canal: "WEB",
       is_active: true,
       deleted_at: null,
-      ecommerce: { is: { is_active: true, deleted_at: null } },
+      ecommerce: { is: VISIBILIDAD_EXTENSION_E9 },
       comprobantes: { some: { id: comprobanteId } },
     },
     select: {

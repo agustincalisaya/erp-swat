@@ -39,6 +39,8 @@
     "test:integration:e7-http": "node --conditions=react-server --import tsx --test --test-concurrency=1 src/lib/services/ecommerce/hu-e7.http.integration.test.ts",
     "test:integration:e11": "node --conditions=react-server --import tsx --test --test-concurrency=1 src/lib/services/ecommerce/hu-e11.integration.test.ts",
     "test:integration:e11-http": "node --conditions=react-server --import tsx --test --test-concurrency=1 src/lib/services/ecommerce/hu-e11.http.integration.test.ts",
+    "test:integration:e13": "node --conditions=react-server --import tsx --test --test-concurrency=1 src/lib/services/ecommerce/hu-e13.integration.test.ts",
+    "test:integration:e13-http": "node --conditions=react-server --import tsx --test --test-concurrency=1 src/lib/services/ecommerce/hu-e13.e2e.http.integration.test.ts",
     "test:integration:e4-e12-f3": "node --conditions=react-server --import tsx --test --test-concurrency=1 src/lib/services/ecommerce/hu-e4-e12-f3.integration.test.ts",
     "test:integration:e8": "node --conditions=react-server --import tsx --test --test-concurrency=1 src/lib/services/ecommerce/hu-e8.integration.test.ts",
     "test:integration:e8-http": "node --conditions=react-server --import tsx --test --test-concurrency=1 src/lib/services/ecommerce/hu-e8.http.integration.test.ts",
