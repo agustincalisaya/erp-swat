@@ -7,7 +7,49 @@ import {
   listarPedidosWebCliente,
   obtenerPedidoWebCliente,
   obtenerComprobanteWebCliente,
+  obtenerComprobanteOriginalWebCliente,
 } from "./mis-pedidos.service.ts";
+
+test("descarga fiscal resuelve solo el original propio sin escribir ni exponer datos internos", async () => {
+  const original = comprobante("factura-propia", "propio");
+  const notaCredito = comprobante("nota-propia", "propio", "NOTA_CREDITO", original.id);
+  const { db, calls } = fakeDb([
+    pedido("propio", clienteId, "WEB", "CANCELADO", { comprobantes: [notaCredito, original] }),
+    pedido("ajeno", otroClienteId, "WEB", "PAGO_CONFIRMADO"),
+    pedido("sin-comprobante", clienteId, "WEB", "PAGO_PENDIENTE", { comprobantes: [] }),
+    pedido("mostrador", clienteId, "MOSTRADOR", "ENTREGADO"),
+  ]);
+
+  const resultado = await obtenerComprobanteOriginalWebCliente(clienteId, "propio", { db });
+  assert.deepEqual(resultado, {
+    numero: "V-propio",
+    tipo: "FACTURA_B",
+    fecha_emision: ahora.toISOString(),
+    monto: 150,
+    cae_simulado: original.cae_simulado,
+    qr_data_url: original.qr_data_url,
+    es_simulado: true,
+  });
+  for (const id of ["ajeno", "inexistente", "sin-comprobante", "mostrador"]) {
+    await assert.rejects(
+      () => obtenerComprobanteOriginalWebCliente(clienteId, id, { db }),
+      (error: unknown) => error instanceof ServiceError && error.code === "PEDIDO_NO_ENCONTRADO",
+    );
+  }
+  assert.ok(calls.every((call) => call.operation === "findFirst"), "la descarga solo consulta");
+  const consulta = calls[0]!.args;
+  assert.deepEqual(consulta.where, {
+    id: "propio", cliente_id: clienteId, canal: "WEB", is_active: true, deleted_at: null,
+    ecommerce: { is: { OR: [
+      { is_active: true, deleted_at: null },
+      { is_active: false, deleted_at: { not: null }, estado_ecommerce: { in: ["CANCELADO", "VENCIDO_SIN_RETIRO"] } },
+    ] } },
+  });
+  assert.deepEqual((consulta.select as { comprobantes: { where: unknown } }).comprobantes.where, {
+    tipo_comprobante: { not: "NOTA_CREDITO" },
+  });
+  assert.doesNotMatch(JSON.stringify(resultado), /emitido_por|cliente_id|mercadopago|operador|payment/i);
+});
 
 const clienteId = "11111111-1111-4111-8111-111111111111";
 const otroClienteId = "22222222-2222-4222-8222-222222222222";

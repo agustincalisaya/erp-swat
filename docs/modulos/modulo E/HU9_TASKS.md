@@ -7,7 +7,7 @@
 - Este archivo define el backlog técnico ejecutable T2–T8; no implementa código.
 - HU-E9 es de lectura: no muta pedidos, no emite eventos y no valida retiros.
 - No se modifican `prisma/schema.prisma`, migraciones ni `prisma/seed.ts`.
-- No se reutiliza `/api/ventas/comprobantes/[id]` ni se genera PDF.
+- No se reutiliza `/api/ventas/comprobantes/[id]`. La descarga del PDF usa una ruta propia de Cliente Web y los datos fiscales originales ya persistidos por HU-B7.
 
 ## Estado de ejecución
 
@@ -209,7 +209,7 @@ Justificación:
   - Cambiar `ComprobanteWeb` a `{ tipo, fecha_emision, monto }` y seleccionar `monto_total`/`created_at` únicamente.
   - Eliminar `id`, `cae_simulado`, `es_simulado` y QR fiscal del comprobante público.
   - Eliminar `id` de ítems públicos si no tiene uso contractual.
-  - Evaluar si `obtenerComprobanteWebCliente` sigue aportando valor: si permanece, debe devolver el mismo DTO mínimo y aplicar soft delete; no crear endpoint de descarga.
+  - `obtenerComprobanteWebCliente` conserva el DTO mínimo; la descarga posterior usa una consulta separada, limitada al pedido propio y al único original.
   - Mantener `PedidoVenta.created_at` como `fecha` principal.
 - **Criterios de cierre:** consultas mínimas, inactivos invisibles, DTO sin secretos/operación interna, QR correcto, errores IDOR indistinguibles.
 - **Tests:** historial propio, activos, WEB, orden/paginación, detalle propio, ajeno/inexistente, estados QR, plazo nulo/vigente/vencido, token ausente del DTO y comprobante mínimo.
@@ -248,12 +248,12 @@ Justificación:
   - Etiquetar `PedidoVenta.created_at` como “Fecha del pedido”.
   - Actualizar todos los enlaces a `/tienda/cuenta/pedidos/**`.
   - Agregar acceso desde “Mi cuenta” solo si la cuenta está vinculada.
-  - Mostrar tipo, fecha de emisión y monto del comprobante, seguido de “Comprobante no disponible para descarga”.
+  - Mostrar tipo, fecha de emisión y monto del comprobante, con una acción «Descargar comprobante» solo si existe un original.
   - Sustituir `item.id` como `key` por una clave local de presentación sin exponer ID interno.
 - **Criterios de cierre:** mobile-first, accesible, listado/vacío/paginación/detalle/404/error/pendiente cubiertos; sin fetch client-side ni storage para QR.
 - **Tests iniciales:** render de componentes y enlaces; matriz completa en T6.
 - **Riesgos:** doble consulta de sesión/API; caché accidental; navegación con query inválida; un Error Boundary puede requerir `"use client"` según Next.js 16.
-- **No incluye:** PDF, endpoint administrativo, local storage o mutaciones.
+- **No incluye:** usar el endpoint administrativo, local storage o mutaciones.
 
 ### T6 — Tests HTTP y frontend
 
@@ -278,7 +278,7 @@ Justificación:
   - “Fecha del pedido”, estado amigable y total;
   - detalle/productos/cantidades/precios;
   - QR condicional y plazo;
-  - comprobante mínimo sin enlace de descarga;
+  - comprobante mínimo con enlace de descarga solo cuando existe el original;
   - no encontrado, error, sin sesión y pendiente.
 - **Criterios de cierre:** toda la matriz pasa sobre un servidor Next real para sesión/cookies; tests no inspeccionan ni imprimen secretos.
 - **Riesgos:** React Server Components requieren runner/condiciones correctas; `react-dom/server` no debe ejecutarse bajo condiciones `react-server` incompatibles.
@@ -381,4 +381,12 @@ HU-E9 quedó implementada y verificada. T2–T8 están completadas; no hay bloqu
 
 - Las suites T6.1/T7 son opt-in y requieren PostgreSQL dedicado, seed y servidor Next local; fuera de ese entorno quedan skipped por diseño.
 - No se creó un harness RSC artificial para invocar páginas con `cookies()`/`redirect()`; esa superficie quedó cubierta por helpers, componentes, build y pruebas HTTP reales.
-- HU-E3, HU-E13 y un PDF/documento descargable real permanecen fuera del alcance de HU-E9.
+- El historial de cambios de estado con fecha y hora permanece pendiente de una corrección separada de HU-E9.
+
+## Corrección posterior — comprobante original descargable (HU-E9 ↔ HU-B7)
+
+- `GET /api/tienda/mis-pedidos/[pedidoId]/comprobante/descargar` usa `withSesionClienteWeb` y toma `clienteId` solo de la sesión; no recibe `comprobanteId` del navegador.
+- El servicio busca el pedido `WEB` propio visible y exactamente un comprobante original (no Nota de Crédito). Ausencia, pedido ajeno y original ambiguo producen el mismo 404.
+- `comprobante-web-pdf.ts` usa número, tipo, fecha, monto, CAE y QR fiscal persistidos por HU-B7. No emite otro comprobante ni altera datos.
+- La respuesta es un PDF adjunto con `Cache-Control: private, no-store`; la UI ofrece «Descargar comprobante» solo si el detalle tiene original.
+- `pdf-lib` es la dependencia directa de generación PDF. No hay cambios de base de datos, schema, migraciones ni seed.

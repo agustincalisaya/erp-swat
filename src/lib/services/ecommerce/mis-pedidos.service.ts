@@ -34,6 +34,16 @@ export interface ComprobanteWeb {
   monto: number;
 }
 
+export interface ComprobanteWebDescargable {
+  numero: string;
+  tipo: TipoComprobanteVenta;
+  fecha_emision: string;
+  monto: number;
+  cae_simulado: string;
+  qr_data_url: string;
+  es_simulado: boolean;
+}
+
 export interface PedidoWebDetalle extends Omit<PedidoWebResumen, "cantidad_items"> {
   items: {
     producto: string;
@@ -258,4 +268,53 @@ export async function obtenerComprobanteWebCliente(
     throw new ServiceError("COMPROBANTE_NO_ENCONTRADO", "El comprobante solicitado no existe");
   }
   return comprobanteDto(comprobante);
+}
+
+/** Resuelve el único comprobante original desde un pedido web visible del cliente. */
+export async function obtenerComprobanteOriginalWebCliente(
+  clienteId: string,
+  pedidoId: string,
+  { db = prisma }: OpcionesConsulta = {},
+): Promise<ComprobanteWebDescargable> {
+  const pedido = await db.pedidoVenta.findFirst({
+    where: {
+      id: pedidoId,
+      cliente_id: clienteId,
+      canal: "WEB",
+      is_active: true,
+      deleted_at: null,
+      ecommerce: { is: VISIBILIDAD_EXTENSION_E9 },
+    },
+    select: {
+      numero_venta: true,
+      comprobantes: {
+        where: { tipo_comprobante: { not: "NOTA_CREDITO" } },
+        orderBy: [{ created_at: "asc" }, { id: "asc" }],
+        take: 2,
+        select: {
+          tipo_comprobante: true,
+          created_at: true,
+          monto_total: true,
+          cae_simulado: true,
+          qr_data_url: true,
+          es_simulado: true,
+        },
+      },
+    },
+  });
+  // La ausencia, la falta de propiedad y un original ambiguo son indistinguibles.
+  const originales = pedido?.comprobantes.filter((comprobante) => comprobante.tipo_comprobante !== "NOTA_CREDITO") ?? [];
+  if (!pedido || originales.length !== 1) {
+    throw new ServiceError("PEDIDO_NO_ENCONTRADO", "El pedido solicitado no existe");
+  }
+  const comprobante = originales[0]!;
+  return {
+    numero: pedido.numero_venta,
+    tipo: comprobante.tipo_comprobante,
+    fecha_emision: comprobante.created_at.toISOString(),
+    monto: comprobante.monto_total.toNumber(),
+    cae_simulado: comprobante.cae_simulado,
+    qr_data_url: comprobante.qr_data_url,
+    es_simulado: comprobante.es_simulado,
+  };
 }

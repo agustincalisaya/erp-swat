@@ -119,7 +119,14 @@ export function DetallePedidoWeb({
               </CardHeader>
               <CardContent className="space-y-2 text-sm">
                 <DatosComprobante comprobante={pedidoActual.comprobante} />
-                <p className="border-t pt-3 text-muted-foreground">Comprobante no disponible para descarga.</p>
+                <div className="border-t pt-3">
+                  <a
+                    href={`/api/tienda/mis-pedidos/${pedidoActual.id}/comprobante/descargar`}
+                    className={buttonVariants({ variant: "outline", size: "sm" })}
+                  >
+                    Descargar comprobante
+                  </a>
+                </div>
               </CardContent>
             </Card>
           )}

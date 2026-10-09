@@ -4,7 +4,7 @@
 
 **Story Points:** 3.
 **Metodología:** Specification-Driven Development (SDD).
-**Stack real:** Next.js 16 · TypeScript · Prisma ORM · PostgreSQL 16 · `qrcode` · Node.js `node:test`.
+**Stack real:** Next.js 16 · TypeScript · Prisma ORM · PostgreSQL 16 · `qrcode` · `pdf-lib` · Node.js `node:test`.
 **Fuente:** `docs/specs/spec_modulo_E.md` §2.9 y código de HU-E9.
 **Estado:** **IMPLEMENTADA Y VERIFICADA**. Lista para commit/PR manual.
 
@@ -26,9 +26,10 @@ para conocer el avance de mis compras y contar con la identificación necesaria 
 - [x] **CA8 — QR vencido:** si el plazo venció, E9 devuelve `qr_data_url = null` sin cambiar el estado; HU-E13 conserva la responsabilidad de vencerlo.
 - [x] **CA9 — Responsabilidad E12:** E9 no genera ni modifica token/plazo; solo lee los valores creados por HU-E12.
 - [x] **CA10 — Secreto y caché:** `codigo_qr_retiro` nunca es una propiedad pública; ambos endpoints responden `Cache-Control: private, no-store`, incluidas respuestas 401/403 de la guarda.
-- [x] **CA11 — Comprobante:** solo se exponen `tipo`, `fecha_emision` y `monto`; no se exponen CAE, indicador simulado, QR fiscal ni IDs internos innecesarios.
-- [x] **CA12 — Sin descarga ficticia:** la UI muestra «Comprobante no disponible para descarga»; E9 no genera PDFs ni reutiliza endpoints administrativos.
+- [x] **CA11 — Comprobante:** el JSON del detalle expone solo `tipo`, `fecha_emision` y `monto`; CAE, QR fiscal e indicador simulado se leen únicamente en el servidor para el PDF autorizado.
+- [x] **CA12 — Descarga fiscal HU-B7:** «Descargar comprobante» entrega un PDF del único comprobante original ya emitido. La Nota de Crédito no lo reemplaza y no se reutiliza el endpoint RBAC interno.
 - [x] **CA13 — Navegación:** las páginas finales son `/tienda/cuenta/pedidos` y `/tienda/cuenta/pedidos/[id]`, con estados de carga, vacío, error y no encontrado.
+- [ ] **Pendiente separado del issue #196:** historial de cambios de estado con fecha y hora en el detalle. Esta corrección fiscal no lo implementa.
 
 ---
 
@@ -38,6 +39,7 @@ para conocer el avance de mis compras y contar con la identificación necesaria 
 
 - `GET /api/tienda/mis-pedidos`
 - `GET /api/tienda/mis-pedidos/[id]`
+- `GET /api/tienda/mis-pedidos/[pedidoId]/comprobante/descargar`
 
 Ambos handlers ejecutan:
 
@@ -50,7 +52,7 @@ request
 → Cache-Control: private, no-store
 ```
 
-No aceptan `clienteId`, `cuentaId`, email, DNI ni `usuarioId` desde la request. La respuesta temprana de HU-E8 permanece intacta; T4.1 agregó únicamente el wrapper local `conCachePrivada` para que también 401/403 lleven `private, no-store`.
+No aceptan `clienteId`, `cuentaId`, email, DNI ni `usuarioId` desde la request. La respuesta temprana de HU-E8 permanece intacta; T4.1 agregó únicamente el wrapper local `conCachePrivada` para que también 401/403 lleven `private, no-store`. La descarga valida el UUID y resuelve pedido propio `WEB` visible y su único comprobante no-NC en el servidor; ajeno, inexistente, sin original o ambiguo reciben el mismo 404. Responde `application/pdf`, `Content-Disposition: attachment` y `Cache-Control: private, no-store`, sin emitir otro CAE ni QR.
 
 ### Frontend
 
@@ -64,7 +66,7 @@ Las páginas son Server Components y llaman directamente a los helpers de sesió
 
 ## 3. Modelo de datos involucrado
 
-No se creó `PedidoWeb`, `OrdenWeb`, tabla, enum, campo, migración ni seed. Se reutilizan `PedidoVenta` con `canal = WEB`, `PedidoVentaEcommerce`, `PedidoVentaItem`, `VarianteSKU`, `ProductoMaestro` y el último `ComprobanteFiscal` asociado.
+No se creó `PedidoWeb`, `OrdenWeb`, tabla, enum, campo, migración ni seed. Se reutilizan `PedidoVenta` con `canal = WEB`, `PedidoVentaEcommerce`, `PedidoVentaItem`, `VarianteSKU`, `ProductoMaestro` y el único comprobante fiscal original asociado.
 
 Filtros obligatorios:
 
@@ -191,7 +193,9 @@ Verificación adicional: TypeScript, ESLint, `git diff --check` y `npm run build
 | `src/app/(tienda)/tienda/cuenta/pedidos/[id]/page.tsx` | Detalle RSC |
 | `src/app/(tienda)/tienda/cuenta/pedidos/[id]/loading.tsx` | Estado de carga del detalle |
 | `src/components/ecommerce/MisPedidosListado.tsx` | Listado y paginación |
-| `src/components/ecommerce/DetallePedidoWeb.tsx` | Detalle, QR y comprobante mínimo |
+| `src/components/ecommerce/DetallePedidoWeb.tsx` | Detalle, QR y enlace de descarga del comprobante original |
+| `src/lib/services/ecommerce/comprobante-web-pdf.ts` | PDF con CAE y QR fiscal persistidos por HU-B7 |
+| `src/app/api/tienda/mis-pedidos/[id]/comprobante/descargar/route.ts` | Descarga autenticada, de solo lectura y sin ID fiscal público |
 | `src/components/ecommerce/mis-pedidos.test.tsx` | Tests frontend |
 | `src/components/tienda/AccesoPedidosCuenta.tsx` | Acceso condicionado desde Mi cuenta |
 | `src/app/(tienda)/tienda/cuenta/page.tsx` | Integración del acceso |

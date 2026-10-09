@@ -68,14 +68,16 @@ test("detalle listo muestra QR solo si servicio entrega imagen y un mensaje func
   assert.ok(!sinQr.includes("data:image/png"));
 });
 
-test("comprobante se presenta sin jerga técnica ni descarga fiscal inventada", () => {
+test("comprobante original ofrece descarga propia y sin comprobante no muestra la acción", () => {
   const html = renderToStaticMarkup(createElement(DetallePedidoWeb, { pedido: { ...detalle,
     comprobante: { tipo: "FACTURA_B", fecha_emision: detalle.fecha, monto: 150 },
   } }));
   assert.ok(html.includes("FACTURA B"));
   assert.ok(html.includes("Monto"));
-  assert.ok(html.includes("Comprobante no disponible para descarga"));
-  assert.ok(!html.includes("Descargar comprobante"));
+  assert.ok(html.includes("Descargar comprobante"));
+  assert.ok(html.includes("/api/tienda/mis-pedidos/own-id/comprobante/descargar"));
+  assert.ok(!html.includes("/api/ventas/comprobantes/"));
+  assert.ok(!renderToStaticMarkup(createElement(DetallePedidoWeb, { pedido: detalle })).includes("Descargar comprobante"));
   assert.doesNotMatch(html, /simulado|fixture|seed|mock|\/api\/ventas\/comprobantes/i);
 });
 
@@ -125,7 +127,7 @@ test("factura original sigue visible y la NC aparece por separado solo si existe
   assert.ok(html.includes("Nota de crédito"));
   assert.ok(html.includes("NOTA CREDITO"));
   assert.ok(html.indexOf("FACTURA B") < html.indexOf("NOTA CREDITO"));
-  assert.ok(!html.includes("Descargar"));
+  assert.equal(html.match(/Descargar comprobante/g)?.length, 1);
   const sinNc = renderToStaticMarkup(createElement(DetallePedidoWeb, { pedido: { ...terminal, nota_credito: null } }));
   assert.ok(sinNc.includes("FACTURA B"));
   assert.ok(!sinNc.includes("Nota de crédito"));
