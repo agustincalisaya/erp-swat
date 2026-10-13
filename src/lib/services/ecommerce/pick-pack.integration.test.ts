@@ -233,12 +233,22 @@ test(
       const mostrador = await crearPedidoEnPreparacion({ canal: "MOSTRADOR" });
       const pendiente = await crearPedidoEnPreparacion({ estado_ecommerce: "PAGO_PENDIENTE" });
       const listo = await crearPedidoEnPreparacion({ estado_ecommerce: "LISTO_PARA_RETIRO" });
+      const confirmado = await crearPedidoEnPreparacion({ estado_ecommerce: "PAGO_CONFIRMADO" });
+      const terminales = await Promise.all([
+        crearPedidoEnPreparacion({ estado_ecommerce: "CANCELADO" }),
+        crearPedidoEnPreparacion({ estado_ecommerce: "VENCIDO_SIN_RETIRO" }),
+        crearPedidoEnPreparacion({ estado_ecommerce: "ENTREGADO" }),
+        crearPedidoEnPreparacion({ estado_ecommerce: "ANULADO" }),
+        crearPedidoEnPreparacion({ estado_ecommerce: "PAGO_RECHAZADO" }),
+      ]);
 
       const cola = await listarColaPreparacion({ page: 1, page_size: 1000 });
       const ids = cola.items.map((i) => i.pedido_venta_id);
       assert.ok(!ids.includes(mostrador.pedidoId));
       assert.ok(!ids.includes(pendiente.pedidoId));
       assert.ok(!ids.includes(listo.pedidoId));
+      assert.ok(ids.includes(confirmado.pedidoId));
+      for (const terminal of terminales) assert.ok(!ids.includes(terminal.pedidoId));
     });
 
     await t.test("cola: progreso derivado de escaneos activos", async () => {
@@ -251,8 +261,8 @@ test(
       assert.equal(item?.progreso.completo, true);
     });
 
-    await t.test("tomar: libre → asignado; no cambia estado", async () => {
-      const { pedidoId } = await crearPedidoEnPreparacion();
+    await t.test("tomar: PAGO_CONFIRMADO → EN_PREPARACION y asignado", async () => {
+      const { pedidoId } = await crearPedidoEnPreparacion({ estado_ecommerce: "PAGO_CONFIRMADO" });
       const r = await tomarPedido(pedidoId, operador1Id);
       assert.equal(r.cambio_realizado, true);
       assert.equal(r.operador_asignado_id, operador1Id);
@@ -262,14 +272,14 @@ test(
     });
 
     await t.test("tomar: mismo actor → idempotente", async () => {
-      const { pedidoId } = await crearPedidoEnPreparacion();
+      const { pedidoId } = await crearPedidoEnPreparacion({ estado_ecommerce: "PAGO_CONFIRMADO" });
       await tomarPedido(pedidoId, operador1Id);
       const r = await tomarPedido(pedidoId, operador1Id);
       assert.equal(r.cambio_realizado, false);
     });
 
     await t.test("tomar: otro actor → conflicto", async () => {
-      const { pedidoId } = await crearPedidoEnPreparacion();
+      const { pedidoId } = await crearPedidoEnPreparacion({ estado_ecommerce: "PAGO_CONFIRMADO" });
       await tomarPedido(pedidoId, operador1Id);
       let error: unknown;
       try {
@@ -282,7 +292,7 @@ test(
     });
 
     await t.test("tomar: estado inválido → error", async () => {
-      const { pedidoId } = await crearPedidoEnPreparacion({ estado_ecommerce: "PAGO_CONFIRMADO" });
+      const { pedidoId } = await crearPedidoEnPreparacion({ estado_ecommerce: "CANCELADO" });
       let error: unknown;
       try {
         await tomarPedido(pedidoId, operador1Id);
@@ -291,6 +301,17 @@ test(
       }
       assert.ok(error instanceof ServiceError);
       assert.equal((error as { code: string }).code, "ESTADO_INVALIDO");
+    });
+
+    await t.test("tomar: operador inválido revierte sin transición ni asignación", async () => {
+      const { pedidoId } = await crearPedidoEnPreparacion({ estado_ecommerce: "PAGO_CONFIRMADO" });
+      await assert.rejects(
+        () => tomarPedido(pedidoId, crypto.randomUUID()),
+        (error: unknown) => error instanceof ServiceError && error.code === "OPERADOR_NO_AUTORIZADO",
+      );
+      const ext = await prisma.pedidoVentaEcommerce.findUniqueOrThrow({ where: { pedido_venta_id: pedidoId } });
+      assert.equal(ext.estado_ecommerce, "PAGO_CONFIRMADO");
+      assert.equal(ext.operador_asignado_id, null);
     });
 
     await t.test("tomar: no WEB → error", async () => {
@@ -950,8 +971,8 @@ test(
       assert.equal((error as { code: string }).code, "ESTADO_INVALIDO");
     });
 
-    await t.test("concurrencia: dos operadores, exactamente uno toma", async () => {
-      const { pedidoId } = await crearPedidoEnPreparacion();
+    await t.test("concurrencia: dos operadores, exactamente uno toma PAGO_CONFIRMADO", async () => {
+      const { pedidoId } = await crearPedidoEnPreparacion({ estado_ecommerce: "PAGO_CONFIRMADO" });
       const [r1, r2] = await Promise.allSettled([
         tomarPedido(pedidoId, operador1Id),
         tomarPedido(pedidoId, operador2Id),
@@ -964,6 +985,7 @@ test(
 
       const ganador = (exitosos[0] as PromiseFulfilledResult<Awaited<ReturnType<typeof tomarPedido>>>).value;
       const ext = await prisma.pedidoVentaEcommerce.findUnique({ where: { pedido_venta_id: pedidoId } });
+      assert.equal(ext?.estado_ecommerce, "EN_PREPARACION");
       assert.equal(ext?.operador_asignado_id, ganador.operador_asignado_id);
     });
   },

@@ -117,6 +117,43 @@ export const SUSCRIPCIONES_NOTIFICACION = [
         }
       : null,
   }),
+  suscripcion({
+    evento: "ecommerce:plazo_retiro_por_vencer",
+    prioridad_default: "ADVERTENCIA",
+    armar: (p) => p.cliente_web_cuenta_id
+      ? {
+          clave_origen: p.clave_origen,
+          variables: {
+            numero_venta: p.numero_venta,
+            plazo_retiro_vencimiento: p.plazo_retiro_vencimiento,
+          },
+          destinatarios: { cuenta_cliente_web_ids: [p.cliente_web_cuenta_id] },
+        }
+      : null,
+  }),
+  suscripcion({
+    evento: "ecommerce:pedido_cancelado",
+    prioridad_default: "ADVERTENCIA",
+    armar: (p) => p.cliente_web_cuenta_id
+      ? {
+          clave_origen: p.reintegro_id,
+          variables: { numero_venta: p.numero_venta, estado: p.estado_nuevo },
+          destinatarios: { cuenta_cliente_web_ids: [p.cliente_web_cuenta_id] },
+        }
+      : null,
+  }),
+  suscripcion({
+    evento: "ecommerce:pedido_vencido_sin_retiro",
+    // spec_modulo_F.md §3.3 + addendum post-T17 (SPEC E §2.13.16.1).
+    prioridad_default: "CRITICA",
+    armar: (p) => p.cliente_web_cuenta_id
+      ? {
+          clave_origen: p.reintegro_id,
+          variables: { numero_venta: p.numero_venta, estado: p.estado_nuevo },
+          destinatarios: { cuenta_cliente_web_ids: [p.cliente_web_cuenta_id] },
+        }
+      : null,
+  }),
 ];
 
 function procesar(s: Suscripcion<keyof DomainEventMap>, payload: DomainEventMap[keyof DomainEventMap]): void {

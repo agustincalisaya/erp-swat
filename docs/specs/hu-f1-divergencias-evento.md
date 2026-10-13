@@ -15,7 +15,7 @@
 | --- | --- |
 | `spec_modulo_F.md` §2.1.3 | El webhook despacha `pago:webhook_confirmado` a sus consumidores (E2 y **G11**). |
 | `spec_modulo_G.md` §2.6 | G11 consume **`ecommerce:transaccion_pago_registrada`** (emitido por E2), no `pago:webhook_confirmado`. |
-| **Realidad HU-E2 (código)** | E2 emite **`ecommerce:pedido_pago_confirmado`** (`PedidoPagoConfirmadoPayload`). `ecommerce:transaccion_pago_registrada` **NO existe** (ni tipado ni emitido; `TransaccionPagoLog` tampoco se escribe — es HU-E6, sin implementar). |
+| **Realidad HU-E2 (código)** | E2 emite **`ecommerce:pedido_pago_confirmado`** (`PedidoPagoConfirmadoPayload`). Al momento del SDD de HU-F1, `ecommerce:transaccion_pago_registrada` no existía; **hoy sí existe**: HU-E6 escribe `TransaccionPagoLog` dentro de la transacción de E2 y emite ese evento post-commit, tanto en aprobados como en rechazados (`TransaccionPagoRegistradaPayload`, sin `fecha_aprobacion`). |
 
 Además, el webhook implementado por HU-E2 **procesa la notificación de forma
 síncrona** (`procesarNotificacionPago()` de
@@ -27,9 +27,11 @@ _fire-and-forget_ del evento.
 
 - **(a)** El webhook emite `pago:webhook_confirmado` y E2 pasa a consumirlo.
   Impacto: cambio en Módulo E (zona ajena a HU-F1) + tocar el webhook.
-- **(b) [INVÁLIDA]** Se mantiene el flujo síncrono actual y G11 consume
-  `ecommerce:transaccion_pago_registrada`. Impacto: ninguno sobre el webhook ni
-  sobre Módulo E — **pero inviable**: ese evento no existe en el código.
+- **(b) [DESCARTADA]** Se mantiene el flujo síncrono actual y G11 consume
+  `ecommerce:transaccion_pago_registrada`. Cuando se evaluó era inviable porque
+  el evento no existía; hoy existe (HU-E6), pero se descarta igual: también se
+  emite en los rechazos y su payload no trae `fecha_aprobacion`, que G11 usa
+  como `IngresoTesoreria.fecha`.
 
 **Decisión del equipo:** **RESUELTA por HU-G11** — G11 consume
 `ecommerce:pedido_pago_confirmado`, el evento real y ya emitido por HU-E2. La
@@ -57,9 +59,14 @@ HU-E2 y documenta el mapeo payload → `IngresoTesoreria`:
 - La idempotencia es dual (`pedido_venta_id` OR `mercadopago_payment_id`).
 - La transición `PENDIENTE_CONCILIACION → CONCILIADO` queda **fuera de
   alcance** (HU-G2).
-- Si en el futuro HU-E6 introduce `ecommerce:transaccion_pago_registrada`, G11
-  puede seguir escuchando su propio evento o migrar en una HU aparte — **no es
-  requisito de HU-G11**.
+- HU-E6 ya introdujo `ecommerce:transaccion_pago_registrada`. **G11 sigue
+  escuchando `ecommerce:pedido_pago_confirmado`** (acordado con Rama el
+  2026-10-08, implementado por el owner de E2 — `docs/tasks/HU-E2-integracion.md`
+  §9, P-R3). La D2 (webhook síncrono) no cambia.
+- El reproceso manual (`reprocesarIngresoWeb()`) considera pagado a todo pedido
+  con `fecha_pago_confirmado` y `mercadopago_payment_id` no nulos, sin mirar
+  `estado_ecommerce`: desde la integración con HU-E12 el pedido confirmado pasa
+  a `EN_PREPARACION` en el mismo commit (P-R2 de la misma task).
 
 ## Eventos de dominio de F1 §4 — diferidos
 

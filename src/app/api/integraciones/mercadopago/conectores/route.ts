@@ -6,7 +6,8 @@
  * NINGUNA regla de negocio vive acá.
  *
  * Respuestas: 201 Created · 400 VALIDATION_ERROR · 401 UNAUTHORIZED ·
- * 403 FORBIDDEN · 409 CONECTOR_ACTIVO_EXISTENTE · 500 INTERNAL_ERROR.
+ * 403 FORBIDDEN · 500 INTERNAL_ERROR. El alta no controla la unicidad del
+ * Conector ACTIVO: se controla al activar (health-check → 409, P-R5).
  */
 import { NextResponse, type NextRequest } from "next/server";
 import { withPermission } from "@/lib/auth/with-permission";
@@ -18,7 +19,6 @@ import {
 } from "@/lib/services/integraciones/conector-pago.service";
 
 const STATUS_POR_CODIGO: Record<string, number> = {
-  CONECTOR_ACTIVO_EXISTENTE: 409,
   CONECTOR_NO_ENCONTRADO: 404,
   HEALTH_CHECK_FALLIDO: 422,
   HEALTH_CHECK_REQUERIDO: 422,

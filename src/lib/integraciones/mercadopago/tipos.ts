@@ -19,7 +19,6 @@ export interface IniciarCobroInput {
   moneda: MonedaCobro;
   /** Vencimiento de la preferencia = vencimiento de la reserva del checkout. */
   expiracion: Date;
-  notification_url: string;
   back_urls: { success: string; failure: string; pending: string };
 }
 

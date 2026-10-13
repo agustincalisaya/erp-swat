@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { SelectorOperacion, TarjetaPedidoCola } from "./ConsolaPickPack";
 import { ProgresoBarra } from "./ProgresoBarra";
-import { BotonCompletar, LineaPreparacionVista } from "./PreparacionPedidoPanel";
+import { BotonCompletar, LineaPreparacionVista, PreparacionPedidoPanel } from "./PreparacionPedidoPanel";
 import type { ItemColaPreparacionJson, LineaPreparacionJson } from "./pick-pack-client";
+
+const fuenteConsola = readFileSync(new URL("./ConsolaPickPack.tsx", import.meta.url), "utf8");
 
 const lineaBase: LineaPreparacionJson = {
   pedido_venta_item_id: "li-1",
@@ -22,7 +25,7 @@ const pedidoBase: ItemColaPreparacionJson = {
   numero_venta: "V-2026-000099",
   fecha_pago_confirmado: "2026-10-02T10:00:00.000Z",
   prioridad_manual: 5,
-  estado_ecommerce: "EN_PREPARACION",
+  estado_ecommerce: "PAGO_CONFIRMADO",
   operador_asignado_id: null,
   lineas: [lineaBase],
   progreso: { total_requerido: 3, total_confirmado: 1, porcentaje: 33, completo: false },
@@ -80,16 +83,22 @@ test("cola: prioridad null no renderiza badge de prioridad", () => {
 
 // ── RBAC/UI ──────────────────────────────────────────────────────────────────
 
-test("RBAC: Admin (priorizar, sin preparar) ve control de prioridad y no 'Tomar pedido'", () => {
-  const html = renderTarjeta({ puedePriorizar: true });
+test("RBAC: Admin conserva prioridad para legacy EN_PREPARACION sin operador y no ve 'Tomar pedido'", () => {
+  const html = renderTarjeta({
+    puedePriorizar: true,
+    pedido: { ...pedidoBase, estado_ecommerce: "EN_PREPARACION" },
+  });
   assert.match(html, /Prioridad \(1–100\)/);
   assert.doesNotMatch(html, /Tomar pedido/);
   assert.doesNotMatch(html, /Continuar preparación/);
 });
 
-test("RBAC: Operador (preparar, sin priorizar) ve 'Tomar pedido' y no prioridad", () => {
+test("cola T16: PAGO_CONFIRMADO se muestra pendiente, libre y disponible para tomar", () => {
   const html = renderTarjeta({ puedePreparar: true });
+  assert.match(html, /Pendiente de toma/);
+  assert.match(html, /Disponible para tomar · Sin operador asignado/);
   assert.match(html, /Tomar pedido/);
+  assert.doesNotMatch(html, /En preparación|Continuar preparación/);
   assert.doesNotMatch(html, /Prioridad \(1–100\)/);
 });
 
@@ -97,8 +106,10 @@ test("RBAC: pedido tomado por el propio operador ofrece 'Continuar preparación'
   const html = renderTarjeta({
     puedePreparar: true,
     esPropio: true,
-    pedido: { ...pedidoBase, operador_asignado_id: "yo-1" },
+    pedido: { ...pedidoBase, estado_ecommerce: "EN_PREPARACION", operador_asignado_id: "yo-1" },
   });
+  assert.match(html, /En preparación/);
+  assert.match(html, /Asignado a vos/);
   assert.match(html, /Continuar preparación/);
   assert.doesNotMatch(html, /Tomar pedido/);
 });
@@ -106,17 +117,26 @@ test("RBAC: pedido tomado por el propio operador ofrece 'Continuar preparación'
 test("RBAC: pedido tomado por otro operador no ofrece acciones", () => {
   const html = renderTarjeta({
     puedePreparar: true,
-    pedido: { ...pedidoBase, operador_asignado_id: "otro-1" },
+    pedido: { ...pedidoBase, estado_ecommerce: "EN_PREPARACION", operador_asignado_id: "otro-1" },
   });
+  assert.match(html, /En preparación/);
   assert.match(html, /Asignado a otro operador/);
   assert.doesNotMatch(html, /Tomar pedido/);
   assert.doesNotMatch(html, /Continuar preparación/);
 });
 
+test("toma T16 bloquea doble submit, confirma EN_PREPARACION y refresca conflictos", () => {
+  assert.match(fuenteConsola, /if \(accionEnCursoRef\.current\) return/);
+  assert.match(fuenteConsola, /accionEnCursoRef\.current = pedido\.pedido_venta_id/);
+  assert.match(fuenteConsola, /estado_ecommerce: "EN_PREPARACION"/);
+  assert.match(fuenteConsola, /if \(r\.status === 409 \|\| r\.status === 404\) refrescar\(\)/);
+  assert.match(fuenteConsola, /refrescar\(\);[\s\S]*setPedidoActivo/);
+});
+
 test("RBAC: Admin no reprioriza un pedido ya tomado", () => {
   const html = renderTarjeta({
     puedePriorizar: true,
-    pedido: { ...pedidoBase, operador_asignado_id: "otro-1" },
+    pedido: { ...pedidoBase, estado_ecommerce: "EN_PREPARACION", operador_asignado_id: "otro-1" },
   });
   assert.doesNotMatch(html, /Prioridad \(1–100\)/);
 });
@@ -144,6 +164,17 @@ test("línea: incompleta muestra faltantes; completa muestra sello", () => {
 });
 
 // ── Completar ─────────────────────────────────────────────────────────────────
+
+test("T16: PAGO_CONFIRMADO no expone escaneo ni completar antes de tomar", () => {
+  const html = renderToStaticMarkup(createElement(PreparacionPedidoPanel, {
+    pedido: pedidoBase,
+    onScanAcreditado: () => {},
+    onCerrar: () => {},
+  }));
+  assert.match(html, /todavía no está en preparación/);
+  assert.match(html, /Tomá el pedido desde la cola/);
+  assert.doesNotMatch(html, /Escaneo de unidades|Completar preparación \(faltan unidades\)/);
+});
 
 test("completar: deshabilitado con progreso incompleto, habilitado al 100%", () => {
   const incompleto = renderToStaticMarkup(

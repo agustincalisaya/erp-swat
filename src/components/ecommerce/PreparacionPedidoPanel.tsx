@@ -179,6 +179,22 @@ export function PreparacionPedidoPanel({
     [escaneando, resultado, pedido.pedido_venta_id, onScanAcreditado, lineasPorId, onCerrar],
   );
 
+  if (pedido.estado_ecommerce !== "EN_PREPARACION" || pedido.operador_asignado_id === null) {
+    return (
+      <Card>
+        <CardContent className="flex flex-col items-center gap-3 py-10 text-center">
+          <AlertTriangle className="size-10 text-amber-500" aria-hidden="true" />
+          <CardTitle>El pedido todavía no está en preparación</CardTitle>
+          <CardDescription>Tomá el pedido desde la cola antes de escanear o completar unidades.</CardDescription>
+          <Button onClick={onCerrar} variant="outline">
+            <ArrowLeft className="size-4" aria-hidden="true" />
+            Volver a la cola
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
   function manejarLecturaManual(e: React.FormEvent) {
     e.preventDefault();
     void procesarLectura(codigoManual);

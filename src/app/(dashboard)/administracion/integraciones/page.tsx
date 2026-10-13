@@ -33,7 +33,8 @@ const MENSAJES_ERROR: Record<string, string> = {
   UNAUTHORIZED: "Sesión requerida.",
   FORBIDDEN: "No tenés el permiso para administrar el Conector.",
   VALIDATION_ERROR: "Los datos enviados no son válidos.",
-  CONECTOR_ACTIVO_EXISTENTE: "Ya existe un Conector ACTIVO en ese entorno.",
+  CONECTOR_ACTIVO_EXISTENTE:
+    "Ya hay otro Conector ACTIVO en ese entorno: dalo de baja antes de activar este.",
   CONECTOR_NO_ENCONTRADO: "El Conector indicado no existe o fue dado de baja.",
   HEALTH_CHECK_FALLIDO: "Mercado Pago rechazó las credenciales del Conector.",
   HEALTH_CHECK_REQUERIDO:

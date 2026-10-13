@@ -261,7 +261,7 @@ export const SubirFotoMultipartSchema = z
 // ──────────────────────────────────────────────────────────────────────────────
 
 /** Estados admitidos por el filtro del log (spec E §2.6). */
-export const ESTADOS_PAGO_LOG = ["APROBADO", "RECHAZADO", "PENDIENTE"] as const;
+export const ESTADOS_PAGO_LOG = ["APROBADO", "RECHAZADO", "PENDIENTE", "ANOMALIA"] as const;
 export type EstadoPagoLog = (typeof ESTADOS_PAGO_LOG)[number];
 
 /**

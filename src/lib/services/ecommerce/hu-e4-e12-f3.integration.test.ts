@@ -199,7 +199,7 @@ test(
 
       // C — admisión E12 persistida por la transacción de pago.
       const p = await estadoPedido(iniciado.pedido_venta_id);
-      assert.equal(p.estado_ecommerce, "EN_PREPARACION");
+      assert.equal(p.estado_ecommerce, "PAGO_CONFIRMADO");
       assert.equal(p.operador_asignado_id, null);
       assert.ok(p.fecha_pago_confirmado);
       assert.equal(await stockShowroom(articulo.varianteId), 3);
@@ -244,32 +244,41 @@ test(
       console.error = (...args: unknown[]) => {
         diagnosticos.push(args);
       };
-      let intentosFallidos = 0;
-      prisma.auditLog.create = (async (args: { data: { accion: string; registro_id: string | null } }) => {
-        if (args.data.accion === "ecommerce:cupon_consumido" && args.data.registro_id === aplicacion.id) {
-          intentosFallidos += 1;
-          await pausa(5);
-          throw Object.assign(new Error(MARCADORES_SENSIBLES), { meta: { dni: "30123456" } });
-        }
-        return auditCreateOriginal(args as never);
-      }) as unknown as typeof prisma.auditLog.create;
+      // HU-E13 T18: el append del ledger corre en su propia transacción (`tx.auditLog.create`), así que
+      // reemplazar `prisma.auditLog.create` ya no intercepta la escritura. El fallo se inyecta en
+      // PostgreSQL con un trigger temporal de la base de test (mismo patrón que las suites E3), con
+      // el mismo mensaje sensible que el diagnóstico no debe filtrar.
+      await prisma.$executeRawUnsafe(`
+        CREATE FUNCTION hu_e4_t18_falla_auditoria() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN RAISE EXCEPTION '${MARCADORES_SENSIBLES} dni 30123456'; END $$
+      `);
+      let filas: Awaited<ReturnType<typeof prisma.notificacion.findMany>>;
+      let diagnosticosPropios: unknown[][];
+      try {
+        await prisma.$executeRawUnsafe(`
+          CREATE TRIGGER hu_e4_t18_falla_auditoria BEFORE INSERT ON audit_logs FOR EACH ROW
+          WHEN (NEW.accion = 'ecommerce:cupon_consumido' AND NEW.registro_id = '${aplicacion.id}')
+          EXECUTE FUNCTION hu_e4_t18_falla_auditoria()
+        `);
+        const pid = pagoMp(iniciado.pedido_venta_ecommerce_id, "approved", 18000);
+        const r = await pagoWeb.procesarNotificacionPago(pid, pasarela);
+        assert.equal(r.resultado, "CONFIRMADO");
 
-      const pid = pagoMp(iniciado.pedido_venta_ecommerce_id, "approved", 18000);
-      const r = await pagoWeb.procesarNotificacionPago(pid, pasarela);
-      assert.equal(r.resultado, "CONFIRMADO");
+        const admision = await esperar("evento de admisión", async () => admisiones.find((a) => a.pedido_venta_id === iniciado.pedido_venta_id) ?? null);
+        filas = await esperar("notificaciones de admisión (F3) pese al fallo de auditoría", async () => {
+          const rows = await prisma.notificacion.findMany({ where: { clave_idempotencia: { in: claves(admision.evento_id) } } });
+          return rows.length === operadores.length ? rows : null;
+        });
+        // Barrera: la cola del ledger es serial; si la admisión ya está auditada, el intento de consumo (anterior) terminó.
+        await esperar("auditoría de admisión persistida", async () => (await auditorias("PEDIDO_ADMITIDO_COLA", iniciado.pedido_venta_ecommerce_id)) === 1);
+        diagnosticosPropios = diagnosticos.filter((d) => String(d[0]).includes("ecommerce:cupon_consumido") && String(d[0]).includes("Falló la escritura"));
+      } finally {
+        console.error = consolaErrorOriginal;
+        await prisma.$executeRawUnsafe("DROP TRIGGER IF EXISTS hu_e4_t18_falla_auditoria ON audit_logs");
+        await prisma.$executeRawUnsafe("DROP FUNCTION IF EXISTS hu_e4_t18_falla_auditoria()");
+      }
 
-      const admision = await esperar("evento de admisión", async () => admisiones.find((a) => a.pedido_venta_id === iniciado.pedido_venta_id) ?? null);
-      const filas = await esperar("notificaciones de admisión (F3) pese al fallo de auditoría", async () => {
-        const rows = await prisma.notificacion.findMany({ where: { clave_idempotencia: { in: claves(admision.evento_id) } } });
-        return rows.length === operadores.length ? rows : null;
-      });
-      // Barrera: la cola del ledger es serial; si la admisión ya está auditada, el intento de consumo (anterior) terminó.
-      await esperar("auditoría de admisión persistida", async () => (await auditorias("PEDIDO_ADMITIDO_COLA", iniciado.pedido_venta_ecommerce_id)) === 1);
-      const diagnosticosPropios = diagnosticos.filter((d) => String(d[0]).includes("ecommerce:cupon_consumido") && String(d[0]).includes("Falló la escritura"));
-      console.error = consolaErrorOriginal;
-      prisma.auditLog.create = auditCreateOriginal as typeof prisma.auditLog.create;
-
-      assert.equal(intentosFallidos, 1, "se inyectó el fallo en un único intento de auditoría");
+      // Cada intento fallido del listener deja exactamente un diagnóstico: uno solo = un único intento.
       assert.equal(diagnosticosPropios.length, 1, "un único diagnóstico del listener de consumo");
       assert.deepEqual(diagnosticosPropios[0][1], {
         aplicacion_id: aplicacion.id,
@@ -285,7 +294,7 @@ test(
 
       const consumida = await prisma.cuponAplicacion.findUniqueOrThrow({ where: { id: aplicacion.id } });
       assert.equal(consumida.confirmada, true, "el consumo persiste aunque falle su auditoría");
-      assert.equal((await estadoPedido(iniciado.pedido_venta_id)).estado_ecommerce, "EN_PREPARACION");
+      assert.equal((await estadoPedido(iniciado.pedido_venta_id)).estado_ecommerce, "PAGO_CONFIRMADO");
       assert.equal(filas.length, operadores.length);
       assert.equal(await notificacionesAdmision(), notificacionesIniciales + operadores.length);
     });

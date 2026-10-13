@@ -5,6 +5,7 @@
  * llama al Adapter) y mapea al shape `{ data, error }`.
  *
  * Respuestas: 200 OK · 401 UNAUTHORIZED · 403 FORBIDDEN · 404 CONECTOR_NO_ENCONTRADO ·
+ * 409 CONECTOR_ACTIVO_EXISTENTE (ya hay otro ACTIVO en el entorno, P-R5) ·
  * 422 HEALTH_CHECK_FALLIDO · 422 HEALTH_CHECK_REQUERIDO · 500 INTERNAL_ERROR.
  */
 import { NextResponse, type NextRequest } from "next/server";
@@ -19,6 +20,7 @@ type Context = { params: Promise<{ id: string }> };
 
 const STATUS_POR_CODIGO: Record<string, number> = {
   CONECTOR_NO_ENCONTRADO: 404,
+  CONECTOR_ACTIVO_EXISTENTE: 409,
   HEALTH_CHECK_FALLIDO: 422,
   HEALTH_CHECK_REQUERIDO: 422,
 };

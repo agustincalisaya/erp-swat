@@ -135,7 +135,7 @@ test("HU-E3 T10: E8/E1/E2/E12/F3/E9/E3 con retiro validado real", {
       where: { pedido_venta_id: iniciado.pedido_venta_id },
       select: { estado_ecommerce: true, codigo_qr_retiro: true, plazo_retiro_vencimiento: true },
     });
-    assert.equal(admitido.estado_ecommerce, "EN_PREPARACION");
+    assert.equal(admitido.estado_ecommerce, "PAGO_CONFIRMADO");
     assert.ok(admitido.codigo_qr_retiro === null, "Antes de E12 no hay QR");
     assert.equal(admitido.plazo_retiro_vencimiento, null);
     return { ...iniciado, articulo };

@@ -16,7 +16,7 @@
  * 3. Imprime URL, headers, body y un `curl` listos para Postman. La firma vale
  *    15 minutos (tolerancia anti-replay).
  *
- * // PROVISORIO HU-E2 — completar en HU-F1 (owner: Rama)
+ * Owner: HU-E2 (Chiki). Definitivo, acordado con Rama (HU-F1) el 2026-10-08.
  */
 import "dotenv/config";
 import { randomUUID } from "node:crypto";

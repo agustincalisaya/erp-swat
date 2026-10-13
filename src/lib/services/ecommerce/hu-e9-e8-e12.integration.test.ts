@@ -150,7 +150,7 @@ test("HU-E9 T07 — E8 real, E12 real y acceso E9 solo del propietario", {
     },
   });
   assert.equal(admitido.pedido_venta.cliente_id, cuentaA.clienteId);
-  assert.equal(admitido.estado_ecommerce, "EN_PREPARACION");
+  assert.equal(admitido.estado_ecommerce, "PAGO_CONFIRMADO");
   assert.equal(admitido.codigo_qr_retiro, null);
   assert.equal(admitido.plazo_retiro_vencimiento, null);
 
@@ -158,7 +158,7 @@ test("HU-E9 T07 — E8 real, E12 real y acceso E9 solo del propietario", {
     const detalle = await llamar(jarA, `/api/tienda/mis-pedidos/${checkoutIniciado.pedido_venta_id}`);
     assert.equal(detalle.status, 200);
     assertCachePrivada(detalle.response);
-    assert.equal(detalle.body.data.estado, "EN_PREPARACION");
+    assert.equal(detalle.body.data.estado, "PAGO_CONFIRMADO");
     assert.equal(detalle.body.data.qr_data_url, null);
     assert.equal(detalle.body.data.plazo_retiro_vencimiento, null);
   });

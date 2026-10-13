@@ -17,6 +17,8 @@ import {
   fechaDeVigenciaAlcanzada,
   hoyComoFechaSoloUtc,
   inicioDiaUtc,
+  formatearFechaHoraNegocio,
+  formatearFechaNegocio,
   sumarDiasCalendarioNegocio,
 } from "./fecha-negocio.ts";
 
@@ -208,4 +210,40 @@ test("sumarDiasCalendarioNegocio: instante cercano a medianoche argentina", () =
   const inicio = new Date("2026-09-26T02:50:00.000Z");
   const vencimiento = sumarDiasCalendarioNegocio(inicio, 1);
   assert.equal(vencimiento.toISOString(), "2026-09-27T02:50:00.000Z");
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// formatearFechaNegocio / formatearFechaHoraNegocio — presentación determinista
+// (hydration SSR ↔ navegador, T19 HU-E13)
+// ──────────────────────────────────────────────────────────────────────────
+
+test("formateo de presentación: misma fecha ISO → mismo texto en hora Argentina, 24 h", () => {
+  assert.equal(formatearFechaHoraNegocio("2026-10-08T22:44:00.000Z"), "08/10/2026 19:44");
+  assert.equal(formatearFechaNegocio("2026-10-08T22:44:00.000Z"), "08/10/2026");
+  assert.equal(formatearFechaHoraNegocio(new Date("2026-10-08T22:44:00.000Z")), "08/10/2026 19:44");
+  // Corte de medianoche en hora Argentina, no en UTC.
+  assert.equal(formatearFechaHoraNegocio("2026-10-09T02:59:00.000Z"), "08/10/2026 23:59");
+  assert.equal(formatearFechaHoraNegocio("2026-10-09T03:00:00.000Z"), "09/10/2026 00:00");
+  assert.equal(formatearFechaNegocio("2026-01-01T00:00:00.000Z"), "31/12/2025");
+  // Sin texto dependiente de ICU: ni "a. m."/"p. m." ni nombres de mes ni espacios especiales.
+  assert.match(formatearFechaHoraNegocio("2026-10-08T15:05:00.000Z"), /^\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}$/);
+});
+
+test("formateo de presentación: no depende de la zona horaria del proceso", () => {
+  const original = process.env.TZ;
+  const instante = "2026-10-08T22:44:00.000Z";
+  const implicitas = new Set<string>();
+  try {
+    for (const tz of ["UTC", "Asia/Tokyo", "America/Los_Angeles", "America/Argentina/Salta"]) {
+      process.env.TZ = tz;
+      implicitas.add(new Date(instante).toLocaleString("es-AR"));
+      assert.equal(formatearFechaHoraNegocio(instante), "08/10/2026 19:44", `TZ=${tz}`);
+      assert.equal(formatearFechaNegocio("2026-10-09T02:59:00.000Z"), "08/10/2026", `TZ=${tz}`);
+    }
+  } finally {
+    if (original === undefined) delete process.env.TZ;
+    else process.env.TZ = original;
+  }
+  // El runtime sí cambió de zona (el formateo implícito varió), y el helper no.
+  assert.ok(implicitas.size > 1, "el cambio de TZ debe afectar al formateo implícito para que la prueba sea significativa");
 });

@@ -63,22 +63,24 @@ test("conector.ts agrega obtenerConectorPorId() descifrando credenciales", () =>
 // ──────────────────────────────────────────────────────────────────────────────
 
 test("adapter.ts exporta solicitarReembolso y healthCheck", () => {
-  assert.match(adapter, /export async function solicitarReembolso\(paymentId: string, monto\?: number\)/);
+  assert.match(adapter, /export async function solicitarReembolso\(\s*paymentId: string,\s*idempotencyKey: string,\s*monto\?: number,/);
   assert.match(adapter, /Promise<ReembolsoSolicitado>/);
   assert.match(adapter, /export async function healthCheck\(input: HealthCheckInput\)/);
 });
 
-test("solicitarReembolso usa POST /v1/payments/{id}/refunds y reutiliza llamarMercadoPago", () => {
+test("solicitarReembolso usa POST /v1/payments/{id}/refunds y transmite la key del caller", () => {
   assert.match(adapter, /"SOLICITAR_REEMBOLSO"/);
   assert.match(adapter, /`\/v1\/payments\/\$\{encodeURIComponent\(paymentId\)\}\/refunds`/);
-  // El body { amount } viaja solo si el monto es parcial (R1.3).
   assert.match(adapter, /monto === undefined \? undefined : \{ amount: monto \}/);
+  assert.match(adapter, /"X-Idempotency-Key": idempotencyKey \?\? randomUUID\(\)/);
+  assert.match(adapter, /undefined,\s*idempotencyKey,/);
 });
 
 test("rama simulada del reembolso es determinística y no toca simulador.ts", () => {
   const cuerpo = adapter.slice(adapter.indexOf("export async function solicitarReembolso"));
   assert.match(cuerpo, /simuladorActivo\(\)/);
-  assert.match(cuerpo, /`SIM-REF-\$\{paymentId\}`/);
+  assert.match(cuerpo, /createHash\("sha256"\)\.update\(`\$\{paymentId\}:\$\{idempotencyKey\}`\)/);
+  assert.match(cuerpo, /`SIM-REF-\$\{refundId\}`/);
   assert.match(cuerpo, /status: "approved"/);
 });
 
@@ -113,4 +115,21 @@ test("el mapeo de error 404 sigue vigente y cubre consulta y reembolso", () => {
   assert.match(cuerpo, /operacion === "CONSULTAR_PAGO"/);
   assert.match(cuerpo, /operacion === "SOLICITAR_REEMBOLSO"/);
   assert.match(cuerpo, /return "PAGO_NO_ENCONTRADO"/);
+});
+
+test("refund valida payment, key y monto antes de seleccionar simulador o red", () => {
+  const cuerpo = adapter.slice(adapter.indexOf("export async function solicitarReembolso"));
+  const indiceSimulador = cuerpo.indexOf("simuladorActivo()");
+  for (const codigo of ["PAYMENT_ID_INVALIDO", "IDEMPOTENCY_KEY_INVALIDA", "MONTO_REEMBOLSO_INVALIDO"]) {
+    const indice = cuerpo.indexOf(codigo);
+    assert.ok(indice >= 0 && indice < indiceSimulador, `${codigo} debe validarse antes de cualquier ejecución`);
+  }
+});
+
+test("errores técnicos exponen señal reintentable y causa discriminada", () => {
+  assert.match(adapter, /export class ErrorTecnicoMercadoPago extends ServiceError/);
+  assert.match(adapter, /readonly reintentable = true/);
+  for (const causa of ["TIMEOUT", "RED", "HTTP_429", "HTTP_5XX", "RESPUESTA_AMBIGUA"]) {
+    assert.ok(adapter.includes(`"${causa}"`), `falta causa técnica ${causa}`);
+  }
 });

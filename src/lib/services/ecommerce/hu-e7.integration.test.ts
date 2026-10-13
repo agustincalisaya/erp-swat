@@ -411,7 +411,7 @@ test(
           assert.equal(pago.status === "fulfilled" && pago.value.resultado, "CONFIRMADO");
           assert.equal(final.estado, "FACTURADO");
           assert.equal(final.is_active, true);
-          assert.equal(final.ecommerce?.estado_ecommerce, "EN_PREPARACION");
+          assert.equal(final.ecommerce?.estado_ecommerce, "PAGO_CONFIRMADO");
           assert.equal(final.ecommerce?.is_active, true);
           assert.equal(stock, 3, "las unidades quedaron vendidas");
         }

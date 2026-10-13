@@ -68,6 +68,10 @@ export interface ContraAsientoIngresoInput {
   motivo: string;
 }
 
+export type ResultadoRegistrarContraAsiento =
+  | ({ resultado: "CREADO" | "YA_EXISTENTE" } & ContraAsientoIngresoRegistradoPayload)
+  | { resultado: "INGRESO_ORIGINAL_NO_ENCONTRADO"; pedido_venta_id: string };
+
 /** Filtros del listado (`GET /api/tesoreria/ingresos-web`). Sin soft delete. */
 export interface FiltrosIngresosWeb {
   estado?: string;
@@ -178,30 +182,38 @@ export async function registrarIngresoWeb(
  * Crea UN `ContraAsientoIngreso` vinculado al `IngresoTesoreria` original
  * (resuelto por `pedido_venta_id`) para el reintegro de HU-E13.
  * `pedido_venta_id @unique` ⇒ un pedido nunca genera dos contra-asientos
- * (repetir = no-op por pre-check o por `P2002`). NUNCA edita ni elimina el
- * ingreso original (asiento inmutable).
+ * (repetir = `YA_EXISTENTE` por pre-check o por `P2002`). NUNCA edita ni elimina
+ * el ingreso original (asiento inmutable).
  */
 export async function registrarContraAsiento(
   input: ContraAsientoIngresoInput,
-): Promise<ContraAsientoIngresoRegistradoPayload | null> {
+): Promise<ResultadoRegistrarContraAsiento> {
   try {
     return await prisma.$transaction(async (tx) => {
       const existente = await tx.contraAsientoIngreso.findUnique({
         where: { pedido_venta_id: input.pedido_venta_id },
-        select: { id: true },
+        select: { id: true, ingreso_original_id: true, pedido_venta_id: true, monto: true, motivo: true },
       });
-      if (existente) return null;
+      if (existente) {
+        return {
+          resultado: "YA_EXISTENTE",
+          contra_asiento_id: existente.id,
+          ingreso_original_id: existente.ingreso_original_id,
+          pedido_venta_id: existente.pedido_venta_id,
+          monto: existente.monto.toFixed(2),
+          motivo: existente.motivo,
+        };
+      }
 
       const ingreso = await tx.ingresoTesoreria.findUnique({
         where: { pedido_venta_id: input.pedido_venta_id },
         select: { id: true },
       });
       if (!ingreso) {
-        console.error(
-          "[ingreso-tesoreria.service] registrarContraAsiento: sin IngresoTesoreria para el pedido",
-          { pedido_venta_id: input.pedido_venta_id },
-        );
-        return null;
+        return {
+          resultado: "INGRESO_ORIGINAL_NO_ENCONTRADO",
+          pedido_venta_id: input.pedido_venta_id,
+        };
       }
 
       const creado = await tx.contraAsientoIngreso.create({
@@ -215,6 +227,7 @@ export async function registrarContraAsiento(
       });
 
       return {
+        resultado: "CREADO",
         contra_asiento_id: creado.id,
         ingreso_original_id: ingreso.id,
         pedido_venta_id: input.pedido_venta_id,
@@ -223,8 +236,20 @@ export async function registrarContraAsiento(
       };
     });
   } catch (error) {
-    if (esConflictoUnicidad(error)) return null;
-    throw error;
+    if (!esConflictoUnicidad(error)) throw error;
+    const existente = await prisma.contraAsientoIngreso.findUnique({
+      where: { pedido_venta_id: input.pedido_venta_id },
+      select: { id: true, ingreso_original_id: true, pedido_venta_id: true, monto: true, motivo: true },
+    });
+    if (!existente) throw error;
+    return {
+      resultado: "YA_EXISTENTE",
+      contra_asiento_id: existente.id,
+      ingreso_original_id: existente.ingreso_original_id,
+      pedido_venta_id: existente.pedido_venta_id,
+      monto: existente.monto.toFixed(2),
+      motivo: existente.motivo,
+    };
   }
 }
 
@@ -299,10 +324,15 @@ export async function listarIngresosWeb(
  * "pendiente y reintentable" (no hay cola automática en el proyecto).
  *
  * `PedidoVentaEcommerce` NO tiene `monto` ni `fecha_aprobacion`: el monto
- * confirmado es `PedidoVenta.total` y la fecha es
- * `fecha_pago_confirmado ?? created_at`. Idempotente: repetir un pedido ya
- * registrado retorna `null` sin error. Si el pedido no está `PAGO_CONFIRMADO`
- * (o no tiene `mercadopago_payment_id`), es un no-op.
+ * confirmado es `PedidoVenta.total` y la fecha es `fecha_pago_confirmado`.
+ *
+ * "Pagado" = `fecha_pago_confirmado` y `mercadopago_payment_id` no nulos, sin
+ * mirar `estado_ecommerce` (task HU-E2-integracion §9, P-R2): HU-E2 fija la
+ * fecha en la misma transacción que confirma el pago, y HU-E12 admite el
+ * pedido a la cola en ese mismo commit, así que `PAGO_CONFIRMADO` nunca
+ * persiste — el pedido ya está en `EN_PREPARACION` o más adelante. Un pago
+ * rechazado guarda `mercadopago_payment_id` pero no la fecha: queda afuera.
+ * Idempotente: repetir un pedido ya registrado retorna `null` sin error.
  */
 export async function reprocesarIngresoWeb(
   pedidoVentaId: string,
@@ -310,17 +340,15 @@ export async function reprocesarIngresoWeb(
   const pve = await prisma.pedidoVentaEcommerce.findUnique({
     where: { pedido_venta_id: pedidoVentaId },
     select: {
-      estado_ecommerce: true,
       mercadopago_payment_id: true,
       fecha_pago_confirmado: true,
-      created_at: true,
       is_active: true,
     },
   });
   if (
     !pve ||
     !pve.is_active ||
-    pve.estado_ecommerce !== "PAGO_CONFIRMADO" ||
+    !pve.fecha_pago_confirmado ||
     !pve.mercadopago_payment_id
   ) {
     console.error(
@@ -342,11 +370,10 @@ export async function reprocesarIngresoWeb(
     return null;
   }
 
-  const fecha = pve.fecha_pago_confirmado ?? pve.created_at;
   return registrarIngresoWeb({
     pedido_venta_id: pedidoVentaId,
     mercadopago_payment_id: pve.mercadopago_payment_id,
     monto: pedido.total,
-    fecha_aprobacion: fecha.toISOString(),
+    fecha_aprobacion: pve.fecha_pago_confirmado.toISOString(),
   });
 }

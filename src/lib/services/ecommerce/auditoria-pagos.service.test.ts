@@ -239,7 +239,8 @@ test("payload del evento: exactamente 5 campos, sin datos sensibles", () => {
   assert.match(iface, /transaccion_id: string;/);
   assert.match(iface, /pedido_venta_id: string;/);
   assert.match(iface, /monto: number;/);
-  assert.match(iface, /estado_pago: "APROBADO" \| "RECHAZADO" \| "PENDIENTE";/);
+  // P-R4 (acordado con Rama el 2026-10-08): + "ANOMALIA" para los pagos no aplicados.
+  assert.match(iface, /estado_pago: "APROBADO" \| "RECHAZADO" \| "PENDIENTE" \| "ANOMALIA";/);
   assert.match(iface, /mercadopago_payment_id: string;/);
   assert.doesNotMatch(iface, /datos_facturacion|dni|email|telefono|tarjeta|card/i);
 });

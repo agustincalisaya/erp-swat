@@ -8,6 +8,9 @@
  * la fuente de verdad para estado, progreso e idempotencia.
  */
 
+// Ruta relativa con extensión: módulo puro también importado por tests de Node (patrón de `evaluacion.calculo.ts`).
+import { formatearFechaHoraNegocio } from "../../lib/utils/fecha-negocio.ts";
+
 // ──────────────────────────────────────────────────────────────────────────────
 // Tipos JSON (espejo de los DTOs del servicio — las fechas viajan serializadas)
 // ──────────────────────────────────────────────────────────────────────────────
@@ -308,10 +311,11 @@ export function formatearFechaPagoConfirmado(iso: string | null): string {
   if (!iso) return TEXTO_FECHA_PAGO_LEGACY;
   const fecha = new Date(iso);
   if (Number.isNaN(fecha.getTime())) return TEXTO_FECHA_PAGO_LEGACY;
-  return fecha.toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" });
+  return formatearFechaHoraNegocio(fecha);
 }
 
 const ETIQUETAS_ESTADO: Record<string, string> = {
+  PAGO_CONFIRMADO: "Pendiente de toma",
   EN_PREPARACION: "En preparación",
   LISTO_PARA_RETIRO: "Listo para retiro",
 };
@@ -324,7 +328,7 @@ export function formatearPlazoRetiro(iso: string | null): string | null {
   if (!iso) return null;
   const fecha = new Date(iso);
   if (Number.isNaN(fecha.getTime())) return null;
-  return fecha.toLocaleString("es-AR", { dateStyle: "full", timeStyle: "short" });
+  return formatearFechaHoraNegocio(fecha);
 }
 
 /** Cantidad pendiente de una línea — nunca negativa. */

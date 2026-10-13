@@ -37,7 +37,8 @@ async function esperarListenerAuditoria(): Promise<void> {
 }
 
 async function pasada(): Promise<void> {
-  const { reservas, cupones, carritos } = await ejecutarMantenimientoProgramado(new Date());
+  const { reservas, cupones, carritos, recordatorios_hu_e13, vencimientos_hu_e13, retries_hu_e13 } =
+    await ejecutarMantenimientoProgramado(new Date());
   const ahora = new Date().toISOString();
   if (reservas.ok) {
     const resultado = reservas.valor;
@@ -61,8 +62,17 @@ async function pasada(): Promise<void> {
       `[job:reservas] ${ahora} — carritos abandonados: ${carritos.valor.total_desactivados} carrito(s) dado(s) de baja.`,
     );
   }
+  if (recordatorios_hu_e13.ok && vencimientos_hu_e13.ok && retries_hu_e13.ok) {
+    console.log(
+      `[job:reservas] ${ahora} — HU-E13: ${recordatorios_hu_e13.valor.recordatorios_emitidos} recordatorio(s), ` +
+        `${vencimientos_hu_e13.valor.vencidos} vencido(s), ${retries_hu_e13.valor.refunds_reintentados} refund(s) reintentado(s), ` +
+        `${recordatorios_hu_e13.valor.errores.length + vencimientos_hu_e13.valor.errores.length + retries_hu_e13.valor.errores.length} error(es).`,
+    );
+  }
   // Los errores ya los logueó `ejecutarMantenimientoProgramado()`.
-  if (!reservas.ok || !cupones.ok || !carritos.ok) process.exitCode = 1;
+  if (!reservas.ok || !cupones.ok || !carritos.ok || !recordatorios_hu_e13.ok || !vencimientos_hu_e13.ok || !retries_hu_e13.ok) {
+    process.exitCode = 1;
+  }
 }
 
 async function main(): Promise<void> {
