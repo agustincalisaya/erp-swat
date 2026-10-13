@@ -63,7 +63,7 @@ export function LineaPreparacionVista({ linea }: { linea: LineaPreparacionJson }
     <li
       className={cn(
         "flex items-center justify-between gap-3 rounded-lg border px-3 py-2",
-        linea.completa ? "border-emerald-200 bg-emerald-50/50" : "border-border",
+        linea.completa ? "border-success-foreground bg-success/50" : "border-border",
       )}
     >
       <div className="min-w-0">
@@ -76,7 +76,7 @@ export function LineaPreparacionVista({ linea }: { linea: LineaPreparacionJson }
           <span className="text-muted-foreground">/{linea.cantidad_requerida}</span>
         </span>
         {linea.completa ? (
-          <Badge variant="secondary" className="bg-emerald-100 text-emerald-800">
+          <Badge variant="secondary" className="bg-success text-success-foreground">
             <CheckCircle2 className="size-3" aria-hidden="true" />
             Completa
           </Badge>
@@ -100,7 +100,7 @@ export function BotonCompletar({
 }) {
   return (
     <Button
-      className="w-full bg-emerald-600 text-white hover:bg-emerald-700"
+      className="w-full bg-success-foreground text-success hover:bg-success-foreground"
       size="lg"
       disabled={!completo || enviando}
       onClick={onCompletar}
@@ -230,7 +230,7 @@ export function PreparacionPedidoPanel({
     return (
       <Card>
         <CardContent className="flex flex-col items-center gap-3 py-10 text-center">
-          <PartyPopper className="size-10 text-emerald-500" aria-hidden="true" />
+          <PartyPopper className="size-10 text-success-foreground" aria-hidden="true" />
           <CardTitle>Pedido {formatearEstadoEcommerce(resultado.estado_ecommerce)}</CardTitle>
           <CardDescription>
             El pedido <span className="font-mono">{pedido.numero_venta}</span> quedó listo
@@ -335,7 +335,7 @@ export function PreparacionPedidoPanel({
               </p>
             )}
             {ultimoScan && !errorScan && (
-              <Alert className="border-emerald-200 bg-emerald-50 text-emerald-900">
+              <Alert className="border-success-foreground bg-success text-success-foreground">
                 <CheckCircle2 className="size-4" aria-hidden="true" />
                 <AlertDescription>{ultimoScan}</AlertDescription>
               </Alert>

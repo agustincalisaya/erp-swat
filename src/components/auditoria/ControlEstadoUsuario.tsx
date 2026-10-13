@@ -36,19 +36,19 @@ const OPCIONES: {
     estado: "ACTIVO",
     label: "Activo",
     icon: ShieldCheck,
-    activeClass: "bg-green-100 text-green-700 border-green-200 hover:bg-green-100",
+    activeClass: "bg-success text-success-foreground border-success-foreground hover:bg-success",
   },
   {
     estado: "SUSPENDIDO",
     label: "Suspender",
     icon: ShieldAlert,
-    activeClass: "bg-amber-100 text-amber-700 border-amber-200 hover:bg-amber-100",
+    activeClass: "bg-warning text-warning-foreground border-warning-foreground hover:bg-warning",
   },
   {
     estado: "BLOQUEADO",
     label: "Bloquear",
     icon: ShieldX,
-    activeClass: "bg-red-100 text-red-700 border-red-200 hover:bg-red-100",
+    activeClass: "bg-danger-soft text-destructive border-destructive hover:bg-danger-soft",
   },
 ];
 

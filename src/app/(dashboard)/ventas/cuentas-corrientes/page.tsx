@@ -49,14 +49,14 @@ export default async function CuentasCorrientesPage() {
   const cuentas = await listarCuentasCorrientes();
 
   return (
-    <main className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
+    <main className="min-h-screen bg-background p-4 sm:p-6 lg:p-8">
       <div className="max-w-5xl mx-auto space-y-5">
         <div className="flex items-center gap-3">
-          <div className="p-2 rounded-xl bg-blue-100 text-blue-600 shrink-0">
+          <div className="p-2 rounded-xl bg-selected text-selected-foreground shrink-0">
             <Wallet className="size-5" aria-hidden="true" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-gray-900 tracking-tight">Cuentas corrientes</h1>
+            <h1 className="text-xl font-bold text-foreground tracking-tight">Cuentas corrientes</h1>
             <p className="text-sm text-muted-foreground">
               Límite de crédito, saldo y operaciones retenidas por cliente.
             </p>
@@ -66,7 +66,7 @@ export default async function CuentasCorrientesPage() {
         <Card>
           <CardHeader className="border-b border-border">
             <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-              <Wallet className="size-4 text-blue-500" aria-hidden="true" />
+              <Wallet className="size-4 text-primary" aria-hidden="true" />
               Clientes con cuenta corriente ({cuentas.length})
             </CardTitle>
             <CardDescription>
@@ -111,13 +111,13 @@ export default async function CuentasCorrientesPage() {
                         </td>
                         <td className="py-3 text-right tabular-nums">{money.format(c.saldo_actual)}</td>
                         <td
-                          className={`py-3 text-right tabular-nums ${c.disponible < 0 ? "text-red-600 font-semibold" : ""}`}
+                          className={`py-3 text-right tabular-nums ${c.disponible < 0 ? "text-destructive font-semibold" : ""}`}
                         >
                           {money.format(c.disponible)}
                         </td>
                         <td className="px-3 py-3">
                           {c.operaciones_retenidas > 0 ? (
-                            <Badge className="bg-amber-100 text-amber-700 border border-amber-200 font-medium">
+                            <Badge className="bg-warning text-warning-foreground border border-warning-foreground font-medium">
                               {c.operaciones_retenidas} pendiente{c.operaciones_retenidas === 1 ? "" : "s"}
                             </Badge>
                           ) : (
@@ -127,7 +127,7 @@ export default async function CuentasCorrientesPage() {
                         <td className="py-3 text-right">
                           <Link
                             href={`/ventas/cuentas-corrientes/${c.cliente_id}`}
-                            className="inline-flex items-center gap-1 text-sm text-blue-600 hover:underline"
+                            className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
                           >
                             Ver cuenta
                             <ChevronRight className="size-4" aria-hidden="true" />

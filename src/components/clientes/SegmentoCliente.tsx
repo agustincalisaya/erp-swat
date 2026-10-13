@@ -83,7 +83,7 @@ export function SegmentoCliente({
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-          <Tags className="size-4 text-blue-500" aria-hidden="true" />
+          <Tags className="size-4 text-primary" aria-hidden="true" />
           Segmento comercial
         </CardTitle>
         <CardDescription>
@@ -142,7 +142,7 @@ function SegmentoForm({
         {/* Estado visible del valor guardado: precargado desde el RSC. */}
         <p className="text-sm text-muted-foreground">
           Valor actual:{" "}
-          <span className="font-medium text-gray-900">
+          <span className="font-medium text-foreground">
             {ETIQUETA_SEGMENTO[segmento]}
           </span>
         </p>
@@ -167,11 +167,11 @@ function SegmentoForm({
           )}
         />
 
-        <div className="flex justify-end pt-2 border-t border-slate-100">
+        <div className="flex justify-end pt-2 border-t border-border">
           <Button
             type="submit"
             disabled={form.formState.isSubmitting}
-            className="bg-blue-600 hover:bg-blue-700 text-white gap-2"
+            className="bg-primary hover:bg-primary-hover text-primary-foreground gap-2"
           >
             {form.formState.isSubmitting ? (
               <>

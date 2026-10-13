@@ -215,7 +215,7 @@ export function EditorItemsOrdenCompra({
       )}
 
       <div className="flex items-center justify-between">
-        <Label className="text-xs font-semibold uppercase tracking-wide text-gray-700">
+        <Label className="text-xs font-semibold uppercase tracking-wide text-foreground">
           Editar ítems (orden en borrador)
         </Label>
         <Button
@@ -323,7 +323,7 @@ export function EditorItemsOrdenCompra({
           type="button"
           onClick={guardar}
           disabled={!dirty || isPending}
-          className="gap-2 bg-blue-600 hover:bg-blue-700 text-white"
+          className="gap-2 bg-primary hover:bg-primary-hover text-primary-foreground"
         >
           {isPending ? (
             <>

@@ -13,23 +13,23 @@ type EstadoPedidoVenta = "RESERVADO" | "FACTURADO" | "REMITO_EMITIDO" | "CERRADO
 const ESTADO_CONFIG: Record<EstadoPedidoVenta, { label: string; className: string }> = {
   RESERVADO: {
     label: "Reservado",
-    className: "bg-blue-100 text-blue-700 border border-blue-200",
+    className: "bg-info text-info-foreground border border-info-foreground",
   },
   FACTURADO: {
     label: "Facturado",
-    className: "bg-indigo-100 text-indigo-700 border border-indigo-200",
+    className: "bg-info text-info-foreground border border-info-foreground",
   },
   REMITO_EMITIDO: {
     label: "Remito emitido",
-    className: "bg-amber-100 text-amber-700 border border-amber-200",
+    className: "bg-warning text-warning-foreground border border-warning-foreground",
   },
   CERRADO: {
     label: "Cerrado",
-    className: "bg-emerald-100 text-emerald-800 border border-emerald-200",
+    className: "bg-success text-success-foreground border border-success-foreground",
   },
   ANULADO: {
     label: "Anulado",
-    className: "bg-red-100 text-red-700 border border-red-200",
+    className: "bg-danger-soft text-destructive border border-destructive",
   },
 };
 
@@ -37,7 +37,7 @@ export function EstadoPedidoVentaBadge({ estado }: { estado: string }) {
   const config =
     ESTADO_CONFIG[estado as EstadoPedidoVenta] ?? {
       label: estado,
-      className: "bg-gray-100 text-gray-700 border border-gray-200",
+      className: "bg-muted text-foreground border border-border",
     };
 
   return <Badge className={`${config.className} font-medium`}>{config.label}</Badge>;

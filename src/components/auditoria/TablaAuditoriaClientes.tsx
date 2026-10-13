@@ -30,7 +30,7 @@ export function TablaAuditoriaClientes({ resultado, queryBase }: { resultado: Li
                 <div className="font-mono text-muted-foreground">{registro.usuario_id ?? "sistema"}</div>
               </TableCell>
               <TableCell className="text-xs">
-                {registro.cliente_id ? <Link className="text-blue-600 hover:underline" href={`/clientes/${registro.cliente_id}`}>
+                {registro.cliente_id ? <Link className="text-primary hover:underline" href={`/clientes/${registro.cliente_id}`}>
                   {registro.cliente_nombre_actual ?? registro.cliente_id}
                 </Link> : "—"}
                 {registro.cliente_nombre_actual && <div className="text-muted-foreground">Nombre y DNI actuales: {registro.cliente_dni_actual}</div>}
@@ -39,7 +39,7 @@ export function TablaAuditoriaClientes({ resultado, queryBase }: { resultado: Li
               <TableCell className="text-xs whitespace-nowrap">{ETIQUETA_OPERACION[registro.accion]}</TableCell>
               {puede_ver_cambios && <TableCell className="text-xs">
                 {registro.valor_anterior != null || registro.valor_nuevo != null ? <details>
-                  <summary className="cursor-pointer text-blue-600">Ver valores</summary>
+                  <summary className="cursor-pointer text-primary">Ver valores</summary>
                   <pre className="mt-1 max-w-sm overflow-x-auto rounded bg-muted/50 p-2 text-[10px]">
                     {JSON.stringify({ anterior: registro.valor_anterior, nuevo: registro.valor_nuevo }, null, 2)}
                   </pre>

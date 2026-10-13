@@ -75,7 +75,7 @@ export default async function DetallePresupuestoPage({
     puedeEmitir && presupuesto.estado === "EMITIDO" && !presupuesto.pedido_venta;
 
   return (
-    <main className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
+    <main className="min-h-screen bg-background p-4 sm:p-6 lg:p-8">
       <div className="max-w-4xl mx-auto space-y-5">
         <Link
           href="/ventas/presupuestos"
@@ -89,7 +89,7 @@ export default async function DetallePresupuestoPage({
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
           <div className="space-y-1">
             <div className="flex items-center gap-3">
-              <h1 className="text-xl font-bold text-gray-900 tracking-tight">
+              <h1 className="text-xl font-bold text-foreground tracking-tight">
                 {presupuesto.cliente_nombre}
               </h1>
               <EstadoPresupuestoBadge estado={presupuesto.estado} />
@@ -132,7 +132,7 @@ export default async function DetallePresupuestoPage({
               Convertido al pedido de venta{" "}
               <Link
                 href={`/ventas/pedidos/${presupuesto.pedido_venta.id}`}
-                className="font-mono font-semibold underline underline-offset-2 hover:text-blue-700"
+                className="font-mono font-semibold underline underline-offset-2 hover:text-primary"
               >
                 {presupuesto.pedido_venta.numero_venta}
               </Link>
@@ -148,7 +148,7 @@ export default async function DetallePresupuestoPage({
               <CardTitle className="text-sm font-semibold">Condiciones comerciales</CardTitle>
             </CardHeader>
             <CardContent className="pt-5">
-              <p className="text-sm whitespace-pre-wrap text-gray-700">
+              <p className="text-sm whitespace-pre-wrap text-foreground">
                 {presupuesto.condiciones_comerciales}
               </p>
             </CardContent>
@@ -159,7 +159,7 @@ export default async function DetallePresupuestoPage({
         <Card>
           <CardHeader className="border-b border-border">
             <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-              <FileText className="size-4 text-blue-500" aria-hidden="true" />
+              <FileText className="size-4 text-primary" aria-hidden="true" />
               Ítems ({presupuesto.items.length})
             </CardTitle>
             <CardDescription>

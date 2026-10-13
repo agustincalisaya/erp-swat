@@ -89,7 +89,7 @@ export function DialogAnularComprobante({
         type="button"
         variant="outline"
         size="sm"
-        className="gap-1.5 text-red-700 border-red-200 bg-red-50 hover:bg-red-100"
+        className="gap-1.5 text-destructive border-destructive bg-danger-soft hover:bg-danger-soft"
         onClick={() => setOpen(true)}
       >
         <Ban className="size-3.5" aria-hidden="true" />
@@ -119,7 +119,7 @@ export function DialogAnularComprobante({
         <div className="space-y-1.5">
           <label
             htmlFor={`motivo-anulacion-${comprobanteId}`}
-            className="text-xs font-semibold uppercase tracking-wide text-gray-700"
+            className="text-xs font-semibold uppercase tracking-wide text-foreground"
           >
             Motivo de la anulación
           </label>

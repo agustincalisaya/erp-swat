@@ -153,7 +153,7 @@ export default async function AuditoriaInventarioPage({
     // Defensa en profundidad: el middleware ya valida el JWT, pero una sesión
     // recién revocada puede llegar hasta acá antes de que expire criptográficamente.
     return (
-      <main className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
+      <main className="min-h-screen bg-background p-4 sm:p-6 lg:p-8">
         <div className="max-w-7xl mx-auto">
           <Alert variant="destructive">
             <AlertTriangle className="size-4" aria-hidden="true" />
@@ -172,7 +172,7 @@ export default async function AuditoriaInventarioPage({
   );
   if (!autorizado) {
     return (
-      <main className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
+      <main className="min-h-screen bg-background p-4 sm:p-6 lg:p-8">
         <div className="max-w-7xl mx-auto">
           <Alert variant="destructive">
             <AlertTriangle className="size-4" aria-hidden="true" />
@@ -189,16 +189,16 @@ export default async function AuditoriaInventarioPage({
   const params = await searchParams;
 
   return (
-    <main className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
+    <main className="min-h-screen bg-background p-4 sm:p-6 lg:p-8">
       <div className="max-w-7xl mx-auto space-y-5">
         {/* ── Header ──────────────────────────────────────────────────────── */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-indigo-100 text-indigo-600 shrink-0">
+            <div className="p-2 rounded-xl bg-selected text-selected-foreground shrink-0">
               <FileSearch className="size-5" aria-hidden="true" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-gray-900 tracking-tight">
+              <h1 className="text-xl font-bold text-foreground tracking-tight">
                 Auditoría Forense — Inventario
               </h1>
               <p className="text-sm text-muted-foreground">
@@ -209,23 +209,23 @@ export default async function AuditoriaInventarioPage({
         </div>
 
         {/* ── Banner de seguridad ──────────────────────────────────────────── */}
-        <div className="flex flex-col sm:flex-row sm:items-center gap-4 p-4 rounded-2xl bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-md">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-4 p-4 rounded-2xl bg-primary text-primary-foreground-foreground shadow-md">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-white/20 rounded-xl shrink-0">
+            <div className="p-2 bg-primary-foreground/20 rounded-xl shrink-0">
               <Lock className="size-5" aria-hidden="true" />
             </div>
             <div>
               <p className="text-sm font-bold">
                 Vista de solo lectura — Auditor
               </p>
-              <p className="text-xs text-indigo-100 mt-0.5">
+              <p className="text-xs text-primary-foreground mt-0.5">
                 Toda alta, actualización o baja lógica sobre inventario queda
                 registrada en un ledger encadenado por SHA-256, verificable en
                 cualquier momento.
               </p>
             </div>
           </div>
-          <div className="sm:ml-auto shrink-0 flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/15 text-xs font-semibold">
+          <div className="sm:ml-auto shrink-0 flex items-center gap-2 px-3 py-1.5 rounded-xl bg-primary-foreground/15 text-xs font-semibold">
             <ShieldCheck className="size-4" aria-hidden="true" />
             Ledger SHA-256 activo
           </div>
@@ -236,7 +236,7 @@ export default async function AuditoriaInventarioPage({
           <CardHeader className="border-b border-border">
             <CardTitle className="flex items-center gap-2 text-sm font-semibold">
               <FileSearch
-                className="size-4 text-indigo-500"
+                className="size-4 text-primary"
                 aria-hidden="true"
               />
               Log de eventos — Inventario
@@ -257,7 +257,7 @@ export default async function AuditoriaInventarioPage({
             <Suspense
               fallback={
                 <div className="flex items-center justify-center gap-3 py-12 text-sm text-muted-foreground">
-                  <span className="size-4 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
+                  <span className="size-4 border-2 border-ring border-t-transparent rounded-full animate-spin" />
                   Cargando historial forense…
                 </div>
               }

@@ -294,8 +294,8 @@ export function PasoIngreso({ depositoDestinoId, depositoDestinoNombre, variante
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2 rounded-lg border border-blue-100 bg-blue-50/50 px-3 py-2 text-sm text-blue-900">
-        <Building2 className="size-4 text-blue-600" aria-hidden="true" />
+      <div className="flex items-center gap-2 rounded-lg border border-info-foreground bg-info/50 px-3 py-2 text-sm text-info-foreground">
+        <Building2 className="size-4 text-info-foreground" aria-hidden="true" />
         Depósito destino: <span className="font-semibold">{depositoDestinoNombre}</span>
       </div>
 
@@ -303,7 +303,7 @@ export function PasoIngreso({ depositoDestinoId, depositoDestinoNombre, variante
         <Card className="overflow-hidden">
           <CardHeader className="border-b border-border">
             <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-              <ScanBarcode className="size-4 text-blue-600" aria-hidden="true" />
+              <ScanBarcode className="size-4 text-primary" aria-hidden="true" />
               Escaneo de mercadería
             </CardTitle>
             <CardDescription>
@@ -325,7 +325,7 @@ export function PasoIngreso({ depositoDestinoId, depositoDestinoNombre, variante
                   placeholder="O ingresá el código manualmente"
                   aria-label="Código manual de la variante"
                   disabled={estado !== "escaneando"}
-                  className="pl-8 focus-visible:border-blue-500 focus-visible:ring-blue-500/30"
+                  className="pl-8 focus-visible:border-ring focus-visible:ring-ring"
                 />
               </div>
               <Button
@@ -355,7 +355,7 @@ export function PasoIngreso({ depositoDestinoId, depositoDestinoNombre, variante
             />
 
             {estado === "resolviendo" && (
-              <div className="flex items-center justify-center gap-2 rounded-lg bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700">
+              <div className="flex items-center justify-center gap-2 rounded-lg bg-selected px-3 py-2 text-sm font-medium text-selected-foreground">
                 <Loader2 className="size-4 animate-spin" aria-hidden="true" />
                 Resolviendo código…
               </div>
@@ -370,29 +370,29 @@ export function PasoIngreso({ depositoDestinoId, depositoDestinoNombre, variante
 
             {resuelto && (
               <Form {...form}>
-                <form onSubmit={form.handleSubmit(agregarAlCarrito)} className="space-y-4 rounded-xl border border-blue-100 bg-blue-50/50 p-3">
+                <form onSubmit={form.handleSubmit(agregarAlCarrito)} className="space-y-4 rounded-xl border border-border bg-selected/50 p-3">
                   <div className="space-y-2">
                     <div className="flex items-center justify-between gap-2">
-                      <p className="text-sm font-bold text-blue-950">{resuelto.producto_nombre}</p>
+                      <p className="text-sm font-bold text-foreground">{resuelto.producto_nombre}</p>
                       {esSerializado ? (
-                        <Badge className="gap-1 bg-blue-600 text-white">
+                        <Badge className="gap-1 bg-primary text-primary-foreground">
                           <BadgeCheck className="size-3" aria-hidden="true" />
                           Serializado
                         </Badge>
                       ) : (
-                        <Badge variant="outline" className="border-blue-200 text-blue-700">
+                        <Badge variant="outline" className="border-border text-primary">
                           Estándar
                         </Badge>
                       )}
                     </div>
                     <div className="flex flex-wrap gap-1.5 text-xs">
-                      <span className="rounded-md bg-white px-2 py-0.5 font-mono text-blue-700 ring-1 ring-blue-200">
+                      <span className="rounded-md bg-card px-2 py-0.5 font-mono text-primary ring-1 ring-ring">
                         {resuelto.sku}
                       </span>
-                      <span className="rounded-md bg-white px-2 py-0.5 text-blue-700 ring-1 ring-blue-200">
+                      <span className="rounded-md bg-card px-2 py-0.5 text-primary ring-1 ring-ring">
                         Talle {resuelto.talle}
                       </span>
-                      <span className="rounded-md bg-white px-2 py-0.5 text-blue-700 ring-1 ring-blue-200">
+                      <span className="rounded-md bg-card px-2 py-0.5 text-primary ring-1 ring-ring">
                         {resuelto.color}
                       </span>
                     </div>
@@ -404,7 +404,7 @@ export function PasoIngreso({ depositoDestinoId, depositoDestinoNombre, variante
                       name="cantidad"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel className="flex items-center gap-1.5 text-xs font-semibold tracking-wide text-gray-700 uppercase">
+                          <FormLabel className="flex items-center gap-1.5 text-xs font-semibold tracking-wide text-foreground uppercase">
                             <Hash className="size-3.5" aria-hidden="true" />
                             Cantidad
                           </FormLabel>
@@ -414,7 +414,7 @@ export function PasoIngreso({ depositoDestinoId, depositoDestinoNombre, variante
                               type="number"
                               min={1}
                               disabled={esSerializado}
-                              className="focus-visible:border-blue-500 focus-visible:ring-blue-500/30"
+                              className="focus-visible:border-ring focus-visible:ring-ring"
                               onChange={(e) => field.onChange(e.target.value)}
                             />
                           </FormControl>
@@ -428,7 +428,7 @@ export function PasoIngreso({ depositoDestinoId, depositoDestinoNombre, variante
                       name="estado_destino"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel className="text-xs font-semibold tracking-wide text-gray-700 uppercase">
+                          <FormLabel className="text-xs font-semibold tracking-wide text-foreground uppercase">
                             Estado
                           </FormLabel>
                           <FormControl>
@@ -456,12 +456,12 @@ export function PasoIngreso({ depositoDestinoId, depositoDestinoNombre, variante
                   <div className="flex gap-2">
                     <Button
                       type="button"
-                      className="flex-1 bg-red-500 text-white hover:bg-red-600"
+                      className="flex-1 bg-destructive text-destructive-foreground hover:bg-destructive"
                       onClick={cancelarConfirmacion}
                     >
                       Cancelar
                     </Button>
-                    <Button type="submit" className="flex-1 gap-2 bg-blue-600 text-white hover:bg-blue-700">
+                    <Button type="submit" className="flex-1 gap-2 bg-primary text-primary-foreground hover:bg-primary-hover">
                       <ShoppingCart className="size-4" aria-hidden="true" />
                       Agregar al carrito
                     </Button>
@@ -475,10 +475,10 @@ export function PasoIngreso({ depositoDestinoId, depositoDestinoNombre, variante
         <Card>
           <CardHeader className="border-b border-border">
             <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-              <ShoppingCart className="size-4 text-blue-600" aria-hidden="true" />
+              <ShoppingCart className="size-4 text-primary" aria-hidden="true" />
               Carrito de ingreso
               {carrito.length > 0 && (
-                <Badge className="bg-blue-600 text-white">{carrito.length}</Badge>
+                <Badge className="bg-primary text-primary-foreground">{carrito.length}</Badge>
               )}
             </CardTitle>
             <CardDescription>
@@ -489,7 +489,7 @@ export function PasoIngreso({ depositoDestinoId, depositoDestinoNombre, variante
           <CardContent className="space-y-4 pt-5">
             {carrito.length === 0 ? (
               <div className="flex flex-col items-center justify-center gap-2 py-10 text-center text-sm text-muted-foreground">
-                <PackageSearch className="size-8 text-blue-200" aria-hidden="true" />
+                <PackageSearch className="size-8 text-primary" aria-hidden="true" />
                 Sin ítems en el carrito todavía.
               </div>
             ) : (
@@ -499,11 +499,11 @@ export function PasoIngreso({ depositoDestinoId, depositoDestinoNombre, variante
                   return (
                     <li
                       key={item.key}
-                      className="flex flex-wrap items-center gap-2 rounded-lg border border-blue-100 bg-blue-50/50 px-3 py-2 text-sm"
+                      className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-selected/50 px-3 py-2 text-sm"
                     >
                       <div className="min-w-0 flex-1">
-                        <p className="truncate font-semibold text-blue-950">{item.producto_nombre}</p>
-                        <p className="truncate text-xs text-blue-700">
+                        <p className="truncate font-semibold text-foreground">{item.producto_nombre}</p>
+                        <p className="truncate text-xs text-primary">
                           {item.sku} · Talle {item.talle} · {item.color}
                         </p>
                       </div>
@@ -530,7 +530,7 @@ export function PasoIngreso({ depositoDestinoId, depositoDestinoNombre, variante
                       </select>
                       <Badge
                         variant="outline"
-                        className={impacto === "SUMA" ? "shrink-0 border-blue-300 text-blue-700" : "shrink-0 border-amber-300 text-amber-700"}
+                        className={impacto === "SUMA" ? "shrink-0 border-border text-primary" : "shrink-0 border-warning-foreground text-warning-foreground"}
                       >
                         {impacto === "SUMA" ? "+" : "−"}{item.cantidad}
                       </Badge>
@@ -538,7 +538,7 @@ export function PasoIngreso({ depositoDestinoId, depositoDestinoNombre, variante
                         type="button"
                         variant="ghost"
                         size="icon-sm"
-                        className="shrink-0 text-red-500 hover:bg-red-50 hover:text-red-600"
+                        className="shrink-0 text-destructive hover:bg-danger-soft hover:text-destructive"
                         onClick={() => quitarDelCarrito(item.key)}
                         aria-label={`Quitar ${item.producto_nombre} del carrito`}
                       >
@@ -558,7 +558,7 @@ export function PasoIngreso({ depositoDestinoId, depositoDestinoNombre, variante
             )}
 
             <div className="space-y-2">
-              <Label htmlFor="ingreso-comprobante" className="flex items-center gap-1.5 text-xs font-semibold tracking-wide text-gray-700 uppercase">
+              <Label htmlFor="ingreso-comprobante" className="flex items-center gap-1.5 text-xs font-semibold tracking-wide text-foreground uppercase">
                 <FileText className="size-3.5" aria-hidden="true" />
                 Comprobante / remito
               </Label>
@@ -570,14 +570,14 @@ export function PasoIngreso({ depositoDestinoId, depositoDestinoNombre, variante
                 autoComplete="off"
                 maxLength={100}
                 disabled={estado === "registrando"}
-                className="focus-visible:border-blue-500 focus-visible:ring-blue-500/30"
+                className="focus-visible:border-ring focus-visible:ring-ring"
               />
             </div>
 
             <div className="flex gap-2">
               <Button
                 type="button"
-                className="flex-1 bg-red-500 text-white hover:bg-red-600"
+                className="flex-1 bg-destructive text-destructive-foreground hover:bg-destructive"
                 onClick={vaciarCarrito}
                 disabled={carrito.length === 0 || estado === "registrando"}
               >
@@ -585,7 +585,7 @@ export function PasoIngreso({ depositoDestinoId, depositoDestinoNombre, variante
               </Button>
               <Button
                 type="button"
-                className="flex-1 gap-2 bg-blue-600 text-white hover:bg-blue-700"
+                className="flex-1 gap-2 bg-primary text-primary-foreground hover:bg-primary-hover"
                 onClick={confirmarCarrito}
                 disabled={carrito.length === 0 || estado === "registrando"}
               >

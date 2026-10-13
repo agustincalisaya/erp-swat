@@ -127,7 +127,7 @@ export default async function CheckoutPendienteTiendaPage({
           <a href={checkoutUrl} className={buttonVariants({ className: "w-full" })}>
             Pagar con Mercado Pago
           </a>
-          <p className="text-xs text-slate-600">
+          <p className="text-xs text-muted-foreground">
             Vas a pagar en el sitio de Mercado Pago. Tus datos de tarjeta nunca pasan por SWAT Indumentarias.
           </p>
         </>

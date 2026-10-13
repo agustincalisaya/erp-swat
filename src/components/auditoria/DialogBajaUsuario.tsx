@@ -105,7 +105,7 @@ export function DialogBajaUsuario({
         <div className="space-y-1.5">
           <label
             htmlFor={`motivo-baja-${usuarioId}`}
-            className="text-xs font-semibold uppercase tracking-wide text-gray-700"
+            className="text-xs font-semibold uppercase tracking-wide text-foreground"
           >
             Motivo de la baja
           </label>

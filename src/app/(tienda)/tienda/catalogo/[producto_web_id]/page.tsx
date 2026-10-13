@@ -28,7 +28,7 @@ export default async function DetalleProductoTiendaPage({
 
   return (
     <div className="space-y-4">
-      <Link href="/tienda/catalogo" className="text-sm text-slate-600 hover:underline">
+      <Link href="/tienda/catalogo" className="text-sm text-muted-foreground hover:underline">
         ← Volver al catálogo
       </Link>
       <div className="grid gap-6 md:grid-cols-2">
@@ -47,10 +47,10 @@ export default async function DetalleProductoTiendaPage({
         </div>
         <div className="space-y-4">
           <div>
-            <p className="text-xs uppercase text-slate-500">{producto.categoria}</p>
+            <p className="text-xs uppercase text-muted-foreground">{producto.categoria}</p>
             <h1 className="text-2xl font-semibold">{producto.titulo}</h1>
           </div>
-          <p className="text-sm text-slate-700">{producto.descripcion}</p>
+          <p className="text-sm text-foreground">{producto.descripcion}</p>
           <SelectorVarianteWeb
             variantes={producto.variantes.map((v) => ({
               variante_sku_id: v.variante_sku_id,

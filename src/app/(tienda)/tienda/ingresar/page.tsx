@@ -20,7 +20,7 @@ export default async function IngresarTiendaPage({
   return (
     <div className="mx-auto max-w-sm space-y-4">
       <h1 className="text-2xl font-semibold">Ingresar</h1>
-      <p className="text-sm text-slate-600">Ingresá con tu cuenta de la tienda para completar tu compra.</p>
+      <p className="text-sm text-muted-foreground">Ingresá con tu cuenta de la tienda para completar tu compra.</p>
       <FormularioIngresoTienda destino={destino} />
       <div className="flex justify-between text-sm"><Link href="/tienda/registrarse">Crear cuenta</Link><Link href="/tienda/recuperar">Recuperar acceso</Link></div>
     </div>

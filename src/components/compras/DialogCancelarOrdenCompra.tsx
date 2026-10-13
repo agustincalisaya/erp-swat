@@ -104,7 +104,7 @@ export function DialogCancelarOrdenCompra({
         <div className="space-y-1.5">
           <label
             htmlFor={`motivo-cancelacion-${ordenCompraId}`}
-            className="text-xs font-semibold uppercase tracking-wide text-gray-700"
+            className="text-xs font-semibold uppercase tracking-wide text-foreground"
           >
             Motivo de la cancelación
           </label>

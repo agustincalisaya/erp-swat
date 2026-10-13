@@ -212,7 +212,7 @@ export function TablaOrdenesCompra({
                         <EstadoOrdenCompraBadge estado={orden.estado} />
                         {orden.entrega_vencida && (
                           <span
-                            className="inline-flex items-center gap-1 rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[10px] font-semibold text-red-700"
+                            className="inline-flex items-center gap-1 rounded-full border border-destructive bg-danger-soft px-2 py-0.5 text-[10px] font-semibold text-destructive"
                             title="La fecha de entrega comprometida venció y la orden todavía no se recibió por completo"
                           >
                             <AlertTriangle className="size-3" aria-hidden="true" />

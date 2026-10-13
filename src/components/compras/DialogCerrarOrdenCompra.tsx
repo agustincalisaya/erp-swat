@@ -82,7 +82,7 @@ export function DialogCerrarOrdenCompra({
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle className="flex items-center gap-2">
-            <Archive className="size-4 text-emerald-600" aria-hidden="true" />
+            <Archive className="size-4 text-success-foreground" aria-hidden="true" />
             Cerrar la orden {numeroOrden}
           </AlertDialogTitle>
           <AlertDialogDescription>

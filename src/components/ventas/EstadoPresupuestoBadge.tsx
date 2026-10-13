@@ -17,15 +17,15 @@ type EstadoPresupuesto = "BORRADOR" | "EMITIDO" | "VENCIDO";
 const ESTADO_CONFIG: Record<EstadoPresupuesto, { label: string; className: string }> = {
   BORRADOR: {
     label: "Borrador",
-    className: "bg-gray-100 text-gray-700 border border-gray-200",
+    className: "bg-muted text-foreground border border-border",
   },
   EMITIDO: {
     label: "Emitido",
-    className: "bg-blue-100 text-blue-700 border border-blue-200",
+    className: "bg-info text-info-foreground border border-info-foreground",
   },
   VENCIDO: {
     label: "Vencido",
-    className: "bg-red-100 text-red-700 border border-red-200",
+    className: "bg-danger-soft text-destructive border border-destructive",
   },
 };
 
@@ -33,7 +33,7 @@ export function EstadoPresupuestoBadge({ estado }: { estado: string }) {
   const config =
     ESTADO_CONFIG[estado as EstadoPresupuesto] ?? {
       label: estado,
-      className: "bg-gray-100 text-gray-700 border border-gray-200",
+      className: "bg-muted text-foreground border border-border",
     };
 
   return <Badge className={`${config.className} font-medium`}>{config.label}</Badge>;

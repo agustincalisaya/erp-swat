@@ -7,15 +7,15 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { formatearFechaNegocio } from "@/lib/utils/fecha-negocio";
 
 const estados: Record<EstadoEcommerce, { etiqueta: string; estilo: string }> = {
-  PAGO_PENDIENTE: { etiqueta: "Pago pendiente", estilo: "bg-amber-100 text-amber-900" },
-  PAGO_CONFIRMADO: { etiqueta: "Pago confirmado", estilo: "bg-blue-100 text-blue-900" },
-  PAGO_RECHAZADO: { etiqueta: "Pago rechazado", estilo: "bg-red-100 text-red-900" },
-  EN_PREPARACION: { etiqueta: "En preparación", estilo: "bg-indigo-100 text-indigo-900" },
-  LISTO_PARA_RETIRO: { etiqueta: "Listo para retiro", estilo: "bg-green-100 text-green-900" },
-  ENTREGADO: { etiqueta: "Entregado", estilo: "bg-emerald-100 text-emerald-900" },
-  ANULADO: { etiqueta: "Anulado", estilo: "bg-gray-100 text-gray-800" },
-  CANCELADO: { etiqueta: "Cancelado", estilo: "bg-gray-100 text-gray-800" },
-  VENCIDO_SIN_RETIRO: { etiqueta: "Vencido sin retiro", estilo: "bg-orange-100 text-orange-900" },
+  PAGO_PENDIENTE: { etiqueta: "Pago pendiente", estilo: "bg-warning text-warning-foreground" },
+  PAGO_CONFIRMADO: { etiqueta: "Pago confirmado", estilo: "bg-info text-info-foreground" },
+  PAGO_RECHAZADO: { etiqueta: "Pago rechazado", estilo: "bg-danger-soft text-destructive" },
+  EN_PREPARACION: { etiqueta: "En preparación", estilo: "bg-info text-info-foreground" },
+  LISTO_PARA_RETIRO: { etiqueta: "Listo para retiro", estilo: "bg-success text-success-foreground" },
+  ENTREGADO: { etiqueta: "Entregado", estilo: "bg-success text-success-foreground" },
+  ANULADO: { etiqueta: "Anulado", estilo: "bg-muted text-foreground" },
+  CANCELADO: { etiqueta: "Cancelado", estilo: "bg-muted text-foreground" },
+  VENCIDO_SIN_RETIRO: { etiqueta: "Vencido sin retiro", estilo: "bg-warning text-warning-foreground" },
 };
 
 const pesos = new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS" });

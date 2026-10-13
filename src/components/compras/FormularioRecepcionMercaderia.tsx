@@ -193,7 +193,7 @@ export function FormularioRecepcionMercaderia({
         <label className="space-y-1 text-sm">
           <span className="font-medium">Proveedor</span>
           <select
-            className="w-full rounded-md border bg-white px-3 py-2"
+            className="w-full rounded-md border bg-card px-3 py-2"
             value={proveedorSeleccionado ?? ""}
             onChange={(event) => actualizarFiltros({ proveedorId: event.target.value })}
           >
@@ -210,7 +210,7 @@ export function FormularioRecepcionMercaderia({
           <span className="font-medium">Fecha de emisión</span>
           <input
             type="date"
-            className="w-full rounded-md border bg-white px-3 py-2"
+            className="w-full rounded-md border bg-card px-3 py-2"
             value={fechaSeleccionada ?? ""}
             onChange={(event) => actualizarFiltros({ fechaEmision: event.target.value })}
           />
@@ -227,7 +227,7 @@ export function FormularioRecepcionMercaderia({
       </div>
 
       {confirmacion && (
-        <p role="status" className="flex items-center gap-2 rounded-md bg-emerald-50 p-3 text-sm text-emerald-800">
+        <p role="status" className="flex items-center gap-2 rounded-md bg-success p-3 text-sm text-success-foreground">
           <CheckCircle2 className="size-4" aria-hidden="true" /> {confirmacion}
         </p>
       )}
@@ -329,7 +329,7 @@ export function FormularioRecepcionMercaderia({
                               </label>
                               <select
                                 id={`deposito-${orden.id}`}
-                                className="w-full rounded-md border bg-white px-3 py-2"
+                                className="w-full rounded-md border bg-card px-3 py-2"
                                 value={estado.deposito_destino_id}
                                 disabled={estado.isSubmitting || depositos.length === 0}
                                 onChange={(event) => actualizarEstado(orden.id, {
@@ -361,7 +361,7 @@ export function FormularioRecepcionMercaderia({
                           </div>
 
                           {estado.resultado?.tipo === "error" && (
-                            <p role="status" className="rounded-md bg-red-50 p-3 text-sm text-red-800">
+                            <p role="status" className="rounded-md bg-danger-soft p-3 text-sm text-destructive">
                               {estado.resultado.texto}
                             </p>
                           )}

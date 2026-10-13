@@ -27,7 +27,7 @@ export function AutorizacionItemBadge({
 }) {
   if (requiereAutorizacion) {
     return (
-      <Badge className="bg-amber-100 text-amber-700 border border-amber-200 font-medium">
+      <Badge className="bg-warning text-warning-foreground border border-warning-foreground font-medium">
         Pendiente de autorización
       </Badge>
     );
@@ -35,7 +35,7 @@ export function AutorizacionItemBadge({
 
   if (autorizadoPorId !== null) {
     return (
-      <Badge className="bg-emerald-100 text-emerald-800 border border-emerald-200 font-medium">
+      <Badge className="bg-success text-success-foreground border border-success-foreground font-medium">
         Autorizado
       </Badge>
     );

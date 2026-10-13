@@ -60,15 +60,15 @@ export default async function ClientesPage() {
   ]);
 
   return (
-    <main className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
+    <main className="min-h-screen bg-background p-4 sm:p-6 lg:p-8">
       <div className="max-w-6xl mx-auto space-y-5">
         {/* ── Header (paleta azul de Módulo C) ─────────────────────────── */}
         <div className="flex items-center gap-3">
-          <div className="p-2 rounded-xl bg-blue-100 text-blue-600 shrink-0">
+          <div className="p-2 rounded-xl bg-selected text-selected-foreground shrink-0">
             <Users className="size-5" aria-hidden="true" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-gray-900 tracking-tight">
+            <h1 className="text-xl font-bold text-foreground tracking-tight">
               Clientes
             </h1>
             <p className="text-sm text-muted-foreground">
@@ -82,7 +82,7 @@ export default async function ClientesPage() {
           <div>
             <Link
               href="/clientes/nuevo"
-              className={`${buttonVariants()} bg-blue-600 hover:bg-blue-700 text-white gap-2`}
+              className={`${buttonVariants()} bg-primary hover:bg-primary-hover text-primary-foreground gap-2`}
             >
               <UserPlus className="size-4" aria-hidden="true" />
               Nuevo cliente
@@ -94,7 +94,7 @@ export default async function ClientesPage() {
         <Card>
           <CardHeader className="border-b border-border">
             <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-              <Users className="size-4 text-blue-500" aria-hidden="true" />
+              <Users className="size-4 text-primary" aria-hidden="true" />
               Clientes activos
             </CardTitle>
             <CardDescription>

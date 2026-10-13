@@ -17,15 +17,15 @@ type EstadoProveedor = "PENDIENTE" | "HOMOLOGADO" | "SUSPENDIDO";
 const ESTADO_CONFIG: Record<EstadoProveedor, { label: string; className: string }> = {
   PENDIENTE: {
     label: "Pendiente",
-    className: "bg-amber-100 text-amber-700 border border-amber-200",
+    className: "bg-warning text-warning-foreground border border-warning-foreground",
   },
   HOMOLOGADO: {
     label: "Homologado",
-    className: "bg-blue-100 text-blue-700 border border-blue-200",
+    className: "bg-info text-info-foreground border border-info-foreground",
   },
   SUSPENDIDO: {
     label: "Suspendido",
-    className: "bg-red-100 text-red-700 border border-red-200",
+    className: "bg-danger-soft text-destructive border border-destructive",
   },
 };
 
@@ -33,7 +33,7 @@ export function EstadoProveedorBadge({ estado }: { estado: string }) {
   const config =
     ESTADO_CONFIG[estado as EstadoProveedor] ?? {
       label: estado,
-      className: "bg-gray-100 text-gray-700 border border-gray-200",
+      className: "bg-muted text-foreground border border-border",
     };
 
   return (

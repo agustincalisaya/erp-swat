@@ -86,7 +86,7 @@ export function DialogResolverExcepcionCredito({
             type="button"
             variant="outline"
             size="sm"
-            className="gap-1.5 border-amber-300 text-amber-700 hover:bg-amber-50 hover:text-amber-800"
+            className="gap-1.5 border-warning-foreground text-warning-foreground hover:bg-warning hover:text-warning-foreground"
           />
         }
       >
@@ -96,7 +96,7 @@ export function DialogResolverExcepcionCredito({
 
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle className="flex items-center gap-2 text-amber-700">
+          <AlertDialogTitle className="flex items-center gap-2 text-warning-foreground">
             <ShieldCheck className="size-4" aria-hidden="true" />
             Resolver excepción de crédito — {itemLabel}
           </AlertDialogTitle>
@@ -117,7 +117,7 @@ export function DialogResolverExcepcionCredito({
 
         <div className="space-y-4">
           <fieldset className="space-y-2">
-            <legend className="text-xs font-semibold uppercase tracking-wide text-gray-700">
+            <legend className="text-xs font-semibold uppercase tracking-wide text-foreground">
               Decisión
             </legend>
             <div className="flex gap-3">
@@ -127,8 +127,8 @@ export function DialogResolverExcepcionCredito({
                 aria-pressed={decision === "APROBAR"}
                 className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
                   decision === "APROBAR"
-                    ? "border-emerald-500 bg-emerald-50 text-emerald-700 ring-2 ring-emerald-500/30"
-                    : "border-input bg-background text-gray-700 hover:border-emerald-300 hover:bg-emerald-50/50"
+                    ? "border-success-foreground bg-success text-success-foreground ring-2 ring-success-foreground/30"
+                    : "border-input bg-background text-foreground hover:border-success-foreground hover:bg-success/50"
                 }`}
               >
                 Aprobar
@@ -139,8 +139,8 @@ export function DialogResolverExcepcionCredito({
                 aria-pressed={decision === "RECHAZAR"}
                 className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
                   decision === "RECHAZAR"
-                    ? "border-red-500 bg-red-50 text-red-700 ring-2 ring-red-500/30"
-                    : "border-input bg-background text-gray-700 hover:border-red-300 hover:bg-red-50/50"
+                    ? "border-destructive bg-danger-soft text-destructive ring-2 ring-destructive/30"
+                    : "border-input bg-background text-foreground hover:border-destructive hover:bg-danger-soft/50"
                 }`}
               >
                 Rechazar
@@ -151,7 +151,7 @@ export function DialogResolverExcepcionCredito({
           <div className="space-y-1.5">
             <Label
               htmlFor="resolver-motivo"
-              className="text-xs font-semibold uppercase tracking-wide text-gray-700"
+              className="text-xs font-semibold uppercase tracking-wide text-foreground"
             >
               Motivo
             </Label>
@@ -161,7 +161,7 @@ export function DialogResolverExcepcionCredito({
               onChange={(e) => setMotivo(e.target.value)}
               placeholder="Ej: cliente con buen historial de pagos, autorizado por Gerencia"
               rows={3}
-              className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:border-amber-500 focus-visible:ring-3 focus-visible:ring-amber-500/30"
+              className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring"
             />
           </div>
         </div>
@@ -174,10 +174,10 @@ export function DialogResolverExcepcionCredito({
             type="button"
             disabled={!confirmacionHabilitada || isPending}
             onClick={handleConfirm}
-            className={`gap-2 text-white ${
+            className={`gap-2 ${
               decision === "APROBAR"
-                ? "bg-emerald-600 hover:bg-emerald-700"
-                : "bg-red-600 hover:bg-red-700"
+                ? "bg-success-foreground hover:bg-success-foreground text-success"
+                : "bg-destructive hover:bg-destructive text-destructive-foreground"
             }`}
           >
             {isPending ? (

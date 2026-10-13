@@ -76,7 +76,7 @@ export function ComprobantesProveedorCard({
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
           <div>
             <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-              <FileText className="size-4 text-blue-500" aria-hidden="true" />
+              <FileText className="size-4 text-primary" aria-hidden="true" />
               Comprobantes de proveedor
             </CardTitle>
             <CardDescription>
@@ -146,7 +146,7 @@ export function ComprobantesProveedorCard({
                           href={c.archivo_adjunto_url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="ml-2 text-blue-600 underline"
+                          className="ml-2 text-primary underline"
                         >
                           adjunto
                         </a>
@@ -163,12 +163,12 @@ export function ComprobantesProveedorCard({
                     </td>
                     <td className="py-3 px-3">
                       {c.is_active ? (
-                        <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
+                        <span className="inline-flex items-center rounded-full bg-success px-2 py-0.5 text-xs font-medium text-success-foreground">
                           Activo
                         </span>
                       ) : (
                         <span
-                          className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600"
+                          className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground"
                           title={c.deletion_reason ?? undefined}
                         >
                           Anulado

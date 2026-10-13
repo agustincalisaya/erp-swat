@@ -64,7 +64,7 @@ export default async function DetallePedidoVentaPage({
   const supervisores = puedeAutorizar ? await listarSupervisoresVentas() : [];
 
   return (
-    <main className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
+    <main className="min-h-screen bg-background p-4 sm:p-6 lg:p-8">
       <div className="max-w-4xl mx-auto space-y-5">
         <Link
           href="/ventas/presupuestos"
@@ -78,7 +78,7 @@ export default async function DetallePedidoVentaPage({
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
           <div className="space-y-1">
             <div className="flex items-center gap-3">
-              <h1 className="text-xl font-bold text-gray-900 tracking-tight font-mono">
+              <h1 className="text-xl font-bold text-foreground tracking-tight font-mono">
                 {pedido.numero_venta}
               </h1>
               <EstadoPedidoVentaBadge estado={pedido.estado} />
@@ -93,7 +93,7 @@ export default async function DetallePedidoVentaPage({
         <Card>
           <CardHeader className="border-b border-border">
             <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-              <FileText className="size-4 text-blue-500" aria-hidden="true" />
+              <FileText className="size-4 text-primary" aria-hidden="true" />
               Ítems ({pedido.items.length})
             </CardTitle>
             <CardDescription>

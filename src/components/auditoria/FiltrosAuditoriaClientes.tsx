@@ -35,7 +35,7 @@ export function FiltrosAuditoriaClientes({ responsables }: { responsables: Respo
   }
 
   return (
-    <form onSubmit={aplicar} className="rounded-xl border border-border bg-white p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 items-end">
+    <form onSubmit={aplicar} className="rounded-xl border border-border bg-card p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 items-end">
       <div className="space-y-1.5">
         <Label htmlFor="auditoria-cliente-nombre" className="text-xs">Cliente</Label>
         <Input id="auditoria-cliente-nombre" type="search" value={clienteNombre}
@@ -68,7 +68,7 @@ export function FiltrosAuditoriaClientes({ responsables }: { responsables: Respo
         <Input id="auditoria-cliente-hasta" type="date" value={fechaHasta} onChange={(e) => setFechaHasta(e.target.value)} />
       </div>
       <div className="flex gap-2">
-        <Button type="submit" size="sm" className="gap-1.5 bg-blue-600 hover:bg-blue-700 text-white"><Filter className="size-3.5" />Filtrar</Button>
+        <Button type="submit" size="sm" className="gap-1.5 bg-primary hover:bg-primary-hover text-primary-foreground"><Filter className="size-3.5" />Filtrar</Button>
         <Button type="button" size="sm" variant="outline" className="gap-1.5" onClick={limpiar}><X className="size-3.5" />Limpiar</Button>
       </div>
     </form>

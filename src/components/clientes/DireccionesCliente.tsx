@@ -139,7 +139,7 @@ function DireccionesForm({ clienteId }: { clienteId: string }) {
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-          <Plus className="size-4 text-blue-500" aria-hidden="true" />
+          <Plus className="size-4 text-primary" aria-hidden="true" />
           Agregar dirección
         </CardTitle>
         <CardDescription>
@@ -205,11 +205,11 @@ function DireccionesForm({ clienteId }: { clienteId: string }) {
               )}
             />
 
-            <div className="flex justify-end pt-2 border-t border-slate-100">
+            <div className="flex justify-end pt-2 border-t border-border">
               <Button
                 type="submit"
                 disabled={form.formState.isSubmitting}
-                className="bg-blue-600 hover:bg-blue-700 text-white gap-2"
+                className="bg-primary hover:bg-primary-hover text-primary-foreground gap-2"
               >
                 {form.formState.isSubmitting ? (
                   <>
@@ -246,7 +246,7 @@ function ListaDirecciones({
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-          <MapPin className="size-4 text-blue-500" aria-hidden="true" />
+          <MapPin className="size-4 text-primary" aria-hidden="true" />
           Direcciones registradas
         </CardTitle>
         <CardDescription>
@@ -258,7 +258,7 @@ function ListaDirecciones({
 
       <CardContent>
         {direcciones.length === 0 ? (
-          <p className="rounded-lg border border-dashed border-blue-200 bg-blue-50/60 p-4 text-sm text-muted-foreground">
+          <p className="rounded-lg border border-dashed border-border bg-selected/60 p-4 text-sm text-selected-foreground">
             Este cliente todavía no tiene direcciones cargadas. Empezá por una de tipo
             Facturación: una dirección de Envío no puede ser la única del cliente.
           </p>
@@ -267,7 +267,7 @@ function ListaDirecciones({
             {direcciones.map((direccion) => (
               <li
                 key={direccion.id}
-                className="flex flex-col gap-1 rounded-lg border border-slate-200 bg-white p-3"
+                className="flex flex-col gap-1 rounded-lg border border-border bg-card p-3"
               >
                 {editandoId === direccion.id ? (
                   <FilaDireccionEdicion
@@ -278,14 +278,14 @@ function ListaDirecciones({
                 ) : (
                   <>
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-sm font-semibold text-gray-900">
+                      <span className="text-sm font-semibold text-foreground">
                         {direccion.rotulo}
                       </span>
                       <Badge
                         variant={direccion.tipo === "FACTURACION" ? "default" : "secondary"}
                         className={
                           direccion.tipo === "FACTURACION"
-                            ? "bg-blue-100 text-blue-700"
+                            ? "bg-selected text-selected-foreground"
                             : undefined
                         }
                       >
@@ -433,7 +433,7 @@ function FilaDireccionEdicion({
             type="submit"
             size="sm"
             disabled={form.formState.isSubmitting}
-            className="bg-blue-600 hover:bg-blue-700 text-white gap-1"
+            className="bg-primary hover:bg-primary-hover text-primary-foreground gap-1"
           >
             {form.formState.isSubmitting ? (
               <>

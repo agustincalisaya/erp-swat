@@ -110,7 +110,7 @@ export function DialogAutorizarOverrideDescuento({
             type="button"
             variant="outline"
             size="sm"
-            className="gap-1.5 border-amber-300 text-amber-700 hover:bg-amber-50 hover:text-amber-800"
+            className="gap-1.5 border-warning-foreground text-warning-foreground hover:bg-warning hover:text-warning-foreground"
           />
         }
       >
@@ -120,7 +120,7 @@ export function DialogAutorizarOverrideDescuento({
 
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle className="flex items-center gap-2 text-amber-700">
+          <AlertDialogTitle className="flex items-center gap-2 text-warning-foreground">
             <ShieldCheck className="size-4" aria-hidden="true" />
             Autorizar excepción — {itemLabel}
           </AlertDialogTitle>
@@ -142,7 +142,7 @@ export function DialogAutorizarOverrideDescuento({
           {/* Tipo de ajuste — mutuamente explicativo en la UI aunque el
               schema permite ambos a la vez (docs/tasks/HU-B4.md §2). */}
           <fieldset className="space-y-2">
-            <legend className="text-xs font-semibold uppercase tracking-wide text-gray-700">
+            <legend className="text-xs font-semibold uppercase tracking-wide text-foreground">
               Tipo de ajuste
             </legend>
             <div className="flex gap-3">
@@ -152,8 +152,8 @@ export function DialogAutorizarOverrideDescuento({
                 aria-pressed={tipoAjuste === "DESCUENTO"}
                 className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
                   tipoAjuste === "DESCUENTO"
-                    ? "border-amber-500 bg-amber-50 text-amber-700 ring-2 ring-amber-500/30"
-                    : "border-input bg-background text-gray-700 hover:border-amber-300 hover:bg-amber-50/50"
+                    ? "border-warning-foreground bg-warning text-warning-foreground ring-2 ring-warning-foreground/30"
+                    : "border-input bg-background text-foreground hover:border-warning-foreground hover:bg-warning/50"
                 }`}
               >
                 Descuento porcentual
@@ -164,8 +164,8 @@ export function DialogAutorizarOverrideDescuento({
                 aria-pressed={tipoAjuste === "PRECIO"}
                 className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
                   tipoAjuste === "PRECIO"
-                    ? "border-amber-500 bg-amber-50 text-amber-700 ring-2 ring-amber-500/30"
-                    : "border-input bg-background text-gray-700 hover:border-amber-300 hover:bg-amber-50/50"
+                    ? "border-warning-foreground bg-warning text-warning-foreground ring-2 ring-warning-foreground/30"
+                    : "border-input bg-background text-foreground hover:border-warning-foreground hover:bg-warning/50"
                 }`}
               >
                 Precio de lista modificado
@@ -175,7 +175,7 @@ export function DialogAutorizarOverrideDescuento({
 
           {tipoAjuste === "DESCUENTO" ? (
             <div className="space-y-1.5">
-              <Label htmlFor="override-descuento" className="text-xs font-semibold uppercase tracking-wide text-gray-700">
+              <Label htmlFor="override-descuento" className="text-xs font-semibold uppercase tracking-wide text-foreground">
                 Descuento (%)
               </Label>
               <Input
@@ -192,7 +192,7 @@ export function DialogAutorizarOverrideDescuento({
             </div>
           ) : (
             <div className="space-y-1.5">
-              <Label htmlFor="override-precio" className="text-xs font-semibold uppercase tracking-wide text-gray-700">
+              <Label htmlFor="override-precio" className="text-xs font-semibold uppercase tracking-wide text-foreground">
                 Precio de lista modificado
               </Label>
               <Input
@@ -209,7 +209,7 @@ export function DialogAutorizarOverrideDescuento({
           )}
 
           <div className="space-y-1.5">
-            <Label htmlFor="override-supervisor" className="text-xs font-semibold uppercase tracking-wide text-gray-700">
+            <Label htmlFor="override-supervisor" className="text-xs font-semibold uppercase tracking-wide text-foreground">
               Supervisor autorizante
             </Label>
             <select
@@ -232,7 +232,7 @@ export function DialogAutorizarOverrideDescuento({
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="override-motivo" className="text-xs font-semibold uppercase tracking-wide text-gray-700">
+            <Label htmlFor="override-motivo" className="text-xs font-semibold uppercase tracking-wide text-foreground">
               Motivo
             </Label>
             <textarea
@@ -241,7 +241,7 @@ export function DialogAutorizarOverrideDescuento({
               onChange={(e) => setMotivo(e.target.value)}
               placeholder="Ej: cliente institucional, negociación puntual autorizada por Supervisor"
               rows={3}
-              className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:border-amber-500 focus-visible:ring-3 focus-visible:ring-amber-500/30"
+              className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring"
             />
           </div>
         </div>
@@ -254,7 +254,7 @@ export function DialogAutorizarOverrideDescuento({
             type="button"
             disabled={!confirmacionHabilitada || isPending}
             onClick={handleConfirm}
-            className="gap-2 bg-amber-600 text-white hover:bg-amber-700"
+            className="gap-2 bg-warning-foreground text-warning hover:bg-warning-foreground"
           >
             {isPending ? (
               <>

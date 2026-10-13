@@ -41,20 +41,20 @@ export async function VistaAuditoriaClientes({ userId, rawParams }: { userId: st
   }
 
   return (
-    <main className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
+    <main className="min-h-screen bg-background p-4 sm:p-6 lg:p-8">
       <div className="max-w-6xl mx-auto space-y-5">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-blue-100 text-blue-600"><ScrollText className="size-5" aria-hidden="true" /></div>
+            <div className="p-2 rounded-xl bg-selected text-selected-foreground"><ScrollText className="size-5" aria-hidden="true" /></div>
             <div>
-              <h1 className="text-xl font-bold text-gray-900">Auditoría Forense — Clientes</h1>
+              <h1 className="text-xl font-bold text-foreground">Auditoría Forense — Clientes</h1>
               <p className="text-sm text-muted-foreground">Altas, modificaciones y bajas lógicas registradas sobre clientes.</p>
             </div>
           </div>
           {puedeVerificar && <BotonVerificarCadena />}
         </div>
         <nav aria-label="Módulo de auditoría" className="flex gap-4 text-sm">
-          <Link href="/auditoria/logs" className="text-blue-600 hover:underline">Historial general</Link>
+          <Link href="/auditoria/logs" className="text-primary hover:underline">Historial general</Link>
           <span aria-current="page" className="font-semibold">Clientes</span>
         </nav>
         <Suspense fallback={null}><FiltrosAuditoriaClientes responsables={responsables} /></Suspense>

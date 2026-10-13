@@ -56,7 +56,7 @@ export function CameraBarcodeScanner({
             value={dispositivoId ?? ""}
             onChange={(e) => seleccionarDispositivo(e.target.value)}
             onFocus={() => void actualizarDispositivos()}
-            className="rounded-md border border-white/20 bg-slate-900/85 px-2 py-1 text-xs font-medium text-white shadow-sm outline-none focus:ring-2 focus:ring-blue-400"
+            className="rounded-md border border-white/20 bg-slate-900/85 px-2 py-1 text-xs font-medium text-sidebar-foreground shadow-sm outline-none focus:ring-2 focus:ring-sidebar-ring"
             aria-label="Seleccionar cámara"
           >
             {!dispositivoId && <option value="">Cámara automática</option>}
@@ -72,13 +72,13 @@ export function CameraBarcodeScanner({
       {/* Marco de escaneo — paleta azul táctico */}
       {!error && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-8 sm:p-12">
-          <div className="relative aspect-square w-full max-w-xs rounded-xl border-2 border-blue-400/80 shadow-[0_0_0_9999px_rgba(15,23,42,0.45)]">
-            <span className="absolute -top-0.5 -left-0.5 size-6 rounded-tl-xl border-t-4 border-l-4 border-blue-400" />
-            <span className="absolute -top-0.5 -right-0.5 size-6 rounded-tr-xl border-t-4 border-r-4 border-blue-400" />
-            <span className="absolute -bottom-0.5 -left-0.5 size-6 rounded-bl-xl border-b-4 border-l-4 border-blue-400" />
-            <span className="absolute -bottom-0.5 -right-0.5 size-6 rounded-br-xl border-b-4 border-r-4 border-blue-400" />
+          <div className="relative aspect-square w-full max-w-xs rounded-xl border-2 border-sidebar-primary shadow-[0_0_0_9999px_rgba(15,23,42,0.45)]">
+            <span className="absolute -top-0.5 -left-0.5 size-6 rounded-tl-xl border-t-4 border-l-4 border-sidebar-primary" />
+            <span className="absolute -top-0.5 -right-0.5 size-6 rounded-tr-xl border-t-4 border-r-4 border-sidebar-primary" />
+            <span className="absolute -bottom-0.5 -left-0.5 size-6 rounded-bl-xl border-b-4 border-l-4 border-sidebar-primary" />
+            <span className="absolute -bottom-0.5 -right-0.5 size-6 rounded-br-xl border-b-4 border-r-4 border-sidebar-primary" />
             {isScanning && (
-              <div className="absolute inset-x-6 top-1/2 h-0.5 -translate-y-1/2 animate-pulse bg-blue-400 shadow-[0_0_8px_2px_rgba(96,165,250,0.8)]" />
+              <div className="absolute inset-x-6 top-1/2 h-0.5 -translate-y-1/2 animate-pulse bg-sidebar-primary shadow-[0_0_8px_2px_var(--sidebar-primary)]" />
             )}
           </div>
         </div>
@@ -86,8 +86,8 @@ export function CameraBarcodeScanner({
 
       {/* Indicador de motor activo */}
       {isScanning && !error && (
-        <div className="absolute top-3 left-3 flex items-center gap-1.5 rounded-full bg-blue-600/90 px-2.5 py-1 text-xs font-semibold text-white shadow">
-          <span className="size-1.5 animate-pulse rounded-full bg-white" aria-hidden="true" />
+        <div className="absolute top-3 left-3 flex items-center gap-1.5 rounded-full bg-sidebar-accent px-2.5 py-1 text-xs font-semibold text-sidebar-foreground shadow">
+          <span className="size-1.5 animate-pulse rounded-full bg-sidebar-foreground" aria-hidden="true" />
           {motor === "nativo" ? "Escaneo nativo" : "Escaneo activo"}
         </div>
       )}
@@ -96,7 +96,7 @@ export function CameraBarcodeScanner({
           activo; si `activo` es false (ej. confirmando un ingreso), el
           stream se detuvo a propósito y no está "iniciando". */}
       {!isScanning && !error && activo && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-slate-300">
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-sidebar-muted-foreground">
           <Camera className="size-8 animate-pulse" aria-hidden="true" />
           <p className="text-sm">Iniciando cámara…</p>
         </div>
@@ -105,7 +105,7 @@ export function CameraBarcodeScanner({
       {/* Escaneo en pausa — cámara detenida intencionalmente (ej. mientras
           se confirma un ingreso), no un error ni un arranque en curso. */}
       {!isScanning && !error && !activo && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-slate-300">
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-sidebar-muted-foreground">
           <Camera className="size-8" aria-hidden="true" />
           <p className="text-sm">Escaneo en pausa</p>
         </div>
@@ -113,8 +113,8 @@ export function CameraBarcodeScanner({
 
       {/* Error — permiso denegado o cámara no disponible */}
       {error && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-slate-900/95 px-6 text-center text-slate-200">
-          <AlertTriangle className="size-8 text-amber-400" aria-hidden="true" />
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-slate-900/95 px-6 text-center text-sidebar-foreground">
+          <AlertTriangle className="size-8 text-warning-foreground" aria-hidden="true" />
           <p className="text-sm font-medium">{error}</p>
         </div>
       )}

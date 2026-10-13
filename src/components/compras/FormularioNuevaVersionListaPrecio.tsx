@@ -196,7 +196,7 @@ export function FormularioNuevaVersionListaPrecio({
       )}
 
       {resultado && (
-        <Alert className={resultado.requiere_aprobacion ? "border-amber-300 bg-amber-50" : "border-emerald-300 bg-emerald-50"}>
+        <Alert className={resultado.requiere_aprobacion ? "border-warning-foreground bg-warning" : "border-success-foreground bg-success"}>
           <CheckCircle2 className="size-4" aria-hidden="true" />
           <AlertDescription>
             {resultado.requiere_aprobacion
@@ -207,7 +207,7 @@ export function FormularioNuevaVersionListaPrecio({
       )}
 
       <div className="space-y-1.5">
-        <Label htmlFor={`${formId}-fecha`} className="text-xs font-semibold uppercase tracking-wide text-gray-700">
+        <Label htmlFor={`${formId}-fecha`} className="text-xs font-semibold uppercase tracking-wide text-foreground">
           Fecha de inicio de vigencia
         </Label>
         <Input
@@ -226,7 +226,7 @@ export function FormularioNuevaVersionListaPrecio({
 
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <Label className="text-xs font-semibold uppercase tracking-wide text-gray-700">
+          <Label className="text-xs font-semibold uppercase tracking-wide text-foreground">
             Ítems de la nueva versión
           </Label>
           <Button type="button" variant="outline" size="sm" onClick={agregarFila} className="gap-1.5">
@@ -253,7 +253,7 @@ export function FormularioNuevaVersionListaPrecio({
               <div
                 key={fila.key}
                 className={`flex flex-col gap-2 rounded-lg border p-3 sm:flex-row sm:items-end ${
-                  superaUmbral ? "border-amber-300 bg-amber-50" : "border-border bg-muted/20"
+                  superaUmbral ? "border-warning-foreground bg-warning" : "border-border bg-muted/20"
                 }`}
               >
                 <div className="flex-1 space-y-1">
@@ -289,7 +289,7 @@ export function FormularioNuevaVersionListaPrecio({
                 {itemPreview && (
                   <div className="w-full sm:w-28 text-xs">
                     <span className="block text-muted-foreground">Variación</span>
-                    <span className={superaUmbral ? "font-semibold text-amber-700" : ""}>
+                    <span className={superaUmbral ? "font-semibold text-warning-foreground" : ""}>
                       {itemPreview.variacion_porcentual === null
                         ? "sin precio previo"
                         : `${itemPreview.variacion_porcentual.toFixed(2)}%`}
@@ -314,8 +314,8 @@ export function FormularioNuevaVersionListaPrecio({
       </div>
 
       {varianteSkuIdsSeleccionados.size > 0 && variantesOmitidas.length > 0 && (
-        <Alert className="border-blue-200 bg-blue-50">
-          <Info className="size-4 text-blue-600" aria-hidden="true" />
+        <Alert className="border-info-foreground bg-info">
+          <Info className="size-4 text-info-foreground" aria-hidden="true" />
           <AlertDescription>
             Esta versión no incluye {variantesOmitidas.length === 1 ? "1 variante" : `${variantesOmitidas.length} variantes`} que
             hoy {variantesOmitidas.length === 1 ? "tiene" : "tienen"} precio vigente:{" "}
@@ -328,8 +328,8 @@ export function FormularioNuevaVersionListaPrecio({
       )}
 
       {preview && preview.requiere_aprobacion && (
-        <Alert className="border-amber-300 bg-amber-50">
-          <AlertTriangle className="size-4 text-amber-600" aria-hidden="true" />
+        <Alert className="border-warning-foreground bg-warning">
+          <AlertTriangle className="size-4 text-warning-foreground" aria-hidden="true" />
           <AlertDescription>
             La variación máxima calculada ({preview.variacion_porcentual_maxima.toFixed(2)}%) supera el
             umbral de {preview.umbral}%. Si confirmás, la versión se publicará como{" "}
@@ -354,7 +354,7 @@ export function FormularioNuevaVersionListaPrecio({
           type="button"
           onClick={confirmarPublicacion}
           disabled={isPending}
-          className="gap-2 bg-blue-600 hover:bg-blue-700 text-white"
+          className="gap-2 bg-primary hover:bg-primary-hover text-primary-foreground"
         >
           {isPending ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
           Confirmar publicación

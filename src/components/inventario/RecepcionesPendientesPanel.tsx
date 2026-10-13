@@ -60,7 +60,7 @@ function EstadoRemitoBadge({ estado }: { estado: TransferenciaRemitoListado["est
   }
   if (estado === "PARCIAL") {
     return (
-      <Badge variant="outline" className="border-amber-500 bg-amber-50 text-amber-700">
+      <Badge variant="outline" className="border-warning-foreground bg-warning text-warning-foreground">
         <PackageCheck className="size-3.5" /> PARCIAL
       </Badge>
     );
@@ -127,7 +127,7 @@ export function RecepcionesPendientesPanel({ transferencias, puedeConfirmar }: P
     <section className="space-y-5" aria-labelledby="recepciones-title">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h2 id="recepciones-title" className="text-xl font-bold text-gray-900">Recepciones pendientes</h2>
+          <h2 id="recepciones-title" className="text-xl font-bold text-foreground">Recepciones pendientes</h2>
           <p className="text-sm text-muted-foreground">El stock despachado queda fuera de la disponibilidad comercial hasta confirmar su recepción.</p>
         </div>
         <Link href="/inventario/movimientos/historial-transferencias" className={buttonVariants({ variant: "outline" })}>
@@ -217,7 +217,7 @@ function TablaTransferencias({
               <TableCell>{formatearFechaHora(remito.recibida_at ?? remito.despachada_at)}</TableCell>
               {puedeConfirmar && (
                 <TableCell>
-                  <Button size="sm" className="bg-blue-600 text-white hover:bg-blue-700" onClick={() => onConfirmar(remito)} disabled={pending}>
+                  <Button size="sm" className="bg-primary text-primary-foreground hover:bg-primary-hover" onClick={() => onConfirmar(remito)} disabled={pending}>
                     <PackageCheck className="size-4" /> Confirmar recepción
                   </Button>
                 </TableCell>
@@ -250,7 +250,7 @@ function TablaTransferencias({
                             <TableCell className="text-right">{item.cantidad}</TableCell>
                             <TableCell className="text-right">{item.cantidad_recibida}</TableCell>
                             <TableCell>
-                              <Badge variant="outline" className={item.estado_item === "RECIBIDO_TOTAL" ? "border-emerald-400 text-emerald-700" : item.estado_item === "RECIBIDO_PARCIAL" ? "border-amber-400 text-amber-700" : ""}>
+                              <Badge variant="outline" className={item.estado_item === "RECIBIDO_TOTAL" ? "border-success-foreground text-success-foreground" : item.estado_item === "RECIBIDO_PARCIAL" ? "border-warning-foreground text-warning-foreground" : ""}>
                                 {item.estado_item.replaceAll("_", " ")}
                               </Badge>
                             </TableCell>

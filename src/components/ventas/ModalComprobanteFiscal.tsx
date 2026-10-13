@@ -125,7 +125,7 @@ export function ModalComprobanteFiscal({ comprobanteId, onClose }: ModalComproba
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <ShieldCheck className="size-4 text-green-600" aria-hidden="true" />
+            <ShieldCheck className="size-4 text-success-foreground" aria-hidden="true" />
             Comprobante fiscal
           </DialogTitle>
           <DialogDescription>

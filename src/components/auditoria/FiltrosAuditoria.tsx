@@ -76,7 +76,7 @@ export function FiltrosAuditoria({ mostrarFiltroUsuario, acciones, usuarios }: F
   return (
     <form
       onSubmit={aplicarFiltros}
-      className="rounded-xl border border-border bg-white p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-end"
+      className="rounded-xl border border-border bg-card p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-end"
     >
       <div className="space-y-1.5">
         <Label htmlFor="filtro-fecha-desde" className="text-xs">
@@ -158,7 +158,7 @@ export function FiltrosAuditoria({ mostrarFiltroUsuario, acciones, usuarios }: F
       )}
 
       <div className="flex gap-2 sm:col-span-2 lg:col-span-1">
-        <Button type="submit" size="sm" className="gap-1.5 bg-blue-600 hover:bg-blue-700 text-white">
+        <Button type="submit" size="sm" className="gap-1.5 bg-primary hover:bg-primary-hover text-primary-foreground">
           <Filter className="size-3.5" aria-hidden="true" />
           Filtrar
         </Button>

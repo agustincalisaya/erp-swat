@@ -50,7 +50,7 @@ export function ListadoProductos({ productos, puedeEditar }: ListadoProductosPro
         <div className="flex items-center gap-2 shrink-0">
           <Link
             href="/inventario/productos/nuevo"
-            className={buttonVariants() + " gap-2 shrink-0 bg-blue-600 hover:bg-blue-700 text-white"}
+            className={buttonVariants() + " gap-2 shrink-0 bg-primary hover:bg-primary-hover text-primary-foreground"}
           >
             <PackagePlus className="size-4" aria-hidden="true" />
             Nuevo Producto Maestro
@@ -58,9 +58,9 @@ export function ListadoProductos({ productos, puedeEditar }: ListadoProductosPro
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-xl border bg-white shadow-sm">
+      <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
         <table className="w-full text-left text-sm">
-          <thead className="bg-blue-50 text-xs uppercase tracking-wide text-blue-900">
+          <thead className="bg-muted text-xs uppercase tracking-wide text-selected-foreground">
             <tr>
               <th className="px-4 py-3 font-semibold">Cod Producto</th>
               <th className="px-4 py-3 font-semibold">Nombre</th>
@@ -79,12 +79,12 @@ export function ListadoProductos({ productos, puedeEditar }: ListadoProductosPro
               </tr>
             ) : (
               productosFiltrados.map((producto) => (
-                <tr key={producto.id} className="hover:bg-blue-50/40">
-                  <td className="px-4 py-3 font-mono text-xs text-gray-700">
+                <tr key={producto.id} className="hover:bg-accent">
+                  <td className="px-4 py-3 font-mono text-xs text-foreground">
                     {producto.codigo_producto}
                   </td>
-                  <td className="px-4 py-3 text-gray-900">{producto.nombre}</td>
-                  <td className="px-4 py-3 text-gray-700">{producto.rubro}</td>
+                  <td className="px-4 py-3 text-foreground">{producto.nombre}</td>
+                  <td className="px-4 py-3 text-foreground">{producto.rubro}</td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex items-center justify-end gap-2">
                       {/* Atajo contextual: entra a la Matriz con este producto ya

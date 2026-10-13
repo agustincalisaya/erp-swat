@@ -29,7 +29,7 @@ export function SelectorProveedorListaPrecios({
     <div className="space-y-1.5">
       <Label
         htmlFor="lista-precios-proveedor"
-        className="text-xs font-semibold uppercase tracking-wide text-gray-700"
+        className="text-xs font-semibold uppercase tracking-wide text-foreground"
       >
         Proveedor
       </Label>

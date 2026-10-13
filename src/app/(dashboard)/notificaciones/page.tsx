@@ -77,19 +77,19 @@ export default async function NotificacionesPage({ searchParams }: Notificacione
   const chip = (activo: boolean) =>
     `rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
       activo
-        ? "border-blue-600 bg-blue-600 text-white"
-        : "border-border bg-white text-gray-700 hover:bg-gray-100"
+        ? "border-ring bg-primary text-primary-foreground"
+        : "border-border bg-card text-foreground hover:bg-accent"
     }`;
 
   return (
-    <main className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
+    <main className="min-h-screen bg-background p-4 sm:p-6 lg:p-8">
       <div className="max-w-4xl mx-auto space-y-5">
         <div className="flex items-center gap-3">
-          <div className="p-2 rounded-xl bg-blue-100 text-blue-600 shrink-0">
+          <div className="p-2 rounded-xl bg-selected text-selected-foreground shrink-0">
             <Bell className="size-5" aria-hidden="true" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-gray-900 tracking-tight">Notificaciones</h1>
+            <h1 className="text-xl font-bold text-foreground tracking-tight">Notificaciones</h1>
             <p className="text-sm text-muted-foreground">
               Alertas y avisos del sistema dirigidos a vos o a tus roles. Las críticas aparecen primero.
             </p>
@@ -130,7 +130,7 @@ export default async function NotificacionesPage({ searchParams }: Notificacione
             {bandeja.paginacion.total_paginas > 1 && (
               <nav className="flex items-center justify-between text-sm" aria-label="Paginación">
                 {query.page > 1 ? (
-                  <Link href={hrefBandeja({ ...query, page: query.page - 1 })} className="flex items-center gap-1 text-blue-700 hover:underline">
+                  <Link href={hrefBandeja({ ...query, page: query.page - 1 })} className="flex items-center gap-1 text-primary hover:underline">
                     <ChevronLeft className="size-4" aria-hidden="true" /> Anterior
                   </Link>
                 ) : (
@@ -140,7 +140,7 @@ export default async function NotificacionesPage({ searchParams }: Notificacione
                   Página {bandeja.paginacion.pagina_actual} de {bandeja.paginacion.total_paginas}
                 </span>
                 {query.page < bandeja.paginacion.total_paginas ? (
-                  <Link href={hrefBandeja({ ...query, page: query.page + 1 })} className="flex items-center gap-1 text-blue-700 hover:underline">
+                  <Link href={hrefBandeja({ ...query, page: query.page + 1 })} className="flex items-center gap-1 text-primary hover:underline">
                     Siguiente <ChevronRight className="size-4" aria-hidden="true" />
                   </Link>
                 ) : (

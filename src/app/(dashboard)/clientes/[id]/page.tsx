@@ -108,15 +108,15 @@ export default async function ClienteFichaPage({
   ]);
 
   return (
-    <main className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
+    <main className="min-h-screen bg-background p-4 sm:p-6 lg:p-8">
       <div className="max-w-4xl mx-auto space-y-5">
         {/* ── Encabezado (paleta azul de Módulo C) ─────────────────────── */}
         <div className="flex items-center gap-3">
-          <div className="p-2 rounded-xl bg-blue-100 text-blue-600 shrink-0">
+          <div className="p-2 rounded-xl bg-selected text-selected-foreground shrink-0">
             <UserRound className="size-5" aria-hidden="true" />
           </div>
           <div className="min-w-0 space-y-1">
-            <h1 className="text-xl font-bold text-gray-900 tracking-tight truncate">
+            <h1 className="text-xl font-bold text-foreground tracking-tight truncate">
               {cliente.nombre}
             </h1>
             <div className="flex items-center gap-2">
@@ -130,9 +130,9 @@ export default async function ClienteFichaPage({
         </div>
 
         {inactivo && (
-          <Alert className="border-red-200 bg-red-50">
-            <Ban className="size-4 text-red-700" aria-hidden="true" />
-            <AlertDescription className="text-red-900">
+          <Alert className="border-destructive bg-danger-soft">
+            <Ban className="size-4 text-destructive" aria-hidden="true" />
+            <AlertDescription className="text-destructive">
               Este cliente está dado de baja y no puede operar. Su ficha y su
               historial se conservan en solo lectura.
               {cliente.deletion_reason && (
@@ -146,9 +146,9 @@ export default async function ClienteFichaPage({
         )}
 
         {altaRecuperada && (
-          <Alert className="border-amber-200 bg-amber-50">
-            <Info className="size-4 text-amber-700" aria-hidden="true" />
-            <AlertDescription className="text-amber-900">
+          <Alert className="border-warning-foreground bg-warning">
+            <Info className="size-4 text-warning-foreground" aria-hidden="true" />
+            <AlertDescription className="text-warning-foreground">
               Este DNI ya existía: se recuperó el registro existente, no se creó
               un duplicado.
             </AlertDescription>
@@ -184,13 +184,13 @@ export default async function ClienteFichaPage({
               <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
                 <div>
                   <dt className="text-muted-foreground">Canal de contacto preferido</dt>
-                  <dd className="font-medium text-gray-900">
+                  <dd className="font-medium text-foreground">
                     {cliente.canal_preferido ?? "—"}
                   </dd>
                 </div>
                 <div>
                   <dt className="text-muted-foreground">Segmento</dt>
-                  <dd className="font-medium text-gray-900">{cliente.segmento}</dd>
+                  <dd className="font-medium text-foreground">{cliente.segmento}</dd>
                 </div>
               </dl>
             </CardContent>

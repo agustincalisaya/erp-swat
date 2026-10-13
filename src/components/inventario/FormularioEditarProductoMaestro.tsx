@@ -180,7 +180,7 @@ export function FormularioEditarProductoMaestro({
         )}
 
         {exito && (
-          <Alert className="border-green-200 bg-green-50 text-green-800">
+          <Alert className="border-success-foreground bg-success text-success-foreground">
             <CheckCircle2 className="size-4" aria-hidden="true" />
             <AlertDescription>Producto Maestro editado con éxito</AlertDescription>
           </Alert>
@@ -309,11 +309,11 @@ export function FormularioEditarProductoMaestro({
           />
         </div>
 
-        <div className="flex justify-end pt-2 border-t border-slate-100">
+        <div className="flex justify-end pt-2 border-t border-border">
           <Button
             type="submit"
             disabled={form.formState.isSubmitting || exito}
-            className="bg-blue-600 hover:bg-blue-700 text-white gap-2"
+            className="bg-primary hover:bg-primary-hover text-primary-foreground gap-2"
           >
             {form.formState.isSubmitting ? (
               <>

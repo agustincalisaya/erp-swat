@@ -62,7 +62,7 @@ export function DatosContactoCliente({
         <div className="flex items-start justify-between gap-2">
           <div className="space-y-1">
             <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-              <UserRound className="size-4 text-blue-500" aria-hidden="true" />
+              <UserRound className="size-4 text-primary" aria-hidden="true" />
               Datos de contacto
             </CardTitle>
             <CardDescription>
@@ -106,15 +106,15 @@ export function DatosContactoCliente({
           <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-3">
             <div>
               <dt className="text-muted-foreground">Nombre</dt>
-              <dd className="font-medium text-gray-900">{nombre}</dd>
+              <dd className="font-medium text-foreground">{nombre}</dd>
             </div>
             <div>
               <dt className="text-muted-foreground">Teléfono</dt>
-              <dd className="font-medium text-gray-900">{telefono ?? "—"}</dd>
+              <dd className="font-medium text-foreground">{telefono ?? "—"}</dd>
             </div>
             <div>
               <dt className="text-muted-foreground">Email</dt>
-              <dd className="font-medium text-gray-900 break-all">{email ?? "—"}</dd>
+              <dd className="font-medium text-foreground break-all">{email ?? "—"}</dd>
             </div>
           </dl>
         )}

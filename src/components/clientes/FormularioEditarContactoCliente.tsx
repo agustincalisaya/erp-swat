@@ -150,7 +150,7 @@ export function FormularioEditarContactoCliente({
           />
         </div>
 
-        <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+        <div className="flex justify-end gap-2 pt-2 border-t border-border">
           <Button
             type="button"
             variant="outline"
@@ -164,7 +164,7 @@ export function FormularioEditarContactoCliente({
           <Button
             type="submit"
             disabled={form.formState.isSubmitting}
-            className="bg-blue-600 hover:bg-blue-700 text-white gap-2"
+            className="bg-primary hover:bg-primary-hover text-primary-foreground gap-2"
           >
             {form.formState.isSubmitting ? (
               <>
