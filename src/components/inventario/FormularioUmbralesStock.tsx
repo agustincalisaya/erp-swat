@@ -159,7 +159,7 @@ export function FormularioUmbralesStock({
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
         {!tiene_stock_cargado && (
-          <div className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800 ring-1 ring-inset ring-amber-600/20">
+          <div className="rounded-md bg-warning px-3 py-2 text-sm text-warning-foreground ring-1 ring-inset ring-warning-foreground/20">
             Esta variante todavía no tiene stock cargado en este depósito. Los
             umbrales se guardarán igual, por adelantado, para cuando llegue
             mercadería nueva.
@@ -231,13 +231,13 @@ export function FormularioUmbralesStock({
           />
         </div>
 
-        <div className="flex flex-col-reverse sm:flex-row sm:items-center mt-8 pt-6 border-t border-slate-100 gap-4">
+        <div className="flex flex-col-reverse sm:flex-row sm:items-center mt-8 pt-6 border-t border-border gap-4">
           <Button
             type="button"
             variant="outline"
             onClick={calcularSugerencia}
             disabled={calculandoSugerencia}
-            className="bg-white text-blue-600 border border-blue-200 hover:bg-blue-50 w-[190px]"
+            className="bg-card text-primary border border-border hover:bg-accent w-[190px]"
           >
             <Calculator className="mr-2 h-4 w-4 shrink-0" />
             {calculandoSugerencia ? "Calculando..." : "Calcular sugerencia"}
@@ -246,7 +246,7 @@ export function FormularioUmbralesStock({
           <Button
             type="submit"
             disabled={form.formState.isSubmitting}
-            className="bg-blue-600 text-white hover:bg-blue-700 w-[120px]"
+            className="bg-primary text-primary-foreground hover:bg-primary-hover w-[120px]"
           >
             <Save className="mr-2 h-4 w-4 shrink-0" />
             {form.formState.isSubmitting ? "Guardando..." : "Guardar"}

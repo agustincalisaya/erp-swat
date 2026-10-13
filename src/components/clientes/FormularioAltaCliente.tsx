@@ -119,7 +119,7 @@ export function FormularioAltaCliente() {
     <Card>
       {existenteActual && <AvisoDniCliente cliente={existenteActual}
         onIrFicha={(id) => router.push(`/clientes/${id}`)} />}
-      {!existenteActual && revision?.clave === claveActual && <Alert role="status" className="border-amber-200 bg-amber-50">
+      {!existenteActual && revision?.clave === claveActual && <Alert role="status" className="border-warning-foreground bg-warning">
         <AlertDescription>
           Posibles coincidencias por nombre, teléfono o email. El DNI es diferente; podés continuar con el alta.
           {revision.posibles.map((c) => <Button key={c.cliente_id} type="button" variant="link"
@@ -128,7 +128,7 @@ export function FormularioAltaCliente() {
       </Alert>}
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-          <UserPlus className="size-4 text-blue-500" aria-hidden="true" />
+          <UserPlus className="size-4 text-primary" aria-hidden="true" />
           Datos del Cliente
         </CardTitle>
       </CardHeader>
@@ -202,7 +202,7 @@ export function FormularioAltaCliente() {
               />
             </div>
 
-            <div className="space-y-4 border-t border-slate-100 pt-5">
+            <div className="space-y-4 border-t border-border pt-5">
               <FormField
                 control={form.control}
                 name="acepta_tratamiento_datos"
@@ -273,7 +273,7 @@ export function FormularioAltaCliente() {
               </p>
             </div>
 
-            <div className="flex justify-end pt-2 border-t border-slate-100">
+            <div className="flex justify-end pt-2 border-t border-border">
               <BotonAltaCliente enviando={form.formState.isSubmitting}
                 bloqueado={!!existenteActual} continuar={revision?.clave === claveActual} />
             </div>

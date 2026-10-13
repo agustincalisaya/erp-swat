@@ -91,15 +91,15 @@ export default async function ProveedoresPage({
   const params = await searchParams;
 
   return (
-    <main className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
+    <main className="min-h-screen bg-background p-4 sm:p-6 lg:p-8">
       <div className="max-w-6xl mx-auto space-y-5">
         {/* ── Header ─────────────────────────────────────────────────── */}
         <div className="flex items-center gap-3">
-          <div className="p-2 rounded-xl bg-blue-100 text-blue-600 shrink-0">
+          <div className="p-2 rounded-xl bg-selected text-selected-foreground shrink-0">
             <Handshake className="size-5" aria-hidden="true" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-gray-900 tracking-tight">
+            <h1 className="text-xl font-bold text-foreground tracking-tight">
               Proveedores
             </h1>
             <p className="text-sm text-muted-foreground">
@@ -113,7 +113,7 @@ export default async function ProveedoresPage({
         <Card>
           <CardHeader className="border-b border-border">
             <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-              <Users className="size-4 text-blue-500" aria-hidden="true" />
+              <Users className="size-4 text-primary" aria-hidden="true" />
               Proveedores activos
             </CardTitle>
             <CardDescription>
@@ -127,7 +127,7 @@ export default async function ProveedoresPage({
               key={`${params.estado ?? ""}`}
               fallback={
                 <div className="flex items-center justify-center gap-3 py-12 text-sm text-muted-foreground">
-                  <span className="size-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+                  <span className="size-4 border-2 border-ring border-t-transparent rounded-full animate-spin" />
                   Cargando proveedores…
                 </div>
               }

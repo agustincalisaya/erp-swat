@@ -176,7 +176,7 @@ export function ComboboxFiltrable<T>({
             ref={listaRef}
             role="listbox"
             style={{ top: posicion.top, left: posicion.left, width: posicion.width }}
-            className="fixed z-50 max-h-64 overflow-y-auto rounded-md border border-slate-200 bg-white shadow-md"
+            className="fixed z-50 max-h-64 overflow-y-auto rounded-md border border-border bg-card shadow-md"
           >
             {itemsFiltrados.length === 0 && (
               <li className="px-3 py-2 text-sm text-muted-foreground">{emptyMessage}</li>
@@ -188,7 +188,7 @@ export function ComboboxFiltrable<T>({
                   <button
                     type="button"
                     onClick={() => handleSeleccionar(item)}
-                    className="w-full px-3 py-2 text-left text-sm hover:bg-slate-50"
+                    className="w-full px-3 py-2 text-left text-sm hover:bg-accent"
                   >
                     {getLabel(item)}
                   </button>

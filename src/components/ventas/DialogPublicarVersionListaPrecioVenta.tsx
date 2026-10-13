@@ -94,7 +94,7 @@ export function DialogPublicarVersionListaPrecioVenta({
         render={
           <Button
             type="button"
-            className="gap-2 bg-blue-600 hover:bg-blue-700 text-white disabled:pointer-events-none disabled:opacity-50"
+            className="gap-2 bg-primary hover:bg-primary-hover text-primary-foreground disabled:pointer-events-none disabled:opacity-50"
           />
         }
       >
@@ -116,7 +116,7 @@ export function DialogPublicarVersionListaPrecioVenta({
 
           {resultado.items_bajo_costo > 0 && (
             <Alert>
-              <AlertTriangle className="size-4 text-amber-600" aria-hidden="true" />
+              <AlertTriangle className="size-4 text-warning-foreground" aria-hidden="true" />
               <AlertDescription>
                 {resultado.items_bajo_costo} precio(s) quedan por debajo del costo de reposición,
                 con motivo declarado.
@@ -139,7 +139,7 @@ export function DialogPublicarVersionListaPrecioVenta({
               type="button"
               disabled={isPending}
               onClick={handleConfirm}
-              className="gap-2 bg-blue-600 hover:bg-blue-700 text-white"
+              className="gap-2 bg-primary hover:bg-primary-hover text-primary-foreground"
             >
               {isPending ? (
                 <>

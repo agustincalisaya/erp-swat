@@ -109,7 +109,7 @@ export function EditarVarianteDialog({ varianteId }: EditarVarianteDialogProps) 
         type="button"
         variant="outline"
         size="sm"
-        className="gap-1.5 border-blue-200 text-blue-700 hover:bg-blue-50 hover:text-blue-800"
+        className="gap-1.5 border-border text-primary hover:bg-accent hover:text-foreground"
         onClick={() => setAbierto(true)}
       >
         <Pencil className="size-3.5" aria-hidden="true" />

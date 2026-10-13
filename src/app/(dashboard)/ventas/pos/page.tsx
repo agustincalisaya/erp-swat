@@ -61,7 +61,7 @@ export default async function VentaMostradorPage() {
   } catch (err) {
     console.error("[VentaMostradorPage] Error al precargar la pantalla:", err);
     return (
-      <main className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
+      <main className="min-h-screen bg-background p-4 sm:p-6 lg:p-8">
         <div className="max-w-3xl mx-auto">
           <Alert variant="destructive">
             <AlertTriangle className="size-4" aria-hidden="true" />
@@ -76,14 +76,14 @@ export default async function VentaMostradorPage() {
   }
 
   return (
-    <main className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
+    <main className="min-h-screen bg-background p-4 sm:p-6 lg:p-8">
       <div className="max-w-3xl mx-auto space-y-5">
         <div className="flex items-center gap-3">
-          <div className="p-2 rounded-xl bg-blue-100 text-blue-600 shrink-0">
+          <div className="p-2 rounded-xl bg-selected text-selected-foreground shrink-0">
             <ShoppingCart className="size-5" aria-hidden="true" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-gray-900 tracking-tight">
+            <h1 className="text-xl font-bold text-foreground tracking-tight">
               Venta de mostrador
             </h1>
             <p className="text-sm text-muted-foreground">

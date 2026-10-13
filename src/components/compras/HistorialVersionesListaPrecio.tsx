@@ -127,7 +127,7 @@ export function HistorialVersionesListaPrecio({
                         size="sm"
                         onClick={() => aprobar(version.id)}
                         disabled={isPending}
-                        className="gap-1.5 bg-blue-600 hover:bg-blue-700 text-white"
+                        className="gap-1.5 bg-primary hover:bg-primary-hover text-primary-foreground"
                       >
                         {isPending && versionEnCurso === version.id ? (
                           <Loader2 className="size-3.5 animate-spin" />

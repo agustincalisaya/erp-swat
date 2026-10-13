@@ -141,7 +141,7 @@ export function EditorListaPreciosVenta({ filas, hoy }: EditorListaPreciosVentaP
                         <tr
                           key={id}
                           className={
-                            filaRechazada === id ? "bg-red-50" : editada ? "bg-blue-50/40" : undefined
+                            filaRechazada === id ? "bg-danger-soft" : editada ? "bg-selected/40" : undefined
                           }
                         >
                           <td className="px-4 py-3 align-top">
@@ -150,7 +150,7 @@ export function EditorListaPreciosVenta({ filas, hoy }: EditorListaPreciosVentaP
                           </td>
                           <td className="px-4 py-3 text-right tabular-nums align-top">
                             {fila.precio_vigente === null ? (
-                              <Badge className="bg-amber-100 text-amber-700 border border-amber-200 font-medium">
+                              <Badge className="bg-warning text-warning-foreground border border-warning-foreground font-medium">
                                 Sin precio
                               </Badge>
                             ) : (
@@ -174,7 +174,7 @@ export function EditorListaPreciosVenta({ filas, hoy }: EditorListaPreciosVentaP
                                   type="button"
                                   variant="ghost"
                                   size="sm"
-                                  className="h-7 gap-1 px-2 text-xs text-blue-600 hover:text-blue-700"
+                                  className="h-7 gap-1 px-2 text-xs text-primary hover:text-primary"
                                   onClick={() => editar(id, { precio: String(fila.precio_sugerido) })}
                                 >
                                   <Wand2 className="size-3" aria-hidden="true" />
@@ -207,10 +207,10 @@ export function EditorListaPreciosVenta({ filas, hoy }: EditorListaPreciosVentaP
                                     placeholder="Motivo (precio bajo costo)"
                                     aria-label={`Motivo de precio bajo costo de ${fila.sku}`}
                                     aria-invalid={motivoFaltante || undefined}
-                                    className="border-amber-300 focus-visible:border-amber-500"
+                                    className="border-warning-foreground focus-visible:border-ring"
                                   />
                                   <p
-                                    className={`text-xs ${motivoFaltante ? "text-destructive" : "text-amber-700"}`}
+                                    className={`text-xs ${motivoFaltante ? "text-destructive" : "text-warning-foreground"}`}
                                   >
                                     Por debajo del costo de reposición: el motivo es obligatorio.
                                   </p>
@@ -239,7 +239,7 @@ export function EditorListaPreciosVenta({ filas, hoy }: EditorListaPreciosVentaP
           </CardDescription>
         </CardHeader>
         <CardContent className="pt-5 space-y-4">
-          <div className="flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+          <div className="flex items-start gap-2 rounded-lg border border-border bg-selected px-3 py-2 text-xs text-selected-foreground">
             <Info className="size-4 shrink-0" aria-hidden="true" />
             <span>
               Las variantes sin precio cargado no entran en esta versión y mantienen su precio
@@ -251,7 +251,7 @@ export function EditorListaPreciosVenta({ filas, hoy }: EditorListaPreciosVentaP
             <div className="space-y-1.5">
               <Label
                 htmlFor="vigente-desde"
-                className="text-xs font-semibold uppercase tracking-wide text-gray-700"
+                className="text-xs font-semibold uppercase tracking-wide text-foreground"
               >
                 Vigente desde
               </Label>

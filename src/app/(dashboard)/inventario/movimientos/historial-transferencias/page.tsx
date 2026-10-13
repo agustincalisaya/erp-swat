@@ -61,12 +61,12 @@ export default async function HistorialTransferenciasPage({ searchParams }: Prop
   if (filtros.hasta) query.set("hasta", filtros.hasta);
 
   return (
-    <main className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
+    <main className="min-h-screen bg-background p-4 sm:p-6 lg:p-8">
       <div className="mx-auto max-w-6xl space-y-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
-            <div className="shrink-0 rounded-xl bg-blue-100 p-2 text-blue-600"><History className="size-5" aria-hidden="true" /></div>
-            <div><h1 className="text-xl font-bold tracking-tight text-gray-900">Historial de Transferencias</h1><p className="text-sm text-muted-foreground">Transferencias recibidas entre depósitos.</p></div>
+            <div className="shrink-0 rounded-xl bg-selected p-2 text-selected-foreground"><History className="size-5" aria-hidden="true" /></div>
+            <div><h1 className="text-xl font-bold tracking-tight text-foreground">Historial de Transferencias</h1><p className="text-sm text-muted-foreground">Transferencias recibidas entre depósitos.</p></div>
           </div>
           <Link href="/inventario/movimientos" className={buttonVariants({ variant: "outline" })}><ArrowLeft className="size-4" /> Volver a movimientos</Link>
         </div>

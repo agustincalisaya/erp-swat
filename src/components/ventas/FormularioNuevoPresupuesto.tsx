@@ -225,7 +225,7 @@ export function FormularioNuevoPresupuesto({
       {/* ── Cliente y vigencia ──────────────────────────────────────────── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="space-y-1.5">
-          <Label htmlFor="pres-cliente" className="text-xs font-semibold uppercase tracking-wide text-gray-700">
+          <Label htmlFor="pres-cliente" className="text-xs font-semibold uppercase tracking-wide text-foreground">
             Cliente
           </Label>
           <ComboboxFiltrable
@@ -246,7 +246,7 @@ export function FormularioNuevoPresupuesto({
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="pres-vigencia" className="text-xs font-semibold uppercase tracking-wide text-gray-700">
+          <Label htmlFor="pres-vigencia" className="text-xs font-semibold uppercase tracking-wide text-foreground">
             Vigencia (días)
           </Label>
           <Input
@@ -263,7 +263,7 @@ export function FormularioNuevoPresupuesto({
 
       {/* ── Condiciones comerciales ─────────────────────────────────────── */}
       <div className="space-y-1.5">
-        <Label htmlFor="pres-condiciones" className="text-xs font-semibold uppercase tracking-wide text-gray-700">
+        <Label htmlFor="pres-condiciones" className="text-xs font-semibold uppercase tracking-wide text-foreground">
           Condiciones comerciales <span className="font-normal text-muted-foreground">(opcional)</span>
         </Label>
         <textarea
@@ -279,7 +279,7 @@ export function FormularioNuevoPresupuesto({
       {/* ── Ítems ───────────────────────────────────────────────────────── */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <Label className="text-xs font-semibold uppercase tracking-wide text-gray-700">
+          <Label className="text-xs font-semibold uppercase tracking-wide text-foreground">
             Ítems cotizados
           </Label>
           <Button type="button" variant="outline" size="sm" onClick={agregarFila} className="gap-1.5">
@@ -421,7 +421,7 @@ export function FormularioNuevoPresupuesto({
         <Button
           type="submit"
           disabled={isPending || clientes.length === 0}
-          className="bg-blue-600 hover:bg-blue-700 text-white gap-2"
+          className="bg-primary hover:bg-primary-hover text-primary-foreground gap-2"
         >
           {isPending ? (
             <>

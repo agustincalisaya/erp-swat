@@ -122,7 +122,7 @@ export function FormularioAltaUsuario({ roles, onSuccess }: FormularioAltaUsuari
         render={
           <Button
             id="btn-nuevo-usuario"
-            className="bg-blue-600 hover:bg-blue-700 text-white gap-2"
+            className="bg-primary hover:bg-primary-hover text-primary-foreground gap-2"
           />
         }
       >
@@ -132,15 +132,15 @@ export function FormularioAltaUsuario({ roles, onSuccess }: FormularioAltaUsuari
 
       {/* ── Panel ─────────────────────────────────────────────────────────── */}
       <DialogContent className="sm:max-w-lg p-0 overflow-hidden gap-0">
-        <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-6 py-4">
+        <div className="bg-primary px-6 py-4">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2.5 text-white font-bold text-base">
-              <div className="p-1.5 bg-white/20 rounded-lg shrink-0">
+            <DialogTitle className="flex items-center gap-2.5 text-primary-foreground font-bold text-base">
+              <div className="p-1.5 bg-primary-foreground/20 rounded-lg shrink-0">
                 <UserPlus className="size-4" aria-hidden="true" />
               </div>
               Alta de usuario
             </DialogTitle>
-            <DialogDescription className="text-blue-100 text-xs mt-0.5 ml-9">
+            <DialogDescription className="text-primary-foreground text-xs mt-0.5 ml-9">
               Asigná al menos un rol — principio de menor privilegio
             </DialogDescription>
           </DialogHeader>
@@ -165,7 +165,7 @@ export function FormularioAltaUsuario({ roles, onSuccess }: FormularioAltaUsuari
               name="nombre_usuario"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-gray-700">
+                  <FormLabel className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-foreground">
                     <User className="size-3.5" aria-hidden="true" />
                     Nombre de usuario
                   </FormLabel>
@@ -174,7 +174,7 @@ export function FormularioAltaUsuario({ roles, onSuccess }: FormularioAltaUsuari
                       {...field}
                       placeholder="jperez"
                       autoComplete="off"
-                      className="focus-visible:border-blue-500 focus-visible:ring-blue-500/30"
+                      className="focus-visible:border-ring focus-visible:ring-ring"
                     />
                   </FormControl>
                   <FormMessage />
@@ -188,7 +188,7 @@ export function FormularioAltaUsuario({ roles, onSuccess }: FormularioAltaUsuari
               name="email"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-gray-700">
+                  <FormLabel className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-foreground">
                     <Mail className="size-3.5" aria-hidden="true" />
                     Email
                   </FormLabel>
@@ -198,7 +198,7 @@ export function FormularioAltaUsuario({ roles, onSuccess }: FormularioAltaUsuari
                       type="email"
                       placeholder="jperez@swat-indumentarias.com"
                       autoComplete="off"
-                      className="focus-visible:border-blue-500 focus-visible:ring-blue-500/30"
+                      className="focus-visible:border-ring focus-visible:ring-ring"
                     />
                   </FormControl>
                   <FormMessage />
@@ -212,7 +212,7 @@ export function FormularioAltaUsuario({ roles, onSuccess }: FormularioAltaUsuari
               name="nombre_completo"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-gray-700">
+                  <FormLabel className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-foreground">
                     <User className="size-3.5" aria-hidden="true" />
                     Nombre completo
                   </FormLabel>
@@ -221,7 +221,7 @@ export function FormularioAltaUsuario({ roles, onSuccess }: FormularioAltaUsuari
                       {...field}
                       placeholder="Juan Pérez"
                       autoComplete="off"
-                      className="focus-visible:border-blue-500 focus-visible:ring-blue-500/30"
+                      className="focus-visible:border-ring focus-visible:ring-ring"
                     />
                   </FormControl>
                   <FormMessage />
@@ -235,7 +235,7 @@ export function FormularioAltaUsuario({ roles, onSuccess }: FormularioAltaUsuari
               name="password"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-gray-700">
+                  <FormLabel className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-foreground">
                     <Lock className="size-3.5" aria-hidden="true" />
                     Contraseña
                   </FormLabel>
@@ -245,7 +245,7 @@ export function FormularioAltaUsuario({ roles, onSuccess }: FormularioAltaUsuari
                       type="password"
                       placeholder="Mínimo 12 caracteres"
                       autoComplete="new-password"
-                      className="focus-visible:border-blue-500 focus-visible:ring-blue-500/30"
+                      className="focus-visible:border-ring focus-visible:ring-ring"
                     />
                   </FormControl>
                   <FormDescription>
@@ -262,7 +262,7 @@ export function FormularioAltaUsuario({ roles, onSuccess }: FormularioAltaUsuari
               name="rol_ids"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-gray-700">
+                  <FormLabel className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-foreground">
                     <ShieldCheck className="size-3.5" aria-hidden="true" />
                     Roles
                   </FormLabel>
@@ -313,7 +313,7 @@ export function FormularioAltaUsuario({ roles, onSuccess }: FormularioAltaUsuari
             type="submit"
             form="form-alta-usuario"
             disabled={isPending}
-            className="bg-blue-600 hover:bg-blue-700 text-white gap-2"
+            className="bg-primary hover:bg-primary-hover text-primary-foreground gap-2"
           >
             {isPending ? (
               <>

@@ -100,7 +100,7 @@ export function DialogVolverPendiente({
           type="button"
           variant="outline"
           size="sm"
-          className="gap-1.5 text-blue-700 border-blue-200 bg-blue-50 hover:bg-blue-100"
+          className="gap-1.5 text-selected-foreground border-border bg-selected hover:bg-accent"
           onClick={() => setOpenInterno(true)}
         >
           <RotateCcw className="size-3.5" aria-hidden="true" />
@@ -110,7 +110,7 @@ export function DialogVolverPendiente({
 
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle className="flex items-center gap-2 text-blue-700">
+          <AlertDialogTitle className="flex items-center gap-2 text-primary">
             <RotateCcw className="size-4" aria-hidden="true" />
             Volver a PENDIENTE — {razonSocial}
           </AlertDialogTitle>
@@ -137,7 +137,7 @@ export function DialogVolverPendiente({
             type="button"
             disabled={isPending}
             onClick={handleConfirm}
-            className="bg-blue-600 hover:bg-blue-700 text-white gap-2"
+            className="bg-primary hover:bg-primary-hover text-primary-foreground gap-2"
           >
             {isPending ? (
               <>

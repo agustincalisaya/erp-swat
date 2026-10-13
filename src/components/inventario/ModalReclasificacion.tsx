@@ -96,7 +96,7 @@ export function ModalReclasificacion({ unidad }: ModalReclasificacionProps) {
             id={`btn-reclasificar-${unidad.id}`}
             variant="outline"
             size="sm"
-            className="gap-1.5 border-blue-200 text-blue-700 hover:bg-blue-50 hover:text-blue-800"
+            className="gap-1.5 border-border text-primary hover:bg-accent hover:text-foreground"
           />
         }
       >
@@ -106,7 +106,7 @@ export function ModalReclasificacion({ unidad }: ModalReclasificacionProps) {
 
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle className="flex items-center gap-2 text-blue-700">
+          <AlertDialogTitle className="flex items-center gap-2 text-primary">
             <ShieldCheck className="size-4" aria-hidden="true" />
             Reclasificar {unidad.sku} — {unidad.producto_nombre}
           </AlertDialogTitle>
@@ -126,7 +126,7 @@ export function ModalReclasificacion({ unidad }: ModalReclasificacionProps) {
         <div className="space-y-4">
           {/* Resultado del control de calidad */}
           <fieldset className="space-y-2">
-            <legend className="text-xs font-semibold uppercase tracking-wide text-gray-700">
+            <legend className="text-xs font-semibold uppercase tracking-wide text-foreground">
               Resultado del control de calidad
             </legend>
             <div className="flex gap-3">
@@ -136,8 +136,8 @@ export function ModalReclasificacion({ unidad }: ModalReclasificacionProps) {
                 aria-pressed={resultado === "APTO"}
                 className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
                   resultado === "APTO"
-                    ? "border-blue-500 bg-blue-50 text-blue-700 ring-2 ring-blue-500/30"
-                    : "border-input bg-background text-gray-700 hover:border-blue-300 hover:bg-blue-50/50"
+                    ? "border-ring bg-selected text-selected-foreground ring-2 ring-ring/30"
+                    : "border-input bg-background text-foreground hover:border-border hover:bg-accent"
                 }`}
               >
                 APTO — reincorporar
@@ -148,8 +148,8 @@ export function ModalReclasificacion({ unidad }: ModalReclasificacionProps) {
                 aria-pressed={resultado === "NO_APTO"}
                 className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
                   resultado === "NO_APTO"
-                    ? "border-red-400 bg-red-50 text-red-700 ring-2 ring-red-400/30"
-                    : "border-input bg-background text-gray-700 hover:border-red-300 hover:bg-red-50/50"
+                    ? "border-destructive bg-danger-soft text-destructive ring-2 ring-destructive/30"
+                    : "border-input bg-background text-foreground hover:border-destructive hover:bg-danger-soft/50"
                 }`}
               >
                 <PackageX className="mr-1 inline size-3.5" aria-hidden="true" />
@@ -162,7 +162,7 @@ export function ModalReclasificacion({ unidad }: ModalReclasificacionProps) {
             <div className="space-y-1.5">
               <label
                 htmlFor={`motivo-reclasificacion-${unidad.id}`}
-                className="text-xs font-semibold uppercase tracking-wide text-gray-700"
+                className="text-xs font-semibold uppercase tracking-wide text-foreground"
               >
                 Motivo de la baja
               </label>
@@ -172,7 +172,7 @@ export function ModalReclasificacion({ unidad }: ModalReclasificacionProps) {
                 onChange={(e) => setMotivo(e.target.value)}
                 placeholder="Ej: rotura de cierre en garantía, obsolescencia por cambio de temporada"
                 rows={3}
-                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:border-blue-500 focus-visible:ring-3 focus-visible:ring-blue-500/30"
+                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring"
               />
               <p className="text-xs text-muted-foreground">
                 Campo obligatorio para NO_APTO — no se puede confirmar sin un motivo.
@@ -183,7 +183,7 @@ export function ModalReclasificacion({ unidad }: ModalReclasificacionProps) {
           <div className="space-y-1.5">
             <label
               htmlFor={`rma-reclasificacion-${unidad.id}`}
-              className="text-xs font-semibold uppercase tracking-wide text-gray-700"
+              className="text-xs font-semibold uppercase tracking-wide text-foreground"
             >
               RMA (opcional)
             </label>
@@ -193,7 +193,7 @@ export function ModalReclasificacion({ unidad }: ModalReclasificacionProps) {
               value={rmaId}
               onChange={(e) => setRmaId(e.target.value)}
               placeholder="UUID del ticket RMA (Módulo I)"
-              className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:border-blue-500 focus-visible:ring-3 focus-visible:ring-blue-500/30"
+              className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring"
             />
             <p className="text-xs text-muted-foreground">
               Referencia opcional de garantía — el Módulo A no valida su existencia.
@@ -210,7 +210,7 @@ export function ModalReclasificacion({ unidad }: ModalReclasificacionProps) {
             variant="default"
             disabled={!confirmacionHabilitada || isPending}
             onClick={handleConfirm}
-            className={`gap-2 ${resultado === "NO_APTO" ? "bg-red-600 text-white hover:bg-red-700" : "bg-blue-600 text-white hover:bg-blue-700"}`}
+            className={`gap-2 ${resultado === "NO_APTO" ? "bg-destructive text-destructive-foreground hover:bg-destructive" : "bg-primary text-primary-foreground hover:bg-primary-hover"}`}
           >
             {isPending ? (
               <>

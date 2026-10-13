@@ -81,7 +81,7 @@ function FormularioAperturaTurno() {
       )}
 
       <div className="space-y-1.5">
-        <Label htmlFor="turno-fondo-inicial" className="text-xs font-semibold uppercase tracking-wide text-gray-700">
+        <Label htmlFor="turno-fondo-inicial" className="text-xs font-semibold uppercase tracking-wide text-foreground">
           Fondo fijo inicial
         </Label>
         <Input
@@ -104,7 +104,7 @@ function FormularioAperturaTurno() {
         <Button
           type="submit"
           disabled={isPending}
-          className="bg-blue-600 hover:bg-blue-700 text-white gap-2"
+          className="bg-primary hover:bg-primary-hover text-primary-foreground gap-2"
         >
           {isPending ? (
             <>
@@ -171,7 +171,7 @@ function FormularioCierreTurno({ turno }: { turno: TurnoCajaResumenAbierto }) {
   if (resultado) {
     return (
       <div className="space-y-4">
-        <Alert className="border-emerald-200 bg-emerald-50 text-emerald-900">
+        <Alert className="border-success-foreground bg-success text-success-foreground">
           <CheckCircle2 className="size-4" aria-hidden="true" />
           <AlertDescription>Turno cerrado correctamente.</AlertDescription>
         </Alert>
@@ -179,24 +179,24 @@ function FormularioCierreTurno({ turno }: { turno: TurnoCajaResumenAbierto }) {
         <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-lg border border-border bg-muted/20 p-4 text-sm">
           <div>
             <dt className="text-xs uppercase tracking-wide text-muted-foreground">Saldo esperado</dt>
-            <dd className="font-semibold text-gray-900">${resultado.saldo_esperado.toFixed(2)}</dd>
+            <dd className="font-semibold text-foreground">${resultado.saldo_esperado.toFixed(2)}</dd>
           </div>
           <div>
             <dt className="text-xs uppercase tracking-wide text-muted-foreground">Conteo físico declarado</dt>
-            <dd className="font-semibold text-gray-900">${resultado.conteo_fisico_declarado.toFixed(2)}</dd>
+            <dd className="font-semibold text-foreground">${resultado.conteo_fisico_declarado.toFixed(2)}</dd>
           </div>
           <div>
             <dt className="text-xs uppercase tracking-wide text-muted-foreground">Diferencia</dt>
-            <dd className="font-semibold text-gray-900">${resultado.diferencia.toFixed(2)}</dd>
+            <dd className="font-semibold text-foreground">${resultado.diferencia.toFixed(2)}</dd>
           </div>
           <div>
             <dt className="text-xs uppercase tracking-wide text-muted-foreground">Justificación</dt>
-            <dd className="text-gray-900">{resultado.justificacion ?? "—"}</dd>
+            <dd className="text-foreground">{resultado.justificacion ?? "—"}</dd>
           </div>
         </dl>
 
         <div className="flex items-center justify-end">
-          <Button type="button" onClick={() => router.refresh()} className="bg-blue-600 hover:bg-blue-700 text-white">
+          <Button type="button" onClick={() => router.refresh()} className="bg-primary hover:bg-primary-hover text-primary-foreground">
             Continuar
           </Button>
         </div>
@@ -225,18 +225,18 @@ function FormularioCierreTurno({ turno }: { turno: TurnoCajaResumenAbierto }) {
       <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-lg border border-border bg-muted/20 p-4 text-sm">
         <div>
           <dt className="text-xs uppercase tracking-wide text-muted-foreground">Fondo fijo inicial</dt>
-          <dd className="font-semibold text-gray-900">${turno.fondo_fijo_inicial.toFixed(2)}</dd>
+          <dd className="font-semibold text-foreground">${turno.fondo_fijo_inicial.toFixed(2)}</dd>
         </div>
         <div>
           <dt className="text-xs uppercase tracking-wide text-muted-foreground">Apertura</dt>
-          <dd className="font-semibold text-gray-900">
+          <dd className="font-semibold text-foreground">
             {new Date(turno.fecha_apertura).toLocaleString("es-AR")}
           </dd>
         </div>
       </dl>
 
       <div className="space-y-1.5">
-        <Label htmlFor="turno-conteo-fisico" className="text-xs font-semibold uppercase tracking-wide text-gray-700">
+        <Label htmlFor="turno-conteo-fisico" className="text-xs font-semibold uppercase tracking-wide text-foreground">
           Conteo físico declarado
         </Label>
         <Input
@@ -257,7 +257,7 @@ function FormularioCierreTurno({ turno }: { turno: TurnoCajaResumenAbierto }) {
 
       {pideJustificacion && (
         <div className="space-y-1.5">
-          <Label htmlFor="turno-justificacion" className="text-xs font-semibold uppercase tracking-wide text-gray-700">
+          <Label htmlFor="turno-justificacion" className="text-xs font-semibold uppercase tracking-wide text-foreground">
             Justificación
           </Label>
           <textarea
@@ -275,7 +275,7 @@ function FormularioCierreTurno({ turno }: { turno: TurnoCajaResumenAbierto }) {
         <Button
           type="submit"
           disabled={isPending}
-          className="bg-blue-600 hover:bg-blue-700 text-white gap-2"
+          className="bg-primary hover:bg-primary-hover text-primary-foreground gap-2"
         >
           {isPending ? (
             <>

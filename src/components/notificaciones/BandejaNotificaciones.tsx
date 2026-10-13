@@ -29,23 +29,23 @@ const ESTILO_PRIORIDAD = {
   CRITICA: {
     etiqueta: "Crítica",
     Icono: AlertOctagon,
-    tarjeta: "border-red-300 bg-red-50",
-    icono: "text-red-600",
-    chip: "bg-red-600 text-white",
+    tarjeta: "border-destructive bg-danger-soft",
+    icono: "text-destructive",
+    chip: "bg-destructive text-destructive-foreground",
   },
   ADVERTENCIA: {
     etiqueta: "Advertencia",
     Icono: AlertTriangle,
-    tarjeta: "border-amber-200 bg-white",
-    icono: "text-amber-600",
-    chip: "bg-amber-100 text-amber-800",
+    tarjeta: "border-warning-foreground bg-card",
+    icono: "text-warning-foreground",
+    chip: "bg-warning text-warning-foreground",
   },
   INFORMATIVA: {
     etiqueta: "Informativa",
     Icono: Info,
-    tarjeta: "border-border bg-white",
-    icono: "text-blue-600",
-    chip: "bg-blue-100 text-blue-700",
+    tarjeta: "border-border bg-card",
+    icono: "text-info-foreground",
+    chip: "bg-info text-info-foreground",
   },
 } as const;
 
@@ -109,7 +109,7 @@ export function BandejaNotificaciones({ items, noLeidas }: BandejaNotificaciones
       )}
 
       {items.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-border bg-white p-10 text-center text-sm text-muted-foreground">
+        <div className="rounded-xl border border-dashed border-border bg-card p-10 text-center text-sm text-muted-foreground">
           No tenés notificaciones
         </div>
       ) : (
@@ -130,14 +130,14 @@ export function BandejaNotificaciones({ items, noLeidas }: BandejaNotificaciones
                     <span className={`text-[10px] font-semibold uppercase rounded px-1.5 py-0.5 ${estilo.chip}`}>
                       {estilo.etiqueta}
                     </span>
-                    <h2 className={`text-sm text-gray-900 ${noLeida ? "font-semibold" : "font-medium"}`}>
+                    <h2 className={`text-sm text-foreground ${noLeida ? "font-semibold" : "font-medium"}`}>
                       {item.asunto}
                     </h2>
                     {noLeida && (
-                      <span className="size-2 rounded-full bg-blue-600" aria-label="Sin leer" />
+                      <span className="size-2 rounded-full bg-primary" aria-label="Sin leer" />
                     )}
                   </div>
-                  <p className="text-sm text-gray-700 break-words">{item.cuerpo}</p>
+                  <p className="text-sm text-foreground break-words">{item.cuerpo}</p>
                   <p className="text-xs text-muted-foreground">{formatearFecha(item.created_at)}</p>
                 </div>
                 <div className="flex flex-col sm:flex-row gap-1 shrink-0">

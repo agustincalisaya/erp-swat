@@ -73,7 +73,7 @@ export function ModalPagoRegistrado({
         {data && (
           <>
             <DialogHeader>
-              <DialogTitle className="flex items-center gap-2 text-green-700">
+              <DialogTitle className="flex items-center gap-2 text-success-foreground">
                 <CheckCircle2 className="size-4" aria-hidden="true" />
                 Pago registrado — {numeroOrden}
               </DialogTitle>

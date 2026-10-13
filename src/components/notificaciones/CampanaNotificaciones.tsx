@@ -79,15 +79,15 @@ export function CampanaNotificaciones() {
       href="/notificaciones"
       aria-label={etiqueta}
       title={etiqueta}
-      className={`relative p-2 rounded-lg transition-colors hover:bg-gray-100 ${
-        estado?.hayCritica ? "text-red-600" : "text-gray-500 hover:text-gray-900"
+      className={`relative p-2 rounded-lg transition-colors hover:bg-accent ${
+        estado?.hayCritica ? "text-destructive" : "text-muted-foreground hover:text-foreground"
       }`}
     >
       <Bell className="size-4.5" aria-hidden="true" />
       {noLeidas > 0 && (
         <span
-          className={`absolute -top-0.5 -right-0.5 min-w-4.5 h-4.5 px-1 rounded-full text-[10px] font-semibold leading-4.5 text-center text-white ${
-            estado?.hayCritica ? "bg-red-600 animate-pulse" : "bg-blue-600"
+          className={`absolute -top-0.5 -right-0.5 min-w-4.5 h-4.5 px-1 rounded-full text-[10px] font-semibold leading-4.5 text-center ${
+            estado?.hayCritica ? "bg-destructive text-destructive-foreground animate-pulse" : "bg-primary text-primary-foreground"
           }`}
         >
           {noLeidas > 99 ? "99+" : noLeidas}

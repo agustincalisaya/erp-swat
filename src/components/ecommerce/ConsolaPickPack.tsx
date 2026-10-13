@@ -170,7 +170,7 @@ export function TarjetaPedidoCola({
           <div className="mt-auto pt-1">
             {libre && enPreparacion ? (
               <Button
-                className="w-full bg-blue-600 text-white hover:bg-blue-700"
+                className="w-full bg-primary text-primary-foreground hover:bg-primary-hover"
                 disabled={accionEnCurso}
                 onClick={onTomar}
               >
@@ -396,7 +396,7 @@ export function ConsolaPickPack({
 
       {!cargando && !errorCarga && cola && cola.items.length === 0 && (
         <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
-          <CheckCircle2 className="size-10 text-emerald-500" aria-hidden="true" />
+          <CheckCircle2 className="size-10 text-success-foreground" aria-hidden="true" />
           <p className="text-sm font-medium">No hay pedidos pendientes de preparación.</p>
           <p className="text-xs text-muted-foreground">
             Los pedidos pagados ingresan automáticamente a esta cola.
@@ -458,7 +458,7 @@ export function SelectorOperacion({ seccion, puedeValidarRetiro, onCambiar }: {
 }) {
   if (!puedeValidarRetiro) return null;
   return (
-    <div className="flex w-full gap-2 rounded-lg border bg-white p-1 sm:w-fit" aria-label="Operaciones Click & Collect">
+    <div className="flex w-full gap-2 rounded-lg border bg-card p-1 sm:w-fit" aria-label="Operaciones Click & Collect">
       <Button type="button" variant={seccion === "preparacion" ? "default" : "ghost"}
         className="min-w-0 flex-1 sm:flex-none" onClick={() => onCambiar("preparacion")}>
         Preparación

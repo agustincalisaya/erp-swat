@@ -98,7 +98,7 @@ export function RetiroPedidoPanel() {
               value={dni} onChange={(evento) => { setDni(evento.target.value); setError(null); setNumeroEntregado(null); }}
               placeholder="7 u 8 dígitos" disabled={enviando} />
           </div>
-          <Button type="submit" size="lg" className="w-full bg-emerald-600 text-white hover:bg-emerald-700"
+          <Button type="submit" size="lg" className="w-full bg-success-foreground text-success hover:bg-success-foreground"
             disabled={!puedeEnviar || enviando}>
             {enviando ? <Loader2 className="size-4 animate-spin" aria-hidden="true" />
               : <PackageCheck className="size-4" aria-hidden="true" />}
@@ -113,7 +113,7 @@ export function RetiroPedidoPanel() {
           </Alert>
         )}
         {numeroEntregado && (
-          <Alert className="border-emerald-200 bg-emerald-50 text-emerald-900" role="status">
+          <Alert className="border-success-foreground bg-success text-success-foreground" role="status">
             <CheckCircle2 className="size-4" aria-hidden="true" />
             <AlertDescription>
               Pedido <strong>{numeroEntregado}</strong> entregado correctamente.

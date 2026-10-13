@@ -52,8 +52,8 @@ function primerValor(valor: string | string[] | undefined): string | undefined {
 }
 
 const INPUT_CLASS =
-  "w-full rounded-md border border-blue-200 bg-white px-3 py-2 text-sm text-blue-900 placeholder:text-blue-300 focus:border-blue-500 focus:outline-none";
-const LABEL_CLASS = "block text-xs font-semibold uppercase tracking-wide text-blue-700";
+  "w-full rounded-md border border-input bg-card px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none";
+const LABEL_CLASS = "block text-xs font-semibold uppercase tracking-wide text-primary";
 
 export default async function IntegracionesPage({ searchParams }: PageProps) {
   const session = await getServerSession();
@@ -83,8 +83,8 @@ export default async function IntegracionesPage({ searchParams }: PageProps) {
   return (
     <main className="mx-auto max-w-5xl space-y-8 p-6">
       <header className="space-y-1">
-        <h1 className="text-2xl font-semibold text-blue-800">Conector de Mercado Pago</h1>
-        <p className="text-sm text-blue-600">
+        <h1 className="text-2xl font-semibold text-foreground">Conector de Mercado Pago</h1>
+        <p className="text-sm text-primary">
           Alta, health-check, bitácora y baja del Conector. Las credenciales se muestran siempre
           enmascaradas.
         </p>
@@ -93,7 +93,7 @@ export default async function IntegracionesPage({ searchParams }: PageProps) {
       {ok && MENSAJES_OK[ok] && (
         <p
           role="status"
-          className="rounded-md border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-800"
+          className="rounded-md border border-border bg-selected px-4 py-2 text-sm text-selected-foreground"
         >
           {MENSAJES_OK[ok]}
         </p>
@@ -101,22 +101,22 @@ export default async function IntegracionesPage({ searchParams }: PageProps) {
       {error && (
         <p
           role="alert"
-          className="rounded-md border border-blue-300 bg-blue-100 px-4 py-2 text-sm text-blue-900"
+          className="rounded-md border border-border bg-selected px-4 py-2 text-sm text-selected-foreground"
         >
           {MENSAJES_ERROR[error] ?? `Error: ${error}`}
         </p>
       )}
 
       {!autorizado ? (
-        <p className="rounded-xl border border-blue-200 bg-blue-50 p-6 text-sm text-blue-700">
+        <p className="rounded-xl border border-border bg-selected p-6 text-sm text-selected-foreground">
           No tenés el permiso <code className="font-mono">integraciones:administrar_conector</code>{" "}
           para ver esta pantalla.
         </p>
       ) : (
         <>
           {/* ── Alta ─────────────────────────────────────────────────────── */}
-          <section className="space-y-4 rounded-xl border border-blue-200 bg-blue-50 p-6">
-            <h2 className="text-lg font-semibold text-blue-800">Nuevo Conector</h2>
+          <section className="space-y-4 rounded-xl border border-border bg-selected p-6">
+            <h2 className="text-lg font-semibold text-foreground">Nuevo Conector</h2>
             <form action={crearConectorMercadoPago} className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1">
                 <label className={LABEL_CLASS} htmlFor="nombre">
@@ -154,7 +154,7 @@ export default async function IntegracionesPage({ searchParams }: PageProps) {
               <div className="sm:col-span-2">
                 <button
                   type="submit"
-                  className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+                  className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary-hover"
                 >
                   Crear Conector
                 </button>
@@ -164,15 +164,15 @@ export default async function IntegracionesPage({ searchParams }: PageProps) {
 
           {/* ── Listado ──────────────────────────────────────────────────── */}
           <section className="space-y-4">
-            <h2 className="text-lg font-semibold text-blue-800">Conectores</h2>
+            <h2 className="text-lg font-semibold text-foreground">Conectores</h2>
             {conectores.length === 0 ? (
-              <p className="rounded-xl border border-blue-200 bg-blue-50 p-6 text-sm text-blue-700">
+              <p className="rounded-xl border border-border bg-selected p-6 text-sm text-selected-foreground">
                 Todavía no hay Conectores cargados.
               </p>
             ) : (
-              <div className="overflow-x-auto rounded-xl border border-blue-200">
+              <div className="overflow-x-auto rounded-xl border border-border">
                 <table className="w-full text-sm">
-                  <thead className="bg-blue-50 text-left text-xs uppercase tracking-wide text-blue-700">
+                  <thead className="bg-muted text-left text-xs uppercase tracking-wide text-selected-foreground">
                     <tr>
                       <th className="px-4 py-3">Nombre</th>
                       <th className="px-4 py-3">Entorno</th>
@@ -185,25 +185,25 @@ export default async function IntegracionesPage({ searchParams }: PageProps) {
                   <tbody className="divide-y divide-blue-100">
                     {conectores.map((c) => (
                       <tr key={c.conector_id} className="align-top">
-                        <td className="px-4 py-3 font-medium text-blue-900">{c.nombre}</td>
-                        <td className="px-4 py-3 text-blue-700">{c.entorno}</td>
+                        <td className="px-4 py-3 font-medium text-foreground">{c.nombre}</td>
+                        <td className="px-4 py-3 text-primary">{c.entorno}</td>
                         <td className="px-4 py-3">
                           <span
                             className={
                               c.estado === "ACTIVO"
-                                ? "rounded-full bg-blue-600 px-2 py-0.5 text-xs font-semibold text-white"
-                                : "rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700"
+                                ? "rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground"
+                                : "rounded-full bg-selected px-2 py-0.5 text-xs font-semibold text-selected-foreground"
                             }
                           >
                             {c.estado}
                           </span>
                         </td>
-                        <td className="px-4 py-3 font-mono text-xs text-blue-700">
+                        <td className="px-4 py-3 font-mono text-xs text-primary">
                           <div>access: {c.access_token_enmascarado}</div>
                           <div>public: {c.public_key_enmascarada}</div>
                           <div>webhook: {c.webhook_secret_enmascarado}</div>
                         </td>
-                        <td className="px-4 py-3 text-blue-700">
+                        <td className="px-4 py-3 text-primary">
                           {c.ultimo_health_check_exitoso_at
                             ? c.ultimo_health_check_exitoso_at.toISOString()
                             : "—"}
@@ -213,7 +213,7 @@ export default async function IntegracionesPage({ searchParams }: PageProps) {
                             <input type="hidden" name="conector_id" value={c.conector_id} />
                             <button
                               type="submit"
-                              className="rounded-md border border-blue-300 px-3 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100"
+                              className="rounded-md border border-border px-3 py-1 text-xs font-medium text-primary hover:bg-accent"
                             >
                               Health-check
                             </button>
@@ -224,18 +224,18 @@ export default async function IntegracionesPage({ searchParams }: PageProps) {
                               name="deletion_reason"
                               required
                               placeholder="Motivo de baja"
-                              className="w-32 rounded-md border border-blue-200 px-2 py-1 text-xs"
+                              className="w-32 rounded-md border border-input px-2 py-1 text-xs"
                             />
                             <button
                               type="submit"
-                              className="rounded-md border border-blue-300 px-3 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100"
+                              className="rounded-md border border-border px-3 py-1 text-xs font-medium text-primary hover:bg-accent"
                             >
                               Dar de baja
                             </button>
                           </form>
                           <Link
                             href={`/administracion/integraciones?conector=${c.conector_id}&page=1`}
-                            className="inline-block text-xs font-medium text-blue-700 underline"
+                            className="inline-block text-xs font-medium text-primary underline"
                           >
                             Ver bitácora
                           </Link>
@@ -251,16 +251,16 @@ export default async function IntegracionesPage({ searchParams }: PageProps) {
           {/* ── Bitácora ─────────────────────────────────────────────────── */}
           {conectorSeleccionado && (
             <section className="space-y-4">
-              <h2 className="text-lg font-semibold text-blue-800">Bitácora de invocaciones</h2>
+              <h2 className="text-lg font-semibold text-foreground">Bitácora de invocaciones</h2>
               {!bitacora || bitacora.items.length === 0 ? (
-                <p className="rounded-xl border border-blue-200 bg-blue-50 p-6 text-sm text-blue-700">
+                <p className="rounded-xl border border-border bg-selected p-6 text-sm text-selected-foreground">
                   Sin invocaciones registradas.
                 </p>
               ) : (
                 <>
-                  <div className="overflow-x-auto rounded-xl border border-blue-200">
+                  <div className="overflow-x-auto rounded-xl border border-border">
                     <table className="w-full text-sm">
-                      <thead className="bg-blue-50 text-left text-xs uppercase tracking-wide text-blue-700">
+                      <thead className="bg-muted text-left text-xs uppercase tracking-wide text-selected-foreground">
                         <tr>
                           <th className="px-4 py-3">Operación</th>
                           <th className="px-4 py-3">Resultado</th>
@@ -271,16 +271,16 @@ export default async function IntegracionesPage({ searchParams }: PageProps) {
                       <tbody className="divide-y divide-blue-100">
                         {bitacora.items.map((item, indice) => (
                           <tr key={`${item.created_at.toISOString()}-${indice}`}>
-                            <td className="px-4 py-3 font-mono text-xs text-blue-900">{item.operacion}</td>
-                            <td className="px-4 py-3 text-blue-700">{item.exitosa ? "OK" : "FALLO"}</td>
-                            <td className="px-4 py-3 text-blue-700">{item.detalle_error ?? "—"}</td>
-                            <td className="px-4 py-3 text-blue-700">{item.created_at.toISOString()}</td>
+                            <td className="px-4 py-3 font-mono text-xs text-foreground">{item.operacion}</td>
+                            <td className="px-4 py-3 text-primary">{item.exitosa ? "OK" : "FALLO"}</td>
+                            <td className="px-4 py-3 text-primary">{item.detalle_error ?? "—"}</td>
+                            <td className="px-4 py-3 text-primary">{item.created_at.toISOString()}</td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   </div>
-                  <div className="flex items-center justify-between text-sm text-blue-700">
+                  <div className="flex items-center justify-between text-sm text-primary">
                     <span>
                       Página {bitacora.paginacion.pagina_actual} de {bitacora.paginacion.total_paginas} —{" "}
                       {bitacora.paginacion.total} invocación(es)
@@ -289,7 +289,7 @@ export default async function IntegracionesPage({ searchParams }: PageProps) {
                       {bitacora.paginacion.pagina_actual > 1 && (
                         <Link
                           href={`/administracion/integraciones?conector=${conectorSeleccionado}&page=${bitacora.paginacion.pagina_actual - 1}`}
-                          className="rounded-md border border-blue-300 px-3 py-1 text-xs font-medium hover:bg-blue-100"
+                          className="rounded-md border border-border px-3 py-1 text-xs font-medium hover:bg-accent"
                         >
                           Anterior
                         </Link>
@@ -297,7 +297,7 @@ export default async function IntegracionesPage({ searchParams }: PageProps) {
                       {bitacora.paginacion.pagina_actual < bitacora.paginacion.total_paginas && (
                         <Link
                           href={`/administracion/integraciones?conector=${conectorSeleccionado}&page=${bitacora.paginacion.pagina_actual + 1}`}
-                          className="rounded-md border border-blue-300 px-3 py-1 text-xs font-medium hover:bg-blue-100"
+                          className="rounded-md border border-border px-3 py-1 text-xs font-medium hover:bg-accent"
                         >
                           Siguiente
                         </Link>

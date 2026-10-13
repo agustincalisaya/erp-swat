@@ -63,19 +63,19 @@ function formatDate(date: Date): string {
 // siempre verde, debe reflejar el estado real de cada usuario.
 const ESTADO_BADGE: Record<string, { className: string; icon: typeof ShieldCheck }> = {
   ACTIVO: {
-    className: "bg-green-100 text-green-700 border border-green-200 hover:bg-green-100",
+    className: "bg-success text-success-foreground border border-success-foreground hover:bg-success",
     icon: ShieldCheck,
   },
   SUSPENDIDO: {
-    className: "bg-amber-100 text-amber-700 border border-amber-200 hover:bg-amber-100",
+    className: "bg-warning text-warning-foreground border border-warning-foreground hover:bg-warning",
     icon: ShieldAlert,
   },
   BLOQUEADO: {
-    className: "bg-red-100 text-red-700 border border-red-200 hover:bg-red-100",
+    className: "bg-danger-soft text-destructive border border-destructive hover:bg-danger-soft",
     icon: ShieldX,
   },
   INACTIVO: {
-    className: "bg-gray-100 text-gray-600 border border-gray-200 hover:bg-gray-100",
+    className: "bg-muted text-muted-foreground border border-border hover:bg-accent",
     icon: ShieldOff,
   },
 };
@@ -133,11 +133,11 @@ async function UsuariosData({
     // porque acá la acción correcta no es "dar de alta", es "revisar el término".
     if (busqueda) {
       return (
-        <div className="flex flex-col items-center justify-center py-16 rounded-xl border-2 border-dashed border-blue-100 bg-blue-50/40 text-center">
-          <div className="p-4 rounded-full bg-blue-100 text-blue-500 mb-4">
+        <div className="flex flex-col items-center justify-center py-16 rounded-xl border-2 border-dashed border-border bg-selected/40 text-center">
+          <div className="p-4 rounded-full bg-selected text-selected-foreground mb-4">
             <Search className="size-8" />
           </div>
-          <p className="text-sm font-medium text-gray-600">
+          <p className="text-sm font-medium text-muted-foreground">
             No se encontraron usuarios que coincidan con &ldquo;{busqueda}&rdquo;
           </p>
           <p className="text-xs text-muted-foreground mt-1">
@@ -154,11 +154,11 @@ async function UsuariosData({
           ? "No hay usuarios cargados"
           : "No hay usuarios activos";
     return (
-      <div className="flex flex-col items-center justify-center py-16 rounded-xl border-2 border-dashed border-blue-100 bg-blue-50/40 text-center">
-        <div className="p-4 rounded-full bg-blue-100 text-blue-500 mb-4">
+      <div className="flex flex-col items-center justify-center py-16 rounded-xl border-2 border-dashed border-border bg-selected/40 text-center">
+        <div className="p-4 rounded-full bg-selected text-selected-foreground mb-4">
           <Users className="size-8" />
         </div>
-        <p className="text-sm font-medium text-gray-600">{mensaje}</p>
+        <p className="text-sm font-medium text-muted-foreground">{mensaje}</p>
         <p className="text-xs text-muted-foreground mt-1">
           Dá de alta el primer usuario usando el botón superior.
         </p>
@@ -199,7 +199,7 @@ async function UsuariosData({
 
         <TableBody>
           {usuarios.map((usuario) => (
-            <TableRow key={usuario.id} className="hover:bg-blue-50/30">
+            <TableRow key={usuario.id} className="hover:bg-accent">
               <TableCell>
                 <div className="flex flex-col gap-0.5">
                   <span className="text-xs font-semibold">{usuario.nombre_usuario}</span>
@@ -215,7 +215,7 @@ async function UsuariosData({
                     usuario.roles.map((rol) => (
                       <Badge
                         key={rol}
-                        className="bg-blue-100 text-blue-700 border border-blue-200 hover:bg-blue-100"
+                        className="bg-selected text-selected-foreground border border-border hover:bg-accent"
                       >
                         {rol}
                       </Badge>
@@ -252,7 +252,7 @@ async function UsuariosData({
                       <span className="text-xs text-muted-foreground whitespace-nowrap">
                         {formatDate(usuario.deleted_at)}
                       </span>
-                      <span className="text-xs text-gray-600 truncate">
+                      <span className="text-xs text-muted-foreground truncate">
                         {usuario.deletion_reason ?? "Sin motivo registrado"}
                       </span>
                     </div>
@@ -326,16 +326,16 @@ export default async function UsuariosPage({ searchParams }: UsuariosPageProps) 
   const roles = await listarRolesActivos();
 
   return (
-    <main className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
+    <main className="min-h-screen bg-background p-4 sm:p-6 lg:p-8">
       <div className="max-w-6xl mx-auto space-y-5">
         {/* ── Header + CTA ────────────────────────────────────────────── */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-blue-100 text-blue-600 shrink-0">
+            <div className="p-2 rounded-xl bg-selected text-selected-foreground shrink-0">
               <Users className="size-5" aria-hidden="true" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-gray-900 tracking-tight">Usuarios</h1>
+              <h1 className="text-xl font-bold text-foreground tracking-tight">Usuarios</h1>
               <p className="text-sm text-muted-foreground">
                 Alta de usuarios y roles, y baja lógica con revocación inmediata de accesos.
               </p>
@@ -352,7 +352,7 @@ export default async function UsuariosPage({ searchParams }: UsuariosPageProps) 
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <div>
                 <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-                  <Users className="size-4 text-blue-500" aria-hidden="true" />
+                  <Users className="size-4 text-primary" aria-hidden="true" />
                   {CARD_TITULO[filtro]}
                 </CardTitle>
                 <CardDescription>{CARD_DESCRIPCION[filtro]}</CardDescription>
@@ -369,7 +369,7 @@ export default async function UsuariosPage({ searchParams }: UsuariosPageProps) 
               key={`${filtro}::${busqueda ?? ""}`}
               fallback={
                 <div className="flex items-center justify-center gap-3 py-12 text-sm text-muted-foreground">
-                  <span className="size-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+                  <span className="size-4 border-2 border-ring border-t-transparent rounded-full animate-spin" />
                   Cargando usuarios…
                 </div>
               }

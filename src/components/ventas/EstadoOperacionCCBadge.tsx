@@ -24,7 +24,7 @@ export function EstadoOperacionCCBadge({
 }) {
   if (estado === "RETENIDA") {
     return (
-      <Badge className="bg-amber-100 text-amber-700 border border-amber-200 font-medium">
+      <Badge className="bg-warning text-warning-foreground border border-warning-foreground font-medium">
         Retenida — pendiente
       </Badge>
     );
@@ -32,7 +32,7 @@ export function EstadoOperacionCCBadge({
 
   if (estado === "RECHAZADA") {
     return (
-      <Badge className="bg-red-100 text-red-700 border border-red-200 font-medium">
+      <Badge className="bg-danger-soft text-destructive border border-destructive font-medium">
         Rechazada
       </Badge>
     );
@@ -40,13 +40,13 @@ export function EstadoOperacionCCBadge({
 
   if (estado === "APROBADA") {
     return (
-      <Badge className="bg-emerald-100 text-emerald-800 border border-emerald-200 font-medium">
+      <Badge className="bg-success text-success-foreground border border-success-foreground font-medium">
         {autorizadoPorId !== null ? "Aprobada por excepción" : "Aprobada"}
       </Badge>
     );
   }
 
   return (
-    <Badge className="bg-gray-100 text-gray-700 border border-gray-200 font-medium">{estado}</Badge>
+    <Badge className="bg-muted text-foreground border border-border font-medium">{estado}</Badge>
   );
 }

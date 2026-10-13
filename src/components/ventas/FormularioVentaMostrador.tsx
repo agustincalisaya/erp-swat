@@ -251,9 +251,9 @@ export function FormularioVentaMostrador({ clientes, variantes, depositos }: For
     return (
       <div className="space-y-5">
         {pendienteAutorizacion ? (
-          <Alert className="border-amber-300 bg-amber-50">
-            <Clock className="size-4 text-amber-600" aria-hidden="true" />
-            <AlertDescription className="text-amber-900">
+          <Alert className="border-warning-foreground bg-warning">
+            <Clock className="size-4 text-warning-foreground" aria-hidden="true" />
+            <AlertDescription className="text-warning-foreground">
               <p className="font-semibold">Venta registrada — a la espera de un Supervisor</p>
               <p className="mt-1">
                 Al menos un ítem superó el margen de descuento habilitado
@@ -265,9 +265,9 @@ export function FormularioVentaMostrador({ clientes, variantes, depositos }: For
             </AlertDescription>
           </Alert>
         ) : (
-          <Alert className="border-green-300 bg-green-50">
-            <CheckCircle2 className="size-4 text-green-600" aria-hidden="true" />
-            <AlertDescription className="text-green-900">
+          <Alert className="border-success-foreground bg-success">
+            <CheckCircle2 className="size-4 text-success-foreground" aria-hidden="true" />
+            <AlertDescription className="text-success-foreground">
               <p className="font-semibold">Venta registrada y facturada correctamente</p>
               <p className="mt-1">El comprobante fiscal ya fue emitido (simulado, sin AFIP real).</p>
             </AlertDescription>
@@ -277,26 +277,26 @@ export function FormularioVentaMostrador({ clientes, variantes, depositos }: For
         <dl className="grid grid-cols-2 gap-3 rounded-lg border border-border bg-muted/20 p-4 text-sm">
           <div>
             <dt className="text-xs uppercase tracking-wide text-muted-foreground">N° de venta</dt>
-            <dd className="font-semibold text-gray-900">{resultado.numero_venta}</dd>
+            <dd className="font-semibold text-foreground">{resultado.numero_venta}</dd>
           </div>
           <div>
             <dt className="text-xs uppercase tracking-wide text-muted-foreground">Total</dt>
-            <dd className="font-semibold text-gray-900">{formatearMoneda(resultado.total)}</dd>
+            <dd className="font-semibold text-foreground">{formatearMoneda(resultado.total)}</dd>
           </div>
           <div>
             <dt className="text-xs uppercase tracking-wide text-muted-foreground">Tipo de comprobante</dt>
-            <dd className="font-semibold text-gray-900">{resultado.tipo_comprobante}</dd>
+            <dd className="font-semibold text-foreground">{resultado.tipo_comprobante}</dd>
           </div>
           <div>
             <dt className="text-xs uppercase tracking-wide text-muted-foreground">Comprobante</dt>
-            <dd className="font-semibold text-gray-900">
+            <dd className="font-semibold text-foreground">
               {resultado.comprobante_id ?? "Pendiente de autorización"}
             </dd>
           </div>
         </dl>
 
         <div className="flex items-center gap-2">
-          <Button onClick={nuevaVenta} className="gap-2 bg-blue-600 hover:bg-blue-700 text-white">
+          <Button onClick={nuevaVenta} className="gap-2 bg-primary hover:bg-primary-hover text-primary-foreground">
             <ShoppingCart className="size-4" />
             Registrar otra venta
           </Button>
@@ -328,7 +328,7 @@ export function FormularioVentaMostrador({ clientes, variantes, depositos }: For
 
       {/* ── Cliente (opcional) ──────────────────────────────────────────── */}
       <div className="space-y-1.5">
-        <Label htmlFor="pos-cliente" className="text-xs font-semibold uppercase tracking-wide text-gray-700">
+        <Label htmlFor="pos-cliente" className="text-xs font-semibold uppercase tracking-wide text-foreground">
           Cliente <span className="font-normal text-muted-foreground">(opcional)</span>
         </Label>
         <ComboboxFiltrable
@@ -347,7 +347,7 @@ export function FormularioVentaMostrador({ clientes, variantes, depositos }: For
       {/* ── Ítems ───────────────────────────────────────────────────────── */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <Label className="text-xs font-semibold uppercase tracking-wide text-gray-700">Ítems</Label>
+          <Label className="text-xs font-semibold uppercase tracking-wide text-foreground">Ítems</Label>
           <Button type="button" variant="outline" size="sm" onClick={agregarFilaItem} className="gap-1.5">
             <Plus className="size-3.5" />
             Agregar ítem
@@ -448,7 +448,7 @@ export function FormularioVentaMostrador({ clientes, variantes, depositos }: For
                       step="0.01"
                       value={fila.descuento_porcentual}
                       onChange={(e) => setFilaItem(fila.key, { descuento_porcentual: e.target.value })}
-                      className={`text-sm ${excedeMargen ? "border-amber-400" : ""}`}
+                      className={`text-sm ${excedeMargen ? "border-warning-foreground" : ""}`}
                     />
                   </div>
                   <Button
@@ -464,7 +464,7 @@ export function FormularioVentaMostrador({ clientes, variantes, depositos }: For
                   </Button>
                 </div>
                 {excedeMargen && (
-                  <p className="flex items-center gap-1.5 text-xs text-amber-700">
+                  <p className="flex items-center gap-1.5 text-xs text-warning-foreground">
                     <Clock className="size-3.5 shrink-0" />
                     Este ítem quedará pendiente de autorización de un Supervisor.
                   </p>
@@ -480,7 +480,7 @@ export function FormularioVentaMostrador({ clientes, variantes, depositos }: For
       {/* ── Medios de pago ──────────────────────────────────────────────── */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <Label className="text-xs font-semibold uppercase tracking-wide text-gray-700">Medios de pago</Label>
+          <Label className="text-xs font-semibold uppercase tracking-wide text-foreground">Medios de pago</Label>
           <Button type="button" variant="outline" size="sm" onClick={agregarFilaMedioPago} className="gap-1.5">
             <Plus className="size-3.5" />
             Agregar medio de pago
@@ -559,7 +559,7 @@ export function FormularioVentaMostrador({ clientes, variantes, depositos }: For
 
       {/* ── Tipo de comprobante ─────────────────────────────────────────── */}
       <div className="space-y-1.5">
-        <Label htmlFor="pos-comprobante" className="text-xs font-semibold uppercase tracking-wide text-gray-700">
+        <Label htmlFor="pos-comprobante" className="text-xs font-semibold uppercase tracking-wide text-foreground">
           Tipo de comprobante
         </Label>
         <select
@@ -579,12 +579,12 @@ export function FormularioVentaMostrador({ clientes, variantes, depositos }: For
       {/* ── Totales ─────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between rounded-lg border border-border bg-muted/20 p-3 text-sm">
         <span className="text-muted-foreground">Total ítems: {formatearMoneda(totalItems)}</span>
-        <span className={sumaCoincide ? "text-green-700" : "text-destructive"}>
+        <span className={sumaCoincide ? "text-success-foreground" : "text-destructive"}>
           Total medios de pago: {formatearMoneda(totalPagos)}
         </span>
       </div>
       {hayItemFueraDeMargen && (
-        <p className="flex items-center gap-1.5 text-xs text-amber-700">
+        <p className="flex items-center gap-1.5 text-xs text-warning-foreground">
           <Clock className="size-3.5 shrink-0" />
           Esta venta tiene al menos un ítem pendiente de autorización — se
           registrará igual, pero sin comprobante hasta que un Supervisor lo
@@ -596,7 +596,7 @@ export function FormularioVentaMostrador({ clientes, variantes, depositos }: For
         <Button
           type="submit"
           disabled={isPending || !sumaCoincide || itemsCargados.length === 0}
-          className="bg-blue-600 hover:bg-blue-700 text-white gap-2"
+          className="bg-primary hover:bg-primary-hover text-primary-foreground gap-2"
         >
           {isPending ? (
             <>

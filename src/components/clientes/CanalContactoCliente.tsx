@@ -92,7 +92,7 @@ export function CanalContactoCliente({
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-          <MessageCircle className="size-4 text-blue-500" aria-hidden="true" />
+          <MessageCircle className="size-4 text-primary" aria-hidden="true" />
           Canal de contacto preferido
         </CardTitle>
         <CardDescription>
@@ -151,7 +151,7 @@ function CanalContactoForm({
         {/* Estado visible del valor guardado: con `null` lo dice explícito. */}
         <p className="text-sm text-muted-foreground">
           Valor guardado:{" "}
-          <span className="font-medium text-gray-900">
+          <span className="font-medium text-foreground">
             {canalPreferido ? ETIQUETA_CANAL[canalPreferido] : SIN_DEFINIR}
           </span>
         </p>
@@ -175,11 +175,11 @@ function CanalContactoForm({
           )}
         />
 
-        <div className="flex justify-end pt-2 border-t border-slate-100">
+        <div className="flex justify-end pt-2 border-t border-border">
           <Button
             type="submit"
             disabled={form.formState.isSubmitting}
-            className="bg-blue-600 hover:bg-blue-700 text-white gap-2"
+            className="bg-primary hover:bg-primary-hover text-primary-foreground gap-2"
           >
             {form.formState.isSubmitting ? (
               <>

@@ -34,15 +34,15 @@ export default async function HistorialMovimientosPage() {
   const depositos = await listarDepositosActivos();
 
   return (
-    <main className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
+    <main className="min-h-screen bg-background p-4 sm:p-6 lg:p-8">
       <div className="mx-auto max-w-6xl space-y-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
-            <div className="shrink-0 rounded-xl bg-blue-100 p-2 text-blue-600">
+            <div className="shrink-0 rounded-xl bg-selected p-2 text-selected-foreground">
               <History className="size-5" aria-hidden="true" />
             </div>
             <div>
-              <h1 className="text-xl font-bold tracking-tight text-gray-900">Historial de Movimientos</h1>
+              <h1 className="text-xl font-bold tracking-tight text-foreground">Historial de Movimientos</h1>
               <p className="text-sm text-muted-foreground">Ingresos, egresos, transferencias y ajustes de stock.</p>
             </div>
           </div>

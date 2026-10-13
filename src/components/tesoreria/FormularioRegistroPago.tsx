@@ -230,7 +230,7 @@ export function FormularioRegistroPago({
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Banknote className="size-4 text-blue-600" aria-hidden="true" />
+              <Banknote className="size-4 text-primary" aria-hidden="true" />
               Registrar pago — {numeroOrden}
             </DialogTitle>
             <DialogDescription>
@@ -261,7 +261,7 @@ export function FormularioRegistroPago({
               {!cargandoComprobantes &&
                 !errorComprobantes &&
                 comprobantes.length === 0 && (
-                  <p className="text-xs text-amber-600">
+                  <p className="text-xs text-warning-foreground">
                     La orden no tiene comprobantes vigentes. No se puede registrar
                     el pago.
                   </p>

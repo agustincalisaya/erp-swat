@@ -61,7 +61,7 @@ export default async function DetalleCuentaCorrientePage({
   if (!cuenta) notFound();
 
   return (
-    <main className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
+    <main className="min-h-screen bg-background p-4 sm:p-6 lg:p-8">
       <div className="max-w-5xl mx-auto space-y-5">
         <Link
           href="/ventas/cuentas-corrientes"
@@ -72,11 +72,11 @@ export default async function DetalleCuentaCorrientePage({
         </Link>
 
         <div className="flex items-center gap-3">
-          <div className="p-2 rounded-xl bg-blue-100 text-blue-600 shrink-0">
+          <div className="p-2 rounded-xl bg-selected text-selected-foreground shrink-0">
             <Wallet className="size-5" aria-hidden="true" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-gray-900 tracking-tight">{cuenta.cliente_nombre}</h1>
+            <h1 className="text-xl font-bold text-foreground tracking-tight">{cuenta.cliente_nombre}</h1>
             <p className="text-sm text-muted-foreground">Cuenta corriente</p>
           </div>
         </div>
@@ -107,7 +107,7 @@ export default async function DetalleCuentaCorrientePage({
                 Disponible
               </p>
               <p
-                className={`mt-1 text-lg font-bold tabular-nums ${cuenta.disponible < 0 ? "text-red-600" : ""}`}
+                className={`mt-1 text-lg font-bold tabular-nums ${cuenta.disponible < 0 ? "text-destructive" : ""}`}
               >
                 {money.format(cuenta.disponible)}
               </p>
@@ -119,7 +119,7 @@ export default async function DetalleCuentaCorrientePage({
         <Card>
           <CardHeader className="border-b border-border">
             <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-              <Wallet className="size-4 text-blue-500" aria-hidden="true" />
+              <Wallet className="size-4 text-primary" aria-hidden="true" />
               Operaciones ({cuenta.operaciones.length})
             </CardTitle>
             <CardDescription>
@@ -158,7 +158,7 @@ export default async function DetalleCuentaCorrientePage({
                         <td className="py-3">
                           <Link
                             href={`/ventas/pedidos/${op.pedido_venta_id}`}
-                            className="font-mono text-xs font-semibold text-blue-600 hover:underline"
+                            className="font-mono text-xs font-semibold text-primary hover:underline"
                           >
                             {op.numero_venta}
                           </Link>

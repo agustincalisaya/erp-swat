@@ -45,11 +45,11 @@ export function TablaAuditLog({ resultado, mostrarDetalle, queryBase }: TablaAud
 
   if (registros.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-16 rounded-xl border-2 border-dashed border-blue-100 bg-blue-50/40 text-center">
-        <div className="p-4 rounded-full bg-blue-100 text-blue-500 mb-4">
+      <div className="flex flex-col items-center justify-center py-16 rounded-xl border-2 border-dashed border-border bg-selected/40 text-center">
+        <div className="p-4 rounded-full bg-selected text-selected-foreground mb-4">
           <ScrollText className="size-8" />
         </div>
-        <p className="text-sm font-medium text-gray-600">No hay registros</p>
+        <p className="text-sm font-medium text-muted-foreground">No hay registros</p>
         <p className="text-xs text-muted-foreground mt-1">
           Ningún evento coincide con los filtros aplicados.
         </p>
@@ -87,7 +87,7 @@ export function TablaAuditLog({ resultado, mostrarDetalle, queryBase }: TablaAud
           </TableHeader>
           <TableBody>
             {registros.map((registro) => (
-              <TableRow key={registro.id} className="hover:bg-blue-50/30">
+              <TableRow key={registro.id} className="hover:bg-accent">
                 <TableCell>
                   <span className="text-xs text-muted-foreground whitespace-nowrap">
                     {formatFechaHora(registro.created_at)}
@@ -104,7 +104,7 @@ export function TablaAuditLog({ resultado, mostrarDetalle, queryBase }: TablaAud
                   </div>
                 </TableCell>
                 <TableCell>
-                  <Badge className="bg-blue-100 text-blue-700 border border-blue-200 hover:bg-blue-100">
+                  <Badge className="bg-info text-info-foreground border border-info-foreground hover:bg-info">
                     {registro.accion}
                   </Badge>
                 </TableCell>
@@ -118,7 +118,7 @@ export function TablaAuditLog({ resultado, mostrarDetalle, queryBase }: TablaAud
                   <TableCell>
                     {registro.valor_nuevo || registro.valor_anterior ? (
                       <details className="text-xs">
-                        <summary className="cursor-pointer text-blue-600 hover:underline">
+                        <summary className="cursor-pointer text-primary hover:underline">
                           Ver
                         </summary>
                         <pre className="mt-1 max-w-xs overflow-x-auto rounded bg-muted/50 p-2 text-[10px]">
@@ -183,7 +183,7 @@ function PaginaLink({
   return (
     <a
       href={`?${queryBase}${separador}page=${page}`}
-      className="px-3 py-1.5 rounded-lg border border-border hover:bg-blue-50 hover:border-blue-200 hover:text-blue-700"
+      className="px-3 py-1.5 rounded-lg border border-border hover:bg-accent hover:border-border hover:text-primary"
     >
       {label}
     </a>

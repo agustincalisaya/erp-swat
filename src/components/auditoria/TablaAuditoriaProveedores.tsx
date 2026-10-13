@@ -84,7 +84,7 @@ export function TablaAuditoriaProveedores({
                 <TableCell className="text-xs">
                   {evento.valor_anterior != null || evento.valor_nuevo != null ? (
                     <details>
-                      <summary className="cursor-pointer text-blue-600">Ver valores</summary>
+                      <summary className="cursor-pointer text-primary">Ver valores</summary>
                       <pre className="mt-1 max-w-sm overflow-x-auto rounded bg-muted/50 p-2 text-[10px]">
                         {JSON.stringify({ anterior: evento.valor_anterior, nuevo: evento.valor_nuevo }, null, 2)}
                       </pre>

@@ -14,6 +14,7 @@ import { obtenerIdentidadUsuario } from "@/lib/services/auditoria/usuario.servic
 import { LogoutButton } from "@/components/layout/LogoutButton";
 import { CampanaNotificaciones } from "@/components/notificaciones/CampanaNotificaciones";
 import { Badge } from "@/components/ui/badge";
+import { ThemeSelector } from "@/components/theme/ThemeSelector";
 
 export async function Navbar() {
   const session = await getServerSession();
@@ -22,18 +23,18 @@ export async function Navbar() {
   const identidad = await obtenerIdentidadUsuario(session.userId);
 
   return (
-    <header className="h-14 shrink-0 border-b border-border bg-white flex items-center justify-between gap-4 px-4 sm:px-6">
+    <header className="h-14 shrink-0 border-b border-border bg-card flex items-center justify-between gap-4 px-4 sm:px-6">
       <div className="lg:hidden w-8" aria-hidden="true" />
 
-      <div className="flex-1" />
+      <div className="flex-1"><ThemeSelector /></div>
 
       <div className="flex items-center gap-3">
         <CampanaNotificaciones />
 
         <div className="hidden sm:flex items-center gap-2 pl-1 border-l border-border">
-          <UserCircle2 className="size-6 text-gray-400 ml-2" aria-hidden="true" />
+          <UserCircle2 className="size-6 text-muted-foreground ml-2" aria-hidden="true" />
           <div className="flex flex-col leading-tight">
-            <span className="text-sm font-semibold text-gray-900">
+            <span className="text-sm font-semibold text-foreground">
               {identidad?.nombre_completo ?? session.nombreUsuario}
             </span>
             <div className="flex flex-wrap gap-1">
@@ -41,7 +42,7 @@ export async function Navbar() {
                 identidad!.roles.map((rol) => (
                   <Badge
                     key={rol}
-                    className="bg-blue-100 text-blue-700 border border-blue-200 hover:bg-blue-100 text-[10px] px-1.5 py-0"
+                    className="bg-info text-info-foreground border border-info-foreground hover:bg-info text-[10px] px-1.5 py-0"
                   >
                     {rol}
                   </Badge>

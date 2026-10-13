@@ -110,16 +110,16 @@ export default async function OrdenesCompraPage({
   const params = await searchParams;
 
   return (
-    <main className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
+    <main className="min-h-screen bg-background p-4 sm:p-6 lg:p-8">
       <div className="max-w-6xl mx-auto space-y-5">
         {/* ── Header + CTA ────────────────────────────────────────────── */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-blue-100 text-blue-600 shrink-0">
+            <div className="p-2 rounded-xl bg-selected text-selected-foreground shrink-0">
               <ClipboardList className="size-5" aria-hidden="true" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-gray-900 tracking-tight">
+              <h1 className="text-xl font-bold text-foreground tracking-tight">
                 Órdenes de Compra
               </h1>
               <p className="text-sm text-muted-foreground">
@@ -132,7 +132,7 @@ export default async function OrdenesCompraPage({
             <div className="pl-12 sm:pl-0">
               <Link
                 href="/compras/ordenes/nueva"
-                className={`${buttonVariants()} bg-blue-600 hover:bg-blue-700 text-white gap-2`}
+                className={`${buttonVariants()} bg-primary hover:bg-primary-hover text-primary-foreground gap-2`}
               >
                 <PackagePlus className="size-4" aria-hidden="true" />
                 Nueva orden de compra
@@ -145,7 +145,7 @@ export default async function OrdenesCompraPage({
         <Card>
           <CardHeader className="border-b border-border">
             <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-              <ClipboardList className="size-4 text-blue-500" aria-hidden="true" />
+              <ClipboardList className="size-4 text-primary" aria-hidden="true" />
               Órdenes emitidas
             </CardTitle>
             <CardDescription>
@@ -159,7 +159,7 @@ export default async function OrdenesCompraPage({
               key={`${params.estado ?? ""}::${params.proveedor_id ?? ""}`}
               fallback={
                 <div className="flex items-center justify-center gap-3 py-12 text-sm text-muted-foreground">
-                  <span className="size-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+                  <span className="size-4 border-2 border-ring border-t-transparent rounded-full animate-spin" />
                   Cargando órdenes…
                 </div>
               }

@@ -62,7 +62,7 @@ export function DialogAceptarPresupuesto({ presupuestoId }: DialogAceptarPresupu
     <AlertDialog open={open} onOpenChange={(o) => (o ? setOpen(true) : handleClose())}>
       <Button
         type="button"
-        className="gap-2 bg-blue-600 hover:bg-blue-700 text-white"
+        className="gap-2 bg-primary hover:bg-primary-hover text-primary-foreground"
         onClick={() => setOpen(true)}
       >
         <CheckCircle2 className="size-4" aria-hidden="true" />
@@ -72,7 +72,7 @@ export function DialogAceptarPresupuesto({ presupuestoId }: DialogAceptarPresupu
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle className="flex items-center gap-2">
-            <CheckCircle2 className="size-4 text-blue-600" aria-hidden="true" />
+            <CheckCircle2 className="size-4 text-primary" aria-hidden="true" />
             Convertir el presupuesto en pedido de venta
           </AlertDialogTitle>
           <AlertDialogDescription>
@@ -97,7 +97,7 @@ export function DialogAceptarPresupuesto({ presupuestoId }: DialogAceptarPresupu
             type="button"
             disabled={isPending}
             onClick={handleConfirm}
-            className="gap-2 bg-blue-600 hover:bg-blue-700 text-white"
+            className="gap-2 bg-primary hover:bg-primary-hover text-primary-foreground"
           >
             {isPending ? (
               <>

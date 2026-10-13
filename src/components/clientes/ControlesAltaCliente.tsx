@@ -17,7 +17,7 @@ export function AvisoDniCliente({ cliente, onIrFicha }: {
   onIrFicha: (id: string) => void;
 }) {
   const clienteId = cliente.id;
-  return <Alert role="alert" className="border-amber-200 bg-amber-50">
+  return <Alert role="alert" className="border-warning-foreground bg-warning">
     <AlertDescription>
       Este DNI ya existe{cliente.is_active === false ? " en un cliente inactivo" : ""}. No se creará otro cliente ni se reactivará el existente.
       {clienteId && <Button type="button" variant="link" onClick={() => onIrFicha(clienteId)}>Ir a la ficha del cliente</Button>}
@@ -31,7 +31,7 @@ export function BotonAltaCliente({ enviando, bloqueado, continuar }: {
   continuar: boolean;
 }) {
   return <Button type="submit" disabled={enviando || bloqueado}
-    className="bg-blue-600 hover:bg-blue-700 text-white gap-2">
+    className="bg-primary hover:bg-primary-hover text-primary-foreground gap-2">
     {enviando ? <><Loader2 className="size-4 animate-spin" aria-hidden="true" />Guardando…</>
       : <><UserPlus className="size-4" aria-hidden="true" />
         {continuar ? "Continuar con el alta" : "Revisar y dar de alta"}</>}

@@ -32,7 +32,7 @@ export function SelectorVarianteWeb({ variantes }: { variantes: OpcionVarianteWe
   const [pendiente, startTransition] = useTransition();
 
   const variante = variantes.find((v) => v.variante_sku_id === seleccionada);
-  if (!variante) return <p className="text-sm text-slate-600">Este producto no tiene variantes disponibles.</p>;
+  if (!variante) return <p className="text-sm text-muted-foreground">Este producto no tiene variantes disponibles.</p>;
 
   const agotada = variante.comprable && variante.disponible <= 0;
   const puedeAgregar = variante.comprable && variante.disponible > 0 && cantidad <= variante.disponible;
@@ -61,7 +61,7 @@ export function SelectorVarianteWeb({ variantes }: { variantes: OpcionVarianteWe
         <Label htmlFor="variante">Variante</Label>
         <select
           id="variante"
-          className="w-full rounded-md border bg-white px-3 py-2 text-sm"
+          className="w-full rounded-md border bg-card px-3 py-2 text-sm"
           value={seleccionada}
           onChange={(e) => {
             setSeleccionada(e.target.value);
@@ -82,9 +82,9 @@ export function SelectorVarianteWeb({ variantes }: { variantes: OpcionVarianteWe
         {variante.precio_venta !== null ? (
           <p className="text-2xl font-semibold">{formatearPrecio(variante.precio_venta)}</p>
         ) : (
-          <p className="text-slate-600">Sin precio disponible</p>
+          <p className="text-muted-foreground">Sin precio disponible</p>
         )}
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-muted-foreground">
           {!variante.comprable
             ? "Este artículo no está disponible para la compra online."
             : agotada

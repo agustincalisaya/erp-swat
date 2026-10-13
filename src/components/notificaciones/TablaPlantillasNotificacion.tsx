@@ -43,9 +43,9 @@ const OPCIONES_FILTRO: { valor: FiltroEstado; etiqueta: string }[] = [
 ];
 
 const CLASE_PRIORIDAD: Record<Prioridad, string> = {
-  CRITICA: "bg-red-600 text-white",
-  ADVERTENCIA: "bg-amber-100 text-amber-800",
-  INFORMATIVA: "bg-sky-100 text-sky-800",
+  CRITICA: "bg-destructive text-destructive-foreground",
+  ADVERTENCIA: "bg-warning text-warning-foreground",
+  INFORMATIVA: "bg-info text-info-foreground",
 };
 
 const formatoFecha = new Intl.DateTimeFormat("es-AR", {
@@ -128,7 +128,7 @@ export function TablaPlantillasNotificacion({
       {visibles.length === 0 ? (
         <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed bg-background px-6 py-12 text-center">
           <BellOff className="size-6 text-muted-foreground" aria-hidden="true" />
-          <p className="text-sm font-medium text-gray-900">
+          <p className="text-sm font-medium text-foreground">
             {plantillas.length === 0 || filtro === "ACTIVAS"
               ? "No hay plantillas configuradas"
               : "No hay plantillas en este estado"}
@@ -168,7 +168,7 @@ export function TablaPlantillasNotificacion({
                   </TableCell>
                   <TableCell>
                     {p.is_active ? (
-                      <Badge variant="outline" className="border-emerald-200 text-emerald-700">
+                      <Badge variant="outline" className="border-success-foreground text-success-foreground">
                         Activa
                       </Badge>
                     ) : (
@@ -202,7 +202,7 @@ export function TablaPlantillasNotificacion({
                             type="button"
                             variant="outline"
                             size="sm"
-                            className="gap-1.5 border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
+                            className="gap-1.5 border-destructive bg-danger-soft text-destructive hover:bg-danger-soft"
                             onClick={() => abrir("baja", p)}
                           >
                             <Trash2 className="size-3.5" aria-hidden="true" />

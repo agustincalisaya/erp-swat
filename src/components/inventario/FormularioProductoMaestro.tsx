@@ -95,7 +95,7 @@ export function FormularioProductoMaestro() {
   if (productoCreado) {
     return (
       <div className="space-y-5">
-        <Alert className="border-green-200 bg-green-50 text-green-800">
+        <Alert className="border-success-foreground bg-success text-success-foreground">
           <CheckCircle2 className="size-4" aria-hidden="true" />
           <AlertDescription>
             Producto <span className="font-semibold">{productoCreado.nombre}</span> (código{" "}
@@ -123,7 +123,7 @@ export function FormularioProductoMaestro() {
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-          <PackagePlus className="size-4 text-blue-500" aria-hidden="true" />
+          <PackagePlus className="size-4 text-primary" aria-hidden="true" />
           Datos del Producto Maestro
         </CardTitle>
       </CardHeader>
@@ -276,11 +276,11 @@ export function FormularioProductoMaestro() {
               />
             </div>
 
-            <div className="flex justify-end pt-2 border-t border-slate-100">
+            <div className="flex justify-end pt-2 border-t border-border">
               <Button
                 type="submit"
                 disabled={form.formState.isSubmitting}
-                className="bg-blue-600 hover:bg-blue-700 text-white gap-2"
+                className="bg-primary hover:bg-primary-hover text-primary-foreground gap-2"
               >
                 {form.formState.isSubmitting ? (
                   <>

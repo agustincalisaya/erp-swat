@@ -96,7 +96,7 @@ export function ComparativaPreciosCard({ variantes }: ComparativaPreciosCardProp
           type="button"
           onClick={comparar}
           disabled={isPending}
-          className="gap-2 bg-blue-600 hover:bg-blue-700 text-white"
+          className="gap-2 bg-primary hover:bg-primary-hover text-primary-foreground"
         >
           {isPending ? <Loader2 className="size-4 animate-spin" /> : <Search className="size-4" />}
           Comparar
@@ -125,7 +125,7 @@ export function ComparativaPreciosCard({ variantes }: ComparativaPreciosCardProp
               {proveedores.map((p, indice) => (
                 <TableRow key={p.proveedor_id}>
                   <TableCell className="text-xs">
-                    {p.razon_social} {indice === 0 && <span className="text-emerald-600 font-semibold">· más barato</span>}
+                    {p.razon_social} {indice === 0 && <span className="text-success-foreground font-semibold">· más barato</span>}
                   </TableCell>
                   <TableCell className="text-xs font-medium">
                     ${p.precio_unitario.toLocaleString("es-AR", { minimumFractionDigits: 2 })}

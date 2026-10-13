@@ -21,19 +21,19 @@ const ESTADO_CONFIG: Record<
 > = {
   VIGENTE: {
     label: "Vigente",
-    className: "bg-emerald-100 text-emerald-800 border border-emerald-200",
+    className: "bg-success text-success-foreground border border-success-foreground",
   },
   HISTORICA: {
     label: "Histórica",
-    className: "bg-gray-100 text-gray-700 border border-gray-200",
+    className: "bg-muted text-foreground border border-border",
   },
   PENDIENTE_APROBACION: {
     label: "Pendiente de aprobación",
-    className: "bg-amber-100 text-amber-700 border border-amber-200",
+    className: "bg-warning text-warning-foreground border border-warning-foreground",
   },
   FUTURA: {
     label: "Futura",
-    className: "bg-blue-100 text-blue-700 border border-blue-200",
+    className: "bg-info text-info-foreground border border-info-foreground",
   },
 };
 
@@ -41,7 +41,7 @@ export function EstadoListaPrecioVersionBadge({ estado }: { estado: string }) {
   const config =
     ESTADO_CONFIG[estado as EstadoListaPrecioVersion] ?? {
       label: estado,
-      className: "bg-gray-100 text-gray-700 border border-gray-200",
+      className: "bg-muted text-foreground border border-border",
     };
 
   return (

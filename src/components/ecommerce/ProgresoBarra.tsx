@@ -11,7 +11,7 @@ export function ProgresoBarra({ porcentaje }: { porcentaje: number }) {
   const valor = Math.min(100, Math.max(0, porcentaje));
   return (
     <div
-      className="h-2 w-full overflow-hidden rounded-full bg-slate-200"
+      className="h-2 w-full overflow-hidden rounded-full bg-muted"
       role="progressbar"
       aria-valuenow={valor}
       aria-valuemin={0}
@@ -20,7 +20,7 @@ export function ProgresoBarra({ porcentaje }: { porcentaje: number }) {
       <div
         className={cn(
           "h-full rounded-full transition-all",
-          valor >= 100 ? "bg-emerald-500" : "bg-blue-500",
+          valor >= 100 ? "bg-success-foreground" : "bg-primary",
         )}
         style={{ width: `${valor}%` }}
       />

@@ -93,7 +93,7 @@ export function DialogReactivarUsuario({
             id={`btn-reactivar-usuario-${usuarioId}`}
             variant="outline"
             size="sm"
-            className="gap-1.5 text-green-700 border-green-200 hover:bg-green-50"
+            className="gap-1.5 text-success-foreground border-success-foreground hover:bg-success"
           />
         }
       >
@@ -104,7 +104,7 @@ export function DialogReactivarUsuario({
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle className="flex items-center gap-2">
-            <UserCheck className="size-4 text-green-600" aria-hidden="true" />
+            <UserCheck className="size-4 text-success-foreground" aria-hidden="true" />
             Reactivar a {nombreUsuario}
           </AlertDialogTitle>
           <AlertDialogDescription>
@@ -143,7 +143,7 @@ export function DialogReactivarUsuario({
         <div className="space-y-1.5">
           <label
             htmlFor={`motivo-reactivacion-${usuarioId}`}
-            className="text-xs font-semibold uppercase tracking-wide text-gray-700"
+            className="text-xs font-semibold uppercase tracking-wide text-foreground"
           >
             Motivo de la reactivación
           </label>
@@ -168,7 +168,7 @@ export function DialogReactivarUsuario({
             type="button"
             disabled={!motivoValido || isPending}
             onClick={handleConfirm}
-            className="gap-2 bg-green-600 hover:bg-green-700 text-white"
+            className="gap-2 bg-success-foreground hover:bg-success-foreground text-success"
           >
             {isPending ? (
               <>

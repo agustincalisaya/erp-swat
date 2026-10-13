@@ -124,7 +124,7 @@ function TagList({ label, placeholder, values, onAdd, onRemove }: TagListProps) 
               type="button"
               onClick={() => onRemove(v)}
               aria-label={`Quitar ${v}`}
-              className="rounded-full hover:bg-black/10"
+              className="rounded-full hover:bg-accent"
             >
               <X className="size-3" aria-hidden="true" />
             </button>
@@ -271,7 +271,7 @@ export function MatrizVariantes({
     return (
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-sm font-semibold text-green-700">
+          <CardTitle className="flex items-center gap-2 text-sm font-semibold text-success-foreground">
             <CheckCircle2 className="size-4" aria-hidden="true" />
             Variantes generadas
           </CardTitle>
@@ -286,7 +286,7 @@ export function MatrizVariantes({
         <CardContent className="space-y-4">
           <ul className="text-sm font-mono space-y-1 max-h-64 overflow-y-auto">
             {resultado.variantes.map((v) => (
-              <li key={v.id} className="flex justify-between border-b border-slate-100 py-1">
+              <li key={v.id} className="flex justify-between border-b border-border py-1">
                 <span>{v.sku}</span>
                 <span className="text-muted-foreground">
                   {v.ean_qr ?? "Sin EAN-13 (pendiente)"}
@@ -307,7 +307,7 @@ export function MatrizVariantes({
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-          <LayoutGrid className="size-4 text-blue-500" aria-hidden="true" />
+          <LayoutGrid className="size-4 text-primary" aria-hidden="true" />
           Matriz de Variantes
         </CardTitle>
         <CardDescription>
@@ -376,8 +376,8 @@ export function MatrizVariantes({
           </Alert>
         )}
 
-        <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+        <div className="rounded-lg border border-border bg-background p-4 space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Preview — {filasPreview.length} SKU(s)
           </p>
           {filasPreview.length === 0 ? (
@@ -389,7 +389,7 @@ export function MatrizVariantes({
               {filasPreview.map((fila) => (
                 <li
                   key={fila.key}
-                  className="flex flex-col gap-1.5 rounded-md border border-slate-200 bg-white p-2"
+                  className="flex flex-col gap-1.5 rounded-md border border-border bg-card p-2"
                 >
                   <span className="truncate font-mono text-sm">{fila.sku}</span>
                   <div className="flex items-center gap-2">
@@ -438,18 +438,18 @@ export function MatrizVariantes({
             </ul>
           )}
           {filasPreview.length > 0 && !todasLasFilasConProveedor && !sinProveedoresHomologados && (
-            <p className="text-xs text-amber-700">
+            <p className="text-xs text-warning-foreground">
               Seleccioná el proveedor habitual de cada fila para poder generar.
             </p>
           )}
         </div>
 
-        <div className="flex justify-end pt-2 border-t border-slate-100">
+        <div className="flex justify-end pt-2 border-t border-border">
           <Button
             type="button"
             disabled={!puedeConfirmar}
             onClick={handleConfirmar}
-            className="bg-blue-600 hover:bg-blue-700 text-white gap-2"
+            className="bg-primary hover:bg-primary-hover text-primary-foreground gap-2"
           >
             {isPending ? (
               <>

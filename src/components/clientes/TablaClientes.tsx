@@ -82,7 +82,7 @@ export function TablaClientes({ clientes, puedeEditar = false }: TablaClientesPr
                     <td className="px-4 py-3">
                       <Link
                         href={`/clientes/${cliente.id}`}
-                        className="font-mono text-blue-600 hover:underline"
+                        className="font-mono text-primary hover:underline"
                       >
                         {cliente.dni}
                       </Link>
@@ -111,7 +111,7 @@ export function TablaClientes({ clientes, puedeEditar = false }: TablaClientesPr
                         )}
                         <Link
                           href={`/clientes/${cliente.id}`}
-                          className="font-medium text-blue-600 hover:underline whitespace-nowrap"
+                          className="font-medium text-primary hover:underline whitespace-nowrap"
                         >
                           Ver ficha
                         </Link>

@@ -31,7 +31,7 @@ export function RolPermisosModal({ nombreRol, permisos }: RolPermisosModalProps)
 
   if (cantidad === 0) {
     return (
-      <Badge className="bg-blue-100 text-blue-700 border border-blue-200 hover:bg-blue-100 text-[10px]">
+      <Badge className="bg-selected text-selected-foreground border border-border hover:bg-accent text-[10px]">
         {texto}
       </Badge>
     );
@@ -43,7 +43,7 @@ export function RolPermisosModal({ nombreRol, permisos }: RolPermisosModalProps)
         nativeButton={false}
         render={
           <Badge
-            className="bg-blue-100 text-blue-700 border border-blue-200 hover:bg-blue-200 text-[10px] cursor-pointer"
+            className="bg-selected text-selected-foreground border border-border hover:bg-accent text-[10px] cursor-pointer"
             role="button"
             tabIndex={0}
           />

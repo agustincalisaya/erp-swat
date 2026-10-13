@@ -35,7 +35,7 @@ const ETIQUETA_ORDEN: Record<OrdenCatalogo, string> = {
   precio_desc: "Mayor precio",
 };
 
-const CLASE_SELECT = "w-full rounded-md border bg-white px-3 py-2 text-sm";
+const CLASE_SELECT = "w-full rounded-md border bg-card px-3 py-2 text-sm";
 
 export default async function CatalogoTiendaPage({
   searchParams,
@@ -81,7 +81,7 @@ export default async function CatalogoTiendaPage({
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">Catálogo</h1>
-        <p className="text-sm text-slate-600">Stock disponible para retiro en Sucursal Salta.</p>
+        <p className="text-sm text-muted-foreground">Stock disponible para retiro en Sucursal Salta.</p>
       </div>
 
       <form action="/tienda/catalogo" className="space-y-3 rounded-lg border p-3" aria-label="Buscar y filtrar">
@@ -91,7 +91,7 @@ export default async function CatalogoTiendaPage({
         </div>
         <div className="grid grid-cols-2 gap-2 md:grid-cols-6">
           {CAMPOS_FILTRO.map(([clave, etiqueta, opciones]) => (
-            <label key={clave} className="space-y-1 text-xs text-slate-600">
+            <label key={clave} className="space-y-1 text-xs text-muted-foreground">
               <span>{etiqueta}</span>
               <select name={clave} defaultValue={filtros[clave] ?? ""} className={CLASE_SELECT}>
                 <option value="">Todos</option>
@@ -103,7 +103,7 @@ export default async function CatalogoTiendaPage({
               </select>
             </label>
           ))}
-          <label className="space-y-1 text-xs text-slate-600">
+          <label className="space-y-1 text-xs text-muted-foreground">
             <span>Ordenar por</span>
             <select name="orden" defaultValue={filtros.orden} className={CLASE_SELECT}>
               {(Object.keys(ETIQUETA_ORDEN) as OrdenCatalogo[]).map((orden) => (
@@ -119,7 +119,7 @@ export default async function CatalogoTiendaPage({
             Aplicar filtros
           </Button>
           {(hayFiltros || filtros.orden !== "novedad") && (
-            <Link href="/tienda/catalogo" className="self-center text-slate-600 hover:underline">
+            <Link href="/tienda/catalogo" className="self-center text-muted-foreground hover:underline">
               Limpiar
             </Link>
           )}
@@ -133,7 +133,7 @@ export default async function CatalogoTiendaPage({
       )}
 
       {catalogo && catalogo.items.length === 0 && (
-        <p className="rounded-lg border p-6 text-center text-sm text-slate-600">
+        <p className="rounded-lg border p-6 text-center text-sm text-muted-foreground">
           {hayFiltros
             ? "No encontramos productos con esos filtros. Probá con otros o limpiá la búsqueda."
             : "Todavía no hay productos publicados."}
@@ -161,7 +161,7 @@ export default async function CatalogoTiendaPage({
                     {producto.precio_desde !== null ? (
                       <p className="text-sm">desde {formatearPrecio(producto.precio_desde)}</p>
                     ) : (
-                      <p className="text-sm text-slate-500">Sin precio disponible</p>
+                      <p className="text-sm text-muted-foreground">Sin precio disponible</p>
                     )}
                     {!producto.comprable ? (
                       <Badge variant="secondary">No disponible para la compra</Badge>

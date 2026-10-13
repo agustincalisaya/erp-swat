@@ -57,7 +57,7 @@ export default async function LogsPage({ searchParams }: LogsPageProps) {
     // confirmada en HU-3) — una sesión recién revocada podría llegar hasta
     // acá antes de expirar criptográficamente.
     return (
-      <main className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
+      <main className="min-h-screen bg-background p-4 sm:p-6 lg:p-8">
         <div className="max-w-6xl mx-auto">
           <Alert variant="destructive">
             <AlertTriangle className="size-4" aria-hidden="true" />
@@ -122,16 +122,16 @@ export default async function LogsPage({ searchParams }: LogsPageProps) {
   if (tieneLeerForense && filtros.usuario_id) queryBase.set("usuario_id", filtros.usuario_id);
 
   return (
-    <main className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
+    <main className="min-h-screen bg-background p-4 sm:p-6 lg:p-8">
       <div className="max-w-6xl mx-auto space-y-5">
         {/* ── Header ───────────────────────────────────────────────────── */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-blue-100 text-blue-600 shrink-0">
+            <div className="p-2 rounded-xl bg-selected text-selected-foreground shrink-0">
               <ScrollText className="size-5" aria-hidden="true" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-gray-900 tracking-tight">
+              <h1 className="text-xl font-bold text-foreground tracking-tight">
                 Auditoría Forense
               </h1>
               <p className="text-sm text-muted-foreground">
@@ -148,10 +148,10 @@ export default async function LogsPage({ searchParams }: LogsPageProps) {
           <nav aria-label="Módulo de auditoría" className="flex gap-4 text-sm">
             <span aria-current="page" className="font-semibold">Historial general</span>
             {tieneLeerAuditoriaClientes && (
-              <Link href="/auditoria/logs?modulo=clientes" className="text-blue-600 hover:underline">Clientes</Link>
+              <Link href="/auditoria/logs?modulo=clientes" className="text-primary hover:underline">Clientes</Link>
             )}
             {tieneLeerAuditoriaProveedores && (
-              <Link href="/auditoria/logs?modulo=proveedores" className="text-blue-600 hover:underline">Proveedores</Link>
+              <Link href="/auditoria/logs?modulo=proveedores" className="text-primary hover:underline">Proveedores</Link>
             )}
           </nav>
         )}
@@ -169,7 +169,7 @@ export default async function LogsPage({ searchParams }: LogsPageProps) {
         <Card>
           <CardHeader className="border-b border-border">
             <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-              <ScrollText className="size-4 text-blue-500" aria-hidden="true" />
+              <ScrollText className="size-4 text-primary" aria-hidden="true" />
               Registros
             </CardTitle>
             <CardDescription>

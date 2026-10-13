@@ -36,14 +36,14 @@ export default async function PreparacionPickPackPage() {
   if (!puedeLeer) redirect("/no-autorizado");
 
   return (
-    <main className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
+    <main className="min-h-screen bg-background p-4 sm:p-6 lg:p-8">
       <div className="mx-auto max-w-6xl space-y-5">
         <div className="flex items-center gap-3">
-          <div className="shrink-0 rounded-xl bg-blue-100 p-2 text-blue-600">
+          <div className="shrink-0 rounded-xl bg-selected p-2 text-selected-foreground">
             <ScanBarcode className="size-5" aria-hidden="true" />
           </div>
           <div>
-            <h1 className="text-xl font-bold tracking-tight text-gray-900">
+            <h1 className="text-xl font-bold tracking-tight text-foreground">
               Preparación de pedidos
             </h1>
             <p className="text-sm text-muted-foreground">

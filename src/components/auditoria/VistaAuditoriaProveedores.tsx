@@ -70,15 +70,15 @@ export async function VistaAuditoriaProveedores({
   }
 
   return (
-    <main className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
+    <main className="min-h-screen bg-background p-4 sm:p-6 lg:p-8">
       <div className="max-w-6xl mx-auto space-y-5">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-blue-100 text-blue-600">
+            <div className="p-2 rounded-xl bg-selected text-selected-foreground">
               <ScrollText className="size-5" aria-hidden="true" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-gray-900">Auditoría Forense — Proveedores</h1>
+              <h1 className="text-xl font-bold text-foreground">Auditoría Forense — Proveedores</h1>
               <p className="text-sm text-muted-foreground">
                 Cambios de estado, variaciones críticas de precio y aprobaciones de lista de precios (Módulo H).
               </p>
@@ -88,7 +88,7 @@ export async function VistaAuditoriaProveedores({
         </div>
 
         <nav aria-label="Módulo de auditoría" className="flex gap-4 text-sm">
-          <Link href="/auditoria/logs" className="text-blue-600 hover:underline">
+          <Link href="/auditoria/logs" className="text-primary hover:underline">
             Historial general
           </Link>
           <span aria-current="page" className="font-semibold">

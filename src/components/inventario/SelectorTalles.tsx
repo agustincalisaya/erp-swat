@@ -219,7 +219,7 @@ export function SelectorTalles({ values, onAdd, onRemove }: SelectorTallesProps)
               type="button"
               onClick={() => onRemove(v)}
               aria-label={`Quitar ${v}`}
-              className="rounded-full hover:bg-black/10"
+              className="rounded-full hover:bg-accent"
             >
               <X className="size-3" aria-hidden="true" />
             </button>

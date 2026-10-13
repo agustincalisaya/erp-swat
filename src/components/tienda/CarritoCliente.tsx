@@ -79,7 +79,7 @@ export function CarritoCliente({ carrito, conSesion, compraBloqueada = false }: 
   if (carrito.items.length === 0) {
     return (
       <div className="space-y-3">
-        <p className="text-sm text-slate-600">Tu carrito está vacío.</p>
+        <p className="text-sm text-muted-foreground">Tu carrito está vacío.</p>
         <Link href="/tienda/catalogo" className={buttonVariants({ variant: "outline" })}>
           Ver catálogo
         </Link>
@@ -94,7 +94,7 @@ export function CarritoCliente({ carrito, conSesion, compraBloqueada = false }: 
           const conProblema = !item.comprable || !item.stock_suficiente || bloqueados.has(item.variante_sku_id);
           return (
             <li key={item.item_id}>
-              <Card className={conProblema ? "border-amber-400" : undefined}>
+              <Card className={conProblema ? "border-warning-foreground" : undefined}>
                 <CardContent className="flex gap-3 pt-4">
                   {item.foto_url && (
                     <Image
@@ -108,20 +108,20 @@ export function CarritoCliente({ carrito, conSesion, compraBloqueada = false }: 
                   )}
                   <div className="min-w-0 flex-1 space-y-1">
                     <p className="font-medium">{item.titulo}</p>
-                    <p className="text-xs text-slate-600">
+                    <p className="text-xs text-muted-foreground">
                       {item.modelo} · {item.color} · Talle {item.talle} · {item.genero} — {item.sku}
                     </p>
                     {item.precio_unitario !== null && (
                       <p className="text-sm">{formatearPrecio(item.precio_unitario)} c/u</p>
                     )}
                     {!item.comprable && item.motivo && (
-                      <p className="flex items-center gap-1 text-sm text-amber-700" role="alert">
+                      <p className="flex items-center gap-1 text-sm text-warning-foreground" role="alert">
                         <AlertTriangle className="size-4" aria-hidden />
                         {ETIQUETA_MOTIVO[item.motivo]}. Quitalo para poder continuar.
                       </p>
                     )}
                     {item.comprable && !item.stock_suficiente && (
-                      <p className="flex items-center gap-1 text-sm text-amber-700" role="alert">
+                      <p className="flex items-center gap-1 text-sm text-warning-foreground" role="alert">
                         <AlertTriangle className="size-4" aria-hidden />
                         {item.disponible > 0 ? `Solo quedan ${item.disponible} disponibles.` : "Agotado."}
                       </p>
@@ -172,7 +172,7 @@ export function CarritoCliente({ carrito, conSesion, compraBloqueada = false }: 
               <span>Total</span>
               <span>{formatearPrecio(carrito.total)}</span>
             </div>
-            <p className="text-xs text-slate-600">
+            <p className="text-xs text-muted-foreground">
               Al iniciar la compra reservamos el stock por un tiempo limitado mientras completás el pago.
             </p>
             {conSesion && (

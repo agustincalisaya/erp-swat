@@ -83,7 +83,7 @@ export function BuscadorFiltrosVariantes({
         <div className="space-y-1">
           <label
             htmlFor="busqueda-variantes"
-            className="text-xs font-medium text-gray-700"
+            className="text-xs font-medium text-foreground"
           >
             Buscar variante
           </label>
@@ -107,7 +107,7 @@ export function BuscadorFiltrosVariantes({
         <div className="space-y-1">
           <label
             htmlFor="filtro-producto-maestro"
-            className="text-xs font-medium text-gray-700"
+            className="text-xs font-medium text-foreground"
           >
             Producto Maestro
           </label>
@@ -133,7 +133,7 @@ export function BuscadorFiltrosVariantes({
             variant="ghost"
             size="sm"
             onClick={limpiarFiltros}
-            className="h-7 text-xs text-muted-foreground hover:text-blue-700"
+            className="h-7 text-xs text-muted-foreground hover:text-primary"
           >
             Limpiar filtros
           </Button>

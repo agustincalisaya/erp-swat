@@ -104,15 +104,15 @@ export default async function ListasPreciosPage({ searchParams }: ListasPreciosP
   ]);
 
   return (
-    <main className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
+    <main className="min-h-screen bg-background p-4 sm:p-6 lg:p-8">
       <div className="max-w-5xl mx-auto space-y-5">
         {/* ── Header ─────────────────────────────────────────────────── */}
         <div className="flex items-center gap-3">
-          <div className="p-2 rounded-xl bg-blue-100 text-blue-600 shrink-0">
+          <div className="p-2 rounded-xl bg-selected text-selected-foreground shrink-0">
             <Tags className="size-5" aria-hidden="true" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-gray-900 tracking-tight">
+            <h1 className="text-xl font-bold text-foreground tracking-tight">
               Lista de Precios
             </h1>
             <p className="text-sm text-muted-foreground">
@@ -144,7 +144,7 @@ export default async function ListasPreciosPage({ searchParams }: ListasPreciosP
           <Card>
             <CardHeader className="border-b border-border">
               <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-                <History className="size-4 text-blue-500" aria-hidden="true" />
+                <History className="size-4 text-primary" aria-hidden="true" />
                 Historial de versiones
               </CardTitle>
             </CardHeader>
@@ -162,7 +162,7 @@ export default async function ListasPreciosPage({ searchParams }: ListasPreciosP
           <Card>
             <CardHeader className="border-b border-border">
               <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-                <PackagePlus className="size-4 text-blue-500" aria-hidden="true" />
+                <PackagePlus className="size-4 text-primary" aria-hidden="true" />
                 Nueva versión
               </CardTitle>
               <CardDescription>
@@ -183,7 +183,7 @@ export default async function ListasPreciosPage({ searchParams }: ListasPreciosP
           <Card>
             <CardHeader className="border-b border-border">
               <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-                <BarChart3 className="size-4 text-blue-500" aria-hidden="true" />
+                <BarChart3 className="size-4 text-primary" aria-hidden="true" />
                 Comparativa de precios
               </CardTitle>
               <CardDescription>

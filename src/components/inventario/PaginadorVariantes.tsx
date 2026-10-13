@@ -67,7 +67,7 @@ function PaginaLink({
   return (
     <a
       href={`?${queryBase}${separador}page=${page}`}
-      className="rounded-lg border border-border px-3 py-1.5 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+      className="rounded-lg border border-border px-3 py-1.5 hover:border-border hover:bg-accent hover:text-primary"
     >
       {label}
     </a>
