@@ -235,3 +235,67 @@ export function formatearFechaHoraNegocio(instante: Date | string): string {
   const p = partesNegocio(instante);
   return `${p.day}/${p.month}/${p.year} ${p.hour}:${p.minute}`;
 }
+
+/**
+ * Sprint 5 (PR 0) — rangos mensuales para el reporte de Tesorería. Ambos son
+ * semiabiertos `[desde, hasta)`: `hasta` es el día 1 del mes siguiente,
+ * excluido. Se filtra con `gte: desde, lt: hasta`.
+ */
+export interface RangoMes {
+  desde: Date;
+  hasta: Date;
+}
+
+/**
+ * Valida `anio` (entero de 4 cifras) y `mes` (entero de 1 a 12). El módulo es
+ * puro (sin `ServiceError`): el servicio que lo llame traduce el `RangeError`.
+ *
+ * @throws {RangeError} si el año o el mes no son válidos
+ */
+function validarAnioMes(anio: number, mes: number): void {
+  if (!Number.isInteger(anio) || anio < 1000 || anio > 9999) {
+    throw new RangeError(`El año debe ser un entero de 4 cifras (valor recibido: ${anio})`);
+  }
+  if (!Number.isInteger(mes) || mes < 1 || mes > 12) {
+    throw new RangeError(`El mes debe ser un entero de 1 a 12 (valor recibido: ${mes})`);
+  }
+}
+
+/** `AAAA-MM-01` del mes indicado y del mes siguiente (diciembre pasa a enero del año siguiente). */
+function primerosDiasDelMes(anio: number, mes: number): { actual: string; siguiente: string } {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const [anioSiguiente, mesSiguiente] = mes === 12 ? [anio + 1, 1] : [anio, mes + 1];
+  return {
+    actual: `${anio}-${pad(mes)}-01`,
+    siguiente: `${anioSiguiente}-${pad(mesSiguiente)}-01`,
+  };
+}
+
+/**
+ * Mes de negocio para INSTANTES reales (cobros, pagos): desde el día 1 a las
+ * 00:00 de Argentina hasta el día 1 del mes siguiente a las 00:00 de
+ * Argentina (excluido), expresados como instantes UTC (03:00 UTC).
+ *
+ * @throws {RangeError} si el año o el mes no son válidos
+ */
+export function rangoMesNegocio(anio: number, mes: number): RangoMes {
+  validarAnioMes(anio, mes);
+  const { actual, siguiente } = primerosDiasDelMes(anio, mes);
+  return {
+    desde: new Date(inicioDiaUtc(actual).getTime() + OFFSET_ARGENTINA_MS),
+    hasta: new Date(inicioDiaUtc(siguiente).getTime() + OFFSET_ARGENTINA_MS),
+  };
+}
+
+/**
+ * Mes para valores "fecha-solo" (medianoche UTC del día elegido, ej. la fecha
+ * de un gasto operativo): desde el día 1 hasta el día 1 del mes siguiente
+ * (excluido), ambos a medianoche UTC — misma convención que `inicioDiaUtc`.
+ *
+ * @throws {RangeError} si el año o el mes no son válidos
+ */
+export function rangoMesFechaSolo(anio: number, mes: number): RangoMes {
+  validarAnioMes(anio, mes);
+  const { actual, siguiente } = primerosDiasDelMes(anio, mes);
+  return { desde: inicioDiaUtc(actual), hasta: inicioDiaUtc(siguiente) };
+}

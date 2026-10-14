@@ -94,6 +94,9 @@ model Usuario {
   accesos_log_pagos_solicitados AccesoLogPagos[] @relation("AccesoLogPagosSolicitante")
   accesos_log_pagos_aprobados   AccesoLogPagos[] @relation("AccesoLogPagosAprobador")
 
+  // --- Relaciones Sprint 5 (Módulo G) ---
+  gastos_operativos_registrados GastoOperativo[] @relation("GastoOperativoRegistradoPor")
+
   @@map("usuarios")
 }
 
@@ -2770,4 +2773,66 @@ model Notificacion {
   @@index([usuario_destinatario_id, is_active, leida_at])
   @@index([cuenta_cliente_web_destinatario_id, is_active, leida_at])
   @@map("notificaciones")
+}
+
+// ============================================================================
+// Sprint 5 · PR 0 · HU-G12 / HU-G13
+// ============================================================================
+
+/// Categoría de gasto operativo (HU-G12, Alcance G §3.6). La mantiene el
+/// Administrador. `nombre` se muestra tal cual; la unicidad sin distinguir
+/// mayúsculas la garantiza `nombre_normalizado` (minúsculas, sin espacios en
+/// los extremos), que completa la capa de servicios. Es única entre TODAS las
+/// categorías, activas o dadas de baja. Una categoría dada de baja deja de
+/// ofrecerse para gastos nuevos pero se conserva en los históricos.
+model CategoriaGasto {
+  id                 String  @id @default(uuid())
+  nombre             String
+  nombre_normalizado String  @unique
+  descripcion        String?
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  gastos GastoOperativo[]
+
+  @@map("categorias_gasto")
+}
+
+/// Gasto operativo que no pasa por una Cuenta por Pagar (HU-G13, Alcance G
+/// §3.6): sueldos, alquiler, servicios, impuestos y otros. Lo registra el
+/// Tesorero Central. Sin IVA discriminado: `monto` es el total.
+model GastoOperativo {
+  id                 String   @id @default(uuid())
+  categoria_gasto_id String
+  monto              Decimal  @db.Decimal(12, 2)
+  /// Día calendario sin hora: se persiste a medianoche UTC del día elegido
+  /// (convención "fecha-solo" de `src/lib/utils/fecha-negocio.ts`).
+  fecha              DateTime
+  descripcion        String
+  registrado_por_id  String
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  categoria      CategoriaGasto @relation(fields: [categoria_gasto_id], references: [id], onDelete: Restrict)
+  registrado_por Usuario        @relation("GastoOperativoRegistradoPor", fields: [registrado_por_id], references: [id], onDelete: Restrict)
+
+  @@index([categoria_gasto_id, is_active])
+  @@index([fecha])
+  @@map("gastos_operativos")
 }

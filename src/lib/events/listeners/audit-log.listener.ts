@@ -2008,4 +2008,12 @@ export function iniciarAuditLogListener(): void {
       });
     },
   );
+
+  // ── Sprint 5 — cada cluster registra sus suscripciones SOLO en su bloque ────
+  // --- Sprint 5 · Cluster 1 ---
+  // --- Sprint 5 · Cluster 2 ---
+  // --- Sprint 5 · Cluster 3 ---
+  // --- Sprint 5 · Cluster 4 ---
+  // --- Sprint 5 · Cluster 5 ---
+  // --- Sprint 5 · Cluster 6 ---
 }

@@ -604,6 +604,14 @@ const PEDIDO_WEB_LISTO_PLAZO_VENCIDO_IDS = { pedido: "09997231-c847-4c99-b18d-59
 const PEDIDO_WEB_ENTREGADO_IDS = { pedido: "e8559382-2cc2-414c-9adf-6afcd5f0552f", ecommerce: "31b0b43a-60fe-4f0b-86a6-f1be089290a9", items: [{ item: "abaeb811-cad0-4e93-a7c2-afc890134f09", reserva: "2d495408-8e38-42b8-97d4-01e6b78466b3" }], comprobante: "4c338928-a46f-4571-a7ad-38dce5af86ec", medio_pago: "9dcde0b7-9429-4ffc-845c-79ddc08d458a", transaccion: "c98abda4-a319-4858-92e0-807096528e4c" };
 const PEDIDO_WEB_ANULADO_IDS = { pedido: "d0ebfcb9-743b-412b-89c1-12a38a117ffd", ecommerce: "10326af2-d711-4365-98ff-509c598af7a5", items: [{ item: "c6f49d12-c32b-4ca9-8c0f-c132e5f42e92", reserva: "7e7802c0-8e7a-4ed0-8dba-1fb5bcb6a4d2" }] };
 
+// Sprint 5 · PR 0 — rol Gerente (Gerencia, T3) y permiso compartido de lectura
+// de reportes financieros (Alcance G §5). Los demás permisos del sprint los
+// siembra cada cluster con los UUID reservados en la Asignación.
+const PERMISO_TESORERIA_LEER_REPORTES_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000047";
+const ROL_GERENTE_ID = "1a2b3c4d-2222-4a1a-8a1a-000000000006";
+const USUARIO_GERENTE_SEED_ID = "1a2b3c4d-4444-4a1a-8a1a-000000000007";
+const USUARIO_ROL_GERENTE_ID = "1a2b3c4d-5555-4a1a-8a1a-000000000007";
+
 // ──────────────────────────────────────────────────────────────────────────────
 // Helpers — Fechas
 // ──────────────────────────────────────────────────────────────────────────────
@@ -5007,6 +5015,124 @@ async function main() {
       ]),
     ),
   });
+
+  // ── Sprint 5 · PR 0 — rol GERENTE (T3) + permiso tesoreria:leer_reportes ───
+  // Matriz del Módulo G (Alcance §5): "Consultar la posición diaria de
+  // tesorería y reportes financieros" → Cajero POS, Tesorero Central,
+  // Contador/Auditor, Administrador y Gerente. El rol GERENTE no recibe ningún
+  // otro permiso acá: cada cluster le asigna los suyos.
+  await prisma.permiso.upsert({
+    where: { id: PERMISO_TESORERIA_LEER_REPORTES_ID },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: {
+      id: PERMISO_TESORERIA_LEER_REPORTES_ID,
+      codigo: "tesoreria:leer_reportes",
+      descripcion:
+        "Consultar el reporte mensual y la posición diaria de Tesorería (HU-G14 / HU-G7) — CAJERO_POS, TESORERO_CENTRAL, AUDITOR, ADMINISTRADOR y GERENTE",
+      modulo: "MODULO_G",
+    },
+  });
+
+  const rolGerente = await prisma.rol.upsert({
+    where: { id: ROL_GERENTE_ID },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: {
+      id: ROL_GERENTE_ID,
+      nombre: "GERENTE",
+      descripcion:
+        "Gerencia (Sprint 5) — lectura de la posición diaria y de los reportes financieros, sin operar caja",
+    },
+  });
+
+  const usuarioGerente = await prisma.usuario.upsert({
+    where: { nombre_usuario: "gerente.seed" },
+    update: {},
+    create: {
+      id: USUARIO_GERENTE_SEED_ID,
+      nombre_usuario: "gerente.seed",
+      email: "gerente.seed@erp-swat.local",
+      password_hash: passwordSeed.hash,
+      password_salt: passwordSeed.salt,
+      nombre_completo: "Gerente Seed (Gerencia)",
+      estado: "ACTIVO",
+      is_active: true,
+    },
+  });
+
+  await prisma.usuarioRol.upsert({
+    where: {
+      usuario_id_rol_id: { usuario_id: usuarioGerente.id, rol_id: rolGerente.id },
+    },
+    update: {},
+    create: {
+      id: USUARIO_ROL_GERENTE_ID,
+      usuario_id: usuarioGerente.id,
+      rol_id: rolGerente.id,
+    },
+  });
+
+  for (const rol_id of [rolCajeroPos.id, rolTesorero.id, rolAuditor.id, rolAdministrador.id, rolGerente.id]) {
+    await prisma.rolPermiso.upsert({
+      where: { rol_id_permiso_id: { rol_id, permiso_id: PERMISO_TESORERIA_LEER_REPORTES_ID } },
+      update: REACTIVAR_REFERENCIA_RBAC,
+      create: { rol_id, permiso_id: PERMISO_TESORERIA_LEER_REPORTES_ID },
+    });
+  }
+
+  console.log(`\nSeed Sprint 5 — PR 0 completado (password: "${PASSWORD_SEED}"):`);
+  console.table({
+    gerente_seed: `${usuarioGerente.nombre_usuario}  <${usuarioGerente.email}>`,
+    rol_gerente_id: rolGerente.id,
+    permiso_tesoreria_leer_reportes_id: PERMISO_TESORERIA_LEER_REPORTES_ID,
+  });
+
+  // ── Sprint 5 — un bloque por cluster (cada cluster escribe SOLO en el suyo) ─
+  await seedSprint5Cluster1(prisma);
+  await seedSprint5Cluster2(prisma);
+  await seedSprint5Cluster3(prisma);
+  await seedSprint5Cluster4(prisma);
+  await seedSprint5Cluster5(prisma);
+  await seedSprint5Cluster6(prisma);
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Sprint 5 — seed por cluster (PR 0)
+// ──────────────────────────────────────────────────────────────────────────────
+//
+// Cada cluster escribe SOLO dentro de su función. Las variables locales de
+// `main()` (roles, usuarios, productos) no se ven desde acá: se obtienen por
+// sus constantes `*_ID` (por ejemplo `findUniqueOrThrow({ where: { id: ROL_TESORERO_ID } })`).
+// Mismas reglas que el resto del seed: upsert idempotente, UUID fijos, fechas
+// absolutas, sin escribir AuditLog.
+
+// Cluster 1 · e-commerce: datos de prueba de HU-E14, HU-E15 y HU-E16.
+async function seedSprint5Cluster1(prisma: PrismaClient): Promise<void> {
+  void prisma;
+}
+
+// Cluster 2 · categorías iniciales (HU-G12), gastos (HU-G13) e histórico (T1).
+async function seedSprint5Cluster2(prisma: PrismaClient): Promise<void> {
+  void prisma;
+}
+
+// Cluster 3 · permisos del reporte mensual y su exportación (HU-G14, HU-G16, HU-G15).
+async function seedSprint5Cluster3(prisma: PrismaClient): Promise<void> {
+  void prisma;
+}
+
+// Cluster 4 · repositorio de comprobantes y Libro de IVA (HU-G3, HU-G4).
+async function seedSprint5Cluster4(prisma: PrismaClient): Promise<void> {
+  void prisma;
+}
+
+// Cluster 5 · cuentas propias y saldos diarios (HU-G5, HU-G7).
+async function seedSprint5Cluster5(prisma: PrismaClient): Promise<void> {
+  void prisma;
+}
+
+// Cluster 6 · alertas e historial propio (HU-D6, HU-D8).
+async function seedSprint5Cluster6(prisma: PrismaClient): Promise<void> {
+  void prisma;
 }
 
 main()
