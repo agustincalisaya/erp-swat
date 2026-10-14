@@ -80,3 +80,23 @@ export type ObtenerResumenMensual = (
   mes: number,
   opciones: OpcionesResumenMensual,
 ) => Promise<ResumenMensualDto>;
+
+/**
+ * Bloque genérico que el reporte mensual muestra como tabla y que el CSV y el PDF
+ * exportan al final. Lo produce HU-G15 (Cluster 6). El Cluster 3 lo muestra y
+ * exporta sin conocer su contenido.
+ */
+export interface BloqueReporte {
+  /** Identificador estable, ej. "egresos_por_proveedor". */
+  clave: string;
+  titulo: string;
+  columnas: string[];
+  /** Ya formateadas como texto; misma cantidad de celdas que `columnas`. */
+  filas: string[][];
+}
+
+export type ObtenerBloquesAdicionales = (
+  anio: number,
+  mes: number,
+  opciones: OpcionesResumenMensual,
+) => Promise<BloqueReporte[]>;

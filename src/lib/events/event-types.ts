@@ -1483,6 +1483,55 @@ export interface NotificacionPlantillaReactivadaPayload {
   valor_nuevo: { is_active: true };
 }
 
+// --- Sprint 5 · Cluster 2 ---
+// Contrato HU-G13 (emite, Cluster 2) → HU-D6 (escucha, Cluster 6). Solo declarados en el PR 0.
+
+/**
+ * HU-G13 — datos editables de un `GastoOperativo`. `fecha` es el día calendario
+ * `AAAA-MM-DD` de la columna "fecha-solo" (`diaCalendarioUtc`). `monto` es
+ * `Prisma.Decimal` serializado con `.toFixed(2)`.
+ */
+export interface GastoOperativoDatos {
+  categoria_gasto_id: string;
+  fecha: string;
+  monto: string;
+  descripcion: string;
+}
+
+/** HU-G13 — Payload emitido post-COMMIT tras el alta de un `GastoOperativo`. */
+export interface GastoOperativoCreadoPayload {
+  gasto_operativo_id: string;
+  categoria_gasto_id: string;
+  fecha: string;
+  monto: string;
+  usuario_id: string;
+}
+
+/**
+ * HU-G13 — Payload emitido post-COMMIT tras editar un `GastoOperativo`. Los
+ * campos sueltos llevan los valores nuevos; `valor_anterior` / `valor_nuevo`
+ * siguen el precedente de `NotificacionPlantillaActualizadaPayload`.
+ */
+export interface GastoOperativoEditadoPayload {
+  gasto_operativo_id: string;
+  categoria_gasto_id: string;
+  fecha: string;
+  monto: string;
+  usuario_id: string;
+  valor_anterior: GastoOperativoDatos;
+  valor_nuevo: GastoOperativoDatos;
+}
+
+/** HU-G13 — Payload emitido post-COMMIT tras la baja lógica de un `GastoOperativo`. `motivo` es el `deletion_reason`. */
+export interface GastoOperativoDadoDeBajaPayload {
+  gasto_operativo_id: string;
+  categoria_gasto_id: string;
+  fecha: string;
+  monto: string;
+  usuario_id: string;
+  motivo: string;
+}
+
 /** Mapa evento → payload, usado por `domain-event-bus.ts` para tipar `emit`/`on`. */
 export interface DomainEventMap {
   /** HU-A1: se emite tras el alta de un ProductoMaestro. */
@@ -1674,6 +1723,12 @@ export interface DomainEventMap {
   "tesoreria:contra_asiento_ingreso_registrado": ContraAsientoIngresoRegistradoPayload;
   // --- Sprint 5 · Cluster 1 ---
   // --- Sprint 5 · Cluster 2 ---
+  /** HU-G13: post-COMMIT tras el alta de un GastoOperativo. Lo escucha HU-D6. */
+  "gasto_operativo:creado": GastoOperativoCreadoPayload;
+  /** HU-G13: post-COMMIT tras editar un GastoOperativo. Lo escucha HU-D6. */
+  "gasto_operativo:editado": GastoOperativoEditadoPayload;
+  /** HU-G13: post-COMMIT tras la baja lógica de un GastoOperativo. Lo escucha HU-D6. */
+  "gasto_operativo:dado_de_baja": GastoOperativoDadoDeBajaPayload;
   // --- Sprint 5 · Cluster 3 ---
   // --- Sprint 5 · Cluster 4 ---
   // --- Sprint 5 · Cluster 5 ---
@@ -1794,6 +1849,9 @@ export const TIPOS_EVENTO_DOMINIO = [
   "tesoreria:contra_asiento_ingreso_registrado",
   // --- Sprint 5 · Cluster 1 ---
   // --- Sprint 5 · Cluster 2 ---
+  "gasto_operativo:creado",
+  "gasto_operativo:editado",
+  "gasto_operativo:dado_de_baja",
   // --- Sprint 5 · Cluster 3 ---
   // --- Sprint 5 · Cluster 4 ---
   // --- Sprint 5 · Cluster 5 ---
