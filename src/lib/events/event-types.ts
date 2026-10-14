@@ -1672,6 +1672,12 @@ export interface DomainEventMap {
   "tesoreria:ingreso_web_registrado": IngresoWebRegistradoPayload;
   /** HU-G11: se emite post-COMMIT tras registrar el contra-asiento de un reintegro (HU-E13). */
   "tesoreria:contra_asiento_ingreso_registrado": ContraAsientoIngresoRegistradoPayload;
+  // --- Sprint 5 · Cluster 1 ---
+  // --- Sprint 5 · Cluster 2 ---
+  // --- Sprint 5 · Cluster 3 ---
+  // --- Sprint 5 · Cluster 4 ---
+  // --- Sprint 5 · Cluster 5 ---
+  // --- Sprint 5 · Cluster 6 ---
 }
 
 export type DomainEventName = keyof DomainEventMap;
@@ -1786,6 +1792,12 @@ export const TIPOS_EVENTO_DOMINIO = [
   "notificacion_plantilla:reactivada",
   "tesoreria:ingreso_web_registrado",
   "tesoreria:contra_asiento_ingreso_registrado",
+  // --- Sprint 5 · Cluster 1 ---
+  // --- Sprint 5 · Cluster 2 ---
+  // --- Sprint 5 · Cluster 3 ---
+  // --- Sprint 5 · Cluster 4 ---
+  // --- Sprint 5 · Cluster 5 ---
+  // --- Sprint 5 · Cluster 6 ---
 ] as const satisfies readonly DomainEventName[];
 
 /** Falla el typecheck si `TIPOS_EVENTO_DOMINIO` no cubre todas las claves de `DomainEventMap`. */

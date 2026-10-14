@@ -17,6 +17,8 @@ import {
   fechaDeVigenciaAlcanzada,
   hoyComoFechaSoloUtc,
   inicioDiaUtc,
+  rangoMesFechaSolo,
+  rangoMesNegocio,
   formatearFechaHoraNegocio,
   formatearFechaNegocio,
   sumarDiasCalendarioNegocio,
@@ -246,4 +248,61 @@ test("formateo de presentación: no depende de la zona horaria del proceso", () 
   }
   // El runtime sí cambió de zona (el formateo implícito varió), y el helper no.
   assert.ok(implicitas.size > 1, "el cambio de TZ debe afectar al formateo implícito para que la prueba sea significativa");
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// rangoMesNegocio / rangoMesFechaSolo — Sprint 5 (PR 0), reporte mensual
+// ──────────────────────────────────────────────────────────────────────────
+
+/** `true` si `instante` cae en el rango semiabierto `[desde, hasta)`. */
+const enRango = (instante: Date, r: { desde: Date; hasta: Date }) =>
+  instante.getTime() >= r.desde.getTime() && instante.getTime() < r.hasta.getTime();
+
+test("rangoMesNegocio: va del día 1 a las 00:00 AR (03:00 UTC) al día 1 del mes siguiente, exclusivo", () => {
+  const r = rangoMesNegocio(2026, 10);
+  assert.equal(r.desde.toISOString(), "2026-10-01T03:00:00.000Z");
+  assert.equal(r.hasta.toISOString(), "2026-11-01T03:00:00.000Z");
+});
+
+test("rangoMesNegocio: un instante del día 1 a las 00:30 AR cae en el mes", () => {
+  assert.ok(enRango(new Date("2026-10-01T03:30:00.000Z"), rangoMesNegocio(2026, 10)));
+  // 00:30 AR del 1/10 todavía es 30/09 en UTC: no es del mes anterior.
+  assert.ok(!enRango(new Date("2026-10-01T03:30:00.000Z"), rangoMesNegocio(2026, 9)));
+});
+
+test("rangoMesNegocio: un instante del último día a las 23:59 AR cae en el mes", () => {
+  assert.ok(enRango(new Date("2026-11-01T02:59:00.000Z"), rangoMesNegocio(2026, 10)));
+});
+
+test("rangoMesNegocio: el día 1 del mes siguiente a las 00:00 AR queda afuera", () => {
+  assert.ok(!enRango(new Date("2026-11-01T03:00:00.000Z"), rangoMesNegocio(2026, 10)));
+});
+
+test("rangoMesNegocio: diciembre pasa a enero del año siguiente", () => {
+  const r = rangoMesNegocio(2026, 12);
+  assert.equal(r.desde.toISOString(), "2026-12-01T03:00:00.000Z");
+  assert.equal(r.hasta.toISOString(), "2027-01-01T03:00:00.000Z");
+});
+
+test("rangoMesNegocio / rangoMesFechaSolo: rechazan un mes inválido (0 o 13), no entero o un año inválido", () => {
+  for (const rango of [rangoMesNegocio, rangoMesFechaSolo]) {
+    assert.throws(() => rango(2026, 0), RangeError);
+    assert.throws(() => rango(2026, 13), RangeError);
+    assert.throws(() => rango(2026, 1.5), RangeError);
+    assert.throws(() => rango(26, 1), RangeError);
+  }
+});
+
+test("rangoMesFechaSolo: febrero de 2028 (bisiesto) va del 01/02 al 01/03 a medianoche UTC y el 29/02 cae adentro", () => {
+  const r = rangoMesFechaSolo(2028, 2);
+  assert.equal(r.desde.toISOString(), "2028-02-01T00:00:00.000Z");
+  assert.equal(r.hasta.toISOString(), "2028-03-01T00:00:00.000Z");
+  assert.ok(enRango(inicioDiaUtc("2028-02-29"), r));
+  assert.ok(!enRango(inicioDiaUtc("2028-03-01"), r));
+});
+
+test("rangoMesFechaSolo: diciembre pasa a enero del año siguiente", () => {
+  const r = rangoMesFechaSolo(2026, 12);
+  assert.equal(r.desde.toISOString(), "2026-12-01T00:00:00.000Z");
+  assert.equal(r.hasta.toISOString(), "2027-01-01T00:00:00.000Z");
 });
