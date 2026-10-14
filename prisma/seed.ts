@@ -5105,7 +5105,7 @@ async function main() {
 // Mismas reglas que el resto del seed: upsert idempotente, UUID fijos, fechas
 // absolutas, sin escribir AuditLog.
 
-// Cluster 1 · e-commerce: datos de prueba de HU-E14, HU-E15 y HU-E16.
+// Cluster 1 · e-commerce: contenido del catálogo con descripción y sin foto (HU-E16).
 async function seedSprint5Cluster1(prisma: PrismaClient): Promise<void> {
   void prisma;
 }
@@ -5115,12 +5115,12 @@ async function seedSprint5Cluster2(prisma: PrismaClient): Promise<void> {
   void prisma;
 }
 
-// Cluster 3 · permisos del reporte mensual y su exportación (HU-G14, HU-G16, HU-G15).
+// Cluster 3 · permisos de desglose y exportación del reporte mensual (HU-G14, HU-G16).
 async function seedSprint5Cluster3(prisma: PrismaClient): Promise<void> {
   void prisma;
 }
 
-// Cluster 4 · repositorio de comprobantes y Libro de IVA (HU-G3, HU-G4).
+// Cluster 4 · permisos y QR válidos en los comprobantes existentes (HU-G3, HU-G4).
 async function seedSprint5Cluster4(prisma: PrismaClient): Promise<void> {
   void prisma;
 }
@@ -5130,7 +5130,7 @@ async function seedSprint5Cluster5(prisma: PrismaClient): Promise<void> {
   void prisma;
 }
 
-// Cluster 6 · alertas e historial propio (HU-D6, HU-D8).
+// Cluster 6 · umbrales de alerta y permiso del panel (HU-D6, HU-G15).
 async function seedSprint5Cluster6(prisma: PrismaClient): Promise<void> {
   void prisma;
 }

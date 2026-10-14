@@ -145,7 +145,8 @@ test("listarSupervisoresVentas filtra usuarios ACTIVOS con ventas:autorizar_exce
 // ── HU-E3 T3: límite transaccional del helper de entrega B ──────────────────
 
 const inicioEntregaTotal = fuente.indexOf("export async function registrarEntregaTotalPedidoVentaTx");
-const finEntregaTotal = fuente.indexOf("/**\n * HU-E2 (P4", inicioEntregaTotal);
+// `\r?\n`: con core.autocrlf=true el working copy de Windows tiene CRLF.
+const finEntregaTotal = inicioEntregaTotal + fuente.slice(inicioEntregaTotal).search(/\/\*\*\r?\n \* HU-E2 \(P4/);
 const sliceEntregaTotal = fuente.slice(inicioEntregaTotal, finEntregaTotal);
 
 test("registrarEntregaTotalPedidoVentaTx recibe solo tx e ID y deja el commit al llamador", () => {

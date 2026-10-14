@@ -96,6 +96,7 @@ test("listener: suscripciones activas sin eventos duplicados", () => {
     "ecommerce:carrito_articulo_no_disponible",
     "ecommerce:pedido_admitido_cola",
     "ecommerce:pedido_cancelado",
+    "ecommerce:pedido_listo_para_retiro",
     "ecommerce:pedido_pago_confirmado",
     "ecommerce:pedido_vencido_sin_retiro",
     "ecommerce:plazo_retiro_por_vencer",
