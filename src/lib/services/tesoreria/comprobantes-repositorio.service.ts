@@ -33,7 +33,11 @@ import type { CanalVenta, Prisma, TipoComprobanteVenta } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { ServiceError } from "@/lib/errors/service-error";
 import { rangoDiasNegocio } from "@/lib/utils/fecha-negocio";
-import type { ComprobanteFiscalPdf } from "@/lib/services/ecommerce/comprobante-web-pdf";
+import {
+  SELECT_DETALLE_PDF,
+  detallePdfDePedido,
+  type ComprobanteFiscalPdf,
+} from "@/lib/services/ecommerce/comprobante-web-pdf";
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Permiso (spec_modulo_G.md §9.1 / G3-6) — punto de verdad para rutas y página
@@ -201,6 +205,17 @@ const SELECT_COMPLETO = {
   qr_data_url: true,
 } satisfies Prisma.ComprobanteFiscalSelect;
 
+/**
+ * HU-B10 (spec_modulo_B.md §2.10) — lo del detalle más los ítems y pagos del
+ * pedido y la fecha del original, solo para el PDF. Sigue siendo una única
+ * lectura (`findUnique`).
+ */
+const SELECT_PDF = {
+  ...SELECT_COMPLETO,
+  pedido_venta: { select: SELECT_DETALLE_PDF },
+  comprobante_original: { select: { ...SELECT_VINCULADO, created_at: true } },
+} satisfies Prisma.ComprobanteFiscalSelect;
+
 type FilaResumen = Prisma.ComprobanteFiscalGetPayload<{ select: typeof SELECT_RESUMEN }>;
 type FilaVinculada = Prisma.ComprobanteFiscalGetPayload<{ select: typeof SELECT_VINCULADO }>;
 
@@ -250,26 +265,29 @@ export async function listarComprobantes(filtros: FiltrosListadoComprobantes): P
   return { registros: filas.map(aResumen), total, page: filtros.page, page_size: filtros.page_size };
 }
 
-async function buscarComprobante(id: string) {
-  const fila = await prisma.comprobanteFiscal.findUnique({ where: { id }, select: SELECT_COMPLETO });
+async function buscarComprobante<S extends typeof SELECT_COMPLETO>(id: string, select: S) {
+  const fila = await prisma.comprobanteFiscal.findUnique({ where: { id }, select });
   if (!fila) throw new ServiceError("COMPROBANTE_NO_ENCONTRADO", "No se encontró el comprobante solicitado");
-  return fila;
+  return fila as Prisma.ComprobanteFiscalGetPayload<{ select: S }>;
 }
 
 /** Detalle de un comprobante con su original (si es NC) y sus NC (si es original) — G3-4. */
 export async function obtenerDetalleComprobante(id: string): Promise<ComprobanteDetalle> {
-  const fila = await buscarComprobante(id);
+  const fila = await buscarComprobante(id, SELECT_COMPLETO);
   return { ...aResumen(fila), cae_simulado: fila.cae_simulado };
 }
 
 /**
  * DTO para `generarComprobanteFiscalPdf` (G3-3). Entrega el CAE y el QR tal
  * como los persistió HU-B7; la validez del QR la controla el generador de PDF.
+ * HU-B10 suma número de venta, ítems, pagos y la fecha del original.
  */
 export async function obtenerComprobanteParaPdf(id: string): Promise<ComprobanteFiscalPdf> {
-  const fila = await buscarComprobante(id);
+  const fila = await buscarComprobante(id, SELECT_PDF);
   const resumen = aResumen(fila);
+  const original = fila.comprobante_original;
   return {
+    ...detallePdfDePedido(fila.pedido_venta),
     numero: resumen.numero,
     tipo: resumen.tipo_comprobante,
     canal: resumen.canal,
@@ -279,8 +297,13 @@ export async function obtenerComprobanteParaPdf(id: string): Promise<Comprobante
     qr_data_url: fila.qr_data_url,
     es_simulado: fila.es_simulado,
     cliente: resumen.cliente,
-    comprobante_original: resumen.comprobante_original
-      ? { numero: resumen.comprobante_original.numero, tipo: resumen.comprobante_original.tipo_comprobante }
+    comprobante_original: original
+      ? {
+          numero: numeroComprobante(original.tipo_comprobante, original.pedido_venta.numero_venta),
+          tipo: original.tipo_comprobante,
+          numero_venta: original.pedido_venta.numero_venta,
+          fecha_emision: original.created_at.toISOString(),
+        }
       : null,
   };
 }

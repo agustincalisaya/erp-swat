@@ -37,6 +37,7 @@ import { inflateSync } from "node:zlib";
 import { ModuleKind, transpileModule } from "typescript";
 import { ServiceError } from "../../errors/service-error.ts";
 import * as fechaNegocio from "../../utils/fecha-negocio.ts";
+import { cargarComprobantePdf } from "../ecommerce/comprobante-pdf.test-helpers.ts";
 
 const requireReal = createRequire(import.meta.url);
 
@@ -156,7 +157,11 @@ function prismaDoble(filas: unknown[] = [filaComprobante()], total = filas.lengt
 interface Servicio {
   listarComprobantes: (filtros: Record<string, unknown>) => Promise<{ registros: Record<string, unknown>[]; total: number; page: number; page_size: number }>;
   obtenerDetalleComprobante: (id: string) => Promise<Record<string, unknown>>;
+  obtenerComprobanteParaPdf: (id: string) => Promise<Record<string, unknown>>;
 }
+
+/** Renderer real de HU-B10 (con `./pdf-marca`), también para la proyección que usa el servicio. */
+const PDF = cargarComprobantePdf();
 
 function cargarServicio(prisma: unknown): Servicio {
   return cargarModulo<Servicio>(CONTRATO.servicio, {
@@ -164,6 +169,7 @@ function cargarServicio(prisma: unknown): Servicio {
     "@/lib/db/prisma": { prisma },
     "@/lib/errors/service-error": { ServiceError },
     "@/lib/utils/fecha-negocio": fechaNegocio,
+    "@/lib/services/ecommerce/comprobante-web-pdf": PDF,
   });
 }
 
@@ -405,7 +411,7 @@ interface PdfGeneral {
 
 test("CA3 · PDF de un comprobante de mostrador sin cliente: CAE, QR, Consumidor final y leyenda de simulado", async () => {
   const pdfLib = requireReal("pdf-lib") as typeof import("pdf-lib");
-  const { generarComprobanteFiscalPdf } = cargarModulo<PdfGeneral>(CONTRATO.pdf, { "server-only": {} });
+  const { generarComprobanteFiscalPdf } = PDF as unknown as PdfGeneral;
   const bytes = await generarComprobanteFiscalPdf({
     numero: "V-2026-000001",
     tipo: "TICKET",
@@ -428,7 +434,7 @@ test("CA3 · PDF de un comprobante de mostrador sin cliente: CAE, QR, Consumidor
 
 test("CA3 · PDF de una Nota de Crédito web muestra el comprobante original", async () => {
   const pdfLib = requireReal("pdf-lib") as typeof import("pdf-lib");
-  const { generarComprobanteFiscalPdf } = cargarModulo<PdfGeneral>(CONTRATO.pdf, { "server-only": {} });
+  const { generarComprobanteFiscalPdf } = PDF as unknown as PdfGeneral;
   const bytes = await generarComprobanteFiscalPdf({
     numero: "NC-V-2026-000002",
     tipo: "NOTA_CREDITO",
@@ -442,7 +448,8 @@ test("CA3 · PDF de una Nota de Crédito web muestra el comprobante original", a
     comprobante_original: { numero: "V-2026-000002", tipo: "FACTURA_B" },
   });
   const { texto } = await textosPdf(bytes, pdfLib);
-  for (const dato of ["NOTA CREDITO", "NC-V-2026-000002", "V-2026-000002", "Web", "30987654", "simulado"]) {
+  // HU-B10: el título es «NOTA DE CRÉDITO» (antes, el enum con «_» reemplazado: «NOTA CREDITO»).
+  for (const dato of ["NOTA DE CRÉDITO", "NC-V-2026-000002", "V-2026-000002", "Web", "30987654", "simulado"]) {
     assert.ok(texto.includes(dato), dato);
   }
 });
@@ -503,6 +510,57 @@ test("CA4 · el detalle del original lista sus NC", async () => {
     ["NC-V-2026-000002"],
     "número con la convención de HU-B7 (comprobante-fiscal.service.ts:245)",
   );
+});
+
+test("HU-B10 · el DTO del PDF trae número de venta, ítems, pagos y la fecha del original con una sola lectura", async () => {
+  const decimal = (valor: number) => ({ toFixed: (n: number) => valor.toFixed(n) });
+  const doble = prismaDoble([
+    filaComprobante({
+      id: "c0000000-0000-4000-8000-000000000003",
+      tipo_comprobante: "NOTA_CREDITO",
+      comprobante_original_id: "c0000000-0000-4000-8000-000000000002",
+      pedido_venta: {
+        numero_venta: "V-2026-000001",
+        canal: "MOSTRADOR",
+        cliente: { dni: "30987654", nombre: "María Gómez" },
+        items: [{
+          cantidad: 2,
+          precio_unitario: decimal(22500),
+          descuento_porcentual: null,
+          variante_sku: { sku: "CAMTAC-MANGA CORTA-L-NEGRO-H", modelo: "Manga Corta", talle: "L", color: "Negro", genero: "HOMBRE", producto_maestro: { nombre: "Camisa Táctica" } },
+        }],
+        medios_pago: [{ medio: "TRANSFERENCIA", importe: decimal(45000), referencia: "OP-887654" }],
+      },
+      comprobante_original: {
+        id: "c0000000-0000-4000-8000-000000000002",
+        tipo_comprobante: "FACTURA_B",
+        created_at: new Date("2026-10-08T15:30:00.000Z"),
+        pedido_venta: { numero_venta: "V-2026-000001" },
+      },
+    }),
+  ]);
+  const dto = await cargarServicio(doble.prisma).obtenerComprobanteParaPdf("c0000000-0000-4000-8000-000000000003");
+  assert.equal(dto.numero, "NC-V-2026-000001");
+  assert.equal(dto.numero_venta, "V-2026-000001");
+  assert.equal(dto.monto, "45000.00", "el importe sigue positivo, como en la base");
+  assert.deepEqual(dto.comprobante_original, {
+    numero: "V-2026-000001", tipo: "FACTURA_B", numero_venta: "V-2026-000001", fecha_emision: "2026-10-08T15:30:00.000Z",
+  });
+  assert.deepEqual(dto.items, [{
+    descripcion: "Camisa Táctica", variante: "Manga Corta · Talle L · Negro · HOMBRE", sku: "CAMTAC-MANGA CORTA-L-NEGRO-H",
+    cantidad: 2, precio_unitario: "22500.00", descuento_porcentual: null,
+  }]);
+  assert.deepEqual(dto.pagos, [{ medio: "TRANSFERENCIA", importe: "45000.00", referencia: "OP-887654" }]);
+
+  // Solo lectura: una única consulta, con ítems y pagos activos.
+  assert.deepEqual(doble.llamadas.map((l) => l.metodo), ["findUnique"]);
+  const select = doble.llamadas[0]!.args.select as {
+    pedido_venta: { select: { items: { where: unknown }; medios_pago: { where: unknown } } };
+    comprobante_original: { select: Record<string, unknown> };
+  };
+  assert.deepEqual(select.pedido_venta.select.items.where, { is_active: true, deleted_at: null });
+  assert.deepEqual(select.pedido_venta.select.medios_pago.where, { is_active: true, deleted_at: null });
+  assert.equal(select.comprobante_original.select.created_at, true);
 });
 
 test("CA4 · el vínculo se lee de comprobante_original_id, no de números inferidos", () => {
