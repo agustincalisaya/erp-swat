@@ -299,3 +299,40 @@ export function rangoMesFechaSolo(anio: number, mes: number): RangoMes {
   const { actual, siguiente } = primerosDiasDelMes(anio, mes);
   return { desde: inicioDiaUtc(actual), hasta: inicioDiaUtc(siguiente) };
 }
+
+/**
+ * Valida un día calendario `AAAA-MM-DD` que exista (rechaza, por ejemplo,
+ * `2026-02-30`). Mismo criterio que `validarAnioMes`: módulo puro, el
+ * servicio que lo llame traduce el `RangeError`.
+ *
+ * @throws {RangeError} si el formato o el día no son válidos
+ */
+function validarDiaIso(diaIso: string): void {
+  const valido =
+    /^\d{4}-\d{2}-\d{2}$/.test(diaIso) &&
+    inicioDiaUtc(diaIso).toISOString().slice(0, 10) === diaIso;
+  if (!valido) {
+    throw new RangeError(`El día debe tener formato AAAA-MM-DD y existir en el calendario (valor recibido: ${diaIso})`);
+  }
+}
+
+/**
+ * Sprint 5 · Cluster 4 (HU-G3) — rango de días sueltos para INSTANTES reales
+ * (emisión de comprobantes): desde `desde` a las 00:00 de Argentina hasta el
+ * día siguiente a `hasta` a las 00:00 de Argentina (excluido), expresados
+ * como instantes UTC (03:00 UTC). Ambos días se incluyen completos. Mismo
+ * contrato semiabierto que `rangoMesNegocio`: se filtra con `gte: desde, lt: hasta`.
+ *
+ * @throws {RangeError} si algún día no es válido o si `desde` es posterior a `hasta`
+ */
+export function rangoDiasNegocio(desde: string, hasta: string): RangoMes {
+  validarDiaIso(desde);
+  validarDiaIso(hasta);
+  if (desde > hasta) {
+    throw new RangeError(`El día desde (${desde}) no puede ser posterior al día hasta (${hasta})`);
+  }
+  return {
+    desde: new Date(inicioDiaUtc(desde).getTime() + OFFSET_ARGENTINA_MS),
+    hasta: new Date(inicioDiaUtc(hasta).getTime() + MS_POR_DIA + OFFSET_ARGENTINA_MS),
+  };
+}
