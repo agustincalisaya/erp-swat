@@ -4,6 +4,7 @@ import type { EstadoEcommerce, EstadoReintegroPedidoWeb, Prisma, PrismaClient, T
 import QRCode from "qrcode";
 import { prisma } from "@/lib/db/prisma";
 import { ServiceError } from "@/lib/errors/service-error";
+import { SELECT_DETALLE_PDF, detallePdfDePedido, type DetalleComprobantePdf } from "./comprobante-web-pdf";
 
 type OpcionesConsulta = { db?: Pick<PrismaClient, "pedidoVenta" | "auditLog">; ahora?: Date };
 type OpcionesListado = OpcionesConsulta & { pagina?: number; porPagina?: number };
@@ -128,7 +129,8 @@ export interface ComprobanteWeb {
   monto: number;
 }
 
-export interface ComprobanteWebDescargable {
+/** DTO de la descarga fiscal; los campos de HU-B10 son opcionales (spec_modulo_B.md §2.10). */
+export interface ComprobanteWebDescargable extends DetalleComprobantePdf {
   numero: string;
   tipo: TipoComprobanteVenta;
   fecha_emision: string;
@@ -381,7 +383,8 @@ export async function obtenerComprobanteOriginalWebCliente(
       ecommerce: { is: VISIBILIDAD_EXTENSION_E9 },
     },
     select: {
-      numero_venta: true,
+      // HU-B10: número, canal, cliente, ítems y pagos del PDF (solo lectura).
+      ...SELECT_DETALLE_PDF,
       comprobantes: {
         where: { tipo_comprobante: { not: "NOTA_CREDITO" } },
         orderBy: [{ created_at: "asc" }, { id: "asc" }],
@@ -411,5 +414,6 @@ export async function obtenerComprobanteOriginalWebCliente(
     cae_simulado: comprobante.cae_simulado,
     qr_data_url: comprobante.qr_data_url,
     es_simulado: comprobante.es_simulado,
+    ...detallePdfDePedido(pedido),
   };
 }

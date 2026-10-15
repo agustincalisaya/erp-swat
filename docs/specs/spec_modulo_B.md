@@ -1,5 +1,6 @@
 # Especificación Técnica — Módulo B (Ventas y Punto de Venta - POS)
 ## ERP SWAT Indumentarias — Sprint 3 / Sprint 4
+## Revisión 7 — 15/10/2026: alta de HU-B10 (representación gráfica del comprobante fiscal, Sprint 5, nueva sección 2.10). Un único renderer PDF para la descarga del Cliente Web (HU-E9) y el repositorio de Tesorería (HU-G3), sin cambios de rutas, permisos, códigos HTTP, `schema.prisma` ni de la emisión de HU-B7 (QR y numeración). Revisión aditiva: no modifica ninguna sección anterior. Pendiente de revisión del PM.
 ## Revisión 6 — Sprint 4: alta de HU-B9 (Lista de Precios de Venta) y ajuste técnico de resolución de precio en HU-B1/HU-B3/HU-B4. HU-B9 introduce la entidad `ListaPrecioVenta` (única para mostrador y e-commerce, ver nueva sección 2.9) y el patrón de resolución de precio exclusivamente server-side ya aplicado por Módulo H (`resolverListaPrecioVigente()`) — HU-B1 y HU-B3 **no** son reabiertas como historias: es un ajuste técnico aprobado por el PO (~3 SP) sobre la forma en que sus schemas reciben el precio, sin cambio de criterios de aceptación de fondo salvo el que HU-B9 agrega explícitamente. El campo `precio_unitario`/`precio_cotizado` deja de aceptarse desde el cliente en ambos endpoints; el servidor lo resuelve contra la versión vigente de `ListaPrecioVenta` y lo congela en el ítem. HU-B4 pasa a calcular el porcentaje de descuento y el cambio manual de precio contra ese mismo precio de lista resuelto server-side, en vez de un valor arbitrario recibido en el request. Referencia cruzada: Módulo E (checkout web) consume la misma función de resolución — ver `spec_modulo_E.md` HU-E1/HU-E2 — y Módulo D expone `ConfiguracionSistema` (`spec_modulo_D.md` §6) con la clave `VENTAS_MARGEN_SUGERIDO_PRECIO_VENTA` que usa la sugerencia automática de precio de esta sección.
 ## Revisión 5 — HU-B6 implementada (rama `feature/HU-B6`, commit `2433f81`). Corrige el contrato de 2.6 definido en la Rev. 4 contra lo que confirmó la implementación real: (1) el query schema pasa a `page`/`page_size` (no `pagina`/`por_pagina`) y a `verificar_integridad: z.enum(["true","false"]).transform(...)` (no `z.coerce.boolean()`, que probado contra el endpoint real trataba `?verificar_integridad=false` como `true`); (2) el alcance del Supervisor de Ventas se resuelve con **una sola query con `OR`** y paginación en base — no con el filtrado en memoria que describía la Rev. 4; (3) se agrega el filtro `pedido_venta_id` como `OR` entre `registro_id` (descuento/precio) y el path JSON `valor_nuevo.pedido_venta_id` (excepción de crédito, donde `registro_id` es la operación de cuenta corriente, no el pedido) — caso no contemplado en la Rev. 4; (4) la verificación de integridad se implementa como función propia del dominio ventas (`verificarCadenaHashesVentas()`), porque ni la de Módulo A ni la de Módulo D aceptan parámetros de dominio; (5) se corrige el texto sobre `auditoria:leer_historico`: `seed.ts` **sí** lo asigna a `AUDITOR`/`MASTER` (no "sin asignar a ningún Rol", como decía la Rev. 4) — esto no cambia el permiso real que usa el endpoint (`auditoria:leer_forense`), solo corrige una afirmación inexacta sobre el seed. Detalle completo del relevamiento y las decisiones de implementación en `HU6_MODULO_B.md`.
 ## Revisión 4 — Corrección de HU-B6 (2.6): el permiso `auditoria:leer_historico` y la función `listarEventosPorDominio` citados en la Rev. 0/2 nunca se implementaron en Módulo D — confirmado contra `seed.ts` (el permiso quedó sembrado como stub, sin asignar a ningún Rol, con comentario explícito del equipo documentando la divergencia) y contra el patrón real ya shippeado de HU-A6 (`spec_modulo_A.md`, `HU7_MODULO_A.md`, en `develop`). El código real usa el permiso `auditoria:leer_forense` (rol AUDITOR) y un servicio propio por módulo que consulta `AuditLog` directamente filtrado por `accion`, sin ninguna función compartida de "por dominio" en Módulo D. Se corrige el contrato de 2.6 en consecuencia, se fija el contrato de alcance del Supervisor de Ventas (sin definir en revisiones anteriores) y se agrega `venta:excepcion_credito_resuelta` al enum `tipo_evento` (evento sensible agregado por HU-B5 en la Rev. 3, ausente del enum original pese a que la sección decía estar "alineada 1:1" con la tabla de eventos de la sección 4).
@@ -9,7 +10,7 @@
 
 **Metodología:** Specification-Driven Development (SDD)
 **Stack:** Next.js 16 (App Router) · Node.js · PostgreSQL 16 · Prisma ORM · TypeScript · Zod
-**Referencias normativas:** `RULES.md` (Regla N.° 1 — Restricción Estricta de Borrado Físico; Regla N.° 2 — Protección de Datos Personales y Trazabilidad Inalterable) · `Documento de Alcance Funcional y Técnico` (sección Módulo B, vigente) · `Product Backlog — SWAT Indumentarias.xlsx` (hoja **Sprint 3**, HU-B1 a HU-B7 ya actualizadas sin integración real a AFIP; hoja **Sprint 4**, HU-B9) · `schema.prisma` · `spec_modulo_A.md` (sección 2.9, servicio de reserva consumido por este módulo; sección 2.10/HU-A6, patrón real de consola de auditoría forense por dominio) · `spec_modulo_C.md` (integración de datos de cliente) · `spec_modulo_D.md` (RBAC, auditoría y `ConfiguracionSistema` §6) · `spec_modulo_H.md` (patrón de referencia de formato y de `resolverListaPrecioVigente()`, replicado por HU-B9 para precio de venta) · `spec_modulo_E.md` (consumidor de la resolución de precio de HU-B9 desde el checkout web) · `seed.ts` (RBAC real sembrado, incluida la nota de divergencia de `auditoria:leer_historico`)
+**Referencias normativas:** `RULES.md` (Regla N.° 1 — Restricción Estricta de Borrado Físico; Regla N.° 2 — Protección de Datos Personales y Trazabilidad Inalterable) · `Documento de Alcance Funcional y Técnico` (sección Módulo B, vigente) · `Product Backlog — SWAT Indumentarias.xlsx` (hoja **Sprint 3**, HU-B1 a HU-B7 ya actualizadas sin integración real a AFIP; hoja **Sprint 4**, HU-B9; hoja **Sprint 5**, HU-B10) · `schema.prisma` · `spec_modulo_A.md` (sección 2.9, servicio de reserva consumido por este módulo; sección 2.10/HU-A6, patrón real de consola de auditoría forense por dominio) · `spec_modulo_C.md` (integración de datos de cliente) · `spec_modulo_D.md` (RBAC, auditoría y `ConfiguracionSistema` §6) · `spec_modulo_H.md` (patrón de referencia de formato y de `resolverListaPrecioVigente()`, replicado por HU-B9 para precio de venta) · `spec_modulo_E.md` (consumidor de la resolución de precio de HU-B9 desde el checkout web) · `seed.ts` (RBAC real sembrado, incluida la nota de divergencia de `auditoria:leer_historico`)
 
 ---
 
@@ -590,6 +591,106 @@ export type CrearVersionListaPrecioVentaInput = z.infer<typeof CrearVersionLista
 ```
 
 **Nota de relevamiento — sin pantalla propia todavía:** al igual que HU-B6 (sección 2.6, criterio ya documentado en la sección 5), esta iteración prioriza API primero, pantalla después; no se confirma en este documento el detalle de UI para la carga asistida de una versión.
+
+---
+
+### 2.10. Representación gráfica del comprobante fiscal (HU-B10, Sprint 5)
+
+**Origen:** HU-B10 del Backlog (hoja Sprint 5, 3 SP, Cluster 4). Surge al cerrar HU-G3 (15/10/2026): el PDF generalizado por HU-G3 cumple la leyenda, el CAE y el QR, pero es texto plano, sin la marca, sin el detalle de ítems y sin los medios de pago. El Alcance Funcional define la representación gráfica en Módulo B §3.1 («Cada comprobante cuenta con una representación gráfica en PDF, única para la venta de mostrador y el canal online, que presenta la identidad visual de SWAT Indumentarias, los datos del emisor y del cliente, el detalle de los ítems vendidos, los medios de pago, los totales con el IVA contenido, el CAE y el código QR, e identifica de forma visible el comprobante como simulado y sin validez ante AFIP») y el Módulo G la archiva con cada comprobante (G §2.3 y §3.3).
+
+**Alcance:** un único renderer, `generarComprobanteFiscalPdf()` en `src/lib/services/ecommerce/comprobante-web-pdf.ts`, para los cuatro tipos (Factura A, Factura B, Ticket y Nota de Crédito) y los dos consumidores:
+
+| Consumidor | Ruta (sin cambios) | Permiso / sesión (sin cambios) | Entrada al renderer |
+|---|---|---|---|
+| HU-E9 — descarga del Cliente Web | `GET /api/tienda/mis-pedidos/[id]/comprobante/descargar` | Sesión de Cliente Web (HU-E8) | `generarComprobanteWebPdf(comprobante)` — firma intacta, sigue delegando |
+| HU-G3 — repositorio de Tesorería | `GET /api/tesoreria/comprobantes/[id]/pdf` | `tesoreria:leer_comprobantes` | `generarComprobanteFiscalPdf(comprobante)` |
+
+HU-B10 no crea rutas, permisos, modelos, migraciones ni dependencias, y no cambia los códigos HTTP de ninguna de las dos rutas. Tampoco modifica `comprobante-fiscal.service.ts` (HU-B7): el PDF es una representación del comprobante ya archivado y no emite, regenera ni renumera datos fiscales.
+
+**Contrato del DTO (`ComprobanteFiscalPdf`):** se conservan los campos actuales y se agregan campos **opcionales**. Ambos loaders los completan con consultas de solo lectura (`obtenerComprobanteOriginalWebCliente()` en `mis-pedidos.service.ts` para HU-E9, y `obtenerComprobanteParaPdf()` en `comprobantes-repositorio.service.ts` para HU-G3).
+
+| Campo | Estado | Origen |
+|---|---|---|
+| `numero` | existente | Referencia interna de HU-B7: `numero_venta`, o `NC-<numero_venta>` para la NC (`comprobante-fiscal.service.ts`, mismo criterio que HU-G3) |
+| `tipo` | existente | `ComprobanteFiscal.tipo_comprobante` |
+| `fecha_emision` | existente | `ComprobanteFiscal.created_at` |
+| `monto` | existente | `ComprobanteFiscal.monto_total` (positivo en la base, también en la NC) |
+| `cae_simulado`, `qr_data_url`, `es_simulado` | existentes | `ComprobanteFiscal`, tal como los persistió HU-B7 |
+| `canal` | existente (opcional) | `PedidoVenta.canal` |
+| `cliente` | existente (opcional) | `PedidoVenta.cliente` → `{ nombre, dni }`; sin cliente, «Consumidor final» |
+| `numero_venta` | **nuevo**, opcional | `PedidoVenta.numero_venta` del pedido del comprobante |
+| `comprobante_original` | existente (opcional), **ampliado** | `ComprobanteFiscal.comprobante_original` → `{ numero, tipo }` más los nuevos `numero_venta` y `fecha_emision` (`created_at` del original) |
+| `items` | **nuevo**, opcional | `PedidoVenta.items` activos (`is_active = true`, `deleted_at = null`) → `{ descripcion, variante, sku, cantidad, precio_unitario, descuento_porcentual }`. `descripcion` = `ProductoMaestro.nombre`; `variante` = `VarianteSKU.modelo · Talle <talle> · <color> · <genero>`; `sku` = `VarianteSKU.sku` |
+| `pagos` | **nuevo**, opcional | `PedidoVenta.medios_pago` activos (`VentaMedioPago`) → `{ medio, importe, referencia }`. En el canal web es la fila `MERCADO_PAGO` que escribe `facturarPedidoVentaTx()` con el `payment_id` como referencia |
+
+Los importes viajan como `number | string` (mismo criterio que `monto`: el repositorio no pasa los `Decimal` por `number`). `ComprobanteWebDescargable` (HU-E9) recibe los mismos campos opcionales, de modo que `generarComprobanteWebPdf()` conserva su firma.
+
+**Datos ausentes:** el PDF se genera igual. Sin `items` se omite la tabla de ítems y la línea «Subtotal»; sin `pagos` se omite el bloque de medios de pago; sin `canal` la fila muestra «—»; sin `cliente` se muestra «Consumidor final»; sin `numero_venta` el número fiscal visible usa `numero`. Ningún dato ausente produce un error, salvo el QR (ver «Errores»).
+
+**Estructura del PDF** (A4, Helvetica estándar de `pdf-lib`, colores tomados de los tokens del tema claro de `src/app/globals.css`):
+
+1. **Banda superior** (`--sidebar`): el isotipo del login (lucide `ShieldCheck` en `--sidebar-primary`, dentro de un recuadro redondeado `--sidebar-accent` con borde `--sidebar-border`, dibujado como vector), «SWAT INDUMENTARIAS», el nombre del tipo de comprobante, el número `N.° 00001-<8 dígitos>` y «Emitido el <fecha y hora de Argentina>».
+2. **Recuadro de letra y código**, centrado sobre el borde de la banda:
+
+   | Tipo | Título | Letra | Código |
+   |---|---|---|---|
+   | `FACTURA_A` | FACTURA | A | 001 |
+   | `FACTURA_B` | FACTURA | B | 006 |
+   | `TICKET` | TICKET | T | 083 |
+   | `NOTA_CREDITO` sobre `FACTURA_A` | NOTA DE CRÉDITO | A | 003 |
+   | `NOTA_CREDITO` sobre `FACTURA_B` | NOTA DE CRÉDITO | B | 008 |
+   | `NOTA_CREDITO` sobre `TICKET` o sin original | NOTA DE CRÉDITO | — | — (sin recuadro; caso abierto, ver «Decisiones») |
+
+3. **Leyenda** `SIMULADO — SIN VALIDEZ FISCAL ANTE AFIP` destacada (fondo `--warning`, texto `--warning-foreground`), en todos los tipos y en todas las páginas, con un tamaño no menor que el de HU-G3 (12 pt).
+4. **Tres columnas:** EMISOR (razón social, CUIT simulado, domicilio, punto de venta `00001`), COMPROBANTE (pedido, canal, fecha de emisión, CAE simulado) y CLIENTE (nombre y `DNI <dni>`, o «Consumidor final»).
+5. **Bloque «ANULA»** (solo NC): tipo, letra y número del original, pedido y fecha de emisión del original, tomados de `comprobante_original` (relación `comprobante_original_id`, nunca del número).
+6. **Tabla de ítems:** descripción, variante y SKU, cantidad, precio unitario y subtotal de la línea (`cantidad × precio_unitario × (1 − descuento_porcentual / 100)`, redondeado a 2 decimales).
+7. **Medios de pago:** medio (`Efectivo`, `Transferencia`, `E-cheq`, `Mercado Pago`, `Tarjeta`, `Cuenta corriente`), referencia si existe e importe. En la NC el bloque se titula «COBRADO EN LA VENTA ORIGINAL» y muestra los importes cobrados, en positivo y solo como información.
+8. **Totales:**
+   - `TOTAL` = `monto_total` del comprobante, el mismo importe que lleva el QR. En la NC se rotula «TOTAL ACREDITADO» y se toma el `monto_total` de la NC.
+   - `Subtotal` = suma de los subtotales de línea de los ítems.
+   - `Descuento` = `Subtotal − TOTAL`, solo si `Subtotal > TOTAL` (por ejemplo, un cupón de HU-E4). Si coinciden, la línea no se muestra.
+   - `IVA contenido (21 %)` con la misma regla que el Libro de IVA (HU-G4): `neto = round(TOTAL / 1,21, 2)`; `IVA = TOTAL − neto`.
+9. **Pie** (en la última página): el QR archivado, el CAE simulado, el comprobante (`<título> <letra> · 00001-<8 dígitos>`) y la referencia interna (`numero`).
+10. **Paginación:** si los ítems no entran en una hoja, la tabla continúa en la siguiente, que repite la banda, la leyenda y el encabezado de la tabla. Los medios de pago, los totales y el pie van después del último ítem. Cada página muestra `Página <n> de <total>`.
+
+**Número fiscal visible (`00001-<8 dígitos>`):** mismo valor sustituto que el Libro de IVA (Backlog Sprint 5, HU-G4): punto de venta `00001` y los **últimos 8 dígitos** del número de venta. Por ejemplo, `V-2026-000001` → `00001-26000001`. La NC usa el número de su venta original (`comprobante_original.numero_venta`). Lo calcula un helper puro y exportado en `src/lib/services/ecommerce/pdf-marca.ts`, para que lo reutilice HU-G4. Si el número de venta tiene menos de 8 dígitos, se muestra `numero_venta` tal cual, sin error.
+
+**Reglas:**
+- **NC en negativo solo en la presentación:** subtotales de línea, subtotal, descuento, IVA y total se muestran con signo negativo; en la base `monto_total` sigue siendo positivo y HU-B10 no lo modifica.
+- **El QR no se regenera:** se embebe el PNG de `qr_data_url` tal como lo archivó HU-B7.
+- **Guion ASCII:** el signo negativo se dibuja con el guion `-` (U+002D) y no con U+2212, que la codificación WinAnsi de las fuentes estándar no admite. Los espacios no separables del formato monetario se normalizan.
+- **Textos extraíbles:** todo texto se dibuja con `drawText` (nunca como imagen o trazo), de modo que se puede extraer del PDF.
+- **Constantes del emisor:** el CUIT simulado (`30-00000000-7`) duplica `CUIT_EMISOR_SIMULADO` de `comprobante-fiscal.service.ts:42`, que no está exportado; un test de fuente falla si las dos divergen. El domicilio («Sucursal Salta») y la bajada («Indumentaria táctica») son **valores de ejemplo**, editables en `pdf-marca.ts`: ninguna fuente define el domicilio fiscal del emisor.
+
+**Errores:** sin cambios. Un `qr_data_url` que no es un PNG embebible lanza `QrFiscalInvalidoError`, como hoy: HU-G3 lo responde `422 COMPROBANTE_QR_INVALIDO` y HU-E9 conserva su mapeo actual (`respuestaMisPedidosError`). Nunca se genera un PDF sin QR.
+
+**Decisiones propias de HU-B10 (pendientes de revisión del PM):**
+- **Línea «Descuento»:** el Backlog no menciona descuentos, pero un cupón (HU-E4) o un `descuento_porcentual` de línea hacen que la suma de los ítems sea mayor que `monto_total` (en el seed, `V-2026-000010`: ítems $ 22.800, total $ 19.380). Se muestra la diferencia para que el TOTAL coincida siempre con el QR.
+- **NC de un Ticket:** el Backlog solo define los códigos de NC A (003) y NC B (008). La NC sobre un Ticket se titula «NOTA DE CRÉDITO», sin recuadro de letra ni código. Es la misma pregunta abierta con el PM para HU-G4.
+- **Discrepancia con `spec_modulo_G.md` G4-5:** G4-5 dice que el número «nunca se trunca»; el Backlog Sprint 5 (HU-G4) fija «los últimos 8 dígitos del número de venta». Por el orden de las fuentes rige el Backlog.
+- **Facturación parcial (HU-B3):** los ítems se leen del `PedidoVenta`, no del comprobante, porque el modelo no vincula ítems con comprobantes. Si un pedido tuviera más de un comprobante original por entregas parciales, cada PDF mostraría todos los ítems del pedido con su TOTAL propio. Hoy ningún pedido tiene más de un original. Queda como limitación documentada.
+
+**Criterios de aceptación (Backlog Sprint 5, HU-B10):**
+
+| # | Criterio | Cómo se prueba |
+|---|---|---|
+| B10-1 | Un único diseño para Factura A, Factura B, Ticket y NC, usado por HU-E9 y HU-G3, sin cambiar rutas, permisos ni la firma de HU-E9 | Test de fuente: ambas rutas llaman al mismo renderer y `generarComprobanteWebPdf(comprobante)` conserva su firma; tests HTTP de HU-G3 sin cambios de rutas, permisos ni códigos |
+| B10-2 | Encabezado con identidad, tipo, número `00001` + 8 dígitos, fecha y recuadro de letra y código | Test del renderer con texto extraído: `FACTURA`, `B`, `COD. 006`, `00001-26000001`; tabla de códigos para A, B, T, NC A y NC B; test del helper del número |
+| B10-3 | Leyenda `SIMULADO — SIN VALIDEZ FISCAL ANTE AFIP` destacada, no menor que en HU-G3 | El texto extraído contiene la leyenda en cada página; tamaño ≥ 12 pt verificado en el código |
+| B10-4 | Datos del emisor, del comprobante y del cliente | Texto extraído: razón social, CUIT simulado, domicilio, PV, pedido, canal, fecha, CAE, nombre y DNI o «Consumidor final» |
+| B10-5 | Ítems, medios de pago con importe y referencia, y totales (subtotal, IVA contenido 21 %, total) | Factura B con ítems y pagos: descripción, variante, SKU, cantidades, importes, referencia y totales; caso con cupón con la línea «Descuento» y TOTAL = `monto_total` |
+| B10-6 | La NC identifica el original y muestra «Total acreditado» en negativo; en la base sigue positivo | NC: bloque «ANULA» con tipo, número, pedido y fecha del original; `TOTAL ACREDITADO` con `-`; verificación de que `monto_total` no cambia |
+| B10-7 | Pie con el QR archivado (sin regenerar), el CAE y la referencia; ítems en varias hojas con el encabezado repetido | Comparación del PNG embebido con el de `qr_data_url`; caso de muchos ítems con `getPageCount() > 1` y el encabezado de la tabla en cada página |
+| B10-8 | Textos extraíbles; los tests de HU-E9 y HU-G3 siguen pasando; test de regresión de la descarga web | `PDFDocument.load` + extracción de texto en todos los tests; `npm test`; regresión de HU-E9 reescrita sobre el diseño nuevo |
+
+**Fuera de alcance:**
+- Emitir, regenerar o renumerar comprobantes, CAE o QR (HU-B7).
+- Numeración fiscal persistida y punto de venta real: el número `00001-<8 dígitos>` es solo un valor de presentación.
+- Datos fiscales del cliente (CUIT, condición de IVA): no existen en el modelo (§3.5).
+- Exportación del Libro de IVA (HU-G4), que solo reutiliza el helper del número.
+- Tema oscuro, fuentes propias embebidas y PDF/A.
+- Vista HTML del comprobante y envío por correo.
 
 ---
 

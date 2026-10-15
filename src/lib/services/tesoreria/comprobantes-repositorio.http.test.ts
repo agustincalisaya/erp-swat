@@ -24,6 +24,7 @@ import { inflateSync } from "node:zlib";
 import { ModuleKind, ScriptTarget, transpileModule } from "typescript";
 import { ServiceError } from "../../errors/service-error.ts";
 import * as fechaNegocio from "../../utils/fecha-negocio.ts";
+import { cargarComprobantePdf } from "../ecommerce/comprobante-pdf.test-helpers.ts";
 
 const requireReal = createRequire(import.meta.url);
 const leer = (ruta: string) => readFileSync(new URL(ruta, import.meta.url), "utf8");
@@ -114,6 +115,14 @@ async function qrB7(numero: string, tipo: string, importe: number, cae: string):
 
 const decimal = (valor: number) => ({ toFixed: (n: number) => valor.toFixed(n) });
 const vinculado = (id: string, tipo: string, numero_venta: string) => ({ id, tipo_comprobante: tipo, pedido_venta: { numero_venta } });
+/** HU-B10: ítems y pagos activos del pedido, como los proyecta `SELECT_DETALLE_PDF`. */
+const item = (descripcion: string, precio: number) => ({
+  cantidad: 1,
+  precio_unitario: decimal(precio),
+  descuento_porcentual: null,
+  variante_sku: { sku: "SKU-1", modelo: "Combate", talle: "42", color: "Negro", genero: "HOMBRE", producto_maestro: { nombre: descripcion } },
+});
+const pago = (medio: string, importe: number, referencia: string | null) => ({ medio, importe: decimal(importe), referencia });
 
 const FILAS = [
   {
@@ -125,8 +134,8 @@ const FILAS = [
     monto_total: decimal(10000),
     comprobante_original_id: ID_FACTURA_WEB,
     created_at: new Date("2026-10-09T15:30:00.000Z"),
-    pedido_venta: { numero_venta: "V-2026-000002", canal: "WEB", cliente: { dni: "30987654", nombre: "María Gómez" } },
-    comprobante_original: vinculado(ID_FACTURA_WEB, "FACTURA_B", "V-2026-000002"),
+    pedido_venta: { numero_venta: "V-2026-000002", canal: "WEB", cliente: { dni: "30987654", nombre: "María Gómez" }, items: [item("Camisa Táctica", 10000)], medios_pago: [pago("MERCADO_PAGO", 10000, "1320000000002")] },
+    comprobante_original: { ...vinculado(ID_FACTURA_WEB, "FACTURA_B", "V-2026-000002"), created_at: new Date("2026-10-08T15:30:00.000Z") },
     notas_credito: [],
   },
   {
@@ -138,7 +147,7 @@ const FILAS = [
     monto_total: decimal(10000),
     comprobante_original_id: null,
     created_at: new Date("2026-10-08T15:30:00.000Z"),
-    pedido_venta: { numero_venta: "V-2026-000002", canal: "WEB", cliente: { dni: "30987654", nombre: "María Gómez" } },
+    pedido_venta: { numero_venta: "V-2026-000002", canal: "WEB", cliente: { dni: "30987654", nombre: "María Gómez" }, items: [item("Camisa Táctica", 10000)], medios_pago: [pago("MERCADO_PAGO", 10000, "1320000000002")] },
     comprobante_original: null,
     notas_credito: [vinculado(ID_NC_WEB, "NOTA_CREDITO", "V-2026-000002")],
   },
@@ -151,7 +160,7 @@ const FILAS = [
     monto_total: decimal(45000),
     comprobante_original_id: null,
     created_at: new Date("2026-10-07T15:30:00.000Z"),
-    pedido_venta: { numero_venta: "V-2026-000001", canal: "MOSTRADOR", cliente: null },
+    pedido_venta: { numero_venta: "V-2026-000001", canal: "MOSTRADOR", cliente: null, items: [item("Borcegos", 45000)], medios_pago: [pago("EFECTIVO", 45000, null)] },
     comprobante_original: null,
     notas_credito: [],
   },
@@ -164,7 +173,7 @@ const FILAS = [
     monto_total: decimal(1000),
     comprobante_original_id: null,
     created_at: new Date("2026-10-06T15:30:00.000Z"),
-    pedido_venta: { numero_venta: "V-2026-000009", canal: "MOSTRADOR", cliente: null },
+    pedido_venta: { numero_venta: "V-2026-000009", canal: "MOSTRADOR", cliente: null, items: [], medios_pago: [] },
     comprobante_original: null,
     notas_credito: [],
   },
@@ -189,12 +198,13 @@ const prismaDatos = new Proxy({} as Record<string, unknown>, {
 });
 
 const schema = cargarModulo<Record<string, unknown>>("../../schemas/comprobantes-repositorio.schema.ts", {});
-const pdf = cargarModulo<Record<string, unknown>>("../ecommerce/comprobante-web-pdf.ts", { "server-only": {} });
+const pdf = cargarComprobantePdf();
 const servicio = cargarModulo<Record<string, unknown>>("./comprobantes-repositorio.service.ts", {
   "server-only": {},
   "@/lib/db/prisma": { prisma: prismaDatos },
   "@/lib/errors/service-error": { ServiceError },
   "@/lib/utils/fecha-negocio": fechaNegocio,
+  "@/lib/services/ecommerce/comprobante-web-pdf": pdf,
 });
 
 type Handler = (req: unknown, context?: unknown) => Promise<Response>;
@@ -345,8 +355,13 @@ test("G3-3 · id mal formado → 400 y id inexistente → 404, en vista y descar
 
 test("G3-3 · el PDF de mostrador y el de la NC web son application/pdf con CAE, QR y la leyenda de simulado", async () => {
   for (const [id, datos] of [
-    [ID_TICKET, ["TICKET", "V-2026-000001", "68031598274563", "Mostrador", "Consumidor final"]],
-    [ID_NC_WEB, ["NOTA CREDITO", "NC-V-2026-000002", "22222222222222", "Web", "María Gómez · DNI 30987654", "V-2026-000002 (FACTURA B)"]],
+    // HU-B10: rótulos del diseño nuevo (spec_modulo_B.md §2.10), con ítems y pagos del pedido.
+    [ID_TICKET, ["TICKET", "COD. 083", "N.° 00001-26000001", "V-2026-000001", "68031598274563", "Mostrador", "Consumidor final", "Borcegos", "Efectivo", "$ 45.000,00"]],
+    [ID_NC_WEB, [
+      "NOTA DE CRÉDITO", "COD. 008", "NC-V-2026-000002", "22222222222222", "Web", "María Gómez", "DNI 30987654",
+      "ANULA", "Factura B N.° 00001-26000002  ·  Pedido V-2026-000002  ·  emitida el 08/10/2026",
+      "COBRADO EN LA VENTA ORIGINAL", "Mercado Pago  ·  ref. 1320000000002", "TOTAL ACREDITADO", "-$ 10.000,00",
+    ]],
   ] as const) {
     const respuesta = await llamar("pdf", { usuario: "u-tesorero", id });
     assert.equal(respuesta.status, 200);

@@ -32,9 +32,10 @@ test("PDF descargable contiene los datos B7 persistidos y el QR fiscal", async (
   const textos = [...operadores.matchAll(/<([0-9A-F]+)> Tj/g)]
     .map((match) => Buffer.from(match[1]!, "hex").toString("latin1").replace(/\x97/g, "—"));
   const contenido = textos.join("\n");
+  // Rótulos del diseño de HU-B10 (spec_modulo_B.md §2.10).
   for (const dato of [
-    "SWAT Indumentarias", "Comprobante fiscal", "Comprobante simulado — sin integración ni validación real con AFIP",
-    "FACTURA B", "V-2026-000019", "08/10/2026", "10.000,00", "12345678901234", "QR fiscal simulado",
+    "SWAT Indumentarias", "SIMULADO — SIN VALIDEZ FISCAL ANTE AFIP", "FACTURA", "COD. 006",
+    "N.° 00001-26000019", "V-2026-000019", "08/10/2026", "10.000,00", "12345678901234", "QR FISCAL SIMULADO",
   ]) assert.ok(contenido.includes(dato), dato);
   assert.match(operadores, /\/Image-/);
 });
