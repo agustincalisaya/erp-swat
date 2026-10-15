@@ -5147,13 +5147,34 @@ async function seedSprint5Cluster4(prisma: PrismaClient): Promise<void> {
     });
   }
 
+  // QR local con el mismo payload, orden de claves y opciones que
+  // `generarQrSimulado()` de HU-B7 (comprobante-fiscal.service.ts:74-93). Esa
+  // función no está exportada, así que se replica acá; el test "Decisión 4"
+  // de `comprobantes-repositorio.test.ts` compara la salida de este helper con
+  // la de `emitirComprobanteFiscal()` y la de la NC de E13, y falla si divergen.
+  // `numeroComprobante` sigue a B7: `numero_venta` en Factura/Ticket
+  // (:122) y `NC-<numero_venta>` en la Nota de Crédito (:245). Import
+  // dinámico para no tocar la cabecera compartida del seed.
+  const { default: QRCode } = await import("qrcode");
+  const qrComoB7 = (c: { tipo: string; numero_venta: string; importe: number; cae: string }) =>
+    QRCode.toDataURL(
+      JSON.stringify({
+        ver: 1,
+        simulado: true,
+        cuitEmisor: "30000000007",
+        tipoComprobante: c.tipo,
+        numeroComprobante: c.tipo === "NOTA_CREDITO" ? `NC-${c.numero_venta}` : c.numero_venta,
+        importe: c.importe,
+        moneda: "PES",
+        cae: c.cae,
+      }),
+      { errorCorrectionLevel: "M" },
+    );
+
   // HU-G3: los comprobantes que siembra `main()` (mostrador y web) guardan un
   // placeholder que no es un PNG, y `generarComprobanteWebPdf()` lo rechaza
-  // (la descarga falla). Se regenera con el mismo payload que arma HU-B7 en
-  // `generarQrSimulado()` (comprobante-fiscal.service.ts), 100% local. Solo
-  // toca filas con el placeholder: repetible sin cambios. Import dinámico
-  // para no tocar la cabecera compartida del seed.
-  const { default: QRCode } = await import("qrcode");
+  // (la descarga falla). Se regenera con `qrComoB7`, 100% local. Solo toca
+  // filas con el placeholder: repetible sin cambios.
   const comprobantesConQrInvalido = await prisma.comprobanteFiscal.findMany({
     where: { qr_data_url: "data:image/png;base64,SIMULADO-SEED-NO-AFIP==" },
     select: {
@@ -5165,21 +5186,65 @@ async function seedSprint5Cluster4(prisma: PrismaClient): Promise<void> {
     },
   });
   for (const comprobante of comprobantesConQrInvalido) {
-    const qr_data_url = await QRCode.toDataURL(
-      JSON.stringify({
-        ver: 1,
-        simulado: true,
-        cuitEmisor: "30000000007",
-        tipoComprobante: comprobante.tipo_comprobante,
-        numeroComprobante: comprobante.pedido_venta.numero_venta,
-        importe: Number(comprobante.monto_total),
-        moneda: "PES",
-        cae: comprobante.cae_simulado,
-      }),
-      { errorCorrectionLevel: "M" },
-    );
+    const qr_data_url = await qrComoB7({
+      tipo: comprobante.tipo_comprobante,
+      numero_venta: comprobante.pedido_venta.numero_venta,
+      importe: Number(comprobante.monto_total),
+      cae: comprobante.cae_simulado,
+    });
     await prisma.comprobanteFiscal.update({ where: { id: comprobante.id }, data: { qr_data_url } });
   }
+
+  // HU-G3 (G3-4) — DATO DE DEMO: Nota de Crédito sobre la Factura B de
+  // mostrador V-2026-000001 (Juan Pérez), para mostrar el vínculo NC ↔ original
+  // en el repositorio. Emitida por supervisor.ventas.seed: B7 no emite NC de
+  // mostrador, así que no define quién la emite. Replica la emisión real de una
+  // NC (`emitirNotaCreditoReintegroPedidoWebTx`, comprobante-fiscal.service.ts:
+  // 239-262): mismo `pedido_venta_id` que el original, `monto_total` = total
+  // del original en positivo (el signo lo pone la presentación) y QR con
+  // `NC-<numero_venta>`. Es de mostrador a propósito: una NC web implica un
+  // reintegro E13 y alteraría el reintegro de T1.
+  // - G14: no la impacta. El reporte toma el mostrador de `VentaMedioPago`
+  //   (spec_modulo_G.md G14-5) y la web de `IngresoTesoreria` /
+  //   `ContraAsientoIngreso`, nunca de `ComprobanteFiscal`; esta NC no crea
+  //   PedidoVenta, medios de pago, reintegro, contra-asiento, AuditLog ni eventos.
+  // - G4 (Libro de IVA): aparece como línea de NC B (código 008) con importes
+  //   negativos y el mismo número que la factura V-2026-000001 (regla del
+  //   Backlog: la NC usa el número de su venta original).
+  // - Reserva el id 1a2b3c4d-be05-4a1a-8a1a-000000000002 y el CAE
+  //   68031598279001: T1 no debe repetirlos.
+  // Fila inmutable: `update: {}`.
+  const COMPROBANTE_FISCAL_NC_MOSTRADOR_ID = "1a2b3c4d-be05-4a1a-8a1a-000000000002";
+  const original = await prisma.comprobanteFiscal.findUniqueOrThrow({
+    where: { id: COMPROBANTE_FISCAL_MOSTRADOR_ID },
+    select: { pedido_venta_id: true, monto_total: true, created_at: true, pedido_venta: { select: { numero_venta: true } } },
+  });
+  // Un minuto después del original, o ahora si eso fuera futuro: queda entre
+  // el original y ahora, así que si el original es de este mes la NC también.
+  const emitidaEn = original.created_at.getTime();
+  const created_at = new Date(Math.max(emitidaEn + 1, Math.min(emitidaEn + 60_000, Date.now())));
+  const cae_simulado = "68031598279001";
+  await prisma.comprobanteFiscal.upsert({
+    where: { id: COMPROBANTE_FISCAL_NC_MOSTRADOR_ID },
+    update: {},
+    create: {
+      id: COMPROBANTE_FISCAL_NC_MOSTRADOR_ID,
+      pedido_venta_id: original.pedido_venta_id,
+      tipo_comprobante: "NOTA_CREDITO",
+      cae_simulado,
+      qr_data_url: await qrComoB7({
+        tipo: "NOTA_CREDITO",
+        numero_venta: original.pedido_venta.numero_venta,
+        importe: Number(original.monto_total),
+        cae: cae_simulado,
+      }),
+      es_simulado: true,
+      monto_total: original.monto_total,
+      emitido_por_id: USUARIO_SUPERVISOR_VENTAS_SEED_ID,
+      comprobante_original_id: COMPROBANTE_FISCAL_MOSTRADOR_ID,
+      created_at,
+    },
+  });
 }
 
 // Cluster 5 · cuentas propias y saldos diarios (HU-G5, HU-G7).

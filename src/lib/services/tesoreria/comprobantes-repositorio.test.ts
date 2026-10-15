@@ -1,13 +1,14 @@
 /**
  * Sprint 5 · Cluster 4 — HU-G3 Repositorio digital de comprobantes fiscales.
  *
- * Tests escritos ANTES de la spec y de la implementación: cada caso está
- * marcado `{ todo: true }`, así falla (reportado como pendiente) sin romper
- * `npm test`. Al implementar, se quita el `todo` caso por caso.
+ * Tests escritos ANTES de la spec y de la implementación (marcados
+ * `{ todo: true }`); con HU-G3 implementada ya no queda ninguno pendiente.
  *
- * CONTRATO PROVISIONAL: las rutas de módulos y los nombres de funciones de
- * `CONTRATO` son una propuesta del Cluster 4, no de la spec. Si la spec del
- * PM define otros, se ajusta solo ese bloque.
+ * CONTRATO: las rutas HTTP y la página son las de spec_modulo_G.md §9.5
+ * (`/api/tesoreria/comprobantes`, `/[id]`, `/[id]/pdf`). La spec no nombra el
+ * servicio ni el schema: se conservan los nombres que propuso el Cluster 4.
+ * La matriz HTTP (401/403/404/400/422 y los 4 roles) está en
+ * `comprobantes-repositorio.http.test.ts`.
  *
  * Datos del modelo actual que fijan los casos (prisma/schema.prisma):
  * - `ComprobanteFiscal` no tiene canal, cliente ni fecha de emisión propios:
@@ -171,7 +172,7 @@ const whereDe = (llamadas: Llamada[], metodo = "findMany") =>
 
 // ── CA1: lista mostrador y web desde lo archivado, sin duplicar emisión ──────
 
-test("CA1 · sin filtros lista ambos canales, más recientes primero", { todo: true }, async () => {
+test("CA1 · sin filtros lista ambos canales, más recientes primero", async () => {
   const doble = prismaDoble([
     filaComprobante({ id: "c0000000-0000-4000-8000-000000000002", pedido_venta: { numero_venta: "V-2026-000002", canal: "WEB", cliente: null } }),
     filaComprobante(),
@@ -186,13 +187,13 @@ test("CA1 · sin filtros lista ambos canales, más recientes primero", { todo: t
   assert.equal(listado.total, 2);
 });
 
-test("CA1 · decisión 2: la fecha de emisión es created_at del comprobante (ISO)", { todo: true }, async () => {
+test("CA1 · decisión 2: la fecha de emisión es created_at del comprobante (ISO)", async () => {
   const doble = prismaDoble([filaComprobante({ created_at: new Date("2026-10-08T15:30:00.000Z") })]);
   const [registro] = (await cargarServicio(doble.prisma).listarComprobantes({ page: 1, page_size: 25 })).registros;
   assert.equal(registro!.fecha_emision, "2026-10-08T15:30:00.000Z");
 });
 
-test("CA1 · decisión 3: una venta sin cliente se lista como Consumidor final", { todo: true }, async () => {
+test("CA1 · decisión 3: una venta sin cliente se lista como Consumidor final", async () => {
   const doble = prismaDoble([
     filaComprobante({ pedido_venta: { numero_venta: "V-2026-000003", canal: "MOSTRADOR", cliente: null } }),
     filaComprobante(),
@@ -202,7 +203,7 @@ test("CA1 · decisión 3: una venta sin cliente se lista como Consumidor final",
   assert.deepEqual(registros[1]!.cliente, { dni: "30987654", nombre: "María Gómez" });
 });
 
-test("CA1 · solo lee comprobantes archivados: no emite, no recalcula CAE ni QR", { todo: true }, () => {
+test("CA1 · solo lee comprobantes archivados: no emite, no recalcula CAE ni QR", () => {
   const fuente = leer(CONTRATO.servicio);
   assert.doesNotMatch(fuente, /comprobanteFiscal\.(create|createMany|upsert)\b/);
   assert.doesNotMatch(fuente, /emitirComprobanteFiscal|emitirNotaCredito|generarCaeSimulado|generarQrSimulado/);
@@ -219,7 +220,7 @@ function cargarSchema(): SchemaFiltros {
   return cargarModulo<SchemaFiltros>(CONTRATO.schema, {});
 }
 
-test("CA2 · schema: tipo y canal cerrados, paginación con defaults 1/25 y tope 100", { todo: true }, () => {
+test("CA2 · schema: tipo y canal cerrados, paginación con defaults 1/25 y tope 100", () => {
   const { FiltrosComprobantesSchema: schema } = cargarSchema();
   for (const tipo of ["FACTURA_A", "FACTURA_B", "TICKET", "NOTA_CREDITO"]) {
     assert.equal(schema.safeParse({ tipo }).success, true, tipo);
@@ -236,7 +237,7 @@ test("CA2 · schema: tipo y canal cerrados, paginación con defaults 1/25 y tope
   assert.equal(schema.safeParse({ fecha_desde: "2026-10-31", fecha_hasta: "2026-10-01" }).success, false, "rango invertido");
 });
 
-test("CA2 · cliente por DNI (exacto) o por nombre (parcial, sin mayúsculas)", { todo: true }, async () => {
+test("CA2 · cliente por DNI (exacto) o por nombre (parcial, sin mayúsculas)", async () => {
   const porDni = prismaDoble();
   await cargarServicio(porDni.prisma).listarComprobantes({ cliente: "30987654", page: 1, page_size: 25 });
   assert.deepEqual(whereDe(porDni.llamadas)?.pedido_venta, { cliente: { dni: "30987654" } });
@@ -248,7 +249,23 @@ test("CA2 · cliente por DNI (exacto) o por nombre (parcial, sin mayúsculas)", 
   });
 });
 
-test("CA2 · período de emisión en hora Argentina, día hasta inclusive", { todo: true }, async () => {
+test("CA2 · el DNI se acepta con o sin puntos, espacios o guiones y se busca normalizado", async () => {
+  for (const [entrada, esperado] of [
+    ["30.123.456", { cliente: { dni: "30123456" } }],
+    [" 30 123 456 ", { cliente: { dni: "30123456" } }],
+    ["30-123-456", { cliente: { dni: "30123456" } }],
+    ["30123456", { cliente: { dni: "30123456" } }],
+    ["Pérez", { cliente: { nombre: { contains: "Pérez", mode: "insensitive" } } }],
+    // Con letras no es DNI: se busca el texto original (trim), sin quitarle puntos.
+    [" J. Pérez ", { cliente: { nombre: { contains: "J. Pérez", mode: "insensitive" } } }],
+  ] as const) {
+    const doble = prismaDoble();
+    await cargarServicio(doble.prisma).listarComprobantes({ cliente: entrada, page: 1, page_size: 25 });
+    assert.deepEqual(whereDe(doble.llamadas)?.pedido_venta, esperado, JSON.stringify(entrada));
+  }
+});
+
+test("CA2 · período de emisión en hora Argentina, día hasta inclusive", async () => {
   const doble = prismaDoble();
   await cargarServicio(doble.prisma).listarComprobantes({
     fecha_desde: "2026-10-01",
@@ -264,7 +281,7 @@ test("CA2 · período de emisión en hora Argentina, día hasta inclusive", { to
   assert.match(leer(CONTRATO.servicio), /rangoDiasNegocio\(/, "reutiliza el helper de fecha-negocio");
 });
 
-test("CA2 · tipo y canal se combinan con paginación skip/take y el total usa el mismo where", { todo: true }, async () => {
+test("CA2 · tipo y canal se combinan con paginación skip/take y el total usa el mismo where", async () => {
   const doble = prismaDoble([filaComprobante()], 31);
   const listado = await cargarServicio(doble.prisma).listarComprobantes({
     tipo: "TICKET",
@@ -280,6 +297,85 @@ test("CA2 · tipo y canal se combinan con paginación skip/take y el total usa e
   assert.equal(findMany.take, 10);
   assert.deepEqual(whereDe(doble.llamadas, "count"), where);
   assert.deepEqual({ total: listado.total, page: listado.page, page_size: listado.page_size }, { total: 31, page: 2, page_size: 10 });
+});
+
+test("CA2 · frontera del día argentino: 23:59 del día hasta entra, 00:00 del día siguiente no", async () => {
+  const doble = prismaDoble();
+  await cargarServicio(doble.prisma).listarComprobantes({ fecha_desde: "2026-10-15", fecha_hasta: "2026-10-15", page: 1, page_size: 25 });
+  const { gte, lt } = whereDe(doble.llamadas)!.created_at as { gte: Date; lt: Date };
+  const entra = (iso: string) => new Date(iso) >= gte && new Date(iso) < lt;
+  assert.equal(entra("2026-10-15T00:00:00.000-03:00"), true, "00:00 del día desde");
+  assert.equal(entra("2026-10-15T23:59:59.999-03:00"), true, "23:59 del día hasta");
+  assert.equal(entra("2026-10-16T00:00:00.000-03:00"), false, "00:00 del día siguiente");
+  assert.equal(entra("2026-10-14T23:59:59.999-03:00"), false, "23:59 del día anterior");
+  // 01:30 UTC del 16 sigue siendo el 15 en Argentina.
+  assert.equal(entra("2026-10-16T01:30:00.000Z"), true);
+});
+
+test("CA2 · con un solo extremo el período queda abierto del otro lado", async () => {
+  const soloDesde = prismaDoble();
+  await cargarServicio(soloDesde.prisma).listarComprobantes({ fecha_desde: "2026-10-01", page: 1, page_size: 25 });
+  assert.deepEqual(whereDe(soloDesde.llamadas)!.created_at, { gte: new Date("2026-10-01T03:00:00.000Z") });
+
+  const soloHasta = prismaDoble();
+  await cargarServicio(soloHasta.prisma).listarComprobantes({ fecha_hasta: "2026-10-31", page: 1, page_size: 25 });
+  assert.deepEqual(whereDe(soloHasta.llamadas)!.created_at, { lt: new Date("2026-11-01T03:00:00.000Z") });
+});
+
+test("CA2 · todos los filtros combinados en un único where, compartido con el conteo", async () => {
+  const doble = prismaDoble();
+  await cargarServicio(doble.prisma).listarComprobantes({
+    cliente: "  Gómez ",
+    fecha_desde: "2026-10-01",
+    fecha_hasta: "2026-10-31",
+    tipo: "NOTA_CREDITO",
+    canal: "WEB",
+    page: 1,
+    page_size: 25,
+  });
+  const esperado = {
+    tipo_comprobante: "NOTA_CREDITO",
+    created_at: { gte: new Date("2026-10-01T03:00:00.000Z"), lt: new Date("2026-11-01T03:00:00.000Z") },
+    pedido_venta: { canal: "WEB", cliente: { nombre: { contains: "Gómez", mode: "insensitive" } } },
+  };
+  assert.deepEqual(whereDe(doble.llamadas), esperado);
+  assert.deepEqual(whereDe(doble.llamadas, "count"), esperado);
+});
+
+test("CA2 · rango invertido llamando al servicio directo → FILTRO_INVALIDO, sin consultar", async () => {
+  const doble = prismaDoble();
+  await assert.rejects(
+    cargarServicio(doble.prisma).listarComprobantes({ fecha_desde: "2026-10-31", fecha_hasta: "2026-10-01", page: 1, page_size: 25 }),
+    (error: unknown) => error instanceof ServiceError && error.code === "FILTRO_INVALIDO",
+  );
+  assert.equal(doble.llamadas.length, 0);
+});
+
+test("CA2 · el cliente proyecta solo DNI y nombre (sin datos extra)", async () => {
+  const doble = prismaDoble();
+  await cargarServicio(doble.prisma).listarComprobantes({ page: 1, page_size: 25 });
+  const select = doble.llamadas.find((l) => l.metodo === "findMany")!.args.select as {
+    pedido_venta: { select: { cliente: { select: Record<string, boolean> } } };
+  };
+  assert.deepEqual(select.pedido_venta.select.cliente.select, { dni: true, nombre: true });
+});
+
+test("CA2 · el monto se serializa como string de dos decimales (nunca number)", async () => {
+  const { registros } = await cargarServicio(prismaDoble().prisma).listarComprobantes({ page: 1, page_size: 25 });
+  assert.equal(registros[0]!.monto_total, "45000.00");
+});
+
+test("HU-G4 · el núcleo sin paginar reutiliza where y orden, sin skip/take", async () => {
+  const doble = prismaDoble();
+  const servicio = cargarServicio(doble.prisma) as Servicio & {
+    consultarComprobantes: (f: Record<string, unknown>, select: Record<string, unknown>) => Promise<unknown[]>;
+  };
+  await servicio.consultarComprobantes({ tipo: "TICKET" }, { id: true });
+  const args = doble.llamadas[0]!.args;
+  assert.deepEqual(args.where, { tipo_comprobante: "TICKET" });
+  assert.deepEqual(args.orderBy, [{ created_at: "desc" }, { id: "desc" }]);
+  assert.deepEqual(args.select, { id: true });
+  assert.equal("skip" in args || "take" in args, false);
 });
 
 // ── CA3: PDF de cualquier comprobante, con CAE y QR, marcado simulado ───────
@@ -307,7 +403,7 @@ interface PdfGeneral {
   generarComprobanteFiscalPdf: (comprobante: Record<string, unknown>) => Promise<Uint8Array>;
 }
 
-test("CA3 · PDF de un comprobante de mostrador sin cliente: CAE, QR, Consumidor final y leyenda de simulado", { todo: true }, async () => {
+test("CA3 · PDF de un comprobante de mostrador sin cliente: CAE, QR, Consumidor final y leyenda de simulado", async () => {
   const pdfLib = requireReal("pdf-lib") as typeof import("pdf-lib");
   const { generarComprobanteFiscalPdf } = cargarModulo<PdfGeneral>(CONTRATO.pdf, { "server-only": {} });
   const bytes = await generarComprobanteFiscalPdf({
@@ -323,13 +419,14 @@ test("CA3 · PDF de un comprobante de mostrador sin cliente: CAE, QR, Consumidor
     comprobante_original: null,
   });
   const { texto, operadores } = await textosPdf(bytes, pdfLib);
+  assert.ok(texto.includes("SIMULADO — SIN VALIDEZ FISCAL ANTE AFIP"), "leyenda visible de G3-3");
   for (const dato of ["TICKET", "V-2026-000001", "08/10/2026", "45.000,00", "68031598274563", "Mostrador", "Consumidor final", "simulado"]) {
     assert.ok(texto.includes(dato), dato);
   }
   assert.match(operadores, /\/Image-/, "QR embebido");
 });
 
-test("CA3 · PDF de una Nota de Crédito web muestra el comprobante original", { todo: true }, async () => {
+test("CA3 · PDF de una Nota de Crédito web muestra el comprobante original", async () => {
   const pdfLib = requireReal("pdf-lib") as typeof import("pdf-lib");
   const { generarComprobanteFiscalPdf } = cargarModulo<PdfGeneral>(CONTRATO.pdf, { "server-only": {} });
   const bytes = await generarComprobanteFiscalPdf({
@@ -350,7 +447,7 @@ test("CA3 · PDF de una Nota de Crédito web muestra el comprobante original", {
   }
 });
 
-test("CA3 · la ruta de descarga devuelve application/pdf como adjunto", { todo: true }, () => {
+test("CA3 · la ruta de descarga devuelve application/pdf como adjunto", () => {
   const fuente = leer(CONTRATO.rutaPdf);
   assert.match(fuente, /export\s+const\s+GET\b|export\s+async\s+function\s+GET\b/);
   assert.match(fuente, /application\/pdf/);
@@ -360,7 +457,7 @@ test("CA3 · la ruta de descarga devuelve application/pdf como adjunto", { todo:
 
 // ── CA4: vínculo NC ↔ original en ambos sentidos ────────────────────────────
 
-test("CA4 · el detalle de una NC trae su comprobante original", { todo: true }, async () => {
+test("CA4 · el detalle de una NC trae su comprobante original", async () => {
   const doble = prismaDoble([
     filaComprobante({
       id: "c0000000-0000-4000-8000-000000000003",
@@ -381,12 +478,17 @@ test("CA4 · el detalle de una NC trae su comprobante original", { todo: true },
   });
 });
 
-test("CA4 · el detalle del original lista sus NC", { todo: true }, async () => {
+test("CA4 · el detalle del original lista sus NC", async () => {
   const doble = prismaDoble([
     filaComprobante({
       id: "c0000000-0000-4000-8000-000000000002",
       notas_credito: [
-        { id: "c0000000-0000-4000-8000-000000000003", tipo_comprobante: "NOTA_CREDITO", created_at: new Date("2026-10-09T15:30:00.000Z") },
+        {
+          id: "c0000000-0000-4000-8000-000000000003",
+          tipo_comprobante: "NOTA_CREDITO",
+          created_at: new Date("2026-10-09T15:30:00.000Z"),
+          pedido_venta: { numero_venta: "V-2026-000002" },
+        },
       ],
     }),
   ]);
@@ -395,9 +497,22 @@ test("CA4 · el detalle del original lista sus NC", { todo: true }, async () => 
     (detalle.notas_credito as Record<string, unknown>[]).map((nc) => nc.comprobante_id),
     ["c0000000-0000-4000-8000-000000000003"],
   );
+  assert.equal(detalle.comprobante_original, null, "un original no tiene comprobante original");
+  assert.deepEqual(
+    (detalle.notas_credito as Record<string, unknown>[]).map((nc) => nc.numero),
+    ["NC-V-2026-000002"],
+    "número con la convención de HU-B7 (comprobante-fiscal.service.ts:245)",
+  );
 });
 
-test("CA4 · el listado expone el vínculo (id del original en la NC, cantidad de NC en el original)", { todo: true }, async () => {
+test("CA4 · el vínculo se lee de comprobante_original_id, no de números inferidos", () => {
+  const fuente = leer(CONTRATO.servicio);
+  assert.match(fuente, /comprobante_original: \{ select: SELECT_VINCULADO \}/);
+  assert.match(fuente, /notas_credito: \{ select: SELECT_VINCULADO/);
+  assert.doesNotMatch(fuente, /startsWith\("NC-"\)|numero_venta: \{ (contains|startsWith|endsWith)/);
+});
+
+test("CA4 · el listado expone el vínculo (id del original en la NC, cantidad de NC en el original)", async () => {
   const doble = prismaDoble();
   await cargarServicio(doble.prisma).listarComprobantes({ page: 1, page_size: 25 });
   const consulta = JSON.stringify(doble.llamadas.find((l) => l.metodo === "findMany")!.args);
@@ -405,7 +520,7 @@ test("CA4 · el listado expone el vínculo (id del original en la NC, cantidad d
   assert.match(consulta, /"notas_credito"/);
 });
 
-test("CA4 · un id inexistente responde COMPROBANTE_NO_ENCONTRADO", { todo: true }, async () => {
+test("CA4 · un id inexistente responde COMPROBANTE_NO_ENCONTRADO", async () => {
   const doble = prismaDoble([]);
   await assert.rejects(
     cargarServicio(doble.prisma).obtenerDetalleComprobante("c0000000-0000-4000-8000-0000000000ff"),
@@ -415,7 +530,7 @@ test("CA4 · un id inexistente responde COMPROBANTE_NO_ENCONTRADO", { todo: true
 
 // ── CA5: sin edición ni baja ────────────────────────────────────────────────
 
-test("CA5 · las rutas de G3 solo exponen GET", { todo: true }, () => {
+test("CA5 · las rutas de G3 solo exponen GET", () => {
   for (const ruta of [CONTRATO.rutaListado, CONTRATO.rutaDetalle, CONTRATO.rutaPdf]) {
     const fuente = leer(ruta);
     assert.match(fuente, /export\s+(const|async\s+function)\s+GET\b/, ruta);
@@ -423,7 +538,7 @@ test("CA5 · las rutas de G3 solo exponen GET", { todo: true }, () => {
   }
 });
 
-test("CA5 · el servicio no modifica ni borra comprobantes", { todo: true }, () => {
+test("CA5 · el servicio no modifica ni borra comprobantes", () => {
   assert.doesNotMatch(
     leer(CONTRATO.servicio),
     /comprobanteFiscal\.(update|updateMany|delete|deleteMany|upsert)\b|\$executeRaw|UPDATE\s+comprobantes_fiscales|DELETE\s+FROM/i,
@@ -440,14 +555,14 @@ function cuerpoSeedCluster4(): string {
   return seed.slice(inicio, fin);
 }
 
-test("CA6 · el seed siembra tesoreria:leer_comprobantes con su id preasignado …050", { todo: true }, () => {
+test("CA6 · el seed siembra tesoreria:leer_comprobantes con su id preasignado …050", () => {
   const seed = leer(CONTRATO.seed);
   // Tolera el salto de línea que mete el reflow de Prettier después del `=`.
   assert.match(seed, new RegExp(`const PERMISO_TESORERIA_LEER_COMPROBANTES_ID =\\s*"${CONTRATO.permisoId}";`));
   assert.match(cuerpoSeedCluster4(), new RegExp(`codigo: "${CONTRATO.permiso}"`));
 });
 
-test("CA6 · asignado a Cajero POS, Tesorero, Auditor y Administrador; NO al Gerente", { todo: true }, () => {
+test("CA6 · asignado a Cajero POS, Tesorero, Auditor y Administrador; NO al Gerente", () => {
   const cuerpo = cuerpoSeedCluster4();
   for (const rol of ["ROL_CAJERO_POS_ID", "ROL_TESORERO_ID", "ROL_AUDITOR_ID", "ROL_ADMINISTRADOR_ID"]) {
     assert.match(cuerpo, new RegExp(`\\b${rol}\\b`), rol);
@@ -455,7 +570,7 @@ test("CA6 · asignado a Cajero POS, Tesorero, Auditor y Administrador; NO al Ger
   assert.doesNotMatch(cuerpo, /\bROL_GERENTE_ID\b/, "el Gerente no lee comprobantes (403)");
 });
 
-test("CA6 · las rutas se gatean en servidor con tesoreria:leer_comprobantes, no con ventas:leer", { todo: true }, () => {
+test("CA6 · las rutas se gatean en servidor con tesoreria:leer_comprobantes, no con ventas:leer", () => {
   for (const ruta of [CONTRATO.rutaListado, CONTRATO.rutaDetalle, CONTRATO.rutaPdf]) {
     const fuente = leer(ruta);
     assert.match(fuente, /withPermission\(\s*(PERMISO_LEER_COMPROBANTES|"tesoreria:leer_comprobantes")/, ruta);
@@ -466,7 +581,7 @@ test("CA6 · las rutas se gatean en servidor con tesoreria:leer_comprobantes, no
   }
 });
 
-test("CA6 · Sidebar: ítem Comprobantes en Tesorería, con su permiso y en el orden acordado", { todo: true }, () => {
+test("CA6 · Sidebar: ítem Comprobantes en Tesorería, con su permiso y en el orden acordado", () => {
   const sidebar = leer(CONTRATO.sidebar);
   const tesoreria = sidebar.slice(sidebar.indexOf('label: "Tesorería"'));
   const item = /label:\s*"Comprobantes",\s*href:\s*"\/tesoreria\/comprobantes",\s*icon:\s*\w+,\s*permiso:\s*"tesoreria:leer_comprobantes"/;
@@ -526,4 +641,98 @@ test("Decisión 4 · el seed del Cluster 4 regenera los QR con el mismo payload 
   // El placeholder viejo solo aparece como filtro de las filas a corregir.
   assert.equal(cuerpoSeed.match(/SIMULADO-SEED-NO-AFIP/g)?.length, 1);
   assert.match(cuerpoSeed, /where: \{ qr_data_url: "data:image\/png;base64,SIMULADO-SEED-NO-AFIP==" \}/);
+});
+
+// ── Paso 0.b · el helper del seed y B7 producen el MISMO QR ─────────────────
+
+type QrSeed = (c: { tipo: string; numero_venta: string; importe: number; cae: string }) => Promise<string>;
+
+/** `qrComoB7` tal cual está escrito en `seedSprint5Cluster4()` (el seed no se puede importar: corre `main()`). */
+function qrDelSeed(): QrSeed {
+  const cuerpo = cuerpoSeedCluster4();
+  const inicio = cuerpo.indexOf("const qrComoB7 = ");
+  assert.ok(inicio >= 0, "seedSprint5Cluster4 define qrComoB7");
+  const fin = cuerpo.indexOf(");", cuerpo.indexOf('{ errorCorrectionLevel: "M" },', inicio)) + 2;
+  const fuente = `const QRCode = require("qrcode");\n${cuerpo.slice(inicio, fin)}\nmodule.exports = qrComoB7;`;
+  const codigo = transpileModule(fuente, { compilerOptions: { module: ModuleKind.CommonJS } }).outputText;
+  const modulo: { exports: unknown } = { exports: {} };
+  runInThisContext(`(function(require, module) {\n${codigo}\n})`)(requireReal, modulo);
+  return modulo.exports as QrSeed;
+}
+
+function cargarB7(): Record<string, (...args: unknown[]) => Promise<Record<string, unknown>>> {
+  return cargarModulo("../ventas/comprobante-fiscal.service.ts", {
+    "server-only": {},
+    qrcode: { default: requireReal("qrcode") },
+    "@prisma/client": { TipoComprobanteVenta: { NOTA_CREDITO: "NOTA_CREDITO" } },
+    "@/lib/db/prisma": { prisma: {} },
+    "@/lib/errors/service-error": { ServiceError },
+  });
+}
+
+test("Paso 0.b · Factura/Ticket: el QR del seed es idéntico al de emitirComprobanteFiscal (B7)", async () => {
+  const creados: Record<string, unknown>[] = [];
+  const tx = { comprobanteFiscal: { create: async ({ data }: { data: Record<string, unknown> }) => creados.push(data) } };
+  for (const tipo of ["FACTURA_B", "TICKET"]) {
+    const emitido = await cargarB7().emitirComprobanteFiscal!(tx, {
+      pedido_venta_id: "c0000000-0000-4000-8000-0000000000aa",
+      numero_venta: "V-2026-000001",
+      tipo_comprobante: tipo,
+      monto_total: 45000,
+      emitido_por_id: "c0000000-0000-4000-8000-0000000000bb",
+    });
+    const delSeed = await qrDelSeed()({ tipo, numero_venta: "V-2026-000001", importe: 45000, cae: emitido.cae_simulado as string });
+    assert.equal(delSeed, emitido.qr_data_url, tipo);
+  }
+});
+
+test("Paso 0.b/0.c · Nota de Crédito: el QR del seed es idéntico al de la NC de E13, que usa el mismo pedido y monto positivo", async () => {
+  const PEDIDO = "c0000000-0000-4000-8000-0000000000aa";
+  const ORIGINAL = "c0000000-0000-4000-8000-0000000000cc";
+  const decimal = (valor: number) => ({ equals: (otro: { toNumber: () => number }) => otro.toNumber() === valor, toNumber: () => valor });
+  const filasRaw = [
+    [{ id: PEDIDO, numero_venta: "V-2026-000001", canal: "WEB", estado: "FACTURADO", total: decimal(45000), is_active: true, deleted_at: null }],
+    [{ id: "c0000000-0000-4000-8000-0000000000dd", pedido_venta_id: PEDIDO, monto_total: decimal(45000), nota_credito_id: null }],
+  ];
+  const creados: Record<string, unknown>[] = [];
+  const tx = {
+    $queryRaw: async () => filasRaw.shift(),
+    comprobanteFiscal: {
+      findUnique: async () => ({ id: ORIGINAL, pedido_venta_id: PEDIDO, tipo_comprobante: "FACTURA_B", monto_total: decimal(45000) }),
+      create: async ({ data }: { data: Record<string, unknown> }) => creados.push(data),
+    },
+    reintegroPedidoWeb: { updateMany: async () => ({ count: 1 }) },
+  };
+  await cargarB7().emitirNotaCreditoReintegroPedidoWebTx!(tx, {
+    reintegro_id: "c0000000-0000-4000-8000-0000000000dd",
+    pedido_venta_id: PEDIDO,
+    comprobante_original_id: ORIGINAL,
+    emitido_por_id: "c0000000-0000-4000-8000-0000000000bb",
+  });
+  const nc = creados[0]!;
+  assert.equal(nc.tipo_comprobante, "NOTA_CREDITO");
+  assert.equal(nc.pedido_venta_id, PEDIDO, "mismo pedido que el original");
+  assert.equal(nc.comprobante_original_id, ORIGINAL);
+  assert.equal((nc.monto_total as { toNumber: () => number }).toNumber(), 45000, "monto positivo, igual al total");
+  assert.equal(JSON.parse(decodificarQr(nc.qr_data_url as string)).numeroComprobante, "NC-V-2026-000001");
+  const delSeed = await qrDelSeed()({ tipo: "NOTA_CREDITO", numero_venta: "V-2026-000001", importe: 45000, cae: nc.cae_simulado as string });
+  assert.equal(delSeed, nc.qr_data_url);
+});
+
+test("Paso 1 · la NC de ejemplo del seed: mostrador, mismo pedido que el original, inmutable y sin efectos laterales", () => {
+  const cuerpo = cuerpoSeedCluster4();
+  const nc = cuerpo.slice(cuerpo.indexOf("const COMPROBANTE_FISCAL_NC_MOSTRADOR_ID"));
+  assert.match(nc, /COMPROBANTE_FISCAL_NC_MOSTRADOR_ID = "1a2b3c4d-be05-4a1a-8a1a-000000000002"/);
+  assert.match(nc, /where: \{ id: COMPROBANTE_FISCAL_MOSTRADOR_ID \}/);
+  assert.match(nc, /where: \{ id: COMPROBANTE_FISCAL_NC_MOSTRADOR_ID \},\s*update: \{\},/);
+  assert.match(nc, /pedido_venta_id: original\.pedido_venta_id,/);
+  assert.match(nc, /tipo_comprobante: "NOTA_CREDITO",/);
+  assert.match(nc, /monto_total: original\.monto_total,/);
+  assert.match(nc, /comprobante_original_id: COMPROBANTE_FISCAL_MOSTRADOR_ID,/);
+  assert.match(nc, /emitido_por_id: USUARIO_SUPERVISOR_VENTAS_SEED_ID,/);
+  assert.match(nc, /cae_simulado = "\d{14}"/);
+  assert.doesNotMatch(
+    cuerpo,
+    /prisma\.(pedidoVenta|ventaMedioPago|reintegroPedidoWeb|contraAsientoIngreso|auditLog|comprobanteProveedor)\.|domainEventBus|registrarAuditLog|000000000051/,
+  );
 });

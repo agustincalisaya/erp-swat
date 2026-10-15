@@ -93,6 +93,55 @@ test("HU-E9 · el DTO web actual (sin canal ni cliente) sigue generando el PDF c
   assert.match(operadores, /\/Image-/);
 });
 
+test("HU-E9 · la salida web no cambia: mismos textos, en el mismo orden, sin lo agregado por HU-G3", async () => {
+  const bytes = await generarComprobanteWebPdf({
+    numero: "V-2026-000019",
+    tipo: "FACTURA_B",
+    fecha_emision: "2026-10-08T15:30:00.000Z",
+    monto: 10000,
+    cae_simulado: "12345678901234",
+    qr_data_url: await QRCode.toDataURL("qr-fiscal-persistido"),
+    es_simulado: true,
+  });
+  const { texto, operadores } = await textoPdf(bytes);
+  // La hora la formatea ICU ("08/10/2026, 12:30" en Node 24): se fija solo el día.
+  const lineas = texto.split("\n").map((linea) => (linea.startsWith("08/10/2026") ? "08/10/2026" : linea));
+  assert.deepEqual(lineas, [
+    "SWAT Indumentarias", "Comprobante fiscal", "Comprobante simulado — sin integración ni validación real con AFIP",
+    "Tipo de comprobante", "FACTURA B", "Número de pedido/comprobante", "V-2026-000019", "Fecha de emisión", "08/10/2026",
+    "Monto total", "$ 10.000,00", "CAE simulado", "12345678901234", "QR fiscal simulado",
+    "Documento generado a partir del comprobante archivado. Sin validación ante AFIP.",
+  ]);
+  // El QR sigue en la misma posición que antes de HU-G3 (A4: 841.89 − 575).
+  assert.match(operadores, /1 0 0 1 48 266\.89 cm\n[\s\S]*170 0 0 170 0 0 cm/);
+});
+
+test("HU-E9 · la descarga de la tienda sigue usando generarComprobanteWebPdf con su loader y sesión de cliente", () => {
+  const ruta = readFileSync(
+    new URL("../../../app/api/tienda/mis-pedidos/[id]/comprobante/descargar/route.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(ruta, /withSesionClienteWeb/);
+  assert.match(ruta, /obtenerComprobanteOriginalWebCliente\(sesion\.clienteId, id\.data\)/);
+  assert.match(ruta, /generarComprobanteWebPdf\(comprobante\)/);
+  assert.doesNotMatch(ruta, /tesoreria|generarComprobanteFiscalPdf/);
+});
+
+test("HU-E9 · un PNG corrupto con prefijo válido también se rechaza (nunca un PDF sin QR)", async () => {
+  await assert.rejects(
+    generarComprobanteWebPdf({
+      numero: "V-2026-000001",
+      tipo: "FACTURA_B",
+      fecha_emision: "2026-10-08T15:30:00.000Z",
+      monto: 45000,
+      cae_simulado: "68031598274563",
+      qr_data_url: "data:image/png;base64,AAAA",
+      es_simulado: true,
+    }),
+    /no es una imagen PNG válida/,
+  );
+});
+
 test("HU-E9 · rechaza un QR persistido que no es PNG (el placeholder que tenía el seed)", async () => {
   await assert.rejects(
     generarComprobanteWebPdf({
