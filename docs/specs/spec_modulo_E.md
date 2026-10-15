@@ -1,4 +1,5 @@
 # Especificación Técnica — Módulo E (E-commerce / Tienda Online)
+## Revisión 10 — Sprint 5: HU-E14, HU-E15 y HU-E16. La sección 6 prevalece para estas HU sobre las notas históricas de fuera de alcance de la sección 5. Referencia principal de esta revisión: `sprint_5_swat_indumentarias_erp.md`; el Product Backlog Sprint 5 `(1)` y el Alcance Funcional `(1)` quedan pendientes de cotejo.
 ## ERP SWAT Indumentarias — Sprint 4
 ## Cierre HU-E13, 08/10/2026 — registro NO normativo: HU-E13 COMPLETADA / VERIFY PASS (T00–T20). Agrega §2.13.17 como registro de cierre; no modifica ningún contrato de Rev.3 ni de sus addenda. Evidencia en `docs/modulos/modulo E/HU13_MODULO_E.md` §10.
 ## Addendum HU-E13 post-T17 — Reconciliación contractual aprobada: agrega §2.13.16. Sustituye, solo para HU-E13, los destinatarios F3 de cancelación/vencimiento (únicamente Cliente Web; vencimiento con prioridad `CRITICA`), amplía el DTO E9 con motivo, fecha de terminación, estado agregado del reintegro y Nota de Crédito separada del comprobante original, y formaliza la respuesta pública de cancelación Cliente Web. No modifica estados, saga, permisos, schema ni migrations.
@@ -1898,3 +1899,47 @@ Cinco eventos nuevos en `src/lib/events/event-types.ts` (y en `TIPOS_EVENTO_DOMI
 - **Mecanismo de push en tiempo real para notificaciones (heredado de `spec_modulo_F.md` sección 2.3):** el contador de "Mis pedidos"/bandeja se refresca por polling, no WebSocket/SSE — documentado como extensión futura no bloqueante, mismo criterio que Módulo F.
 - **`origen_reserva` para checkout web, sin valor confirmado en el enum `OrigenReserva` de Módulo A:** ver Nota de relevamiento en 2.2 — bloqueante menor (tiene una salida de contingencia razonable, reutilizar `SENIA`, pero no confirmada).
 - **Exportación de métricas (HU-E10, permiso `ecommerce:exportar_metricas`):** el permiso está definido en la matriz de 2.10 pero este documento no especifica ningún endpoint ni contrato de exportación — mismo patrón de diferimiento ya usado por `spec_modulo_B.md` sección 5 para su propia exportación de reportes (se asume resuelto por el futuro Tablero de Comando de Módulo D).
+
+---
+
+## 6. Contratos Sprint 5 — HU-E14, HU-E15 y HU-E16 (Revisión 10)
+
+**Fuente y trazabilidad.** Para esta revisión, `sprint_5_swat_indumentarias_erp.md` es la referencia principal de HU-E14, HU-E15 y HU-E16. El `Product Backlog - SWAT Indumentarias Sprint 5 (1).xlsx` (hoja `Sprint 5`, filas 5, 6 y 10) y el Alcance Funcional `(1)` del Módulo E se citan como fuentes adicionales pendientes de cotejo cuando estén disponibles; su mención no resuelve diferencias con el plan. Estas secciones amplían los servicios existentes, sin abrir otra vía de checkout, preparación o visibilidad. Cada fila `CA` de abajo remite a la viñeta homóloga del plan; las tasks de cada desarrollador implementarán y verificarán estos contratos.
+
+### 6.1. HU-E15 — Claridad en checkout y reserva de stock (backlog fila 5)
+
+| CA | Contrato verificable |
+|---|---|
+| E15-1 | En el carrito, cuenta web vinculada: botón `Proceder al pago`; visitante: `Ingresar para comprar`; cuenta pendiente de vinculación: ninguna acción de checkout. La elegibilidad se conserva en el servidor conforme a HU-E8. |
+| E15-2 | El servidor obtiene `ECOMMERCE_CHECKOUT_TTL_HORAS` con el lector vigente de Configuración D.4, valida un valor positivo y entrega solo los minutos derivados (`horas × 60`). El carrito explica que reservar descuenta disponibilidad y que, sin confirmación de pago antes del vencimiento, se libera. No se entrega la clave de configuración al navegador. |
+| E15-3 | `Pago pendiente` muestra un selector informativo con solo `Mercado Pago`; tarjetas de crédito y débito se ofrecen dentro de Checkout Pro. El body de `POST /api/tienda/checkout` permanece igual: no acepta medio ni importe del cliente. |
+| E15-4 | Antes de usar `checkout_url`, un diálogo muestra `PedidoVenta.total` congelado (neto de cupón), Mercado Pago y minutos restantes derivados de `ttl_expiracion` con el reloj actual. `Continuar` navega al enlace; `Volver` solo cierra el diálogo. Ninguna acción reinicia o extiende la reserva. |
+| E15-5 | La fuente del total es la respuesta del checkout y, al recargar, la lectura server-side del pedido pendiente (`total` ya persistido). No se recalcula desde el carrito ni se acepta un importe enviado por el navegador. |
+| E15-6 | `checkout_url = null` impide `Continuar` y conserva el reintento existente de HU-E2; no se crea una segunda preferencia desde el diálogo. |
+| E15-7 | En `ttl_expiracion <= ahora`, la lectura muestra `Reserva vencida`, explica la liberación y ofrece volver al catálogo para formar otro carrito. Esta vista no presupone que el job de baja de HU-E7 ya haya corrido: usa el estado visible derivado del TTL. |
+
+**Contrato de lectura.** `CheckoutIniciado` ya entrega `total`, `ttl_expiracion` y `checkout_url`; la lectura vigente del pedido pendiente vuelve a obtener esos campos de `PedidoVenta` y sus reservas. Solo se agrega el plazo informativo en minutos a la lectura server-side del carrito si todavía no existe. No se modifica la semántica transaccional de HU-E1/E2 ni la reserva de Módulo A. Casos mínimos de verificación: con/sin sesión, pendiente de vinculación, cupón, enlace ausente, reintento, límite temporal antes/en/después del TTL, `Volver` sin mutación y recarga con total idéntico. La preparación y prueba local del flujo de pago se verifican en la tarea transversal `docs/tasks/tareas tecnicas/T2-mercado-pago-local.md`; esta dependencia no cambia los criterios E15-1 a E15-7.
+
+### 6.2. HU-E16 — Publicación de contenido completo (backlog fila 6)
+
+| CA | Contrato verificable |
+|---|---|
+| E16-1 | Antes del cambio `false → true` en `cambiarVisibilidadWeb`, la misma operación transaccional comprueba `descripcion.trim().length > 0` y al menos una `ProductoWebFoto` activa (`is_active = true`, `deleted_at = null`). Si falla, `422 CONTENIDO_NO_PUBLICABLE` con `error.details.faltantes` igual a `['descripcion']`, `['foto']` o ambas; no hay UPDATE de visibilidad. Ocultar y el no-op de visibilidad ya vigente mantienen su contrato E5. |
+| E16-2 | La comprobación vive en servicio, se aplica a `PATCH /api/ecommerce/catalogo/[producto_web_id]/visibilidad` y es obligatoria aunque el cliente omita la UI. El listado administrativo entrega `publicable` y `faltantes` calculados en el servidor; deshabilita `Mostrar en tienda` y muestra la causa. |
+| E16-3 | Si se da de baja la última foto activa, el catálogo público sigue la regla de HU-E11 y excluye el contenido. El listado administrativo indica `No publicable` y los faltantes; `visibilidad_web` conserva su valor hasta una operación explícita. La consulta administrativa no filtra ese registro por publicabilidad. |
+| E16-4 | Los cambios admitidos conservan `ecommerce:visibilidad_web_cambiada`. Cada rechazo por contenido incompleto emite `ecommerce:publicacion_web_rechazada` con `intento_id` único, `actor_id`, `producto_web_id` y `faltantes`, sin descripción ni URLs de fotos. D.3 registra un asiento SHA-256 por `intento_id` y confirma su persistencia al productor antes de que la API entregue `422 CONTENIDO_NO_PUBLICABLE`; el mismo contenido puede producir varios rechazos auditados. El productor espera esa confirmación: no usa emisión fire-and-forget para este rechazo ni escribe `AuditLog` directamente. Si D.3 falla o no confirma, la visibilidad permanece intacta y la API devuelve `503 AUDITORIA_NO_DISPONIBLE` en lugar de un `422` sin asiento; el error queda disponible para reintento operativo. Una falla de auditoría nunca convierte el rechazo en publicación exitosa. |
+| E16-5 | El seed de demostración agrega de forma idempotente un contenido con descripción y sin foto activa. No lo vuelve visible. |
+
+**Concurrencia.** La validación y el cambio de visibilidad deben serializarse con la baja de la última foto del mismo contenido o revalidar dentro de la transacción antes del UPDATE; no debe quedar publicado un contenido sin foto por una carrera. La tienda continúa filtrando por contenido realmente publicable incluso si `visibilidad_web = true`. Pruebas de servicio, HTTP y listener cubren faltantes individuales/combinados, mutación nula, un asiento por cada `422` incluso en rechazos repetidos, fallo o timeout del listener con `503` y sin cambio de visibilidad, carrera con baja de foto, y contenido visible que pierde la última foto.
+
+### 6.3. HU-E14 — Datos de venta en Preparación (backlog fila 10)
+
+| CA | Contrato verificable |
+|---|---|
+| E14-1 | Cada tarjeta de `GET /api/ecommerce/preparacion` presenta `numero_venta`, nombre del cliente destinatario, `fecha_pago_confirmado` de `PedidoVentaEcommerce` y unidades totales como suma de cantidades de ítems vigentes. Número, fecha y unidades existentes no se sustituyen por datos de facturación. |
+| E14-2 | La proyección base de cola y del detalle de preparación para `ecommerce:leer_cola_preparacion` no consulta ni devuelve `PedidoVenta.total`, medio de pago ni datos fiscales. |
+| E14-3 | Solo si el usuario además tiene `ecommerce:leer_historial_ordenes`, la tarjeta agrega `total` congelado y medio de pago. El valor se obtiene de la venta/pago ya registrado, no de un valor calculado en el cliente. |
+| E14-4 | El servicio resuelve los permisos antes de construir el `select`/consulta. Para Pick & Pack se usa una proyección sin campos de pago; se verifica el JSON HTTP, no solo la tarjeta visual. |
+| E14-5 | No se crea enlace al detalle administrativo del pedido mientras no exista esa pantalla. La tarjeta conserva las acciones operativas de HU-E12. |
+
+La autorización se expresa por permisos y nunca por nombre de rol. Si el cliente destinatario no puede resolverse, la respuesta usa una etiqueta explícita de dato no disponible sin exponer otra identidad ni datos de facturación. La task de E14 debe fijar esa etiqueta en UI y cubrir ambas proyecciones en pruebas de servicio/API.
