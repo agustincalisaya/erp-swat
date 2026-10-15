@@ -5122,7 +5122,64 @@ async function seedSprint5Cluster3(prisma: PrismaClient): Promise<void> {
 
 // Cluster 4 · permisos y QR válidos en los comprobantes existentes (HU-G3, HU-G4).
 async function seedSprint5Cluster4(prisma: PrismaClient): Promise<void> {
-  void prisma;
+  // HU-G3 — permiso tesoreria:leer_comprobantes (UUID preasignado …050 en el
+  // doc del Sprint 5). Matriz del Módulo G del Alcance: CAJERO_POS,
+  // TESORERO_CENTRAL, AUDITOR y ADMINISTRADOR; el GERENTE no. Mismo patrón que
+  // `cuentas_por_pagar:leer` (HU-G8) y que `tesoreria:leer_reportes` (PR 0).
+  // La constante vive acá porque cada cluster escribe solo en su función.
+  const PERMISO_TESORERIA_LEER_COMPROBANTES_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000050";
+  await prisma.permiso.upsert({
+    where: { id: PERMISO_TESORERIA_LEER_COMPROBANTES_ID },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: {
+      id: PERMISO_TESORERIA_LEER_COMPROBANTES_ID,
+      codigo: "tesoreria:leer_comprobantes",
+      descripcion:
+        "Consultar el repositorio digital de comprobantes fiscales y descargar su PDF (HU-G3) — CAJERO_POS, TESORERO_CENTRAL, AUDITOR y ADMINISTRADOR",
+      modulo: "MODULO_G",
+    },
+  });
+  for (const rol_id of [ROL_CAJERO_POS_ID, ROL_TESORERO_ID, ROL_AUDITOR_ID, ROL_ADMINISTRADOR_ID]) {
+    await prisma.rolPermiso.upsert({
+      where: { rol_id_permiso_id: { rol_id, permiso_id: PERMISO_TESORERIA_LEER_COMPROBANTES_ID } },
+      update: REACTIVAR_REFERENCIA_RBAC,
+      create: { rol_id, permiso_id: PERMISO_TESORERIA_LEER_COMPROBANTES_ID },
+    });
+  }
+
+  // HU-G3: los comprobantes que siembra `main()` (mostrador y web) guardan un
+  // placeholder que no es un PNG, y `generarComprobanteWebPdf()` lo rechaza
+  // (la descarga falla). Se regenera con el mismo payload que arma HU-B7 en
+  // `generarQrSimulado()` (comprobante-fiscal.service.ts), 100% local. Solo
+  // toca filas con el placeholder: repetible sin cambios. Import dinámico
+  // para no tocar la cabecera compartida del seed.
+  const { default: QRCode } = await import("qrcode");
+  const comprobantesConQrInvalido = await prisma.comprobanteFiscal.findMany({
+    where: { qr_data_url: "data:image/png;base64,SIMULADO-SEED-NO-AFIP==" },
+    select: {
+      id: true,
+      tipo_comprobante: true,
+      cae_simulado: true,
+      monto_total: true,
+      pedido_venta: { select: { numero_venta: true } },
+    },
+  });
+  for (const comprobante of comprobantesConQrInvalido) {
+    const qr_data_url = await QRCode.toDataURL(
+      JSON.stringify({
+        ver: 1,
+        simulado: true,
+        cuitEmisor: "30000000007",
+        tipoComprobante: comprobante.tipo_comprobante,
+        numeroComprobante: comprobante.pedido_venta.numero_venta,
+        importe: Number(comprobante.monto_total),
+        moneda: "PES",
+        cae: comprobante.cae_simulado,
+      }),
+      { errorCorrectionLevel: "M" },
+    );
+    await prisma.comprobanteFiscal.update({ where: { id: comprobante.id }, data: { qr_data_url } });
+  }
 }
 
 // Cluster 5 · cuentas propias y saldos diarios (HU-G5, HU-G7).
