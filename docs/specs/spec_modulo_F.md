@@ -1,4 +1,5 @@
 # Especificación Técnica — Módulo F (Arquitectura Tecnológica y Conectividad)
+## Revisión 2 — Sprint 5: integración de HU-D6 con HU-F3. La sección 6 añade destinatarios por permiso para eventos de alertas; el resto de contratos F1–F3 conserva su alcance.
 ## ERP SWAT Indumentarias — Sprint 4
 ## Revisión 1 — Primera especificación técnica del módulo. Cubre únicamente HU-F1, HU-F2 y HU-F3, las tres HU de Módulo F priorizadas en Sprint 4. HU-F4 (Docker/despliegue), HU-F5 (Log técnico de auditoría de F1/F3) y HU-F6 (estrategia de renderizado por superficie) no fueron priorizadas en este sprint — ver sección 6, Fuera de Alcance. No confundir esta numeración de HU con la numeración de sección de este documento.
 
@@ -41,6 +42,8 @@ Bajo Next.js App Router, el módulo se implementa mediante **Route Handlers** (`
 - Toda ruta de administración requiere sesión autenticada y permiso granular (Módulo D, RBAC) vía `withPermission("integraciones:<accion>")` o `withPermission("notificaciones:<accion>")`. La ruta de webhook (2.1.3) es la única excepción explícita: no hay sesión de usuario posible en una llamada entrante de Mercado Pago — se autentica por firma (ver 2.1.3), no por RBAC.
 
 ### 2.1. Conector de Mercado Pago (HU-F1)
+
+**Prueba local de Sprint 5.** La configuración, el simulador y la prueba integral del checkout se verifican en `docs/tasks/sprint-5/T2-mercado-pago-local.md`. En particular, T2-2 exige que tanto el adaptador como `npm run mp:firmar` rechacen `NODE_ENV=production` antes de escribir pagos simulados, producir una firma o contactar el webhook. Esta referencia no incorpora el simulador al contrato productivo de HU-F1 ni duplica los pasos de T2.
 
 #### 2.1.1. Alta y configuración del Conector
 
@@ -338,3 +341,17 @@ Ningún evento de este módulo incluye en su payload el valor en claro de `acces
 - **Otras pasarelas de pago (MODO) y conectores de mensajería externa (WhatsApp Business API, SMTP/Email):** descartados explícitamente por directiva del PO — no reintroducir sin una nueva directiva documentada.
 - **Push en tiempo real (WebSocket/SSE) para el contador de notificaciones:** HU-F3 no lo exige; el contador se resuelve por polling desde el frontend contra `GET /app/api/notificaciones?solo_no_leidas=true` (o su equivalente de Cliente Web). Si en un sprint futuro se requiere push real, es una extensión de este documento, no una reimplementación.
 - **Confirmación de los tres nombres de evento marcados en la sección 3.3:** ver nota de relevamiento en esa misma sección — bloqueante solo para el listener de esos tres eventos puntuales, no para el resto de HU-F3.
+
+---
+
+## 6. Ampliación de HU-F3 para alertas de HU-D6 (Sprint 5)
+
+Referencia principal de esta revisión: `sprint_5_swat_indumentarias_erp.md`, HU-D6; el `Product Backlog - SWAT Indumentarias Sprint 5 (1).xlsx`, hoja `Sprint 5`, fila 16, queda pendiente de cotejo cuando esté disponible. El contrato de origen está en `spec_modulo_D.md` §8.2. Esta sección amplía únicamente el consumo de eventos de alertas; no crea una HU-F nueva ni cambia la bandeja del destinatario.
+
+| Origen | Acción del listener F3 | Destinatarios |
+|---|---|---|
+| `alerta_desvio:creada` | Crear notificación interna con prioridad igual a severidad de la alerta. | Usuarios internos activos que **en el momento del evento** tengan `alertas:leer` por cualquier rol activo. |
+| `alerta_desvio:nivel_cambiado` con transición a `CRITICA` desde otro nivel | Crear notificación crítica. | Mismo conjunto por permiso. |
+| `alerta_desvio:nivel_cambiado` sin ascenso a crítica; `alerta_desvio:resuelta` | No generar notificación; D.3 sí audita ambos. | — |
+
+Esta selección **por permiso** es la excepción de Sprint 5 a la expansión por `Rol.nombre` de §2.3: la HU-D6 exige avisar a usuarios con `alertas:leer`, incluidos roles futuros que reciban ese permiso. Se eliminan duplicados de usuarios con más de un rol. La clave de idempotencia de cada notificación usa identidad estable del evento de transición y usuario (`evento_id:usuario_id`); un replay no duplica. El payload muestra indicador, referencia y severidad, nunca CBU/alias ni datos bancarios. Se aplica el texto por defecto de HU-F2 si no hay plantilla activa, y la bandeja sigue filtrada por usuario dueño. Pruebas: Gerente/Administrador reciben una vez, usuario sin permiso no recibe, doble rol no duplica, ascenso a crítica avisa, descenso/resolución no avisan y replay no duplica. La identidad de prueba del Gerente se prepara en `docs/tasks/tareas tecnicas/T3-rol-gerente.md`; D6 le asigna `alertas:leer` antes de verificar la entrega.

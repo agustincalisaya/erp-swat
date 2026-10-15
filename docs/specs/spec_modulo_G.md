@@ -1,5 +1,6 @@
 # Especificación Técnica — Módulo G (Gestión de Caja y Tesorería)
-## Contenido para Sprint 2 (HU-G8 + HU-G10) y Sprint 4 (HU-G11) — recorte por asignación de equipo
+## Revisión 6 — Sprint 5: HU-G3, G4, G5, G7 y G12 a G16. La sección 9 sustituye para esas HU las exclusiones históricas de §⚠️/§5 y corrige §3.1 para la presentación separada de PROVISORIO. Referencia principal de esta revisión: `sprint_5_swat_indumentarias_erp.md`; el Product Backlog Sprint 5 `(1)` y el Alcance Funcional `(1)` quedan como fuentes adicionales pendientes de cotejo.
+## Contenido histórico de Sprint 2 (HU-G8 + HU-G10) y Sprint 4 (HU-G11), ampliado para Sprint 5 en §9
 ## Revisión 5 — Sprint 4: agrega HU-G11 (registro automático de ingresos por cobros online), sección 2.6 nueva. Consume `ecommerce:transaccion_pago_registrada` de `spec_modulo_E.md` (HU-E2/HU-E6) y el contrato de reintegro de HU-E13. Mismo patrón arquitectónico reactivo que HU-G8 (listener + entidad propia + evento de seguimiento). Sin cambios en las secciones de HU-G8/HU-G10 (Sprint 2).
 ## Revisión 4 — HU-G10 implementada y verificada en runtime (2026-09-10); reconcilia el pseudocódigo de la Rev. 3 contra el código real
 
@@ -13,7 +14,7 @@
 
 ## ⚠️ Alcance de este documento
 
-**Este documento NO cubre todo el Módulo G.** Cubre **HU-G8** (Compromisos de Pago / Cuenta por Pagar) y **HU-G10** (registro del pago con medio de pago, cuenta de origen y comprobante de proveedor asociado), las dos HU de Módulo G asignadas en Sprint 2, más **HU-G11** (registro automático de ingresos por cobros online, sección 2.6, Sprint 4). HU-G7 (posición diaria de tesorería), HU-G2 (conciliación automática de cobros electrónicos) y el resto de Módulo G quedan fuera por asignación de equipo, no por decisión del PO.
+**Alcance histórico hasta Revisión 5.** Se cubrían **HU-G8** (Compromisos de Pago / Cuenta por Pagar), **HU-G10** (registro del pago) y **HU-G11** (cobros web). La Revisión 6 agrega HU-G3, G4, G5, G7 y G12–G16 en §9. HU-G2 (conciliación automática) y otras HU no priorizadas siguen fuera de esta especificación.
 
 **HU-G10 no crea un endpoint ni una función de servicio paralela.** Amplía directamente `marcarCuentaPorPagarPagada()` y `MarcarPagadaSchema`, ya entregados y testeados por HU-G8 (sección 2.4 de la Revisión 2), agregando los campos de evidencia de pago. No hay una segunda vía de mutación sobre la transición `DEFINITIVA → PAGADA`.
 
@@ -344,7 +345,7 @@ export type FiltrosListadoIngresosWebInput = z.infer<typeof FiltrosListadoIngres
 - **Después del `COMMIT` de la venta, sin revertirla (criterio de aceptación explícito, no negociable — mismo patrón fire-and-forget que todo el proyecto):** el listener corre después del `COMMIT` de la transacción de Módulo E que confirmó el pago (sección 2.2 de `spec_modulo_E.md`). Una falla en este registro **no revierte la venta ya confirmada** — es el mismo principio ya documentado en la sección 3.6 de este propio documento ("Fallo del listener — sin conciliación en este slice") para HU-G8.
 - **"Pendiente y reintentable, visible para el Tesorero" (criterio de aceptación explícito) — sin mecanismo de reintento automático en este proyecto (hallazgo de relevamiento, no resuelto silenciosamente):** el Backlog exige que una falla de este registro quede "pendiente y reintentable". Ningún listener existente en el ERP (ni el de HU-G8, según la sección 3.6 de este mismo documento, ni `audit-log.listener.ts`) implementa una cola de reintentos — el patrón establecido es fire-and-forget con logueo del error, sin reintento automático. Este documento **no inventa** una infraestructura de colas nueva para resolver esto. Se define, como salida mínima consistente con el patrón existente, un endpoint manual de reprocesamiento: `POST /api/tesoreria/ingresos-web/reprocesar/route.ts` (permiso `tesoreria:leer_ingresos_web`), que recibe un `pedido_venta_id` y vuelve a invocar el mismo servicio de creación de `IngresoTesoreria` a partir del `PedidoVentaEcommerce` ya confirmado — visible para el Tesorero como una acción manual, no como un reintento automático en background. Se reporta como decisión tomada para no dejar el criterio de aceptación sin cobertura, a confirmar con el equipo si se prefiere una cola de reintentos real antes de implementar.
 - **Consulta por fecha y estado (criterio de aceptación explícito):** el endpoint de arriba filtra por `estado`/`fecha_desde`/`fecha_hasta`, mismo patrón de paginación `page`/`page_size` que 2.5.
-- **Insumo de HU-G2 y HU-G7 (criterio de aceptación explícito, ambas fuera de este documento):** la transición `PENDIENTE_CONCILIACION → CONCILIADO` es responsabilidad de HU-G2 (conciliación automática de cobros electrónicos) — no definida aquí, mismo criterio de "fuera de asignación de equipo" ya declarado en la sección ⚠️ Alcance de este documento. La posición diaria de tesorería (HU-G7) consume este listado como una fuente más, junto a Módulo B/C/H (ya señalado en Referencias normativas).
+- **Insumo de HU-G2 y HU-G7:** la transición `PENDIENTE_CONCILIACION → CONCILIADO` es responsabilidad de HU-G2 (conciliación automática de cobros electrónicos), todavía fuera de este documento. La posición diaria HU-G7 se define en la Revisión 6, §9.8, y consume este ingreso como fuente junto a Módulos B/C/H.
 - **Contra-asiento por reintegro (criterio de aceptación explícito, no negociable):** un reintegro de Módulo E (`spec_modulo_E.md` sección 2.13, HU-E13) genera una fila `ContraAsientoIngreso` vinculada al `IngresoTesoreria` original — **nunca se edita ni se elimina** el ingreso original, el contra-asiento es un registro aparte, inmutable desde su creación (sin campos de baja lógica, ver modelo arriba — es un asiento contable, no una entidad de ciclo de vida). `pedido_venta_id` `@unique` en `ContraAsientoIngreso` evita que un mismo reintegro genere dos contra-asientos (idempotencia, coherente con el propio criterio de "un pedido nunca genera dos reintegros" ya definido en `spec_modulo_E.md` sección 2.13).
 - **Evento auditado obligatorio:** tanto la creación de un `IngresoTesoreria` como la de un `ContraAsientoIngreso` emiten `tesoreria:ingreso_web_registrado` / `tesoreria:contra_asiento_ingreso_registrado` (sección 4) hacia Módulo D, con encadenamiento SHA-256 — mismo patrón que el resto de este documento.
 
@@ -363,7 +364,7 @@ export type FiltrosListadoIngresosWebInput = z.infer<typeof FiltrosListadoIngres
 ## 3. Reglas de Negocio Estrictas (Capa de Servicios)
 
 ### 3.1. El `PROVISORIO` nunca es deuda exigible
-Es informativo. El `GET` (2.5) expone `estado` por fila tal cual. Excluir `PROVISORIO` de cualquier agregado de "deuda pendiente" o proyección de caja es **responsabilidad de HU-G7**, no de HU-G8. El modelo no lo impide a nivel de constraint (mismo criterio en el JSDoc de `CuentaPorPagar` en `schema.prisma:1142-1150`).
+Es informativo. El `GET` (2.5) expone `estado` por fila tal cual. `PROVISORIO` se excluye del total de deuda exigible y del total de egresos proyectados; HU-G7 lo presenta aparte como **compromiso estimado** sin sumarlo con `DEFINITIVA` (Revisión 6, §9.8). Esta clasificación corresponde a HU-G7, no a HU-G8. El modelo no la impide a nivel de constraint.
 
 ### 3.2. Transiciones de estado exclusivamente vía listener o el endpoint de pago
 No existe (ni debe existir) un `PATCH` genérico de `estado` sobre `CuentaPorPagar`. Las únicas mutaciones válidas son las tres ramas automáticas de 2.1/2.2/2.3 y la mutación manual de 2.4.
@@ -486,7 +487,7 @@ PATCH /pagar ──► marcarCuentaPorPagarPagada ──► cuenta_por_pagar:est
 - **`recepcion_id` en la consolidación** — resuelto (HU-H4 integrada): la `Recepcion` activa más reciente de la orden. El `monto` de la `DEFINITIVA` se recalcula sobre `RecepcionItem.cantidad_aceptada` (ver nota anterior).
 - **Tipado de la guarda del disparador de 2.2 — resuelto (2026-09-09).** La guarda es `if (payload.estado_anterior !== "RECIBIDA_COMPLETA") return null;` (`cuenta-por-pagar.service.ts:316`). Hasta esta fecha `OrdenCompraEstadoCambiadoPayload.estado_anterior` / `estado_nuevo` estaban tipados como `string` suelto, así que un rename del valor `RECIBIDA_COMPLETA` en el enum `EstadoOrdenCompra` sin actualizar esta línea habría pasado `tsc` y fallado **en silencio en runtime** (la `CuentaPorPagar` nunca pasaría de `PROVISORIO` a `DEFINITIVA`). Ambos campos pasaron a tiparse como `EstadoOrdenCompra` (importado de `@prisma/client`, `src/lib/events/event-types.ts`). Ahora la comparación de la línea 316 está **protegida por `tsc`**: un rename del valor del enum sin tocar esta línea produce `error TS2367 — 'EstadoOrdenCompra' y '"RECIBIDA_COMPLETA"' no tienen overlap` (verificado). El fallo silencioso ya no es posible. **Esta mejora de tipado es independiente de la decisión de la Daily sobre simplificar el enum** — no cambia ningún valor de `EstadoOrdenCompra` ni el string comparado; solo endurece el tipo del campo que ya existía. Si la Daily decide renombrar/eliminar `RECIBIDA_COMPLETA`, el compilador va a señalar exactamente esta línea (y las de HU-H3 en `orden-compra.service.ts`, ya tipadas contra el enum).
 - **Sin uniqueness a nivel DB** de un `PROVISORIO` activo por OC (no se permite migración en esta HU). La garantía es solo de capa de aplicación; un doble-emit genuinamente simultáneo podría crear dos filas. Aceptado.
-- **HU-G7 y el resto de Módulo G** — fuera de este documento.
+- **Nota histórica hasta Revisión 5:** HU-G7 y otras HU del módulo estaban fuera. HU-G7 y las HU de Sprint 5 se incorporan en §9 de la Revisión 6; HU-G2 permanece fuera.
 
 ### Pendientes específicos de HU-G11 (Sprint 4)
 
@@ -565,3 +566,180 @@ Evidencia obligatoria: **Postman + SQL + capturas**. Compilar sin errores **no**
 | `src/lib/schemas/cuentas-por-pagar.pago.test.ts` | **Creado (2026-09-10)** — unit test del `MarcarPagadaSchema` ampliado (campos requeridos, `.max(500)`, array vacío, ids duplicados, `medio_pago` inválido, `fecha_pago` futura). *(El nombre real es este, bajo `schemas/`, no `services/tesoreria/cuenta-por-pagar.pago.test.ts` como decía esta fila en la Rev. 3.)* |
 | `package.json` | **Hecho (2026-09-10)** — los 3 `.test.ts` nuevos de HU-G10 (`cuentas-origen`, `cuenta-por-pagar.comprobantes`, `cuentas-por-pagar.pago`) agregados a la lista `node --test` de la línea 10 |
 | `src/app/(dashboard)/tesoreria/cuentas-por-pagar/{page.tsx,actions.ts}` · `src/components/tesoreria/{ListaCuentasPorPagar,FormularioRegistroPago,ModalPagoRegistrado}.tsx` · `src/components/layout/Sidebar.tsx` | **Creado (2026-09-10, PR2a/PR2b)** — consola de solo lectura + form de pago + modal read-back + entrada de sidebar. Detalle en `HU10_MODULO_G.md` |
+
+---
+
+## 9. Contratos Sprint 5 (Revisión 6)
+
+**Fuente y trazabilidad.** La referencia principal de criterios de esta revisión es `sprint_5_swat_indumentarias_erp.md`. El `Product Backlog - SWAT Indumentarias Sprint 5 (1).xlsx`, hoja `Sprint 5`, y el Alcance Funcional `(1)` Módulo G §§3.3–3.6 y matriz §5 se citan como fuentes adicionales pendientes de cotejo cuando estén disponibles; su mención no resuelve diferencias con el plan. Las tareas T1–T3 tienen contratos propios en `docs/tasks/sprint-5/`. G14 usa `obtenerResumenMensual`; G15 implementa `obtenerBloquesAdicionales` y cierra su integración con la UI de G14/G16; G7 presenta `PROVISORIO` separado de `DEFINITIVA`. Cada identificador `Gxx-n` permite trazar un requisito verificable de la HU indicada; cuando una viñeta del plan incluye dos reglas, se pueden desglosar aquí. Estas son especificaciones de módulo para derivar tasks, no tasks de implementación.
+
+**Estado de la base compartida.** El backlog describe un PR 0 de fundación (commit `a147314` y complemento 14/10) con `CategoriaGasto`, `GastoOperativo`, `rangoMesNegocio`, `rangoMesFechaSolo`, rol `GERENTE`, `tesoreria:leer_reportes`, `ResumenMensualDto`, `obtenerResumenMensual` stub, `obtenerBloquesAdicionales` stub y eventos de gastos. **En este checkout (`a1c382c`) aún no están presentes**; los contratos de §9 son el objetivo de integración, no una afirmación sobre el código actual. Antes de derivar las tasks, el responsable de integración debe publicar las firmas/DTO reales del PR 0 y cotejarlas con esta sección; si difieren, ajustar aquí antes de implementar una HU. No se crean servicios competidores por cluster.
+
+### 9.1. Convenciones compartidas, datos y permisos
+
+- Todos los límites mensuales usan `America/Argentina/Buenos_Aires`: `[día 1 00:00, día 1 del mes siguiente 00:00)`, convertidos a instantes UTC al consultar `DateTime`. Las fechas solo-día de gastos/saldos se comparan por calendario argentino mediante `rangoMesFechaSolo`; no se convierten en instantes UTC a medianoche por intuición. Un mes vacío devuelve estructura completa y ceros.
+- Importes monetarios se calculan con `Decimal` de Prisma o aritmética decimal exacta y se serializan como strings con dos decimales en DTO/CSV/PDF. Nunca se suman `number` de punto flotante ni se confía en totales del navegador. Se redondea al final de cada cálculo especificado.
+- Cada Route Handler y Server Action verifica el permiso propio en el servidor. El seed usa UUID preasignados `...1111-...-000000000045` a `...056` del documento de Asignación; ninguna task elige UUIDs en paralelo. El rol `GERENTE` usa el UUID fijo `...2222-...-000000000006` y usuario `gerente.seed` de T3/PR 0. El nombre de rol documenta la matriz, pero las decisiones de acceso se hacen por permisos.
+- G12/G13 consumen el modelo y helper del PR 0; no hacen una segunda migración de esos modelos. G5/G7 y D6 sí necesitan migraciones aditivas revisadas con `--create-only` y comprobación de índices manuales. La baja lógica usa `is_active`, `deleted_at`, `deleted_by`, `deletion_reason`; ningún histórico se borra físicamente.
+- Los eventos de dominio se emiten después del COMMIT y los consume D.3 para `AuditLog` hash-encadenado. Un evento no lleva CBU, alias, descripción sensible ni datos innecesarios. En operaciones cuyo éxito exige asiento auditable, se verifica la presencia del asiento en pruebas de integración; la semántica de fallo/reintento del bus in-process existente se declara en la task, sin afirmar atomicidad entre COMMIT y listener.
+
+| Permiso | Habilitados según el plan Sprint 5 | Contrato |
+|---|---|---|
+| `tesoreria:gestionar_categorias_gasto` | Administrador | G12: altas, cambios y baja |
+| `tesoreria:gestionar_gastos` | Tesorero Central | G13: altas, cambios y baja |
+| `tesoreria:leer_reportes` | Tesorero Central, Auditor, Administrador, Cajero POS, Gerente | G14/G7: lectura agregada |
+| `tesoreria:leer_desglose_gastos` | Todos los lectores anteriores salvo Cajero POS | G14/G16: categoría y filas de gastos |
+| `tesoreria:exportar_reportes` | Gerente, Tesorero Central, Auditor | G16/G15: CSV y PDF; Administrador y Cajero POS excluidos |
+| `tesoreria:leer_comprobantes` | Cajero POS, Tesorero Central, Auditor, Administrador | G3; Gerente excluido |
+| `tesoreria:exportar_libro_iva` | Auditor, Administrador | G4; los demás excluidos |
+| `tesoreria:gestionar_cuentas_bancarias` | Administrador | G5: gestión |
+| `tesoreria:leer_cuentas_bancarias` | Tesorero Central, Auditor, Administrador, Gerente | G5: lectura enmascarada |
+| `tesoreria:ver_datos_bancarios` | Tesorero Central, Administrador | G5: revelado explícito |
+| `tesoreria:registrar_saldo_diario` | Tesorero Central | G7: registros append-only |
+
+### 9.2. HU-G12 — Categorías de gasto (backlog fila 7)
+
+| CA | Contrato verificable |
+|---|---|
+| G12-1 | Entidad `CategoriaGasto` del PR 0 con `id`, nombre obligatorio recortado, descripción opcional y estado activo; operaciones de alta, edición y baja en Tesorería. No se expone DELETE físico. |
+| G12-2 | `nombre_normalizado` único entre activas e inactivas, insensible a mayúsculas/minúsculas y espacios extremos. La garantía se implementa también en base (índice/columna canónica revisada en migración PR 0); duplicado concurrente produce un error de dominio explícito, no un 500 ni dos filas. |
+| G12-3 | Baja lógica con motivo recortado de ≥5 caracteres. La categoría deja de ofrecerse para altas de gastos, pero los registros históricos siguen mostrando su nombre. |
+| G12-4 | Se permite la baja con gastos activos relacionados; no se actualizan ni anulan esos gastos. FK `onDelete: Restrict` conserva el historial. |
+| G12-5 | Seed idempotente de Sueldos, Alquiler, Servicios, Impuestos y Otros con UUID fijos acordados en Asignación. Siguen siendo editables. |
+| G12-6 | `tesoreria:gestionar_categorias_gasto` verificado en API/acción; 403 sin permiso y pantalla de no autorizado. El listado disponible para seleccionar una categoría en G13 respeta el permiso de G13 y no requiere permiso de gestión G12. |
+| G12-7 | `categoria_gasto:creada`, `:editada`, `:dada_de_baja` identifican actor, categoría y valores anterior/nuevo no sensibles; D.3 los registra en cadena SHA-256. No-op de edición no genera evento. |
+
+Superficie propuesta: listado y formulario bajo `/tesoreria/categorias-gasto`, API `/api/tesoreria/categorias-gasto` y `/[id]` con `GET/POST/PATCH`; la baja se distingue de la edición y exige motivo. El nombre de las rutas puede seguir las convenciones del PR 0, pero la respuesta de errores y las invariantes anteriores son obligatorias.
+
+### 9.3. HU-G13 — Gastos operativos (backlog fila 8)
+
+| CA | Contrato verificable |
+|---|---|
+| G13-1 | `GastoOperativo` del PR 0 guarda categoría, fecha solo-día, monto `Decimal(12,2)` y descripción no vacía; para el alta la categoría debe existir y estar activa. |
+| G13-2 | Fecha ≤ día actual en Argentina; hoy es válido. El servidor valida la forma `AAAA-MM-DD` y no la deriva del huso del navegador. |
+| G13-3 | Monto > 0 y escala ≤2: cadenas con tercera cifra decimal se rechazan, no se redondean silenciosamente. |
+| G13-4 | Solo gasto activo editable. Si cambia de categoría, destino activo; si no cambia, conserva una categoría que se dio de baja luego del alta. Auditoría con antes/después. |
+| G13-5 | Baja lógica con motivo ≥5 caracteres; inactivo no editable y excluido de todos los totales y detalles de G14/G15. |
+| G13-6 | Listado de activos filtrable por mes argentino y categoría, con total calculado en servidor sobre exactamente el conjunto filtrado; cero en vacío. Históricos con categoría dada de baja conservan su etiqueta. |
+| G13-7 | `tesoreria:gestionar_gastos` en servidor para mutaciones y acceso operativo, asignado a Tesorero Central. |
+| G13-8 | El monto registrado es total, sin separación de IVA; el formulario y el reporte indican esa limitación. |
+| G13-9 | Después del COMMIT emite `gasto_operativo:creado`, `:editado`, `:dado_de_baja` (declarados en PR 0) con `gasto_operativo_id`, `categoria_gasto_id`, `fecha`, `monto` y actor; D.3 audita las transiciones y D6 reevalúa el mes afectado. En una edición de fecha se reevalúan mes anterior y nuevo. |
+
+Servicio único de alta/edición/baja y consulta bajo `src/lib/services/tesoreria/`; no se escribe directamente `GastoOperativo` desde el Route Handler. La task cubre validación de calendario, cambio de categoría inactiva, concurrencia de baja y suma filtrada.
+
+### 9.4. HU-G14 — Núcleo del reporte mensual (backlog fila 9)
+
+`obtenerResumenMensual(mes, permisos)` es la única función de cálculo, en `reporte-mensual.service.ts`, y devuelve el `ResumenMensualDto` del PR 0 en `snake_case` e importes string. La API y la pantalla solo proyectan este resultado; G16, G15 y D6 reutilizan la misma aritmética. Un adaptador de permiso **elimina** campos restringidos antes de serializar; ocultarlos con CSS no satisface G14-11.
+
+| CA | Contrato verificable |
+|---|---|
+| G14-1 | Selector de `AAAA-MM`, rango argentino semiabierto de §9.1; mes sin fuentes devuelve líneas/totales en `0.00` y detalle vacío. |
+| G14-2 | Base caja: ningún `Presupuesto`, `PedidoVenta` reservado, comprobante de proveedor no pagado o movimiento devengado entra solo por existir. |
+| G14-3 | Ingresos web = suma de `IngresoTesoreria.monto` por `fecha` en rango, tanto `PENDIENTE_CONCILIACION` como `CONCILIADO`, una vez por ingreso. |
+| G14-4 | Reintegros = suma positiva de `ContraAsientoIngreso.monto` por `created_at` en rango; línea `Reintegros web` se resta una sola vez, sin depender del mes del cobro original. |
+| G14-5 | Mostrador = `VentaMedioPago.importe` activo de `PedidoVenta` activo con `canal = MOSTRADOR`, `estado IN (FACTURADO, REMITO_EMITIDO, CERRADO)` y `fecha_facturacion` en rango, agrupado por `medio`, excepto `CUENTA_CORRIENTE`; nunca suma `WEB` ni `ANULADO`. Una venta aún sin facturar queda fuera aunque haya medios persistidos. La facturación aproxima la fecha de cobro y se rotula como limitación. |
+| G14-6 | Egresos = `CuentaPorPagar` activa `PAGADA` por `fecha_pago`, más `GastoOperativo` activo por fecha solo-día, ambos en rango. Los gastos se agrupan por categoría histórica; ni `PROVISORIO` ni `DEFINITIVA` suman como pago. |
+| G14-7 | `ingresos = web + mostrador − reintegros`; `egresos = cuentas pagadas + gastos`; `resultado_neto = ingresos − egresos`; `porcentaje_egresos = egresos / ingresos × 100` solo si ingresos > 0, de lo contrario `null` presentado «—». |
+| G14-8 | `CUENTA_CORRIENTE` de mostrador se calcula con la misma fecha/fuente de G14-5 y aparece únicamente como línea informativa, sin afectar ingresos, egresos ni resultado. |
+| G14-9 | Detalle individual con fecha, concepto, fuente/id e importe para ingreso web, reintegro (signo negativo), medio de venta, cuenta pagada y gasto. Orden estable por fecha e id; ninguna fuente se duplica por joins a ítems/comprobantes. |
+| G14-10 | Lectura con `tesoreria:leer_reportes` para los cinco perfiles de §9.1; sin permiso, 403 y no autorizado. |
+| G14-11 | Categorías y filas individuales de gastos solo con `tesoreria:leer_desglose_gastos`; sin él se proyecta un único total de gastos operativos y no se consultan/envían conceptos ni categorías al navegador. G14 asigna este permiso al Gerente por seed, además de `tesoreria:leer_reportes`, y T3 verifica el desglose para Gerente y su ausencia para Cajero POS. |
+| G14-12 | Servicio/DTO reutilizable conforme al contrato del PR 0. HU-G16 y D6 consumen su versión real, sin calcular totales en componentes ni duplicar SQL. |
+| G14-13 | Nunca se usa nombre de rol en condicionales de autorización. |
+| G14-14 | El reporte no separa IVA; se informa esta limitación en UI y exportaciones. |
+
+**Extensión de pantalla de G14.** Debajo del detalle, la pantalla llama `obtenerBloquesAdicionales(mes, permisos)` y representa cada `{ titulo, columnas, filas }` como tabla genérica. El stub del PR 0 devuelve `[]`. G14 no contiene lógica específica de proveedor/comparativa; G15 la aporta. Esta es una ampliación técnica de la spec para integrar G15, sin reemplazar criterios del plan `.md`.
+
+### 9.5. HU-G3 — Repositorio de comprobantes fiscales (backlog fila 11)
+
+| CA | Contrato verificable |
+|---|---|
+| G3-1 | Consulta `ComprobanteFiscal` emitidos por HU-B7, relacionados a `PedidoVenta` de ambos canales. No reemite, copia ni corrige comprobantes al listar. |
+| G3-2 | Filtros combinables: DNI/nombre de `Cliente`, período de `ComprobanteFiscal.created_at` en hora Argentina, `TipoComprobanteVenta` (A/B/Ticket/Nota de Crédito) y `PedidoVenta.canal`; orden `created_at DESC, id DESC`, paginación en base y conteo coherente. La búsqueda de cliente sin DNI usa el nombre registrado; no expone datos extra del cliente. |
+| G3-3 | Vista y descarga de PDF para cualquier ID autorizado: reutiliza el renderizado/PDF de HU-E9/HU-B7, con `cae_simulado`, `qr_data_url` válido y leyenda visible `SIMULADO — SIN VALIDEZ FISCAL ANTE AFIP`. QR inválido produce error controlado de dato histórico, nunca un PDF falsamente completo; T1 corrige/siembra datos válidos. |
+| G3-4 | Si `comprobante_original_id` está presente, la vista de la Nota de Crédito enlaza el original; el original muestra `notas_credito`. La relación proviene de la propia tabla, no de números inferidos. |
+| G3-5 | No hay método de edición/baja en el servicio, API ni UI. Reversión por emisión de Nota de Crédito según B7/E13. |
+| G3-6 | `tesoreria:leer_comprobantes` cubre listado, vista y descarga; 403 para Gerente y cualquier usuario sin permiso. El permiso de cliente web de E9 no habilita el repositorio interno. |
+
+Superficie: `/tesoreria/comprobantes` y `/api/tesoreria/comprobantes` (`GET`) más `GET /api/tesoreria/comprobantes/[id]` y `/[id]/pdf`; sus respuestas no alteran `/api/ventas/comprobantes/[id]` ni la descarga de E9. El servicio de consulta se reutiliza en G4 con una proyección fiscal controlada, sin pasar por una API paginada para generar el libro completo. Pruebas: ambos canales, filtros y frontera de día argentino, nota/original, PDF válido, 403, y ausencia de operaciones mutantes.
+
+### 9.6. HU-G4 — Libro de IVA Digital interno (backlog fila 12)
+
+| CA | Contrato verificable |
+|---|---|
+| G4-1 | Ventas por `ComprobanteFiscal.created_at` del período: A, B, Ticket y Notas de Crédito; estas se exportan con importes negativos. Compras por `ComprobanteProveedor.fecha_emision` del período, solo `is_active = true`. Cada comprobante aparece una vez, independiente de cuántos pagos/ítems tenga su venta u orden. |
+| G4-2 | Para cada total absoluto, `neto = redondear(total / 1.21, 2)` e `IVA = total − neto`; luego se aplica el signo de Nota de Crédito a las tres columnas. Alícuota `21.00` aun para Facturas B/C y Tickets: simplificación explícita, nunca IVA real calculado por AFIP. |
+| G4-3 | Dos descargas TXT UTF-8 (Ventas y Compras), separador `;`, una línea por comprobante, orden estable por fecha/id y columnas exactas: `fecha AAAAMMDD;tipo;pv 5 dígitos;número 8 dígitos;tipo_doc;número_doc;denominación;total;neto;iva;21.00`. Importes con punto y dos decimales; texto escapado/saneado para que `;`, CR o LF en nombres no rompa columnas. |
+| G4-4 | Códigos de comprobante del subconjunto: A `001`, NC A `003`, B `006`, NC B `008`, C `011`, M `051`, Ticket `083`. Documentos: CUIT `80`, DNI `96`, consumidor final `99`. Una Nota de Crédito usa el tipo A/B del original si el enum vigente solo distingue `NOTA_CREDITO`; si no puede determinarse, error de dato explícito, no código inventado. |
+| G4-5 | Ventas: PV `00001`; el número se deriva del número de venta de B7 mediante un mapeo numérico documentado, se completa a ocho dígitos y nunca se trunca. Si el origen no permite un número válido y único de ocho dígitos, la exportación informa un error controlado. Cada Nota de Crédito usa su **número fiscal propio registrado** por B7/E13, no el número de la venta original; si falta, es inválido o repite la combinación `(tipo, PV, número)` de otra NC, se informa un error controlado para corregir el origen. La task de G4 confirma el campo real y su persistencia en B7/E13 antes de exportar NC. Contraparte por DNI o `99` consumidor final. Compras: CUIT de proveedor y número desde `numero_comprobante` de H9. Si H9 no registra PV separable, se usa el valor por defecto documentado `00001`; si registra un PV válido, se conserva. Si no puede derivarse un número de comprobante válido de ocho dígitos, se informa un error controlado: no se inventa ni trunca. El valor por defecto se identifica en la documentación de la exportación. |
+| G4-6 | En nombre de archivo, pantalla y documentación se rotula `SUBCONJUNTO INTERNO — COMPROBANTES SIMULADOS`; no se lo presenta como TXT oficial completo ni se envía a un organismo. Ejemplos de líneas abajo forman parte del contrato. |
+| G4-7 | `tesoreria:exportar_libro_iva` en servidor para ambas descargas; solo Auditor y Administrador. 403 para Cajero POS, Tesorero Central y Gerente. |
+| G4-8 | Cada descarga emite evento `tesoreria:libro_iva_exportado` con actor, período, tipo de libro y timestamp, que D.3 encadena; nunca incluye las líneas del archivo ni datos personales. |
+
+**Ejemplos de formato** (datos ilustrativos simulados; se validan con fixtures que respeten el enum y numeración reales):
+
+```text
+20261001;006;00001;00001234;96;30111222;Cliente Ejemplo;121.00;100.00;21.00;21.00
+20261003;008;00001;00001234;96;30111222;Cliente Ejemplo;-121.00;-100.00;-21.00;21.00
+20261005;001;00002;00004567;80;30700111223;Proveedor Ejemplo;242.00;200.00;42.00;21.00
+```
+
+Estos ejemplos no autorizan inventar el `tipo` ni un número de comprobante ausente; la línea de NC ilustra un número propio que debe existir en el comprobante archivado, aunque coincida con la venta de este ejemplo único. El PV de compras sin dato explícito es la excepción `00001` de G4-5. La task de G4 debe documentar los mapeos reales de B7/E13 y H9, el caso de `Factura M` de compras y las pruebas con dos NC del mismo original, número de venta no numérico o de más de ocho dígitos y colisiones de `(tipo, PV, número)`. El formato es deliberadamente un subconjunto interno y no promete conformidad completa con el aplicativo fiscal externo.
+
+### 9.7. HU-G5 — Cuentas bancarias y cajas propias (backlog fila 13)
+
+| CA | Contrato verificable |
+|---|---|
+| G5-1 | Entidad `CuentaPropia` (nombre, `tipo = BANCARIA | CAJA`, banco, CBU, alias, `is_active` y campos de baja); para caja los tres datos bancarios son opcionales, para bancaria son obligatorios y se validan con errores de campo. Baja lógica con motivo obligatorio, sin DELETE. |
+| G5-2 | CBU y alias se cifran por campo con el Gateway AES-256 ya usado en legajos de proveedores y `ENCRYPTION_KEY_PROVEEDORES`; no se persisten ni registran en texto plano, tampoco en `AuditLog`, excepciones, logs o seeds. La task verifica de forma directa el valor almacenado. |
+| G5-3 | `tesoreria:leer_cuentas_bancarias`: listado y detalle enmascaran CBU/alias dejando como máximo 4 caracteres finales. `tesoreria:ver_datos_bancarios` adicional habilita una acción explícita de revelar valores; la respuesta se marca `Cache-Control: no-store`. Cajero POS recibe 403. Los permisos se evalúan por separado en servidor. |
+| G5-4 | Toda lectura de CBU/alias por Auditor, incluso enmascarada, registra `tesoreria:datos_bancarios_consultados` con actor, cuenta y momento, nunca valores. La auditoría ocurre en el servicio de consulta, no depende de que la UI pinte el dato. |
+| G5-5 | El seed crea idempotentemente los IDs de texto actuales de `src/lib/tesoreria/cuentas-origen.ts`: `banco-nacion-cc-principal`, `banco-galicia-cc-operativa`, `caja-chica-central`. HU-G10 lista solo activas y valida en servicio dentro de la operación de pago; una cuenta inexistente/inactiva produce error de validación. `CuentaPorPagar.cuenta_origen_id` sigue `String?` sin FK en este sprint. Se agrega una etiqueta de cuenta congelada al pagar (o campo equivalente), con backfill de los pagos anteriores desde las tres etiquetas actuales; así ID y etiqueta históricos sobreviven baja o renombre. La validación Zod estática que hoy importa el catálogo debe migrar a una validación de servicio: el cliente no decide validez. |
+| G5-6 | La task verifica el cifrado de CBU de proveedor ya existente en H; no duplica el campo ni crea CBU de cliente. |
+| G5-7 | Sin cartera de cheques/valores; `E_CHEQ` del POS es un medio de venta, no una cuenta propia. |
+| G5-8 | Alta, edición y baja requieren `tesoreria:gestionar_cuentas_bancarias` (Administrador) y generan eventos D.3 con antes/después **solo de campos no sensibles**; para CBU/alias se registra `cambiado: true/false`, nunca el valor o fragmentos. |
+
+El modelo requiere migración aditiva y `onDelete: Restrict` para sus futuros saldos. El servicio de G10 debe resolver etiquetas de IDs históricos sin fallar si la cuenta está inactiva; el formulario ofrece solo activas. Pruebas de regresión de pago G10, cifrado, respuestas enmascaradas/reveladas, 403, acceso de Auditor y ausencia de dato sensible en el log son parte del contrato de G5.
+
+### 9.8. HU-G7 — Posición diaria consolidada (backlog fila 14)
+
+| CA | Contrato verificable |
+|---|---|
+| G7-1 | Para un día consultado de Argentina, muestra cada `CuentaPropia` activa, caja virtual `MERCADO_PAGO_CANAL_WEB` y total líquido consolidado. No incluye una cuenta inactiva salvo que se abra una vista histórica explícita fuera de esta HU. |
+| G7-2 | Cobros/reintegros virtuales se incluyen hasta antes de las 00:00 del día argentino siguiente. Saldos propios son fecha solo-día. La fecha elegida rige los **saldos líquidos**; las deudas y cuentas corrientes proyectadas reflejan **estado actual** al consultar, no reconstrucción histórica para esa fecha. La UI y la respuesta distinguen ambos cortes temporales para que una consulta pasada no parezca una proyección histórica. |
+| G7-3 | Por cuenta/caja se toma el último `SaldoDiarioCuenta` con `fecha <= día consultado`, ordenado por fecha y secuencia de registro descendentes, mostrando fecha del asiento. Sin asiento: `sin saldo registrado` y exclusión del total (no se presume cero). |
+| G7-4 | Tesorero Central con `tesoreria:registrar_saldo_diario` registra `cuenta_id`, fecha, saldo `Decimal(12,2)`, actor y `created_at`. Asientos append-only: sin UPDATE/DELETE; una corrección crea otro asiento del mismo día y prevalece el último por `created_at,id`. Cada alta genera auditoría SHA-256. |
+| G7-5 | Caja virtual = suma histórica `IngresoTesoreria.monto` por `fecha` menos `ContraAsientoIngreso.monto` por `created_at`, hasta el límite de G7-2. No se suman `VentaMedioPago` web ni se presumen retiros. La pantalla indica que los retiros no están modelados. |
+| G7-6 | Ningún turno POS con `fecha_cierre = null` aporta saldo esperado a la posición ni a la respuesta HTTP; se conserva el arqueo ciego B2. |
+| G7-7 | Egresos proyectados: `CuentaPorPagar` activa `DEFINITIVA` como deuda exigible y `PROVISORIO` como compromiso estimado en bloque **separado**. Agrupar por fecha de vencimiento y `sin fecha de vencimiento`; no sumar ambos grupos ni mezclar `PAGADA/CANCELADA`. Esta regla sustituye la frase histórica de §3.1 que decía excluir `PROVISORIO` de toda proyección. El total de egresos proyectados incluye solo `DEFINITIVA`. |
+| G7-8 | Ingresos proyectados: saldo actual de cada `CuentaCorrienteCliente` y, aparte, hitos con fecha estimada del plan de pagos. Los hitos son informativos y no se suman a fondos líquidos ni al saldo corriente. Se explica que no hay registro de cobranzas externas de cuenta corriente, por lo que el saldo puede incluir importes ya cobrados fuera del sistema. |
+| G7-9 | No se proyectan ingresos futuros del canal web en este sprint. |
+| G7-10 | Lectura con `tesoreria:leer_reportes` para los cinco perfiles de §9.1; registro de saldo con permiso separado G7-4. Las cuentas se identifican por nombre/ID, sin revelar CBU/alias por esta ruta aun a quien tiene permiso de revelar. |
+
+`SaldoDiarioCuenta` requiere migración aditiva con FK restrictiva a `CuentaPropia`, índice `(cuenta_id, fecha, created_at)` y sin ruta de edición/baja. Un saldo puede ser cero; si el negocio admite sobregiro, un saldo negativo se muestra con signo y no se recorta. La suma consolidada incluye únicamente saldos conocidos y caja virtual; los bloques proyectados no alteran el total. La task prueba fecha límite argentina, dos correcciones mismo día, cuenta sin saldo, pago/reintegro en meses distintos, separación PROVISORIO/DEFINITIVA y no filtración de turno abierto.
+
+### 9.9. HU-G16 — Gráficos y exportación (backlog fila 17)
+
+| CA | Contrato verificable |
+|---|---|
+| G16-1 | Los «últimos 6 meses» son seis meses consecutivos terminando en el mes seleccionado en G14 (incluido); al cambiar el selector cambia la ventana. Cada barra tiene `ingresos` y `egresos` calculados por `obtenerResumenMensual`. El gráfico del mes desglosa gastos solo con `tesoreria:leer_desglose_gastos`; para Cajero POS muestra únicamente total de gastos operativos. Ningún gráfico obtiene datos más amplios que el DTO autorizado. |
+| G16-2 | Recharts + chart de shadcn compatible con React 19 y variables `--chart-1`…`--chart-5`; si la instalación del proyecto no es compatible, el mismo DTO se representa con SVG local, sin cambiar el contrato de datos ni los criterios de accesibilidad (etiquetas y tabla equivalente). |
+| G16-3 | CSV UTF-8 con BOM y separador `;`, números decimales y acentos legibles en Excel. PDF con `pdf-lib`, totales/tablas y leyenda de limitaciones; no incrusta gráficos interactivos. Ambos se generan desde el DTO del servidor para el mes solicitado, no desde DOM o datos enviados por el cliente. |
+| G16-4 | Exportación con `tesoreria:exportar_reportes` solo para Gerente, Tesorero Central y Auditor. Administrador y Cajero POS pueden leer G14, pero reciben 403 al exportar. |
+| G16-5 | Si falta `tesoreria:leer_desglose_gastos`, CSV/PDF omiten categorías y filas de gastos; la descarga no consulta un DTO privilegiado y luego lo oculta al final. |
+| G16-6 | CSV/PDF agregan los bloques `{ titulo, columnas, filas }` devueltos por `obtenerBloquesAdicionales` al final, en orden, de forma genérica. Si el stub devuelve `[]`, no agregan encabezados vacíos. |
+| G16-7 | Cada descarga emite `tesoreria:reporte_exportado` con actor, mes, formato y timestamp para D.3. Un fallo antes de entregar el archivo no genera un evento falso de éxito. |
+
+El CSV escapa delimitador, comillas y saltos de línea de conceptos; aplica formato tabular consistente al bloque genérico sin ejecutar fórmulas provenientes de texto de usuario. La task compara totales de pantalla/CSV/PDF para el mismo DTO y prueba exportación con/sin desglose y 403. No instala una dependencia de gráficos si ya existe una versión compatible verificable.
+
+### 9.10. HU-G15 — Bloques adicionales de análisis (backlog fila 18)
+
+| CA | Contrato verificable |
+|---|---|
+| G15-1 | Implementa **solo** `obtenerBloquesAdicionales(mes, permisos)` del PR 0 y devuelve bloques genéricos `Egresos por proveedor` y `Comparación con el mes anterior` (`titulo`, `columnas`, `filas`). G14 los muestra y G16 los exporta automáticamente; G15 no duplica ni modifica sus renderizadores. |
+| G15-2 | Proveedores: `CuentaPorPagar` activa `PAGADA` por `fecha_pago` del mes, agrupada por razón social del proveedor, con total pagado y **cantidad de comprobantes de proveedor distintos** vinculados a las cuentas pagadas. Un comprobante vinculado a más de una cuenta pagada del mismo proveedor y mes se cuenta una sola vez. El importe de cada cuenta se suma una sola vez antes de unir o contar comprobantes; no se multiplica por la relación con H9. Orden por importe descendente y desempate estable por nombre/id. |
+| G15-3 | Comparación: `actual − anterior` para ingresos, egresos y resultado neto de `obtenerResumenMensual`; variación porcentual = diferencia / `abs(anterior)` × 100. Si anterior = 0, valor `null` mostrado «—»; se preserva signo en importes y porcentajes. |
+| G15-4 | Ambos bloques requieren `tesoreria:leer_reportes` para lectura y `tesoreria:exportar_reportes` para salida; consumen el DTO autorizado. El bloque de proveedores no revela categorías/filas de gastos operativos al Cajero POS. |
+| G15-5 | Pruebas de función con fixtures propios: mes vacío, base previa cero/negativa, múltiples comprobantes por pago y orden estable. Para verificar la regla de comprobante vinculado a más de una cuenta pagada, se prepara **solo en una base aislada de prueba de lectura** un histórico excepcional mediante fixture directo; la vía normal G10 lo rechaza como `YA_IMPUTADO` y no se modifica esa precondición. Se comprueba por separado la suma de pagos y el conteo de comprobantes distintos, y se documenta que el caso no se genera por la API de pago ni por el seed T1. La verificación visual se realiza cuando la pantalla G14 esté integrada. |
+
+**Dependencias y cierre SDD.** G12 → G13 → datos T1; G3 → G4; G5 → G7; G14 → G16 en integración de pantalla. G15 puede implementar el stub de extensión en paralelo a G14/G16; su cierre funcional requiere G14 y G16 integrados. D6 puede consumir el stub del cálculo, pero su verificación final requiere el servicio real G14. Las tareas transversales tienen contratos y pruebas propios en `docs/tasks/tareas tecnicas/T1-seed-historico.md`, `T2-mercado-pago-local.md` y `T3-rol-gerente.md`. T1 aporta históricos y QR a G3/G4/G14/G16/G15 y casos históricos para el cálculo reutilizado por D6; la prueba de alertas operativas del mes actual pertenece a D6. T2 habilita la prueba local de E15 y del flujo de pago, mientras E16 se prueba por separado. T3 aporta Gerente y la identidad para verificar los permisos que asigna cada HU, incluido el desglose de G14. Cada task de HU debe citar sus IDs `Gxx-n`, los criterios del plan y el contrato de base compartida que consume; su PR debe demostrar permisos, persistencia y trazabilidad de auditoría con los casos aquí indicados.
