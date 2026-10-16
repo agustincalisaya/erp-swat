@@ -393,7 +393,7 @@ export async function generarComprobanteFiscalPdf(comprobante: ComprobanteFiscal
   const iva = total - Math.round(total / 1.21);
   const filasTotales: [string, number][] = [
     ...(subtotal !== null ? [["Subtotal", signo * subtotal] as [string, number]] : []),
-    ...(descuento > 0 ? [["Descuento", -signo * descuento] as [string, number]] : []),
+    ...(descuento > 0 ? [["Descuento", -descuento] as [string, number]] : []), // negativo también en la NC (spec B §2.10)
     ["IVA contenido (21 %)", signo * iva],
   ];
   const altoPagos = pagos.length > 0 ? 18 + pagos.length * 16 : 0;

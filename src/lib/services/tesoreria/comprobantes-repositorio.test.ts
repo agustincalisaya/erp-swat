@@ -74,9 +74,9 @@ async function qrB7(numero: string, tipo: string, importe: number, cae: string):
 }
 
 /**
- * Decodifica el QR de un `data:image/png;base64,...` y devuelve su texto.
- * `@zxing/library` es dependencia directa; `pngjs` llega como dependencia de
- * `qrcode` (no se agrega ninguna dependencia nueva).
+ * Decodifica el QR de un `data:image/png;base64,...` (`@zxing/library` directa, `pngjs` vía `qrcode`).
+ * PURE_BARCODE porque la imagen es el QR limpio de `qrcode`: sin el hint, la detección heurística de
+ * zxing falla en ~0,2 % de los payloads, y el CAE de B7 cambia en cada corrida (test inestable).
  */
 function decodificarQr(dataUrl: string): string {
   const base64 = /^data:image\/png;base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl);
@@ -90,8 +90,8 @@ function decodificarQr(dataUrl: string): string {
     { length: png.width * png.height },
     (_, i) => (png.data[i * 4]! + png.data[i * 4 + 1]! + png.data[i * 4 + 2]!) / 3,
   );
-  const fuente = new zxing.RGBLuminanceSource(luminancias, png.width, png.height);
-  return new zxing.QRCodeReader().decode(new zxing.BinaryBitmap(new zxing.HybridBinarizer(fuente))).getText();
+  const bitmap = new zxing.BinaryBitmap(new zxing.HybridBinarizer(new zxing.RGBLuminanceSource(luminancias, png.width, png.height)));
+  return new zxing.QRCodeReader().decode(bitmap, new Map([[zxing.DecodeHintType.PURE_BARCODE, true]])).getText();
 }
 
 /** Carga un módulo TS con dependencias inyectadas (mismo patrón que reporte-mensual.service.test.ts). */
