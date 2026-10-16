@@ -5287,7 +5287,135 @@ async function seedSprint5Cluster4(prisma: PrismaClient): Promise<void> {
 
 // Cluster 5 · cuentas propias y saldos diarios (HU-G5, HU-G7).
 async function seedSprint5Cluster5(prisma: PrismaClient): Promise<void> {
-  void prisma;
+  // ── HU-G5 — cuentas propias + permisos de datos bancarios (spec G §9.1/§9.7) ──
+  const PERMISO_GESTIONAR_CUENTAS_BANCARIAS_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000052";
+  const PERMISO_LEER_CUENTAS_BANCARIAS_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000053";
+  const PERMISO_VER_DATOS_BANCARIOS_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000054";
+
+  await prisma.permiso.upsert({
+    where: { id: PERMISO_GESTIONAR_CUENTAS_BANCARIAS_ID },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: {
+      id: PERMISO_GESTIONAR_CUENTAS_BANCARIAS_ID,
+      codigo: "tesoreria:gestionar_cuentas_bancarias",
+      descripcion: "Alta, edición y baja lógica de cuentas propias (HU-G5) — ADMINISTRADOR",
+      modulo: "MODULO_G",
+    },
+  });
+  await prisma.permiso.upsert({
+    where: { id: PERMISO_LEER_CUENTAS_BANCARIAS_ID },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: {
+      id: PERMISO_LEER_CUENTAS_BANCARIAS_ID,
+      codigo: "tesoreria:leer_cuentas_bancarias",
+      descripcion: "Lectura enmascarada de cuentas propias (HU-G5) — TESORERO_CENTRAL, AUDITOR, ADMINISTRADOR, GERENTE",
+      modulo: "MODULO_G",
+    },
+  });
+  await prisma.permiso.upsert({
+    where: { id: PERMISO_VER_DATOS_BANCARIOS_ID },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: {
+      id: PERMISO_VER_DATOS_BANCARIOS_ID,
+      codigo: "tesoreria:ver_datos_bancarios",
+      descripcion: "Revelado explícito de CBU/alias de cuentas propias (HU-G5) — TESORERO_CENTRAL, ADMINISTRADOR",
+      modulo: "MODULO_G",
+    },
+  });
+
+  // Reparto por permiso (un permiso por acción, nunca por nombre de rol).
+  for (const rol_id of [ROL_ADMINISTRADOR_ID]) {
+    await prisma.rol.findUniqueOrThrow({ where: { id: rol_id }, select: { id: true } });
+    await prisma.rolPermiso.upsert({
+      where: { rol_id_permiso_id: { rol_id, permiso_id: PERMISO_GESTIONAR_CUENTAS_BANCARIAS_ID } },
+      update: REACTIVAR_REFERENCIA_RBAC,
+      create: { rol_id, permiso_id: PERMISO_GESTIONAR_CUENTAS_BANCARIAS_ID },
+    });
+  }
+  for (const rol_id of [ROL_TESORERO_ID, ROL_AUDITOR_ID, ROL_ADMINISTRADOR_ID, ROL_GERENTE_ID]) {
+    await prisma.rol.findUniqueOrThrow({ where: { id: rol_id }, select: { id: true } });
+    await prisma.rolPermiso.upsert({
+      where: { rol_id_permiso_id: { rol_id, permiso_id: PERMISO_LEER_CUENTAS_BANCARIAS_ID } },
+      update: REACTIVAR_REFERENCIA_RBAC,
+      create: { rol_id, permiso_id: PERMISO_LEER_CUENTAS_BANCARIAS_ID },
+    });
+  }
+  for (const rol_id of [ROL_TESORERO_ID, ROL_ADMINISTRADOR_ID]) {
+    await prisma.rol.findUniqueOrThrow({ where: { id: rol_id }, select: { id: true } });
+    await prisma.rolPermiso.upsert({
+      where: { rol_id_permiso_id: { rol_id, permiso_id: PERMISO_VER_DATOS_BANCARIOS_ID } },
+      update: REACTIVAR_REFERENCIA_RBAC,
+      create: { rol_id, permiso_id: PERMISO_VER_DATOS_BANCARIOS_ID },
+    });
+  }
+
+  // Cuentas propias: MISMOS identificadores de texto del catálogo retirado de
+  // HU-G10 (los pagos históricos conservan su `cuenta_origen_id`). CBU/alias se
+  // cifran por campo con el gateway AES (`lib/crypto/aes.ts`); sin
+  // ENCRYPTION_KEY_PROVEEDORES se siembran sin datos bancarios. El `update` NO
+  // re-cifra (IV estable entre corridas).
+  const cuentasSeed: {
+    id: string;
+    nombre: string;
+    tipo: "BANCARIA" | "CAJA";
+    banco: string | null;
+    cbu: string | null;
+    alias: string | null;
+  }[] = [
+    {
+      id: "banco-nacion-cc-principal",
+      nombre: "Banco Nación — Cuenta Corriente Principal",
+      tipo: "BANCARIA",
+      banco: "Banco Nación",
+      cbu: "0110599520000001234567",
+      alias: "nacion.cc.principal",
+    },
+    {
+      id: "banco-galicia-cc-operativa",
+      nombre: "Banco Galicia — Cuenta Corriente Operativa",
+      tipo: "BANCARIA",
+      banco: "Banco Galicia",
+      cbu: "0070309530000009876543",
+      alias: "galicia.cc.operativa",
+    },
+    {
+      id: "caja-chica-central",
+      nombre: "Caja Chica — Central",
+      tipo: "CAJA",
+      banco: null,
+      cbu: null,
+      alias: null,
+    },
+  ];
+
+  const puedeCifrar = Boolean(process.env.ENCRYPTION_KEY_PROVEEDORES);
+  for (const cuenta of cuentasSeed) {
+    const cbu = puedeCifrar && cuenta.cbu ? encrypt(cuenta.cbu) : null;
+    const alias = puedeCifrar && cuenta.alias ? encrypt(cuenta.alias) : null;
+    await prisma.cuentaPropia.upsert({
+      where: { id: cuenta.id },
+      // No re-cifra: preserva el ciphertext/IV existente entre corridas.
+      update: { nombre: cuenta.nombre, tipo: cuenta.tipo, banco: cuenta.banco ?? null },
+      create: {
+        id: cuenta.id,
+        nombre: cuenta.nombre,
+        tipo: cuenta.tipo,
+        banco: cuenta.banco ?? null,
+        cbu_cifrado: cbu?.ciphertext ?? null,
+        cbu_iv: cbu?.iv ?? null,
+        alias_cifrado: alias?.ciphertext ?? null,
+        alias_iv: alias?.iv ?? null,
+      },
+    });
+  }
+
+  console.log("\nSeed Sprint 5 — Cluster 5 (HU-G5) cuentas propias completado:");
+  console.table({
+    permiso_gestionar_cuentas_bancarias: PERMISO_GESTIONAR_CUENTAS_BANCARIAS_ID,
+    permiso_leer_cuentas_bancarias: PERMISO_LEER_CUENTAS_BANCARIAS_ID,
+    permiso_ver_datos_bancarios: PERMISO_VER_DATOS_BANCARIOS_ID,
+    cuentas: cuentasSeed.length,
+  });
 }
 
 // Cluster 6 · umbrales de alerta y permiso del panel (HU-D6, HU-G15).
