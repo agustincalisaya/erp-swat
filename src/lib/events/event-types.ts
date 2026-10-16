@@ -1532,6 +1532,16 @@ export interface GastoOperativoDadoDeBajaPayload {
   motivo: string;
 }
 
+// --- Sprint 5 · Cluster 4 — HU-G4 ---
+export interface LibroIvaExportadoPayload {
+  exportacion_id: string;
+  usuario_id: string;
+  periodo: string;
+  tipo_libro: "VENTAS" | "COMPRAS";
+  formato?: "TXT" | "PDF";
+  timestamp: string;
+}
+
 // --- Sprint 5 · Cluster 6 ---
 // HU-D6 (emite `alerta-desvio.service.ts`; consumen D.3 y F3) y D.4
 // (`configuracion:actualizada`, spec_modulo_D.md §5/§6.4). task_relos.md D9, D20.
@@ -1795,6 +1805,7 @@ export interface DomainEventMap {
   "gasto_operativo:dado_de_baja": GastoOperativoDadoDeBajaPayload;
   // --- Sprint 5 · Cluster 3 ---
   // --- Sprint 5 · Cluster 4 ---
+  "tesoreria:libro_iva_exportado": LibroIvaExportadoPayload;
   // --- Sprint 5 · Cluster 5 ---
   // --- Sprint 5 · Cluster 6 ---
   /** HU-D6: post-COMMIT tras crear una AlertaDesvio. Lo escuchan D.3 y F3. */
@@ -1926,6 +1937,7 @@ export const TIPOS_EVENTO_DOMINIO = [
   "gasto_operativo:dado_de_baja",
   // --- Sprint 5 · Cluster 3 ---
   // --- Sprint 5 · Cluster 4 ---
+  "tesoreria:libro_iva_exportado",
   // --- Sprint 5 · Cluster 5 ---
   // --- Sprint 5 · Cluster 6 ---
   "alerta_desvio:creada",

@@ -41,6 +41,7 @@ import type {
   TransaccionPagoRegistradaPayload,
   PedidoEntregadoPayload,
   RetiroRechazadoPayload,
+  LibroIvaExportadoPayload,
 } from "@/lib/events/event-types";
 import {
   registrarAuditLog,
@@ -2014,6 +2015,38 @@ export function iniciarAuditLogListener(): void {
   // --- Sprint 5 · Cluster 2 ---
   // --- Sprint 5 · Cluster 3 ---
   // --- Sprint 5 · Cluster 4 ---
+  const marcaLibroIva = Symbol.for("swat.audit-log.libro-iva");
+  if (!domainEventBus.listeners("tesoreria:libro_iva_exportado").some((handler) => Reflect.get(handler, marcaLibroIva))) {
+    const auditarLibroIva = (payload: LibroIvaExportadoPayload) => {
+      // Confirmar exclusivamente DESPUÉS del commit; no callbacks en el payload.
+      // Whitelist explícita: nunca persistir líneas, importes o contrapartes.
+      // Dependencia exclusiva de este evento: no cambia la carga de handlers previos.
+      void import("@/lib/events/libro-iva-confirmacion").then(({ confirmacionesLibroIva }) => registrarAuditLog({
+        usuario_id: payload.usuario_id,
+        accion: "LIBRO_IVA_EXPORTADO",
+        tabla_afectada: "libro_iva",
+        registro_id: payload.exportacion_id,
+        ip: "internal-event",
+        valor_anterior: null,
+        valor_nuevo: {
+          exportacion_id: payload.exportacion_id,
+          periodo: payload.periodo,
+          tipo_libro: payload.tipo_libro,
+          formato: payload.formato ?? "TXT",
+          timestamp: payload.timestamp,
+        },
+      }).then(
+        () => confirmacionesLibroIva.confirmar(payload.exportacion_id, true),
+        () => confirmacionesLibroIva.confirmar(payload.exportacion_id, false),
+      )).catch(() => {
+        // Si ni siquiera puede cargarse el coordinador, el productor agota su espera.
+        // No propagar rechazos ni imprimir datos del error.
+      });
+    };
+    // El símbolo sobre el handler evita duplicarlo aun si se recarga este módulo.
+    Reflect.set(auditarLibroIva, marcaLibroIva, true);
+    domainEventBus.on("tesoreria:libro_iva_exportado", auditarLibroIva);
+  }
   // --- Sprint 5 · Cluster 5 ---
   // --- Sprint 5 · Cluster 6 ---
   // HU-D6 (task_relos.md D9, D20, D23) — transiciones de `AlertaDesvio`. El
