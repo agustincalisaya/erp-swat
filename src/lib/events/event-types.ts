@@ -1532,6 +1532,16 @@ export interface GastoOperativoDadoDeBajaPayload {
   motivo: string;
 }
 
+// --- Sprint 5 · Cluster 4 — HU-G4 ---
+export interface LibroIvaExportadoPayload {
+  exportacion_id: string;
+  usuario_id: string;
+  periodo: string;
+  tipo_libro: "VENTAS" | "COMPRAS";
+  formato?: "TXT" | "PDF";
+  timestamp: string;
+}
+
 /** Mapa evento → payload, usado por `domain-event-bus.ts` para tipar `emit`/`on`. */
 export interface DomainEventMap {
   /** HU-A1: se emite tras el alta de un ProductoMaestro. */
@@ -1731,6 +1741,7 @@ export interface DomainEventMap {
   "gasto_operativo:dado_de_baja": GastoOperativoDadoDeBajaPayload;
   // --- Sprint 5 · Cluster 3 ---
   // --- Sprint 5 · Cluster 4 ---
+  "tesoreria:libro_iva_exportado": LibroIvaExportadoPayload;
   // --- Sprint 5 · Cluster 5 ---
   // --- Sprint 5 · Cluster 6 ---
 }
@@ -1854,6 +1865,7 @@ export const TIPOS_EVENTO_DOMINIO = [
   "gasto_operativo:dado_de_baja",
   // --- Sprint 5 · Cluster 3 ---
   // --- Sprint 5 · Cluster 4 ---
+  "tesoreria:libro_iva_exportado",
   // --- Sprint 5 · Cluster 5 ---
   // --- Sprint 5 · Cluster 6 ---
 ] as const satisfies readonly DomainEventName[];

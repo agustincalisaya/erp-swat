@@ -5091,6 +5091,7 @@ async function main() {
   await seedSprint5Cluster2(prisma);
   await seedSprint5Cluster3(prisma);
   await seedSprint5Cluster4(prisma);
+  await seedHuG4LibroIva(prisma);
   await seedSprint5Cluster5(prisma);
   await seedSprint5Cluster6(prisma);
 }
@@ -5120,7 +5121,44 @@ async function seedSprint5Cluster3(prisma: PrismaClient): Promise<void> {
   void prisma;
 }
 
-// Cluster 4 · permisos y QR válidos en los comprobantes existentes (HU-G3, HU-G4).
+// HU-G4 · Libro de IVA. Bloque propio, fuera de cluster 4 (HU-G3), cuyo cuerpo
+// tiene tests de "sin efectos laterales" que prohíben este UUID.
+async function seedHuG4LibroIva(prisma: PrismaClient): Promise<void> {
+  // UUID reservado por Asignación (rango ...045–...056); no revocar vínculos personalizados.
+  const PERMISO_LIBRO_IVA_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000051";
+  const CODIGO_LIBRO_IVA = "tesoreria:exportar_libro_iva";
+  const conflictosLibro = await prisma.permiso.findMany({
+    where: { OR: [{ id: PERMISO_LIBRO_IVA_ID }, { codigo: CODIGO_LIBRO_IVA }] },
+    select: { id: true, codigo: true },
+  });
+  if (conflictosLibro.some((p) => p.id !== PERMISO_LIBRO_IVA_ID || p.codigo !== CODIGO_LIBRO_IVA)) {
+    throw new Error("HU-G4: conflicto de UUID/código de permiso; revisar asignación sin sobrescribir referencias.");
+  }
+  await prisma.permiso.upsert({
+    where: { id: PERMISO_LIBRO_IVA_ID },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: {
+      id: PERMISO_LIBRO_IVA_ID, codigo: CODIGO_LIBRO_IVA,
+      descripcion: "Exportar Libro de IVA interno (HU-G4) — AUDITOR y ADMINISTRADOR",
+      modulo: "MODULO_G",
+    },
+  });
+  for (const rol_id of [ROL_AUDITOR_ID, ROL_ADMINISTRADOR_ID]) {
+    await prisma.rolPermiso.upsert({
+      where: { rol_id_permiso_id: { rol_id, permiso_id: PERMISO_LIBRO_IVA_ID } },
+      update: REACTIVAR_REFERENCIA_RBAC,
+      create: { rol_id, permiso_id: PERMISO_LIBRO_IVA_ID },
+    });
+  }
+  const otrosVinculosLibro = await prisma.rolPermiso.count({
+    where: { permiso_id: PERMISO_LIBRO_IVA_ID, is_active: true, rol_id: { notIn: [ROL_AUDITOR_ID, ROL_ADMINISTRADOR_ID] } },
+  });
+  if (otrosVinculosLibro > 0) {
+    console.warn(`[HU-G4] ${otrosVinculosLibro} asignaciones adicionales del permiso conservadas; revisar configuración RBAC personalizada.`);
+  }
+}
+
+// Cluster 4 · permisos y QR válidos en los comprobantes existentes (HU-G3).
 async function seedSprint5Cluster4(prisma: PrismaClient): Promise<void> {
   // HU-G3 — permiso tesoreria:leer_comprobantes (UUID preasignado …050 en el
   // doc del Sprint 5). Matriz del Módulo G del Alcance: CAJERO_POS,
