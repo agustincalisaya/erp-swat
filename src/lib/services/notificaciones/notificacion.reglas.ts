@@ -68,6 +68,8 @@ export interface DestinatariosEvento {
   usuario_ids?: readonly string[];
   /** `Rol.nombre` (task §8, Punto abierto 9 — decidido): se expande al generar. */
   roles?: readonly string[];
+  /** `Permiso.codigo` (HU-D6, spec F §6): usuarios activos con el permiso por cualquier rol activo. */
+  permisos?: readonly string[];
   cuenta_cliente_web_ids?: readonly string[];
 }
 
@@ -78,6 +80,8 @@ export interface GenerarNotificacionesInput {
   variables: VariablesNotificacion;
   /** Prioridad de la tabla de suscripción (spec F §3.3), si no hay plantilla. */
   prioridad_default: PrioridadNotificacionValor;
+  /** HU-D6 (D21): si la suscripción la informa, gana sobre la de la plantilla. */
+  prioridad?: PrioridadNotificacionValor;
   destinatarios: DestinatariosEvento;
 }
 
@@ -105,6 +109,8 @@ export interface PuertosMotorNotificaciones {
   usuariosActivos(ids: string[]): Promise<string[]>;
   /** `UsuarioRol` activos → `Rol` activo con `nombre` en `roles` → `Usuario` activo. */
   usuariosPorRoles(roles: string[]): Promise<string[]>;
+  /** `UsuarioRol` → `Rol` → `RolPermiso` → `Permiso` (por `codigo`), todo activo → `Usuario` activo. */
+  usuariosPorPermisos(permisos: string[]): Promise<string[]>;
   plantillaActiva(tipoEvento: string): Promise<PlantillaParaMotor | null>;
   crearNotificacion(data: NotificacionNueva): Promise<void>;
 }
@@ -146,6 +152,10 @@ export async function ejecutarMotorNotificaciones(
     if (roles.length > 0) {
       for (const id of await puertos.usuariosPorRoles(roles)) usuarioIds.add(id);
     }
+    const permisos = [...new Set(input.destinatarios.permisos ?? [])];
+    if (permisos.length > 0) {
+      for (const id of await puertos.usuariosPorPermisos(permisos)) usuarioIds.add(id);
+    }
     destinatarios = [
       ...[...usuarioIds].map((id) => ({ tipo: "USUARIO" as const, id })),
       ...[...new Set(input.destinatarios.cuenta_cliente_web_ids ?? [])].map((id) => ({
@@ -170,7 +180,7 @@ export async function ejecutarMotorNotificaciones(
     plantilla?.cuerpo ?? DEFAULT_NOTIFICATION_TEXT.cuerpo,
     input.variables,
   );
-  const prioridad = plantilla?.prioridad_default ?? input.prioridad_default;
+  const prioridad = input.prioridad ?? plantilla?.prioridad_default ?? input.prioridad_default;
 
   // 3. Una fila por destinatario final; P2002 = no-op; otro error no corta.
   for (const destinatario of destinatarios) {

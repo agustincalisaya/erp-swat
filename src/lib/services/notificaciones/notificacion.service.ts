@@ -57,6 +57,21 @@ const puertosPrisma: PuertosMotorNotificaciones = {
     });
     return filas.map((fila) => fila.usuario_id);
   },
+  // HU-D6 (spec F §6): mismos filtros que `usuarioTienePermiso` + Usuario activo.
+  async usuariosPorPermisos(permisos) {
+    const filas = await prisma.usuarioRol.findMany({
+      where: {
+        is_active: true,
+        usuario: { is_active: true, deleted_at: null },
+        rol: {
+          is_active: true,
+          permisos: { some: { is_active: true, permiso: { codigo: { in: permisos }, is_active: true } } },
+        },
+      },
+      select: { usuario_id: true },
+    });
+    return filas.map((fila) => fila.usuario_id);
+  },
   async plantillaActiva(tipoEvento) {
     return obtenerPlantillaActivaPorEvento(tipoEvento);
   },

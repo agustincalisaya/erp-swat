@@ -380,6 +380,7 @@ model VarianteSKU {
   lista_precio_venta_items        ListaPrecioVentaItem[]
   carrito_web_items               CarritoWebItem[]
   reintegros_stock_compensaciones ReintegroStockCompensacion[]
+  alertas_desvio                  AlertaDesvio[]
 
   @@index([proveedor_id])
   @@map("variantes_sku")
@@ -413,6 +414,7 @@ model Deposito {
   // --- Relación HU-A9 (Reclasificación de Devueltos) ---
   reclasificaciones_solicitudes ReclasificacionSolicitud[]
   recepciones                   Recepcion[]
+  alertas_desvio                AlertaDesvio[]
 
   @@map("depositos")
 }
@@ -2835,4 +2837,74 @@ model GastoOperativo {
   @@index([categoria_gasto_id, is_active])
   @@index([fecha])
   @@map("gastos_operativos")
+}
+
+// ============================================================================
+// Sprint 5 · HU-D6
+// ============================================================================
+
+/// Indicador crítico vigilado por HU-D6 (spec_modulo_D.md §8.2).
+enum IndicadorAlertaDesvio {
+  STOCK_BAJO_PUNTO_PEDIDO
+  EGRESOS_SOBRE_INGRESOS
+}
+
+/// Mismo orden que `PrioridadNotificacion`: `orderBy asc` = más grave primero.
+enum SeveridadAlertaDesvio {
+  CRITICA
+  ADVERTENCIA
+  INFORMATIVA
+}
+
+enum EstadoAlertaDesvio {
+  ACTIVA
+  RESUELTA
+}
+
+/// Episodio de desvío de un indicador crítico (HU-D6, task_relos.md D3/D18).
+/// Una alerta RESUELTA es histórico inmutable; un cruce posterior crea otra
+/// fila. "Una sola ACTIVA por indicador y referencia" lo garantiza
+/// `clave_activa` (`indicador:referencia` mientras está ACTIVA, `null` al
+/// resolverla; Postgres admite varios NULL en un único), sin índice parcial
+/// manual. Las columnas de detalle guardan el último desvío (alta o cambio de
+/// nivel); la resolución no las modifica (D28).
+model AlertaDesvio {
+  id           String                @id @default(uuid())
+  indicador    IndicadorAlertaDesvio
+  /// `variante_sku_id:deposito_id` (stock) o `AAAA-MM` argentino (egresos).
+  referencia   String
+  clave_activa String?               @unique
+  severidad    SeveridadAlertaDesvio
+  estado       EstadoAlertaDesvio    @default(ACTIVA)
+
+  /// Solo stock.
+  variante_sku_id String?
+  deposito_id     String?
+
+  // --- Detalle (último desvío; la resolución no lo pisa, D28) ---
+  cantidad_actual    Int?
+  punto_pedido       Int?
+  /// Solo para mostrar: la clasificación usa el valor del DTO de HU-G14 (D26).
+  porcentaje_egresos Decimal? @db.Decimal(9, 2)
+  umbral_aplicado    Decimal? @db.Decimal(9, 2)
+
+  resuelta_at DateTime?
+
+  // --- Soft delete estricto (RULES Regla 1; HU-D6 no lo usa: resolver es un estado) ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // --- Relaciones ---
+  variante_sku VarianteSKU? @relation(fields: [variante_sku_id], references: [id], onDelete: Restrict)
+  deposito     Deposito?    @relation(fields: [deposito_id], references: [id], onDelete: Restrict)
+
+  @@index([estado, severidad, created_at])
+  @@index([estado, indicador])
+  @@index([variante_sku_id, deposito_id])
+  @@map("alertas_desvio")
 }

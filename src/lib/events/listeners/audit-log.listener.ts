@@ -2016,4 +2016,101 @@ export function iniciarAuditLogListener(): void {
   // --- Sprint 5 · Cluster 4 ---
   // --- Sprint 5 · Cluster 5 ---
   // --- Sprint 5 · Cluster 6 ---
+  // HU-D6 (task_relos.md D9, D20, D23) — transiciones de `AlertaDesvio`. El
+  // actor es el usuario del evento de origen o `null` (proceso automático);
+  // `ip: "internal-event"` como el resto de los eventos emitidos desde
+  // services. El payload no trae datos personales: solo indicador,
+  // referencia (IDs o `AAAA-MM`), severidades y el detalle numérico.
+  domainEventBus.on("alerta_desvio:creada", (payload) => {
+    registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "ALERTA_DESVIO_CREADA",
+      tabla_afectada: "alertas_desvio",
+      registro_id: payload.alerta_id,
+      ip: "internal-event",
+      valor_anterior: null,
+      valor_nuevo: {
+        evento_id: payload.evento_id,
+        indicador: payload.indicador,
+        referencia: payload.referencia,
+        estado: "ACTIVA",
+        severidad: payload.severidad_nueva,
+        fecha: payload.fecha,
+        ...payload.detalle,
+      },
+    }).catch((error: unknown) => {
+      console.error("[audit-log.listener] Falló la escritura de auditoría para alerta_desvio:creada:", {
+        registro_id: payload.alerta_id,
+        codigo_error: codigoDiagnosticoAuditoria(error),
+      });
+    });
+  });
+
+  domainEventBus.on("alerta_desvio:nivel_cambiado", (payload) => {
+    registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "ALERTA_DESVIO_NIVEL_CAMBIADO",
+      tabla_afectada: "alertas_desvio",
+      registro_id: payload.alerta_id,
+      ip: "internal-event",
+      valor_anterior: { severidad: payload.severidad_anterior },
+      valor_nuevo: {
+        evento_id: payload.evento_id,
+        indicador: payload.indicador,
+        referencia: payload.referencia,
+        severidad: payload.severidad_nueva,
+        fecha: payload.fecha,
+        ...payload.detalle,
+      },
+    }).catch((error: unknown) => {
+      console.error("[audit-log.listener] Falló la escritura de auditoría para alerta_desvio:nivel_cambiado:", {
+        registro_id: payload.alerta_id,
+        codigo_error: codigoDiagnosticoAuditoria(error),
+      });
+    });
+  });
+
+  domainEventBus.on("alerta_desvio:resuelta", (payload) => {
+    registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "ALERTA_DESVIO_RESUELTA",
+      tabla_afectada: "alertas_desvio",
+      registro_id: payload.alerta_id,
+      ip: "internal-event",
+      valor_anterior: { estado: "ACTIVA", severidad: payload.severidad_anterior },
+      valor_nuevo: {
+        evento_id: payload.evento_id,
+        indicador: payload.indicador,
+        referencia: payload.referencia,
+        estado: "RESUELTA",
+        fecha: payload.fecha,
+        ...payload.detalle,
+      },
+    }).catch((error: unknown) => {
+      console.error("[audit-log.listener] Falló la escritura de auditoría para alerta_desvio:resuelta:", {
+        registro_id: payload.alerta_id,
+        codigo_error: codigoDiagnosticoAuditoria(error),
+      });
+    });
+  });
+
+  // D.4 (spec_modulo_D.md §5/§6.4): `accion = "UPDATE"` sobre
+  // `configuraciones_sistema` (nombre `@@map`, D23). `ConfiguracionSistema` no
+  // viaja con su id en el payload: `registro_id` es la `clave` (`@unique`).
+  domainEventBus.on("configuracion:actualizada", (payload) => {
+    registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "UPDATE",
+      tabla_afectada: "configuraciones_sistema",
+      registro_id: payload.clave,
+      ip: "internal-event",
+      valor_anterior: { clave: payload.clave, valor: payload.valor_anterior },
+      valor_nuevo: { clave: payload.clave, valor: payload.valor_nuevo },
+    }).catch((error: unknown) => {
+      console.error("[audit-log.listener] Falló la escritura de auditoría para configuracion:actualizada:", {
+        registro_id: payload.clave,
+        codigo_error: codigoDiagnosticoAuditoria(error),
+      });
+    });
+  });
 }
