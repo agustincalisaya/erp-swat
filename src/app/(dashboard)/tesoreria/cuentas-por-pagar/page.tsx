@@ -26,6 +26,7 @@ import {
   PERMISO_LEER_CUENTAS_POR_PAGAR,
   PERMISO_PAGAR_CUENTA_POR_PAGAR,
 } from "@/lib/services/tesoreria/cuenta-por-pagar.service";
+import { listarCuentasPropiasActivas } from "@/lib/services/tesoreria/cuenta-propia.service";
 import { ListaCuentasPorPagar } from "@/components/tesoreria/ListaCuentasPorPagar";
 
 import {
@@ -64,7 +65,12 @@ export default async function CuentasPorPagarPage() {
     estado: "DEFINITIVA",
     page_size: 100,
   });
-  const listado = await listarCuentasPorPagar(filtros);
+  // HU-G5 — las cuentas propias activas (selector de "cuenta de origen") son
+  // independientes del listado de cuentas por pagar: se resuelven en paralelo.
+  const [listado, cuentasOrigen] = await Promise.all([
+    listarCuentasPorPagar(filtros),
+    listarCuentasPropiasActivas(),
+  ]);
 
   return (
     <main className="min-h-screen bg-background p-4 sm:p-6 lg:p-8">
@@ -100,6 +106,7 @@ export default async function CuentasPorPagarPage() {
             <ListaCuentasPorPagar
               cuentas={listado.registros}
               puedePagar={puedePagar}
+              cuentasOrigen={cuentasOrigen}
             />
           </CardContent>
         </Card>

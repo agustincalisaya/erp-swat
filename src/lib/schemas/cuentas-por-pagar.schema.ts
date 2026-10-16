@@ -1,7 +1,5 @@
 import { z } from "zod";
 
-import { esCuentaOrigenValida } from "../tesoreria/cuentas-origen.ts";
-
 /**
  * Schemas Zod de HU-G8 — Cuenta por Pagar (spec_modulo_G.md §2.4 y §2.5).
  *
@@ -42,6 +40,11 @@ export function esFechaPagoNoFutura(fecha: Date, ahora: Date = new Date()): bool
  * (por defecto "ahora") y no puede ser futura; `observaciones` es opcional y
  * acotada a 500 caracteres. La existencia real de los comprobantes y su
  * pertenencia a la OC la valida la capa de servicios.
+ *
+ * HU-G5: `cuenta_origen_id` dejó de validarse contra el catálogo fijo en código
+ * (retirado); ahora solo se valida como string no vacío de forma. La EXISTENCIA
+ * y el estado `is_active` de la cuenta se resuelven en la transacción de
+ * `marcarCuentaPorPagarPagada()` (el cliente no decide validez).
  */
 export const MarcarPagadaSchema = z.object({
   fecha_pago: z
@@ -49,9 +52,7 @@ export const MarcarPagadaSchema = z.object({
     .default(() => new Date())
     .refine((d) => esFechaPagoNoFutura(d), "La fecha de pago no puede ser futura"),
   medio_pago: z.enum(MEDIOS_PAGO),
-  cuenta_origen_id: z
-    .string()
-    .refine(esCuentaOrigenValida, "La cuenta de origen no existe"),
+  cuenta_origen_id: z.string().min(1, "Debés seleccionar una cuenta de origen"),
   comprobante_proveedor_ids: z
     .array(z.string().uuid())
     .min(1, "Debés imputar al menos un comprobante")

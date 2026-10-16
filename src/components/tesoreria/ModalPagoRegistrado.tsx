@@ -12,7 +12,6 @@
 import { CheckCircle2 } from "lucide-react";
 
 import { MEDIOS_PAGO } from "@/lib/schemas/cuentas-por-pagar.schema";
-import { CUENTAS_ORIGEN } from "@/lib/tesoreria/cuentas-origen";
 import type { CuentaPorPagarPagada } from "@/lib/services/tesoreria/cuenta-por-pagar.service";
 
 import {
@@ -31,10 +30,6 @@ const MEDIO_PAGO_LABEL: Record<(typeof MEDIOS_PAGO)[number], string> = {
   CHEQUE: "Cheque",
   EFECTIVO: "Efectivo",
 };
-
-function etiquetaCuentaOrigen(id: string): string {
-  return CUENTAS_ORIGEN.find((c) => c.id === id)?.label ?? id;
-}
 
 function etiquetaMedioPago(medio: string): string {
   return MEDIO_PAGO_LABEL[medio as (typeof MEDIOS_PAGO)[number]] ?? medio;
@@ -96,7 +91,7 @@ export function ModalPagoRegistrado({
               <dd>{etiquetaMedioPago(data.medio_pago)}</dd>
 
               <dt className="text-muted-foreground">Cuenta de origen</dt>
-              <dd>{etiquetaCuentaOrigen(data.cuenta_origen_id)}</dd>
+              <dd>{data.cuenta_origen_etiqueta}</dd>
 
               <dt className="text-muted-foreground">Comprobantes</dt>
               <dd>
