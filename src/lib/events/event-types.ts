@@ -4,7 +4,7 @@
  * consume estos eventos para construir el `AuditLog` encadenado por SHA-256.
  */
 
-import type { EstadoOrdenCompra } from "@prisma/client";
+import type { EstadoOrdenCompra, TipoCuentaPropia } from "@prisma/client";
 
 /**
  * HU-A1 — Payload emitido tras el alta de un `ProductoMaestro`
@@ -1542,6 +1542,55 @@ export interface LibroIvaExportadoPayload {
   timestamp: string;
 }
 
+// --- Sprint 5 · Cluster 5 ---
+
+/**
+ * HU-G5 (G5-4) — lectura de los datos bancarios cifrados (CBU/alias) de una
+ * `CuentaPropia`, ya sea en la lectura enmascarada o en el revelado explícito.
+ * Se emite DIRECTAMENTE desde el servicio (no hay COMMIT que esperar) y el
+ * payload NUNCA transporta el valor: solo actor, cuenta y momento.
+ */
+export interface DatosBancariosConsultadosPayload {
+  cuenta_propia_id: string;
+  usuario_id: string;
+  timestamp: string;
+}
+
+/**
+ * HU-G5 (G5-8) — alta de una `CuentaPropia`, post-COMMIT. Solo campos NO
+ * sensibles (`nombre`, `tipo`, `banco`); el CBU y el alias nunca viajan acá.
+ */
+export interface CuentaPropiaCreadaPayload {
+  cuenta_propia_id: string;
+  usuario_id: string;
+  nombre: string;
+  tipo: TipoCuentaPropia;
+  banco: string | null;
+}
+
+/**
+ * HU-G5 (G5-8) — edición de una `CuentaPropia`, post-COMMIT. Los campos
+ * sensibles NO aparecen: CBU y alias se reportan como booleano `cambiado`, sin
+ * valor (spec §9.7, G5-8).
+ */
+export interface CuentaPropiaEditadaPayload {
+  cuenta_propia_id: string;
+  usuario_id: string;
+  campos_editados: string[];
+  cbu_cambiado: boolean;
+  alias_cambiado: boolean;
+}
+
+/**
+ * HU-G5 (G5-8) — baja lógica de una `CuentaPropia`, post-COMMIT. `motivo` es el
+ * `deletion_reason`; el borrado físico no existe (RULES.md Regla 1).
+ */
+export interface CuentaPropiaBajaLogicaPayload {
+  cuenta_propia_id: string;
+  usuario_id: string;
+  motivo: string;
+}
+
 // --- Sprint 5 · Cluster 6 ---
 // HU-D6 (emite `alerta-desvio.service.ts`; consumen D.3 y F3) y D.4
 // (`configuracion:actualizada`, spec_modulo_D.md §5/§6.4). task_relos.md D9, D20.
@@ -1807,6 +1856,14 @@ export interface DomainEventMap {
   // --- Sprint 5 · Cluster 4 ---
   "tesoreria:libro_iva_exportado": LibroIvaExportadoPayload;
   // --- Sprint 5 · Cluster 5 ---
+  /** HU-G5 (G5-4): lectura de CBU/alias (enmascarada o revelada). Lo escucha D.3. Nunca lleva valores. */
+  "tesoreria:datos_bancarios_consultados": DatosBancariosConsultadosPayload;
+  /** HU-G5 (G5-8): post-COMMIT tras el alta de una CuentaPropia. Campos no sensibles. */
+  "tesoreria:cuenta_propia_creada": CuentaPropiaCreadaPayload;
+  /** HU-G5 (G5-8): post-COMMIT tras editar una CuentaPropia. CBU/alias solo como booleano `cambiado`. */
+  "tesoreria:cuenta_propia_editada": CuentaPropiaEditadaPayload;
+  /** HU-G5 (G5-8): post-COMMIT tras la baja lógica de una CuentaPropia. */
+  "tesoreria:cuenta_propia_baja_logica": CuentaPropiaBajaLogicaPayload;
   // --- Sprint 5 · Cluster 6 ---
   /** HU-D6: post-COMMIT tras crear una AlertaDesvio. Lo escuchan D.3 y F3. */
   "alerta_desvio:creada": AlertaDesvioCreadaPayload;
@@ -1939,6 +1996,10 @@ export const TIPOS_EVENTO_DOMINIO = [
   // --- Sprint 5 · Cluster 4 ---
   "tesoreria:libro_iva_exportado",
   // --- Sprint 5 · Cluster 5 ---
+  "tesoreria:datos_bancarios_consultados",
+  "tesoreria:cuenta_propia_creada",
+  "tesoreria:cuenta_propia_editada",
+  "tesoreria:cuenta_propia_baja_logica",
   // --- Sprint 5 · Cluster 6 ---
   "alerta_desvio:creada",
   "alerta_desvio:nivel_cambiado",
