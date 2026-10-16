@@ -304,6 +304,14 @@ const SECCIONES: SeccionConfig[] = [
         icon: Banknote,
         permiso: "cuentas_por_pagar:leer",
       },
+      // HU-G3 (spec_modulo_G.md §9.5) — repositorio de comprobantes fiscales.
+      // Orden fijo del grupo: … Cuentas propias, Comprobantes, Libro de IVA, Alertas.
+      {
+        label: "Comprobantes",
+        href: "/tesoreria/comprobantes",
+        icon: Receipt,
+        permiso: "tesoreria:leer_comprobantes",
+      },
       // HU-D6 — panel de alertas de indicadores críticos (Gerente y Administrador).
       {
         label: "Alertas",

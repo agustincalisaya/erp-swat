@@ -29,6 +29,15 @@ test("descarga fiscal resuelve solo el original propio sin escribir ni exponer d
     cae_simulado: original.cae_simulado,
     qr_data_url: original.qr_data_url,
     es_simulado: true,
+    // HU-B10 (spec_modulo_B.md §2.10): datos del PDF, solo lectura.
+    numero_venta: "V-propio",
+    canal: "WEB",
+    cliente: { dni: "30123456", nombre: "Juan Pérez" },
+    items: [{
+      descripcion: "Camisa", variante: "Manga Corta · Talle M · Negro · HOMBRE", sku: "SKU-1",
+      cantidad: 1, precio_unitario: "150.00", descuento_porcentual: null,
+    }],
+    pagos: [{ medio: "MERCADO_PAGO", importe: "150.00", referencia: "1320000000001" }],
   });
   for (const id of ["ajeno", "inexistente", "sin-comprobante", "mostrador"]) {
     await assert.rejects(
@@ -45,6 +54,9 @@ test("descarga fiscal resuelve solo el original propio sin escribir ni exponer d
   assert.deepEqual((consulta.select as { comprobantes: { where: unknown } }).comprobantes.where, {
     tipo_comprobante: { not: "NOTA_CREDITO" },
   });
+  const selectPdf = consulta.select as { items: { where: unknown }; medios_pago: { where: unknown } };
+  assert.deepEqual(selectPdf.items.where, { is_active: true, deleted_at: null });
+  assert.deepEqual(selectPdf.medios_pago.where, { is_active: true, deleted_at: null });
   assert.doesNotMatch(JSON.stringify(resultado), /emitido_por|cliente_id|mercadopago|operador|payment/i);
 });
 
@@ -106,8 +118,11 @@ function pedido(
       id: `item-${id}`,
       cantidad: 1,
       precio_unitario: new Prisma.Decimal(150),
-      variante_sku: { sku: "SKU-1", talle: "M", color: "Negro", producto_maestro: { nombre: "Camisa" } },
+      descuento_porcentual: null,
+      variante_sku: { sku: "SKU-1", modelo: "Manga Corta", talle: "M", color: "Negro", genero: "HOMBRE", producto_maestro: { nombre: "Camisa" } },
     }],
+    cliente: { dni: "30123456", nombre: "Juan Pérez" },
+    medios_pago: [{ medio: "MERCADO_PAGO", importe: new Prisma.Decimal(150), referencia: "1320000000001" }],
     comprobantes: opciones.comprobantes ?? [comprobante(`comprobante-${id}`, id)],
     reintegro_web: opciones.reintegro ?? null,
   };

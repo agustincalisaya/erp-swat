@@ -17,6 +17,7 @@ import {
   fechaDeVigenciaAlcanzada,
   hoyComoFechaSoloUtc,
   inicioDiaUtc,
+  rangoDiasNegocio,
   rangoMesFechaSolo,
   rangoMesNegocio,
   formatearFechaHoraNegocio,
@@ -305,4 +306,54 @@ test("rangoMesFechaSolo: diciembre pasa a enero del año siguiente", () => {
   const r = rangoMesFechaSolo(2026, 12);
   assert.equal(r.desde.toISOString(), "2026-12-01T00:00:00.000Z");
   assert.equal(r.hasta.toISOString(), "2027-01-01T00:00:00.000Z");
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// rangoDiasNegocio — Sprint 5 · Cluster 4 (HU-G3), período de emisión
+// ──────────────────────────────────────────────────────────────────────────
+
+test("rangoDiasNegocio: un solo día va de las 00:00 AR de ese día a las 00:00 AR del siguiente, exclusivo", () => {
+  const r = rangoDiasNegocio("2026-10-15", "2026-10-15");
+  assert.equal(r.desde.toISOString(), "2026-10-15T03:00:00.000Z");
+  assert.equal(r.hasta.toISOString(), "2026-10-16T03:00:00.000Z");
+});
+
+test("rangoDiasNegocio: un rango de varios días incluye ambos extremos completos", () => {
+  const r = rangoDiasNegocio("2026-10-01", "2026-10-07");
+  assert.equal(r.desde.toISOString(), "2026-10-01T03:00:00.000Z");
+  assert.equal(r.hasta.toISOString(), "2026-10-08T03:00:00.000Z");
+});
+
+test("rangoDiasNegocio: cruza fin de mes", () => {
+  const r = rangoDiasNegocio("2026-09-28", "2026-10-02");
+  assert.equal(r.desde.toISOString(), "2026-09-28T03:00:00.000Z");
+  assert.equal(r.hasta.toISOString(), "2026-10-03T03:00:00.000Z");
+  assert.equal(rangoDiasNegocio("2026-10-31", "2026-10-31").hasta.toISOString(), "2026-11-01T03:00:00.000Z");
+});
+
+test("rangoDiasNegocio: cruza fin de año", () => {
+  const r = rangoDiasNegocio("2026-12-30", "2026-12-31");
+  assert.equal(r.desde.toISOString(), "2026-12-30T03:00:00.000Z");
+  assert.equal(r.hasta.toISOString(), "2027-01-01T03:00:00.000Z");
+});
+
+test("rangoDiasNegocio: 23:59 AR del día hasta queda adentro y 00:00 AR del día siguiente queda afuera", () => {
+  const r = rangoDiasNegocio("2026-10-01", "2026-10-15");
+  assert.ok(enRango(new Date("2026-10-16T02:59:59.999Z"), r), "23:59:59.999 AR del 15/10");
+  assert.ok(!enRango(new Date("2026-10-16T03:00:00.000Z"), r), "00:00 AR del 16/10");
+  assert.ok(enRango(new Date("2026-10-01T03:00:00.000Z"), r), "00:00 AR del 01/10");
+  assert.ok(!enRango(new Date("2026-10-01T02:59:59.999Z"), r), "23:59:59.999 AR del 30/09");
+});
+
+test("rangoDiasNegocio: rechaza formato inválido, días inexistentes y desde posterior a hasta", () => {
+  for (const [desde, hasta] of [
+    ["2026-10-1", "2026-10-15"],
+    ["15/10/2026", "2026-10-15"],
+    ["2026-10-01", ""],
+    ["2026-02-30", "2026-03-01"],
+    ["2026-13-01", "2026-13-02"],
+    ["2026-10-16", "2026-10-15"],
+  ] as const) {
+    assert.throws(() => rangoDiasNegocio(desde, hasta), RangeError, `${desde} → ${hasta}`);
+  }
 });

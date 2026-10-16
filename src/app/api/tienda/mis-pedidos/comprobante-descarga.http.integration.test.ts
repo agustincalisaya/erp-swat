@@ -48,7 +48,8 @@ test("descarga HU-E9 usa sesión web y conserva el RBAC HU-B7", { skip: !habilit
     const bytes = new Uint8Array(await propio.arrayBuffer());
     assert.equal(Buffer.from(bytes.subarray(0, 5)).toString(), "%PDF-");
     const texto = await contenidoPdf(bytes);
-    for (const dato of ["SWAT Indumentarias", "Comprobante fiscal", "CAE simulado", "QR fiscal simulado"]) {
+    // Rótulos del diseño de HU-B10 (spec_modulo_B.md §2.10).
+    for (const dato of ["SWAT Indumentarias", "SIN VALIDEZ FISCAL ANTE AFIP", "CAE simulado", "QR FISCAL SIMULADO"]) {
       assert.ok(texto.includes(dato), dato);
     }
   });
