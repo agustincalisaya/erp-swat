@@ -268,3 +268,20 @@ test("Errores · un QR persistido inválido lanza QrFiscalInvalidoError (nunca u
   const dto = { ...(await facturaWeb()), qr_data_url: "data:image/png;base64,SIMULADO-SEED-NO-AFIP==" };
   await assert.rejects(generarComprobanteFiscalPdf(dto), (error: Error) => error.name === "QrFiscalInvalidoError");
 });
+
+test("B10-5/6 · NC con cupón: la línea «Descuento» también va en negativo", async () => {
+  const dto: Dto = {
+    numero: "NC-V-2026-000010",
+    tipo: "NOTA_CREDITO",
+    fecha_emision: "2026-10-15T18:57:00.000Z",
+    monto: "19380.00",
+    cae_simulado: "68031598279010",
+    qr_data_url: await qrB7("NOTA_CREDITO", "NC-V-2026-000010", 19380, "68031598279010"),
+    es_simulado: true,
+    comprobante_original: { numero: "V-2026-000010", tipo: "FACTURA_B", numero_venta: "V-2026-000010" },
+    items: [{ ...camisaCorta, cantidad: 1, precio_unitario: "22800.00" }],
+  };
+  const { texto } = await extraerPdf(await generarComprobanteFiscalPdf(dto));
+  incluye(texto, ["Subtotal", "-$ 22.800,00", "Descuento", "-$ 3.420,00", "IVA contenido (21 %)", "-$ 3.363,47", "-$ 19.380,00"]);
+  assert.ok(!/(^|[^-])\$ 3\.420,00/.test(texto), "el descuento de la NC nunca sale en positivo");
+});
