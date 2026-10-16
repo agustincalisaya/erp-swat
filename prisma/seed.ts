@@ -5254,7 +5254,64 @@ async function seedSprint5Cluster5(prisma: PrismaClient): Promise<void> {
 
 // Cluster 6 · umbrales de alerta y permiso del panel (HU-D6, HU-G15).
 async function seedSprint5Cluster6(prisma: PrismaClient): Promise<void> {
-  void prisma;
+  // ── HU-D6 — permiso del panel de alertas + umbrales de egresos (task_relos.md D13/D23/D24) ──
+  const PERMISO_ALERTAS_LEER_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000056";
+
+  // `alertas:leer` → ADMINISTRADOR y GERENTE (spec D §8.2 D6-7, T3-3). No toca
+  // ningún otro permiso de esos roles.
+  await prisma.permiso.upsert({
+    where: { id: PERMISO_ALERTAS_LEER_ID },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: {
+      id: PERMISO_ALERTAS_LEER_ID,
+      codigo: "alertas:leer",
+      descripcion: "Consultar el panel de alertas de indicadores críticos y recibir sus notificaciones (HU-D6) — ADMINISTRADOR y GERENTE",
+      modulo: "MODULO_D",
+    },
+  });
+  for (const rol_id of [ROL_ADMINISTRADOR_ID, ROL_GERENTE_ID]) {
+    await prisma.rol.findUniqueOrThrow({ where: { id: rol_id }, select: { id: true } });
+    await prisma.rolPermiso.upsert({
+      where: { rol_id_permiso_id: { rol_id, permiso_id: PERMISO_ALERTAS_LEER_ID } },
+      update: REACTIVAR_REFERENCIA_RBAC,
+      create: { rol_id, permiso_id: PERMISO_ALERTAS_LEER_ID },
+    });
+  }
+
+  // Umbrales del % de egresos sobre ingresos del mes (criterio 3). `update: {}`:
+  // re-correr el seed nunca pisa un valor ya ajustado por un Administrador.
+  // `actualizado_por_id` se resuelve como en el bloque de claves E (D.4).
+  const usuarioAdmin = await prisma.usuario.findUniqueOrThrow({
+    where: { nombre_usuario: "administrador.seed" },
+    select: { id: true },
+  });
+  for (const [clave, valor, descripcion] of [
+    ["TESORERIA_ALERTA_EGRESOS_INFORMATIVA_PCT", "70", "Umbral informativo del % de egresos sobre ingresos del mes en curso (HU-D6): entero positivo, menor que el de advertencia"],
+    ["TESORERIA_ALERTA_EGRESOS_ADVERTENCIA_PCT", "85", "Umbral de advertencia del % de egresos sobre ingresos del mes en curso (HU-D6): entero positivo, entre el informativo y el crítico"],
+    ["TESORERIA_ALERTA_EGRESOS_CRITICA_PCT", "100", "Umbral crítico del % de egresos sobre ingresos del mes en curso (HU-D6): entero positivo hasta 1000, mayor que el de advertencia"],
+  ] as const) {
+    await prisma.configuracionSistema.upsert({
+      where: { clave },
+      update: {},
+      create: { clave, valor, descripcion, modulo: "D", actualizado_por_id: usuarioAdmin.id },
+    });
+  }
+
+  // Plantillas HU-F2 de las notificaciones de alertas (D22). El texto vive en
+  // `alerta-desvio.notificacion.ts` (fuente única, testeada); import dinámico
+  // para no tocar los imports del archivo. `update: {}`: no pisa ediciones del
+  // Administrador de Plataforma.
+  const { PLANTILLAS_NOTIFICACION_ALERTA } = await import("@/lib/services/alertas/alerta-desvio.notificacion");
+  for (const { tipo_evento, asunto, cuerpo, prioridad_default } of PLANTILLAS_NOTIFICACION_ALERTA) {
+    await prisma.plantillaNotificacion.upsert({
+      where: { tipo_evento },
+      update: {},
+      create: { tipo_evento, asunto, cuerpo, prioridad_default },
+    });
+  }
+
+  console.log("\nSeed Sprint 5 — Cluster 6 (HU-D6) completado:");
+  console.table({ permiso_alertas_leer_id: PERMISO_ALERTAS_LEER_ID });
 }
 
 main()

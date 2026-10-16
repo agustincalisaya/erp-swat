@@ -80,6 +80,15 @@ const registroIngresoTesoreria = import("@/lib/events/listeners/ingreso-tesoreri
   },
 );
 
+// --- Sprint 5 · Cluster 6 ---
+// HU-D6 — reevaluación de alertas de indicadores críticos. Va después de
+// `audit-log.listener`: el asiento del evento de origen se encola antes.
+const registroAlertasDesvio = import("@/lib/events/listeners/alerta-desvio.listener").then(
+  ({ iniciarAlertaDesvioListener }) => {
+    iniciarAlertaDesvioListener();
+  },
+);
+
 /**
  * HU-E7 — Resuelve cuando todos los imports dinámicos de arriba terminaron
  * (con éxito o no). La usa `npm run job:reservas`, proceso de corta vida, para
@@ -93,4 +102,6 @@ export const listenersRegistrados: Promise<void> = Promise.allSettled([
   registroNotificaciones,
   registroAnulacionOrden,
   registroIngresoTesoreria,
+  // --- Sprint 5 · Cluster 6 ---
+  registroAlertasDesvio,
 ]).then(() => undefined);

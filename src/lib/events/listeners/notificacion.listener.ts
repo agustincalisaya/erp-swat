@@ -26,6 +26,7 @@
  */
 import { domainEventBus } from "@/lib/events/domain-event-bus";
 import type { DomainEventMap } from "@/lib/events/event-types";
+import { notificacionDeAlerta } from "@/lib/services/alertas/alerta-desvio.notificacion";
 import {
   generarNotificaciones,
   type GenerarNotificacionesInput,
@@ -153,6 +154,20 @@ export const SUSCRIPCIONES_NOTIFICACION = [
           destinatarios: { cuenta_cliente_web_ids: [p.cliente_web_cuenta_id] },
         }
       : null,
+  }),
+  // HU-D6 (spec F §6, D11/D21) → usuarios con `alertas:leer`. La prioridad la
+  // informa `armar` (= severidad) y gana sobre la de la plantilla;
+  // `prioridad_default` solo queda como respaldo. `resuelta` no notifica.
+  suscripcion({
+    evento: "alerta_desvio:creada",
+    prioridad_default: "ADVERTENCIA",
+    armar: (p) => notificacionDeAlerta(p),
+  }),
+  suscripcion({
+    evento: "alerta_desvio:nivel_cambiado",
+    prioridad_default: "CRITICA",
+    // Solo el ascenso a CRITICA genera notificación (`esEscaladaACritica`).
+    armar: (p) => notificacionDeAlerta(p),
   }),
 ];
 
