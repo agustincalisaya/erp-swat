@@ -74,3 +74,10 @@ docs/Sprint 3 - Coordinacion del Equipo.docx.md
 # Workspace local de Postman (generado por la app, no es contenido del equipo)
 postman/
 .postman/
+
+# CodeGraph — índice local de inteligencia de código (regenerable por máquina, ~50 MB)
+/.codegraph/
+
+# Agent skills instalados localmente (dev-only, misma política que AGENTS.md)
+/.agents/
+/skills-lock.json
