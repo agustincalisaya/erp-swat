@@ -54,6 +54,7 @@ const PLANTILLA_UMBRAL: PlantillaParaMotor = {
 function fake(opciones: {
   activos?: string[];
   porRol?: Record<string, string[]>;
+  porPermiso?: Record<string, string[]>;
   plantilla?: PlantillaParaMotor | null;
   fallarPara?: Record<string, unknown>;
 } = {}) {
@@ -61,6 +62,11 @@ function fake(opciones: {
   const puertos: PuertosMotorNotificaciones = {
     usuariosActivos: async (ids) => ids.filter((id) => (opciones.activos ?? ids).includes(id)),
     usuariosPorRoles: async (roles) => roles.flatMap((rol) => opciones.porRol?.[rol] ?? []),
+    // Como la query real: solo usuarios activos (`activos`, si se informa).
+    usuariosPorPermisos: async (permisos) =>
+      permisos
+        .flatMap((permiso) => opciones.porPermiso?.[permiso] ?? [])
+        .filter((id) => (opciones.activos ?? [id]).includes(id)),
     plantillaActiva: async () => opciones.plantilla ?? null,
     crearNotificacion: async (data) => {
       const destino = data.usuario_destinatario_id ?? data.cuenta_cliente_web_destinatario_id!;
@@ -244,4 +250,82 @@ test("esViolacionUnicidad: solo P2002", () => {
 test("paginación: shape del spec F §2.3", () => {
   assert.deepEqual(armarPaginacion(23, 1, 20), { total: 23, pagina_actual: 1, total_paginas: 2, por_pagina: 20 });
   assert.equal(armarPaginacion(0, 1, 20).total_paginas, 1);
+});
+
+// ── HU-D6 (spec F §6, task_relos.md D11/D21) — destinatarios por permiso y prioridad informada ──
+
+const ENTRADA_ALERTA: GenerarNotificacionesInput = {
+  tipo_evento: "alerta_desvio:creada",
+  clave_origen: "evento-alerta-1",
+  variables: {},
+  prioridad_default: "ADVERTENCIA",
+  destinatarios: { permisos: ["alertas:leer"] },
+};
+
+test("motor (D6): unión sin duplicados de usuario_ids, roles y permisos", async () => {
+  const f = fake({
+    porRol: { ADMINISTRADOR: ["admin-1", "doble-rol"] },
+    porPermiso: { "alertas:leer": ["admin-1", "gerente-1", "doble-rol", "doble-rol"] },
+  });
+  const r = await ejecutarMotorNotificaciones(
+    { ...ENTRADA_ALERTA, destinatarios: { usuario_ids: ["gerente-1"], roles: ["ADMINISTRADOR"], permisos: ["alertas:leer", "alertas:leer"] } },
+    f.puertos,
+  );
+  assert.deepEqual(r, { creadas: 3, duplicadas: 0, fallidas: 0 });
+  assert.deepEqual(f.creadas.map((n) => n.usuario_destinatario_id).sort(), ["admin-1", "doble-rol", "gerente-1"]);
+});
+
+test("motor (D6): permiso que no tiene nadie → sin destinatarios, sin plantilla consultada", async () => {
+  const f = fake({ porPermiso: {} });
+  let consultada = false;
+  f.puertos.plantillaActiva = async () => {
+    consultada = true;
+    return null;
+  };
+  const r = await ejecutarMotorNotificaciones(ENTRADA_ALERTA, f.puertos);
+  assert.deepEqual(r, { creadas: 0, duplicadas: 0, fallidas: 0 });
+  assert.equal(consultada, false);
+});
+
+test("motor (D6): usuario dado de baja con el permiso no recibe", async () => {
+  const f = fake({ activos: ["admin-1"], porPermiso: { "alertas:leer": ["admin-1", "baja-1"] } });
+  await ejecutarMotorNotificaciones(ENTRADA_ALERTA, f.puertos);
+  assert.deepEqual(f.creadas.map((n) => n.usuario_destinatario_id), ["admin-1"]);
+});
+
+test("motor (D6): sin permisos informados no consulta usuariosPorPermisos", async () => {
+  const f = fake({ porRol: { ENCARGADO_DEPOSITO: [ENCARGADO_SEED_ID] } });
+  f.puertos.usuariosPorPermisos = async () => {
+    throw new Error("no debería consultarse");
+  };
+  const r = await ejecutarMotorNotificaciones(ENTRADA_UMBRAL, f.puertos);
+  assert.deepEqual(r, { creadas: 1, duplicadas: 0, fallidas: 0 });
+});
+
+test("motor (D21): prioridad informada por la suscripción gana sobre la de la plantilla", async () => {
+  const f = fake({
+    porPermiso: { "alertas:leer": ["admin-1"] },
+    plantilla: { id: "plantilla-alerta", asunto: "Alerta", cuerpo: "Detalle", prioridad_default: "INFORMATIVA" },
+  });
+  await ejecutarMotorNotificaciones({ ...ENTRADA_ALERTA, prioridad: "CRITICA" }, f.puertos);
+  assert.equal(f.creadas[0]!.prioridad, "CRITICA");
+  assert.equal(f.creadas[0]!.plantilla_id, "plantilla-alerta");
+});
+
+test("motor (D21): prioridad informada sin plantilla también se usa (antes que prioridad_default)", async () => {
+  const f = fake({ porPermiso: { "alertas:leer": ["admin-1"] } });
+  await ejecutarMotorNotificaciones({ ...ENTRADA_ALERTA, prioridad: "INFORMATIVA" }, f.puertos);
+  assert.equal(f.creadas[0]!.prioridad, "INFORMATIVA");
+});
+
+test("motor (D21, regresión): evento existente sin prioridad informada sigue usando la de la plantilla", async () => {
+  for (const prioridadPlantilla of ["CRITICA", "ADVERTENCIA", "INFORMATIVA"] as const) {
+    const f = fake({
+      porRol: { ENCARGADO_DEPOSITO: [ENCARGADO_SEED_ID] },
+      plantilla: { ...PLANTILLA_UMBRAL, prioridad_default: prioridadPlantilla },
+    });
+    await ejecutarMotorNotificaciones(ENTRADA_UMBRAL, f.puertos);
+    assert.equal(f.creadas[0]!.prioridad, prioridadPlantilla);
+    assert.equal("prioridad" in ENTRADA_UMBRAL, false);
+  }
 });

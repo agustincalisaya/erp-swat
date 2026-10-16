@@ -1542,6 +1542,70 @@ export interface LibroIvaExportadoPayload {
   timestamp: string;
 }
 
+// --- Sprint 5 · Cluster 6 ---
+// HU-D6 (emite `alerta-desvio.service.ts`; consumen D.3 y F3) y D.4
+// (`configuracion:actualizada`, spec_modulo_D.md §5/§6.4). task_relos.md D9, D20.
+
+/** HU-D6 — qué disparó la reevaluación: un evento de dominio o la apertura del panel (D20). */
+export type OrigenReevaluacionAlerta = "EVENTO" | "REEVALUACION_PANEL";
+
+/**
+ * HU-D6 — detalle no sensible de la transición: el snapshot que queda en la
+ * alerta. Stock usa `cantidad_actual` / `punto_pedido`; egresos usa
+ * `porcentaje_egresos` (el valor comparado, D26) / `umbral_aplicado`. Lo que
+ * no aplica viaja en `null`.
+ */
+export interface AlertaDesvioDetallePayload {
+  origen: OrigenReevaluacionAlerta;
+  cantidad_actual: number | null;
+  punto_pedido: number | null;
+  porcentaje_egresos: number | null;
+  umbral_aplicado: number | null;
+}
+
+/**
+ * HU-D6 — campos comunes de las tres transiciones de `AlertaDesvio`. Se emiten
+ * post-COMMIT y solo si hubo cambio real (D8/D18). `evento_id` es propio de
+ * cada transición (clave de idempotencia de F3, D11); `fecha` es ISO 8601;
+ * `usuario_id` es `null` cuando el origen es un proceso automático (D20).
+ */
+export interface AlertaDesvioTransicionPayload {
+  evento_id: string;
+  alerta_id: string;
+  indicador: import("@prisma/client").IndicadorAlertaDesvio;
+  /** `variante_sku_id:deposito_id` (stock) o `AAAA-MM` argentino (egresos). */
+  referencia: string;
+  fecha: string;
+  usuario_id: string | null;
+  detalle: AlertaDesvioDetallePayload;
+}
+
+/** HU-D6 — alta de un episodio de alerta. */
+export interface AlertaDesvioCreadaPayload extends AlertaDesvioTransicionPayload {
+  severidad_anterior: null;
+  severidad_nueva: import("@prisma/client").SeveridadAlertaDesvio;
+}
+
+/** HU-D6 — cambio de nivel de una alerta ACTIVA (sube o baja). */
+export interface AlertaDesvioNivelCambiadoPayload extends AlertaDesvioTransicionPayload {
+  severidad_anterior: import("@prisma/client").SeveridadAlertaDesvio;
+  severidad_nueva: import("@prisma/client").SeveridadAlertaDesvio;
+}
+
+/** HU-D6 — resolución automática: la condición dejó de cumplirse. */
+export interface AlertaDesvioResueltaPayload extends AlertaDesvioTransicionPayload {
+  severidad_anterior: import("@prisma/client").SeveridadAlertaDesvio;
+  severidad_nueva: null;
+}
+
+/** D.4 — cambio del `valor` de un parámetro de `ConfiguracionSistema` (spec D §6.4). */
+export interface ConfiguracionActualizadaPayload {
+  clave: string;
+  valor_anterior: string;
+  valor_nuevo: string;
+  usuario_id: string;
+}
+
 /** Mapa evento → payload, usado por `domain-event-bus.ts` para tipar `emit`/`on`. */
 export interface DomainEventMap {
   /** HU-A1: se emite tras el alta de un ProductoMaestro. */
@@ -1744,6 +1808,14 @@ export interface DomainEventMap {
   "tesoreria:libro_iva_exportado": LibroIvaExportadoPayload;
   // --- Sprint 5 · Cluster 5 ---
   // --- Sprint 5 · Cluster 6 ---
+  /** HU-D6: post-COMMIT tras crear una AlertaDesvio. Lo escuchan D.3 y F3. */
+  "alerta_desvio:creada": AlertaDesvioCreadaPayload;
+  /** HU-D6: post-COMMIT tras cambiar el nivel de una AlertaDesvio activa. Lo escuchan D.3 y F3 (solo ascenso a CRITICA). */
+  "alerta_desvio:nivel_cambiado": AlertaDesvioNivelCambiadoPayload;
+  /** HU-D6: post-COMMIT tras resolver una AlertaDesvio. Lo escucha D.3. */
+  "alerta_desvio:resuelta": AlertaDesvioResueltaPayload;
+  /** D.4 (HU-D6): post-COMMIT tras cambiar el valor de una ConfiguracionSistema. Lo escucha D.3. */
+  "configuracion:actualizada": ConfiguracionActualizadaPayload;
 }
 
 export type DomainEventName = keyof DomainEventMap;
@@ -1868,6 +1940,10 @@ export const TIPOS_EVENTO_DOMINIO = [
   "tesoreria:libro_iva_exportado",
   // --- Sprint 5 · Cluster 5 ---
   // --- Sprint 5 · Cluster 6 ---
+  "alerta_desvio:creada",
+  "alerta_desvio:nivel_cambiado",
+  "alerta_desvio:resuelta",
+  "configuracion:actualizada",
 ] as const satisfies readonly DomainEventName[];
 
 /** Falla el typecheck si `TIPOS_EVENTO_DOMINIO` no cubre todas las claves de `DomainEventMap`. */

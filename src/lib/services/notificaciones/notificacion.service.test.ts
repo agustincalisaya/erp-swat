@@ -93,6 +93,8 @@ test("listener: sin await hacia el emisor y con captura de errores síncronos y 
 test("listener: suscripciones activas sin eventos duplicados", () => {
   const eventos = [...LISTENER.matchAll(/evento:\s*"([^"]+)"/g)].map((m) => m[1]).sort();
   assert.deepEqual(eventos, [
+    "alerta_desvio:creada",
+    "alerta_desvio:nivel_cambiado",
     "ecommerce:carrito_articulo_no_disponible",
     "ecommerce:pedido_admitido_cola",
     "ecommerce:pedido_cancelado",
