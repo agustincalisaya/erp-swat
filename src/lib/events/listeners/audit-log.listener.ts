@@ -42,6 +42,10 @@ import type {
   PedidoEntregadoPayload,
   RetiroRechazadoPayload,
   LibroIvaExportadoPayload,
+  DatosBancariosConsultadosPayload,
+  CuentaPropiaCreadaPayload,
+  CuentaPropiaEditadaPayload,
+  CuentaPropiaBajaLogicaPayload,
 } from "@/lib/events/event-types";
 import {
   registrarAuditLog,
@@ -2048,6 +2052,103 @@ export function iniciarAuditLogListener(): void {
     domainEventBus.on("tesoreria:libro_iva_exportado", auditarLibroIva);
   }
   // --- Sprint 5 · Cluster 5 ---
+  // HU-G5 (G5-4) — toda lectura de CBU/alias (enmascarada o revelada) deja
+  // asiento, UNA vez por cuenta leída. `valor_nuevo` solo lleva el timestamp:
+  // el valor descifrado nunca cruza este límite (spec §9.7, RULES.md Regla 3).
+  domainEventBus.on(
+    "tesoreria:datos_bancarios_consultados",
+    (payload: DatosBancariosConsultadosPayload) => {
+      registrarAuditLog({
+        usuario_id: payload.usuario_id,
+        accion: "ACCESO_DATO_CIFRADO_AUDITADO",
+        tabla_afectada: "cuentas_propias",
+        registro_id: payload.cuenta_propia_id,
+        ip: "internal-event",
+        valor_anterior: null,
+        valor_nuevo: { timestamp: payload.timestamp },
+      }).catch((error: unknown) => {
+        console.error("[audit-log.listener] Falló la escritura de auditoría para tesoreria:datos_bancarios_consultados:", {
+          registro_id: payload.cuenta_propia_id,
+          codigo_error: codigoDiagnosticoAuditoria(error),
+        });
+      });
+    },
+  );
+
+  // HU-G5 (G5-8) — alta de una CuentaPropia. `valor_nuevo` solo con campos NO
+  // sensibles; el CBU/alias jamás aparece en el payload ni acá.
+  domainEventBus.on(
+    "tesoreria:cuenta_propia_creada",
+    (payload: CuentaPropiaCreadaPayload) => {
+      registrarAuditLog({
+        usuario_id: payload.usuario_id,
+        accion: "CREATE",
+        tabla_afectada: "cuentas_propias",
+        registro_id: payload.cuenta_propia_id,
+        ip: "internal-event",
+        valor_anterior: null,
+        valor_nuevo: {
+          nombre: payload.nombre,
+          tipo: payload.tipo,
+          banco: payload.banco,
+          is_active: true,
+        },
+      }).catch((error: unknown) => {
+        console.error("[audit-log.listener] Falló la escritura de auditoría para tesoreria:cuenta_propia_creada:", {
+          registro_id: payload.cuenta_propia_id,
+          codigo_error: codigoDiagnosticoAuditoria(error),
+        });
+      });
+    },
+  );
+
+  // HU-G5 (G5-8) — edición de una CuentaPropia. Los datos sensibles se
+  // reportan SOLO como booleano `cambiado`, sin valor.
+  domainEventBus.on(
+    "tesoreria:cuenta_propia_editada",
+    (payload: CuentaPropiaEditadaPayload) => {
+      registrarAuditLog({
+        usuario_id: payload.usuario_id,
+        accion: "UPDATE",
+        tabla_afectada: "cuentas_propias",
+        registro_id: payload.cuenta_propia_id,
+        ip: "internal-event",
+        valor_anterior: null,
+        valor_nuevo: {
+          campos_editados: payload.campos_editados,
+          cbu_cambiado: payload.cbu_cambiado,
+          alias_cambiado: payload.alias_cambiado,
+        },
+      }).catch((error: unknown) => {
+        console.error("[audit-log.listener] Falló la escritura de auditoría para tesoreria:cuenta_propia_editada:", {
+          registro_id: payload.cuenta_propia_id,
+          codigo_error: codigoDiagnosticoAuditoria(error),
+        });
+      });
+    },
+  );
+
+  // HU-G5 (G5-8) — baja lógica de una CuentaPropia. El `motivo` es el texto
+  // del usuario; no hay dato bancario involucrado.
+  domainEventBus.on(
+    "tesoreria:cuenta_propia_baja_logica",
+    (payload: CuentaPropiaBajaLogicaPayload) => {
+      registrarAuditLog({
+        usuario_id: payload.usuario_id,
+        accion: "DELETE_LOGICO",
+        tabla_afectada: "cuentas_propias",
+        registro_id: payload.cuenta_propia_id,
+        ip: "internal-event",
+        valor_anterior: { is_active: true },
+        valor_nuevo: { is_active: false, deletion_reason: payload.motivo },
+      }).catch((error: unknown) => {
+        console.error("[audit-log.listener] Falló la escritura de auditoría para tesoreria:cuenta_propia_baja_logica:", {
+          registro_id: payload.cuenta_propia_id,
+          codigo_error: codigoDiagnosticoAuditoria(error),
+        });
+      });
+    },
+  );
   // --- Sprint 5 · Cluster 6 ---
   // HU-D6 (task_relos.md D9, D20, D23) — transiciones de `AlertaDesvio`. El
   // actor es el usuario del evento de origen o `null` (proceso automático);

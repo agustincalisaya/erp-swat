@@ -32,7 +32,7 @@
  */
 import type { LucideIcon } from "lucide-react";
 // 1. Agregamos el ícono "Layers" a la importación
-import { ScrollText, ShieldCheck, Users, Package, Warehouse, ScanBarcode, Layers, FileSearch, ShoppingCart, ClipboardList, Store, PackageCheck, Undo2, Wallet, Banknote, Receipt, FileText, UserPlus, Tags, TicketPercent, Settings, BellRing, Globe, Ban, BookOpen, TriangleAlert } from "lucide-react";
+import { ScrollText, ShieldCheck, Users, Package, Warehouse, ScanBarcode, Layers, FileSearch, ShoppingCart, ClipboardList, Store, PackageCheck, Undo2, Wallet, Banknote, Receipt, FileText, UserPlus, Tags, TicketPercent, Settings, BellRing, Globe, Ban, BookOpen, TriangleAlert, Landmark } from "lucide-react";
 import { getServerSession } from "@/lib/auth/session";
 import { usuarioTienePermiso } from "@/lib/auth/with-permission";
 import { SidebarNav, type SidebarNavSection } from "@/components/layout/SidebarNav";
@@ -303,6 +303,16 @@ const SECCIONES: SeccionConfig[] = [
         href: "/tesoreria/cuentas-por-pagar",
         icon: Banknote,
         permiso: "cuentas_por_pagar:leer",
+      },
+      // HU-G5 (spec_modulo_G.md §9.7) — cuentas bancarias y cajas propias.
+      // Gate por `tesoreria:leer_cuentas_bancarias`; la gestión y el revelado
+      // de datos bancarios se gatean aparte dentro de la propia página.
+      // Orden fijo del grupo: … Cuentas propias, Comprobantes, …
+      {
+        label: "Cuentas propias",
+        href: "/tesoreria/cuentas-propias",
+        icon: Landmark,
+        permiso: "tesoreria:leer_cuentas_bancarias",
       },
       // HU-G3 (spec_modulo_G.md §9.5) — repositorio de comprobantes fiscales.
       // Orden fijo del grupo: … Cuentas propias, Comprobantes, Libro de IVA, Alertas.

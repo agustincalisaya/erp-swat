@@ -1273,6 +1273,13 @@ model CuentaPorPagar {
   /// una entidad `CuentaBancaria` / `CajaChica` en el modelo.
   /// TODO(HU futura): migrar a FK cuando exista esa entidad.
   cuenta_origen_id String?
+  /// HU-G5 — etiqueta CONGELADA de la cuenta de origen al momento del pago.
+  /// Se copia de `CuentaPropia.nombre` dentro de la transacción de
+  /// `marcarCuentaPorPagarPagada()` y sobrevive renombre o baja de la cuenta
+  /// (spec §9.7, ADR-3): el histórico muestra la etiqueta del día del pago, no
+  /// el nombre actual. Sigue sin FK: `cuenta_origen_id` se mantiene como
+  /// referencia libre (ADR-4).
+  cuenta_origen_etiqueta String?
   /// HU-G10 — nota libre opcional del pago. Máx. 500 caracteres validado en
   /// la capa Zod (`cuentas-por-pagar.schema.ts`).
   observaciones    String?
@@ -2907,4 +2914,58 @@ model AlertaDesvio {
   @@index([estado, indicador])
   @@index([variante_sku_id, deposito_id])
   @@map("alertas_desvio")
+}
+
+// ============================================================================
+// Sprint 5 · Cluster 5 (HU-G5) — Cuentas propias con datos cifrados
+// ============================================================================
+
+/// Naturaleza de una cuenta propia de SWAT (spec_modulo_G.md §9.7, G5-1).
+/// `BANCARIA` exige datos bancarios (banco/CBU/alias); `CAJA` los admite
+/// ausentes. Espejo exacto del Zod `CUENTAS_PROPIAS_TIPOS`.
+enum TipoCuentaPropia {
+  BANCARIA
+  CAJA
+}
+
+/// Cuenta bancaria o caja propia de SWAT (spec_modulo_G.md §9.7, HU-G5).
+/// Reemplaza el catálogo fijo en código de HU-G10
+/// (`src/lib/tesoreria/cuentas-origen.ts`, retirado en esta HU): los `id`
+/// sembrados (`banco-nacion-cc-principal`, `banco-galicia-cc-operativa`,
+/// `caja-chica-central`) conservan exactamente los del catálogo.
+///
+/// El CBU y el alias se cifran POR CAMPO con AES-256-GCM
+/// (`src/lib/crypto/aes.ts`, clave `ENCRYPTION_KEY_PROVEEDORES`): cada uno
+/// persiste como par `*_cifrado`/`*_iv` (`DatoCifrado`). El valor en claro
+/// nunca aparece en DB, `AuditLog`, logs, eventos ni respuestas (spec §9.7,
+/// G5-2/G5-6 · RULES.md Regla 3).
+///
+/// Baja lógica ESTRICTA (RULES.md Regla 1): sin DELETE, con la tripleta
+/// `deleted_at`/`deleted_by`/`deletion_reason`. Sin relación a `Usuario`: el
+/// actor de cada operación viaja como parámetro y se audita vía el evento de
+/// dominio, no como columna.
+model CuentaPropia {
+  id     String           @id @default(uuid())
+  nombre String
+  tipo   TipoCuentaPropia
+  banco  String?
+
+  // --- Datos bancarios cifrados por campo (G5-2). Nullable: una CAJA puede
+  // no tenerlos; una BANCARIA los exige en Zod y en el servicio. ---
+  cbu_cifrado   String?
+  cbu_iv        String?
+  alias_cifrado String?
+  alias_iv      String?
+
+  // --- Soft delete estricto ---
+  is_active       Boolean   @default(true)
+  deleted_at      DateTime?
+  deleted_by      String?
+  deletion_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([tipo, is_active])
+  @@map("cuentas_propias")
 }

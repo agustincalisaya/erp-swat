@@ -14,6 +14,7 @@
  */
 
 import type { CuentaPorPagarResumen } from "@/lib/services/tesoreria/cuenta-por-pagar.service";
+import type { CuentaPropiaSelector } from "@/lib/services/tesoreria/cuenta-propia.service";
 
 import {
   Table,
@@ -28,6 +29,12 @@ import { FormularioRegistroPago } from "@/components/tesoreria/FormularioRegistr
 interface ListaCuentasPorPagarProps {
   cuentas: CuentaPorPagarResumen[];
   puedePagar: boolean;
+  /**
+   * HU-G5 — cuentas propias ACTIVAS para el selector de "cuenta de origen" del
+   * formulario de pago. Llega resuelta por el RSC padre (proyección mínima
+   * `{ id, nombre, tipo }`); ya no hay catálogo fijo en código.
+   */
+  cuentasOrigen: CuentaPropiaSelector[];
 }
 
 const monedaAR = new Intl.NumberFormat("es-AR", {
@@ -57,6 +64,7 @@ function nombreProveedor(p: CuentaPorPagarResumen["orden_compra"]["proveedor"]):
 export function ListaCuentasPorPagar({
   cuentas,
   puedePagar,
+  cuentasOrigen,
 }: ListaCuentasPorPagarProps) {
   if (cuentas.length === 0) {
     return (
@@ -93,6 +101,7 @@ export function ListaCuentasPorPagar({
                 <FormularioRegistroPago
                   cuentaPorPagarId={cuenta.id}
                   numeroOrden={cuenta.orden_compra.numero_orden}
+                  cuentasOrigen={cuentasOrigen}
                 />
               ) : (
                 <span className="text-xs text-muted-foreground">Sin permiso</span>

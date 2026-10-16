@@ -69,10 +69,10 @@ test("rechaza un medio_pago fuera del enum", () => {
   assert.equal(res.success, false);
 });
 
-test("rechaza cuenta_origen_id inexistente en el catálogo", () => {
+test("rechaza cuenta_origen_id vacío", () => {
   const res = MarcarPagadaSchema.safeParse({
     ...bodyBase(),
-    cuenta_origen_id: "cuenta-fantasma",
+    cuenta_origen_id: "",
   });
   assert.equal(res.success, false);
 });

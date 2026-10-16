@@ -35,6 +35,7 @@ const STATUS_POR_CODIGO: Record<string, number> = {
   CUENTA_POR_PAGAR_NO_ENCONTRADA: 404,
   TRANSICION_INVALIDA: 409,
   COMPROBANTE_PROVEEDOR_REQUERIDO: 422,
+  CUENTA_ORIGEN_INVALIDA: 422,
 };
 
 export const PATCH = withAuth(async (req: NextRequest, session, rawContext) => {
@@ -91,6 +92,7 @@ export const PATCH = withAuth(async (req: NextRequest, session, rawContext) => {
           fecha_pago: resultado.fecha_pago,
           medio_pago: resultado.medio_pago,
           cuenta_origen_id: resultado.cuenta_origen_id,
+          cuenta_origen_etiqueta: resultado.cuenta_origen_etiqueta,
           comprobante_proveedor_ids: resultado.comprobante_proveedor_ids,
           observaciones: resultado.observaciones,
         },
