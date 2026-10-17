@@ -39,7 +39,7 @@ import { ServiceError } from "@/lib/errors/service-error";
 // T13 — ComparativaPreciosQuerySchema (Spec §1.2, exacto — no modificado)
 // ──────────────────────────────────────────────────────────────────────────────
 
-export const ComparativaPreciosQuerySchema = z
+const ComparativaPreciosQuerySchema = z
   .object({
     variante_sku_id: z.string().uuid().optional(),
     categoria: z.string().min(1).optional(),
