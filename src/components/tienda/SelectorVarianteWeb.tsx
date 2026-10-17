@@ -76,6 +76,9 @@ export function SelectorVarianteWeb({ variantes }: { variantes: OpcionVarianteWe
             </option>
           ))}
         </select>
+        <p className="text-sm leading-relaxed text-muted-foreground" aria-live="polite">
+          {variante.etiqueta}
+        </p>
       </div>
 
       <div className="space-y-1">
@@ -111,7 +114,7 @@ export function SelectorVarianteWeb({ variantes }: { variantes: OpcionVarianteWe
       </div>
 
       {mensaje && (
-        <Alert variant={mensaje.tipo === "error" ? "destructive" : "default"}>
+        <Alert role={mensaje.tipo === "error" ? "alert" : "status"} variant={mensaje.tipo === "error" ? "destructive" : "default"}>
           <AlertDescription>{mensaje.texto}</AlertDescription>
         </Alert>
       )}

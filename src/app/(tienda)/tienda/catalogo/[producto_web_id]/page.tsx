@@ -4,13 +4,18 @@
  * @description HU-E1 (CA1/CA2/CA3) — detalle público de un producto con sus
  * variantes reales de Módulo A, disponible del depósito web y precio vigente.
  */
-import Image from "next/image";
 import Link from "next/link";
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { SelectorVarianteWeb } from "@/components/tienda/SelectorVarianteWeb";
+import { GaleriaProducto } from "@/components/tienda/GaleriaProducto";
+import { fotoPublicaProducto } from "@/components/tienda/foto-publica";
 import { ServiceError } from "@/lib/errors/service-error";
 import { ProductoWebIdSchema } from "@/lib/schemas/ecommerce.schema";
 import { obtenerDetalleProductoWeb } from "@/lib/services/ecommerce/catalogo-web.service";
+import styles from "./detalle.module.css";
+
+export const metadata: Metadata = { title: "Producto | SWAT Indumentarias" };
 
 export default async function DetalleProductoTiendaPage({
   params,
@@ -25,42 +30,35 @@ export default async function DetalleProductoTiendaPage({
     throw err;
   });
   if (!producto) notFound();
+  const fotos = producto.fotos.map(fotoPublicaProducto).filter((foto): foto is string => foto !== null);
 
   return (
-    <div className="space-y-4">
-      <Link href="/tienda/catalogo" className="text-sm text-muted-foreground hover:underline">
-        ← Volver al catálogo
-      </Link>
-      <div className="grid gap-6 md:grid-cols-2">
-        <div className="space-y-2">
-          {producto.fotos.map((url, indice) => (
-            <Image
-              key={url}
-              src={url}
-              alt={`${producto.titulo} — foto ${indice + 1}`}
-              width={800}
-              height={800}
-              unoptimized
-              className="w-full rounded-lg object-cover"
-            />
-          ))}
-        </div>
-        <div className="space-y-4">
-          <div>
-            <p className="text-xs uppercase text-muted-foreground">{producto.categoria}</p>
-            <h1 className="text-2xl font-semibold">{producto.titulo}</h1>
+    <div className={styles.detail} data-tienda-wide lang="es-AR">
+      <div className={styles.inner}>
+        <nav className={styles.breadcrumbs} aria-label="Ruta del producto">
+          <Link href="/tienda">Inicio</Link><span aria-hidden="true">/</span><Link href="/tienda/catalogo">Catálogo</Link><span aria-hidden="true">/</span><span aria-current="page">{producto.titulo}</span>
+        </nav>
+        <div className={styles.productLayout}>
+          <GaleriaProducto titulo={producto.titulo} fotos={fotos} />
+          <div className={styles.productSide}>
+            <p className={styles.category}>{producto.categoria}</p>
+            <h1>{producto.titulo}</h1>
+            <p className={styles.description}>{producto.descripcion}</p>
+            <div className={styles.buyPanel}>
+              <SelectorVarianteWeb
+                variantes={producto.variantes.map((v) => ({
+                  variante_sku_id: v.variante_sku_id,
+                  etiqueta: `${v.modelo} · ${v.color} · Talle ${v.talle} · ${v.genero}`,
+                  precio_venta: v.precio_venta,
+                  disponible: v.disponible,
+                  comprable: v.comprable,
+                }))}
+              />
+            </div>
+            <p className={styles.guidance}>Elegí una variante para ver su precio y disponibilidad actuales.</p>
           </div>
-          <p className="text-sm text-foreground">{producto.descripcion}</p>
-          <SelectorVarianteWeb
-            variantes={producto.variantes.map((v) => ({
-              variante_sku_id: v.variante_sku_id,
-              etiqueta: `${v.modelo} · ${v.color} · Talle ${v.talle} · ${v.genero}`,
-              precio_venta: v.precio_venta,
-              disponible: v.disponible,
-              comprable: v.comprable,
-            }))}
-          />
         </div>
+        <Link href="/tienda/catalogo" className={styles.backLink}>← Seguir explorando la colección</Link>
       </div>
     </div>
   );
