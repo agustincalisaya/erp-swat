@@ -82,12 +82,12 @@ export function SolicitudesPendientesPanel({ solicitudes }: SolicitudesPendiente
 
   if (solicitudes.length === 0) {
     return (
-      <section className="rounded-xl border border-blue-100 bg-blue-50/50 p-4">
-        <h2 className="flex items-center gap-2 text-sm font-semibold text-blue-800">
+      <section className="rounded-xl border border-border bg-selected/50 p-4">
+        <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
           <ClipboardList className="size-4" aria-hidden="true" />
           Solicitudes pendientes de aprobación
         </h2>
-        <p className="mt-2 text-sm text-blue-700/80">
+        <p className="mt-2 text-sm text-primary">
           No hay solicitudes sobre el umbral esperando aprobación.
         </p>
       </section>
@@ -96,10 +96,10 @@ export function SolicitudesPendientesPanel({ solicitudes }: SolicitudesPendiente
 
   return (
     <section className="space-y-3">
-      <h2 className="flex items-center gap-2 text-sm font-semibold text-blue-800">
+      <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
         <ClipboardList className="size-4" aria-hidden="true" />
         Solicitudes pendientes de aprobación
-        <Badge variant="outline" className="ml-1 border-blue-200 bg-blue-50 text-blue-700">
+        <Badge variant="outline" className="ml-1 border-border bg-selected text-selected-foreground">
           {solicitudes.length}
         </Badge>
       </h2>
@@ -118,25 +118,25 @@ export function SolicitudesPendientesPanel({ solicitudes }: SolicitudesPendiente
           return (
             <div
               key={solicitud.id}
-              className="rounded-xl border border-blue-100 bg-white p-4 shadow-sm"
+              className="rounded-xl border border-border bg-card p-4 shadow-sm"
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <p className="text-sm font-semibold text-gray-900">
+                  <p className="text-sm font-semibold text-foreground">
                     {solicitud.sku} — {solicitud.producto_nombre}
                   </p>
-                  <p className="mt-0.5 text-xs text-gray-600">
+                  <p className="mt-0.5 text-xs text-muted-foreground">
                     {solicitud.cantidad} unidad(es) · {solicitud.deposito_nombre} · solicitada el{" "}
                     {formatearFecha(solicitud.created_at)}
                   </p>
                   {solicitud.motivo && (
-                    <p className="mt-1 text-xs text-gray-500">Motivo: {solicitud.motivo}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">Motivo: {solicitud.motivo}</p>
                   )}
                   {solicitud.rma_id && (
-                    <p className="mt-0.5 text-xs text-gray-500">RMA: {solicitud.rma_id}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">RMA: {solicitud.rma_id}</p>
                   )}
                 </div>
-                <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">
+                <Badge variant="outline" className="border-warning-foreground bg-warning text-warning-foreground">
                   PENDIENTE_APROBACION
                 </Badge>
               </div>
@@ -148,7 +148,7 @@ export function SolicitudesPendientesPanel({ solicitudes }: SolicitudesPendiente
                     size="sm"
                     disabled={deshabilitado}
                     onClick={() => handleAprobar(solicitud.id)}
-                    className="gap-1.5 bg-blue-600 text-white hover:bg-blue-700"
+                    className="gap-1.5 bg-primary text-primary-foreground hover:bg-primary-hover"
                   >
                     {enCurso && accionEnCurso.tipo === "aprobando" ? (
                       <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
@@ -169,7 +169,7 @@ export function SolicitudesPendientesPanel({ solicitudes }: SolicitudesPendiente
                       }))
                     }
                     placeholder="Motivo del rechazo (obligatorio)"
-                    className="h-8 flex-1 rounded-lg border border-input bg-background px-2.5 text-sm outline-none focus-visible:border-red-400 focus-visible:ring-3 focus-visible:ring-red-400/30"
+                    className="h-8 flex-1 rounded-lg border border-input bg-background px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring"
                   />
                   <Button
                     type="button"
@@ -177,7 +177,7 @@ export function SolicitudesPendientesPanel({ solicitudes }: SolicitudesPendiente
                     size="sm"
                     disabled={deshabilitado || motivoRechazo.trim() === ""}
                     onClick={() => handleRechazar(solicitud.id)}
-                    className="gap-1.5 border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
+                    className="gap-1.5 border-destructive text-destructive hover:bg-danger-soft hover:text-destructive"
                   >
                     {enCurso && accionEnCurso.tipo === "rechazando" ? (
                       <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />

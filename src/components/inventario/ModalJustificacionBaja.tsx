@@ -84,7 +84,7 @@ export function ModalJustificacionBaja({
             id={`btn-baja-variante-${varianteId}`}
             variant="outline"
             size="sm"
-            className="gap-1.5 border-blue-200 text-blue-700 hover:bg-blue-50 hover:text-blue-800"
+            className="gap-1.5 border-border text-primary hover:bg-accent hover:text-foreground"
           />
         }
       >
@@ -94,7 +94,7 @@ export function ModalJustificacionBaja({
 
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle className="flex items-center gap-2 text-blue-700">
+          <AlertDialogTitle className="flex items-center gap-2 text-primary">
             <AlertTriangle className="size-4" aria-hidden="true" />
             Dar de baja a la variante {sku}
           </AlertDialogTitle>
@@ -115,7 +115,7 @@ export function ModalJustificacionBaja({
           <div className="space-y-1.5">
             <label
               htmlFor={`motivo-baja-${varianteId}`}
-              className="text-xs font-semibold uppercase tracking-wide text-gray-700"
+              className="text-xs font-semibold uppercase tracking-wide text-foreground"
             >
               Motivo de la baja
             </label>
@@ -125,7 +125,7 @@ export function ModalJustificacionBaja({
               onChange={(e) => setMotivo(e.target.value)}
               placeholder="Ej: descontinuado con stock a liquidar"
               rows={3}
-              className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:border-blue-500 focus-visible:ring-3 focus-visible:ring-blue-500/30"
+              className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring"
             />
             <p className="text-xs text-muted-foreground">
               Campo obligatorio — no se puede confirmar la baja sin un motivo.
@@ -142,7 +142,7 @@ export function ModalJustificacionBaja({
             variant="default"
             disabled={!confirmacionHabilitada || isPending}
             onClick={handleConfirm}
-            className="gap-2 bg-blue-600 text-white hover:bg-blue-700"
+            className="gap-2 bg-primary text-primary-foreground hover:bg-primary-hover"
           >
             {isPending ? (
               <>

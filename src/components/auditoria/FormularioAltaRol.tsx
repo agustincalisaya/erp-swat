@@ -90,7 +90,7 @@ export function FormularioAltaRol({ permisos, onSuccess }: FormularioAltaRolProp
         render={
           <Button
             id="btn-nuevo-rol"
-            className="bg-blue-600 hover:bg-blue-700 text-white gap-2"
+            className="bg-primary hover:bg-primary-hover text-primary-foreground gap-2"
           />
         }
       >
@@ -99,15 +99,15 @@ export function FormularioAltaRol({ permisos, onSuccess }: FormularioAltaRolProp
       </DialogTrigger>
 
       <DialogContent className="sm:max-w-lg p-0 overflow-hidden gap-0">
-        <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-6 py-4">
+        <div className="bg-primary px-6 py-4">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2.5 text-white font-bold text-base">
-              <div className="p-1.5 bg-white/20 rounded-lg shrink-0">
+            <DialogTitle className="flex items-center gap-2.5 text-primary-foreground font-bold text-base">
+              <div className="p-1.5 bg-primary-foreground/20 rounded-lg shrink-0">
                 <ShieldPlus className="size-4" aria-hidden="true" />
               </div>
               Alta de rol
             </DialogTitle>
-            <DialogDescription className="text-blue-100 text-xs mt-0.5 ml-9">
+            <DialogDescription className="text-primary-foreground text-xs mt-0.5 ml-9">
               Asigná al menos un permiso — un rol sin permisos no tiene efecto
             </DialogDescription>
           </DialogHeader>
@@ -131,7 +131,7 @@ export function FormularioAltaRol({ permisos, onSuccess }: FormularioAltaRolProp
               name="nombre"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-gray-700">
+                  <FormLabel className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-foreground">
                     <Tag className="size-3.5" aria-hidden="true" />
                     Nombre
                   </FormLabel>
@@ -140,7 +140,7 @@ export function FormularioAltaRol({ permisos, onSuccess }: FormularioAltaRolProp
                       {...field}
                       placeholder="ENCARGADO_DEPOSITO"
                       autoComplete="off"
-                      className="focus-visible:border-blue-500 focus-visible:ring-blue-500/30"
+                      className="focus-visible:border-ring focus-visible:ring-ring"
                     />
                   </FormControl>
                   <FormMessage />
@@ -153,7 +153,7 @@ export function FormularioAltaRol({ permisos, onSuccess }: FormularioAltaRolProp
               name="descripcion"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="text-xs font-semibold uppercase tracking-wide text-gray-700">
+                  <FormLabel className="text-xs font-semibold uppercase tracking-wide text-foreground">
                     Descripción (opcional)
                   </FormLabel>
                   <FormControl>
@@ -161,7 +161,7 @@ export function FormularioAltaRol({ permisos, onSuccess }: FormularioAltaRolProp
                       {...field}
                       placeholder="Gestión operativa de un depósito"
                       autoComplete="off"
-                      className="focus-visible:border-blue-500 focus-visible:ring-blue-500/30"
+                      className="focus-visible:border-ring focus-visible:ring-ring"
                     />
                   </FormControl>
                   <FormMessage />
@@ -174,7 +174,7 @@ export function FormularioAltaRol({ permisos, onSuccess }: FormularioAltaRolProp
               name="permiso_ids"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="text-xs font-semibold uppercase tracking-wide text-gray-700">
+                  <FormLabel className="text-xs font-semibold uppercase tracking-wide text-foreground">
                     Permisos
                   </FormLabel>
                   <FormControl>
@@ -230,7 +230,7 @@ export function FormularioAltaRol({ permisos, onSuccess }: FormularioAltaRolProp
             type="submit"
             form="form-alta-rol"
             disabled={isPending}
-            className="bg-blue-600 hover:bg-blue-700 text-white gap-2"
+            className="bg-primary hover:bg-primary-hover text-primary-foreground gap-2"
           >
             {isPending ? (
               <>

@@ -33,6 +33,12 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env
 
+# HU-E2 — pagos del simulador local de Mercado Pago (MP_MODO=simulado)
+/.mp-simulador/
+
+# HU-E11 — fotos del catálogo web guardadas por el Adapter de disco (CATALOGO_FOTOS_DIR)
+/.catalogo-fotos/
+
 # vercel
 .vercel
 
@@ -61,7 +67,17 @@ CLAUDE.md
 docs/Documento Alcance Funcional Tecnico SWAT.md
 #Product Backlog
 docs/Product Backlog - SWAT Indumentarias.xlsx
-
+#analisis de dependencias
+docs/Sprint 3 - Analisis de Dependencias.docx.md
+#coordinacion de equipo
+docs/Sprint 3 - Coordinacion del Equipo.docx.md
 # Workspace local de Postman (generado por la app, no es contenido del equipo)
 postman/
 .postman/
+
+# CodeGraph — índice local de inteligencia de código (regenerable por máquina, ~50 MB)
+/.codegraph/
+
+# Agent skills instalados localmente (dev-only, misma política que AGENTS.md)
+/.agents/
+/skills-lock.json

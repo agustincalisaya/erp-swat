@@ -95,7 +95,7 @@ export function DialogBaja({
           type="button"
           variant="ghost"
           size="sm"
-          className="gap-1.5 text-muted-foreground hover:text-destructive hover:bg-red-50"
+          className="gap-1.5 text-muted-foreground hover:text-destructive hover:bg-danger-soft"
           onClick={() => setOpenInterno(true)}
         >
           <Trash2 className="size-3.5" aria-hidden="true" />
@@ -126,7 +126,7 @@ export function DialogBaja({
         <div className="space-y-1.5">
           <label
             htmlFor={`motivo-baja-${proveedorId}`}
-            className="text-xs font-semibold uppercase tracking-wide text-gray-700"
+            className="text-xs font-semibold uppercase tracking-wide text-foreground"
           >
             Motivo de la baja
           </label>

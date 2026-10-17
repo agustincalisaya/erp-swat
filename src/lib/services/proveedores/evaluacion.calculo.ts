@@ -19,15 +19,26 @@ import {
   PENALIZACION_POR_DIA_ATRASO,
   PESOS_EVALUACION,
 } from "./evaluacion.constants.ts";
-
-const MS_POR_DIA = 24 * 60 * 60 * 1000;
+// Import relativo con extensión explícita, mismo motivo que arriba: helper
+// PURO de "día calendario de negocio" (auditoría transversal Módulo H,
+// 2026-09-26, hallazgo A2 — `src/lib/utils/fecha-negocio.ts`).
+import { diasDesdeFechaSolo } from "../../utils/fecha-negocio.ts";
 
 /**
  * `puntaje_cumplimiento_plazos` (Sección 0.3):
  * `clamp(100 - dias_atraso * PENALIZACION_POR_DIA_ATRASO, 0, 100)`, donde
- * `dias_atraso` es la diferencia en días entre `fechaRecepcion` y
- * `fechaEntregaComprometida`, nunca negativa (una recepción anticipada no
- * suma puntos por encima de 100).
+ * `dias_atraso` es la diferencia en DÍAS CALENDARIO de negocio entre
+ * `fechaRecepcion` y `fechaEntregaComprometida`, nunca negativa (una
+ * recepción anticipada no suma puntos por encima de 100).
+ *
+ * A2 (auditoría transversal Módulo H, 2026-09-26): antes se restaban los
+ * `Date.getTime()` crudos y se redondeaba (`Math.round(diffMs / MS_POR_DIA)`)
+ * — `fechaEntregaComprometida` es una fecha-solo guardada a medianoche UTC,
+ * pero `fechaRecepcion` es un INSTANTE real; cualquier recepción hecha
+ * después de las 12:00Z (09:00 hora Argentina) del día comprometido contaba
+ * como un día tarde. Ahora se comparan días calendario completos
+ * (`diasDesdeFechaSolo`, `src/lib/utils/fecha-negocio.ts`): una entrega el
+ * mismo día comprometido, a cualquier hora, es 0 días de atraso.
  *
  * Si `fechaEntregaComprometida` es `null` (la orden nunca pasó por
  * `CONFIRMAR`, spec_modulo_H.md §2.5), no hay fecha contra la cual medir
@@ -40,8 +51,7 @@ export function calcularPuntajePlazos(
 ): number {
   if (fechaEntregaComprometida === null) return 100;
 
-  const diffMs = fechaRecepcion.getTime() - fechaEntregaComprometida.getTime();
-  const diasAtraso = Math.max(0, Math.round(diffMs / MS_POR_DIA));
+  const diasAtraso = Math.max(0, diasDesdeFechaSolo(fechaEntregaComprometida, fechaRecepcion));
   const puntaje = 100 - diasAtraso * PENALIZACION_POR_DIA_ATRASO;
   return Math.min(100, Math.max(0, puntaje));
 }

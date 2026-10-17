@@ -82,6 +82,12 @@ export interface CuentaPorPagarPagada {
   medio_pago: MedioPago;
   /** HU-G10 */
   cuenta_origen_id: string;
+  /**
+   * HU-G5 — etiqueta CONGELADA de la cuenta de origen (= `CuentaPropia.nombre`
+   * al momento del pago). Sobrevive el rename o la baja de la cuenta. El label
+   * plano viaja en el DTO (nunca datos bancarios cifrados).
+   */
+  cuenta_origen_etiqueta: string;
   /** HU-G10 — ids efectivamente imputados en este pago. */
   comprobante_proveedor_ids: string[];
   /** HU-G10 */
@@ -558,6 +564,21 @@ export async function marcarCuentaPorPagarPagada(
       );
     }
 
+    // 3b. Cuenta de origen (HU-G5): debe existir y estar ACTIVA. La validación
+    //     salió del Zod estático (catálogo retirado) y vive acá, dentro de la
+    //     transacción, para que el cliente nunca decida validez. La etiqueta se
+    //     CONGELA en el pago (sobrevive rename/baja de la cuenta).
+    const cuentaOrigen = await tx.cuentaPropia.findFirst({
+      where: { id: input.cuenta_origen_id, is_active: true, deleted_at: null },
+      select: { id: true, nombre: true },
+    });
+    if (!cuentaOrigen) {
+      throw new ServiceError(
+        "CUENTA_ORIGEN_INVALIDA",
+        "La cuenta de origen no existe o está inactiva",
+      );
+    }
+
     const fechaPago = input.fecha_pago ?? new Date();
     const observaciones = input.observaciones ?? null;
 
@@ -569,6 +590,7 @@ export async function marcarCuentaPorPagarPagada(
         fecha_pago: fechaPago,
         medio_pago: input.medio_pago,
         cuenta_origen_id: input.cuenta_origen_id,
+        cuenta_origen_etiqueta: cuentaOrigen.nombre,
         observaciones,
       },
     });
@@ -594,6 +616,7 @@ export async function marcarCuentaPorPagarPagada(
       monto: cuenta.monto,
       fecha_pago: fechaPago,
       observaciones,
+      cuenta_origen_etiqueta: cuentaOrigen.nombre,
     };
   });
 
@@ -629,6 +652,7 @@ export async function marcarCuentaPorPagarPagada(
     fecha_pago: resultado.fecha_pago,
     medio_pago: input.medio_pago,
     cuenta_origen_id: input.cuenta_origen_id,
+    cuenta_origen_etiqueta: resultado.cuenta_origen_etiqueta,
     comprobante_proveedor_ids: input.comprobante_proveedor_ids,
     observaciones: resultado.observaciones,
   };

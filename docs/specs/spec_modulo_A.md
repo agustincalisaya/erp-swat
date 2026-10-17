@@ -1,6 +1,7 @@
 ```markdown
 # Especificación Técnica — Módulo A (Inventario y Depósito)
-## ERP SWAT Indumentarias — Sprint 1 + Sprint 2
+## ERP SWAT Indumentarias — Sprint 1 + Sprint 2 + Sprint 4
+## Revisión 3 — Sprint 4: se resuelve la deuda técnica documentada en `HU10_MODULO_A.md` sobre el TTL fijo de 72h del cron de liberación de Reservas (sección 2.9, HU-A10). Se agrega la columna `Reserva.fecha_expiracion` (con migración y backfill) y el cron pasa a filtrar por esa columna en vez de un umbral fijo por `origen_reserva` — el `ttl_horas` explícito y acotado que HU-E1 (Módulo E, Sprint 4) provee al congelar una reserva de checkout web deja de ser meramente informativo. Sin cambios en el resto de las secciones de este documento.
 ## Revisión 2 — Actualizado post-análisis de trazabilidad (Product Backlog Consolidado, 73 HU)
 
 **Metodología:** Specification-Driven Development (SDD)
@@ -481,7 +482,22 @@ export type ReclasificarDevueltoInput = z.infer<typeof ReclasificarDevueltoSchem
 
 **Principio arquitectónico:** el Módulo A es la **única** fuente de verdad para la máquina de estados de "Reservado". Los módulos consumidores (Módulo B — cotización institucional, Módulo E — checkout web) invocan exclusivamente la interfaz descripta en esta sección; ninguno de los dos implementa lógica de congelamiento/liberación de stock propia. Esta restricción es de cumplimiento obligatorio y debe verificarse retroactivamente contra HU-B3 y HU-E1 al momento de su implementación (nota técnica explícita del Backlog).
 
-**Modelo de datos de referencia (`schema.prisma`):** esta HU se apoya en el modelo `Reserva` (no en `MovimientoStock` como mecanismo primario de congelamiento). `Reserva` mantiene su propio ciclo de vida: `fecha_inicio_reserva` (inicio del TTL), `fecha_fin_reserva` (NULL mientras la reserva está activa; se setea al confirmar venta o liberar por TTL) y `origen_reserva` (`enum OrigenReserva`: `SENIA` | `LICITACION` | `PEDIDO_INSTITUCIONAL`).
+**Revisión 3 (Sprint 4) — se resuelve la deuda técnica de TTL variable, deferida en HU10_MODULO_A.md:** hasta la Rev. 2, `Reserva` no persistía el TTL de ninguna reserva individual (solo `fecha_inicio_reserva`), y el cron `liberarReservasVencidas()` aplicaba un umbral fijo `TTL_RESERVA_DEFAULT_HORAS = 72` para **todo** `origen_reserva` — confirmado en código (`reserva.service.ts:326`) con el comentario `// LIMITACIÓN CONOCIDA: cron aplica 72h fijo por origen, no respeta ttl_horas explícito de e-commerce — resolver al implementar HU-E1`. El propio `HU10_MODULO_A.md` documentó esto como una decisión de diseño real (persistir el vencimiento vs. dejarlo informativo) explícitamente pospuesta "hasta que exista HU-E1 real contra la cual decidir" — con HU-E1 entrando en Sprint 4 (`spec_modulo_E.md`), se decide ahora: **se persiste el vencimiento con migración**, en vez de mantenerlo como valor informativo. El párrafo de "Modelo de datos de referencia" y las rutas de congelamiento/liberación de esta sección quedan actualizados en consecuencia; el resto de la sección (2.5 en adelante) no cambia.
+
+**Modelo de datos de referencia (`schema.prisma`):** esta HU se apoya en el modelo `Reserva` (no en `MovimientoStock` como mecanismo primario de congelamiento). `Reserva` mantiene su propio ciclo de vida: `fecha_inicio_reserva` (inicio del TTL), `fecha_fin_reserva` (NULL mientras la reserva está activa; se setea al confirmar venta o liberar por TTL), `origen_reserva` (`enum OrigenReserva`: `SENIA` | `LICITACION` | `PEDIDO_INSTITUCIONAL`) y, desde Sprint 4, `fecha_expiracion` (columna nueva, ver migración abajo).
+
+```prisma
+model Reserva {
+  // ... campos existentes sin cambios (id, variante_sku_id, deposito_id, cantidad,
+  // origen_reserva, fecha_inicio_reserva, fecha_fin_reserva, is_active, ...)
+  fecha_expiracion DateTime  // NUEVO — Sprint 4/HU-A10 Rev. 3. Precomputada al congelar:
+                              // fecha_inicio_reserva + (ttl_horas recibido, o 72h si se omitió).
+                              // Reemplaza el umbral fijo de 72h aplicado en el cron hasta la Rev. 2.
+  @@index([is_active, fecha_fin_reserva, fecha_expiracion]) // reemplaza el índice previo
+}
+```
+
+**Migración:** columna `fecha_expiracion` `NOT NULL` sin default para filas nuevas; el `up` de la migración backfillea las reservas activas (`fecha_fin_reserva IS NULL`) preexistentes con `fecha_inicio_reserva + INTERVAL '72 hours'` (el mismo umbral fijo que el cron ya les venía aplicando de hecho, para no cambiar su comportamiento retroactivamente) y las reservas ya cerradas con `fecha_inicio_reserva + INTERVAL '72 hours'` también, por consistencia de la columna aunque ya no sea consultada para ellas.
 
 **Ruta (congelamiento):** `POST /app/api/inventario/reservas/route.ts`
 **Server Action equivalente:** `crearReserva()` en `lib/services/inventario/reserva.service.ts`, invocada internamente por Módulo B/E — no expuesta como Server Action de formulario directo del Módulo A.
@@ -495,10 +511,13 @@ export const CrearReservaSchema = z.object({
   origen_reserva: z.enum(["SENIA", "LICITACION", "PEDIDO_INSTITUCIONAL"]),
   motivo: z.string().optional(),
   ttl_horas: z.number().int().positive().optional(),
-  // Si se omite, la capa de servicios resuelve el TTL por defecto según origen_reserva:
-  // 72h para SENIA/LICITACION/PEDIDO_INSTITUCIONAL (reserva general);
-  // el canal E-commerce (checkout web) SIEMPRE provee ttl_horas explícito y acotado
-  // (valor menor a 72h), nunca depende del default general.
+  // Si se omite, la capa de servicios resuelve el TTL por defecto: 72h para
+  // SENIA/LICITACION/PEDIDO_INSTITUCIONAL (reserva general); el canal E-commerce
+  // (checkout web) SIEMPRE provee ttl_horas explícito y acotado (valor menor a 72h),
+  // nunca depende del default general.
+  // Sprint 4 (Rev. 3): a diferencia de la Rev. 2, este valor ya NO es meramente
+  // informativo — se persiste como Reserva.fecha_expiracion (ver más abajo) y el
+  // cron de liberación por TTL lo respeta explícitamente, por reserva individual.
 });
 
 export type CrearReservaInput = z.infer<typeof CrearReservaSchema>;
@@ -507,7 +526,7 @@ export type CrearReservaInput = z.infer<typeof CrearReservaSchema>;
 **Comportamiento esperado (congelamiento):**
 - Ejecuta el mismo patrón de decremento atómico condicionado descripto en sección 3.4 (`updateMany` con `where: { cantidad: { gte: cantidad } }`) sobre `StockDeposito`, dentro de `prisma.$transaction`.
 - Si `count === 0` tras el `updateMany`, aborta y lanza `STOCK_INSUFICIENTE` (`422`) — idéntico contrato de error que ingreso/transferencia.
-- Si la validación pasa: decrementa `StockDeposito.cantidad`, crea la fila `Reserva` (`fecha_fin_reserva = null`), e inserta un `MovimientoStock` de auditoría (`tipo_movimiento = "AJUSTE"`, `estado_destino = "RESERVADO"`) para preservar la trazabilidad exigida por la Regla N.° 2 — el modelo `Reserva` es el mecanismo operativo del congelamiento, pero **no reemplaza** la obligación de `MovimientoStock` como registro inmutable auditado.
+- Si la validación pasa: decrementa `StockDeposito.cantidad`, crea la fila `Reserva` (`fecha_fin_reserva = null`, `fecha_expiracion = fecha_inicio_reserva + (ttl_horas recibido o 72h por defecto)` — **Sprint 4, Rev. 3**), e inserta un `MovimientoStock` de auditoría (`tipo_movimiento = "AJUSTE"`, `estado_destino = "RESERVADO"`) para preservar la trazabilidad exigida por la Regla N.° 2 — el modelo `Reserva` es el mecanismo operativo del congelamiento, pero **no reemplaza** la obligación de `MovimientoStock` como registro inmutable auditado.
 
 **Ruta (liberación por venta confirmada):** `PATCH /app/api/inventario/reservas/[id]/confirmar/route.ts`
 
@@ -524,9 +543,10 @@ export const ConfirmarReservaSchema = z.object({
 
 **Comportamiento esperado (liberación por TTL):**
 - Job invocado externamente (Vercel Cron / equivalente), fuera del ciclo request-response estándar de Next.js — mismo patrón arquitectónico documentado para reactivación automática en `spec_modulo_D.md` (ausente en Sprint 1, aplicado aquí en Sprint 2).
-- Query de selección: `Reserva` con `is_active: true`, `fecha_fin_reserva: null`, y `fecha_inicio_reserva` anterior al umbral TTL vigente para su `origen_reserva` — aprovecha el índice compuesto `@@index([is_active, fecha_fin_reserva, fecha_inicio_reserva])` ya definido en `schema.prisma`.
+- **Query de selección — Sprint 4, Rev. 3 (reemplaza el umbral fijo de 72h de la Rev. 2):** `Reserva` con `is_active: true`, `fecha_fin_reserva: null`, y `fecha_expiracion <= now()` — usa la columna persistida al congelar (arriba), respetando el `ttl_horas` real con el que se creó cada reserva individual, sea el default de 72h o el valor acotado explícito de e-commerce (HU-E1). Aprovecha el índice compuesto `@@index([is_active, fecha_fin_reserva, fecha_expiracion])`. **Hasta la Rev. 2** esta query filtraba por `fecha_inicio_reserva` contra un umbral fijo `TTL_RESERVA_DEFAULT_HORAS = 72` igual para todo `origen_reserva` (`reserva.service.ts:326`, comentado en código como `LIMITACIÓN CONOCIDA` — ver `HU10_MODULO_A.md`) — esa limitación queda resuelta por este cambio: el `ttl_horas` de e-commerce deja de ser meramente informativo.
 - Por cada `Reserva` vencida, dentro de `prisma.$transaction`: incrementa `StockDeposito.cantidad` (reversión del congelamiento), setea `Reserva.fecha_fin_reserva = now()`, e inserta un `MovimientoStock` **compensatorio** de tipo `INGRESO` (`estado_origen = "RESERVADO"`, `estado_destino = "DISPONIBLE"`) — el comentario del modelo `Reserva` en `schema.prisma` es explícito respecto de que la reversión es un `INGRESO` compensatorio, no un `AJUSTE`.
 - Cada liberación por TTL emite evento auditado hacia Módulo D (regla explícita del Backlog).
+- **Nota de implementación (no bloqueante para este spec):** la constante `TTL_RESERVA_DEFAULT_HORAS = 72` sigue existiendo y se sigue usando — pero exclusivamente en el momento del **congelamiento**, para resolver el TTL por defecto cuando `ttl_horas` se omite en el `body` (ver `CrearReservaSchema`, arriba). Deja de usarse en el cron, que a partir de esta revisión solo lee `fecha_expiracion`.
 
 **Respuesta `201 Created` (congelamiento):**
 ```json

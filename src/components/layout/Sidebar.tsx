@@ -32,7 +32,7 @@
  */
 import type { LucideIcon } from "lucide-react";
 // 1. Agregamos el ícono "Layers" a la importación
-import { ScrollText, ShieldCheck, Users, Package, Warehouse, ScanBarcode, Layers, FileSearch, ShoppingCart, ClipboardList, Store, PackageCheck, Undo2, Wallet, Banknote } from "lucide-react";
+import { ScrollText, ShieldCheck, Users, Package, Warehouse, ScanBarcode, Layers, FileSearch, ShoppingCart, ClipboardList, Store, PackageCheck, Undo2, Wallet, Banknote, Receipt, FileText, UserPlus, Tags, TicketPercent, Settings, BellRing, Globe, Ban, BookOpen, TriangleAlert, Landmark } from "lucide-react";
 import { getServerSession } from "@/lib/auth/session";
 import { usuarioTienePermiso } from "@/lib/auth/with-permission";
 import { SidebarNav, type SidebarNavSection } from "@/components/layout/SidebarNav";
@@ -73,6 +73,21 @@ const SECCIONES: SeccionConfig[] = [
         // Inventario cuelga acá como sub-ítem en vez de vivir como
         // entrada de primer nivel aparte en "Inventario" (evita el
         // nombre duplicado "Auditoría Forense" en dos lugares del menú).
+        // Sprint 3 (cierre HU-H6/UI de Listas de Precios) — "Auditoría de
+        // Proveedores" (`/auditoria/logs?modulo=proveedores`, mismo patrón
+        // que `?modulo=clientes` de HU-C10) cuelga acá como sub-ítem real
+        // (`children`, mecanismo ya soportado por este componente aunque
+        // hasta ahora ningún ítem lo usaba). Gate por
+        // `auditoria:leer_historico` — hoy AUDITOR y SUPERVISOR_COMPRAS;
+        // COMPRADOR no lo tiene, así que no ve la entrada.
+        children: [
+          {
+            label: "Auditoría de Proveedores",
+            href: "/auditoria/logs?modulo=proveedores",
+            icon: Store,
+            permiso: "auditoria:leer_historico",
+          },
+        ],
       },
       {
         label: "Auditoría del Inventario",
@@ -106,26 +121,173 @@ const SECCIONES: SeccionConfig[] = [
     label: "Compras",
     icon: ShoppingCart,
     items: [
-      // Gate por `ordenes_compra:leer` (Alcance §5) — permiso de lectura
-      // separado de `crear`. Lo tienen Comprador, Supervisor de Compras y
-      // Auditor. Las acciones de transición (enviar/confirmar/cerrar/cancelar)
-      // se gatean por sus permisos granulares en el detalle.
+      // C4 (auditoría transversal Módulo H, 2026-09-26): este ítem no tenía
+      // `permiso` — se mostraba a cualquier sesión autenticada, incluido el
+      // Encargado de Depósito, que no tiene `proveedores:leer` y recibía
+      // "Acceso Denegado" al entrar. Gate agregado por `proveedores:leer`
+      // (Comprador, Supervisor de Compras y Auditor ya lo tienen sembrado).
       {
         label: "Proveedores",
         href: "/compras/proveedores",
         icon: Store,
+        permiso: "proveedores:leer",
       },
+      // Gate por `ordenes_compra:leer` (Alcance §5) — permiso de lectura
+      // separado de `crear`. Lo tienen Comprador, Supervisor de Compras y
+      // Auditor. Las acciones de transición (enviar/confirmar/cerrar/cancelar)
+      // se gatean por sus permisos granulares en el detalle.
       {
         label: "Órdenes de Compra",
         href: "/compras/ordenes",
         icon: ClipboardList,
         permiso: "ordenes_compra:leer",
       },
+      // Sprint 3 (cierre HU-H2/H6/H7) — pantalla unificada de publicación,
+      // historial/aprobación y comparativa de precios.
+      //
+      // C7 (auditoría transversal Módulo H, 2026-09-26): el gate original
+      // era `proveedores:publicar_lista`, así que el Auditor (que tiene
+      // `proveedores:leer` y puede consultar el historial por API, Alcance
+      // Funcional §5) no veía la entrada — sin link, sin forma de llegar a
+      // la pantalla que sí lo deja entrar en modo lectura. Se cambia a
+      // `proveedores:leer`: sigue visible para Comprador/Supervisor (que
+      // también lo tienen sembrado) y ahora también para Auditor; el
+      // Encargado de Depósito (sin `proveedores:leer`) sigue sin verlo.
+      {
+        label: "Lista de Precios",
+        href: "/compras/listas-precios",
+        icon: Tags,
+        permiso: "proveedores:leer",
+      },
       {
         label: "Recepción de Mercadería",
         href: "/compras/recepciones/nueva",
         icon: PackageCheck,
         permiso: "recepciones:registrar",
+      },
+    ],
+  },
+  {
+    label: "Ventas",
+    icon: Receipt,
+    items: [
+      // HU-B1 (spec_modulo_B.md §2.1) — gate por `ventas:registrar_venta_mostrador`,
+      // exclusivo Cajero POS. Venta de mostrador con cobro multimedio.
+      {
+        label: "Venta de mostrador",
+        href: "/ventas/pos",
+        icon: ShoppingCart,
+        permiso: "ventas:registrar_venta_mostrador",
+      },
+      // Gate por `ventas:leer` (HU-B3, spec_modulo_B.md §2.3) — permiso de
+      // lectura del módulo, separado de `ventas:emitir_cotizacion`. El botón
+      // "Nuevo presupuesto" y la acción de aceptar se gatean aparte por ese
+      // permiso granular dentro de las propias páginas.
+      {
+        label: "Presupuestos",
+        href: "/ventas/presupuestos",
+        icon: FileText,
+        permiso: "ventas:leer",
+      },
+      // HU-B5 (spec_modulo_B.md §2.5) — gate por `ventas:gestionar_cuenta_corriente`
+      // (Cajero POS y Supervisor de Ventas). La acción de resolver excepciones
+      // de crédito se gatea aparte dentro de la propia página.
+      {
+        label: "Cuentas corrientes",
+        href: "/ventas/cuentas-corrientes",
+        icon: Wallet,
+        permiso: "ventas:gestionar_cuenta_corriente",
+      },
+      // HU-B2 (task_relos.md) — gate por `ventas:gestionar_turno_caja`,
+      // exclusivo Cajero POS. Apertura/cierre de turno con arqueo ciego.
+      {
+        label: "Turno de caja",
+        href: "/ventas/turnos",
+        icon: Banknote,
+        permiso: "ventas:gestionar_turno_caja",
+      },
+      // HU-B9 (spec_modulo_B.md §2.9) — gate por `ventas:gestionar_lista_precios`,
+      // exclusivo Supervisor de Ventas. Publicación de versiones de la Lista
+      // de Precios de Venta única (mostrador + e-commerce).
+      {
+        label: "Lista de precios de venta",
+        href: "/ventas/lista-precios",
+        icon: Tags,
+        permiso: "ventas:gestionar_lista_precios",
+      },
+    ],
+  },
+  {
+    label: "E-commerce",
+    icon: Store,
+    items: [
+      // HU-E12 T09 — consola Pick & Pack. Gate por `ecommerce:leer_cola_preparacion`
+      // (Admin Ecommerce y Operador Pick&Pack); la página también bloquea por URL
+      // y las acciones internas se gatean por sus permisos granulares.
+      {
+        label: "Preparación de pedidos",
+        href: "/ecommerce/preparacion",
+        icon: PackageCheck,
+        permiso: "ecommerce:leer_cola_preparacion",
+      },
+    ],
+  },
+  {
+    label: "Clientes",
+    icon: UserPlus,
+    items: [
+      // Listado de clientes (`/clientes`) — gate por `clientes:leer`. Es la
+      // entrada que conecta con la ficha de cada cliente, donde viven las
+      // direcciones (HU-C3) y el canal de contacto (HU-C9).
+      {
+        label: "Listado de clientes",
+        href: "/clientes",
+        icon: Users,
+        permiso: "clientes:leer",
+      },
+      // HU-C1 — gate por `clientes:crear` (Vendedor/Administrador de CRM);
+      // el Auditor no tiene este permiso, así que no ve la entrada de alta.
+      {
+        label: "Nuevo Cliente",
+        href: "/clientes/nuevo",
+        icon: UserPlus,
+        permiso: "clientes:crear",
+      },
+      {
+        label: "Cuentas web",
+        href: "/ecommerce/cuentas-web",
+        icon: Store,
+        permiso: "ventas:validar_identidad_cliente_web",
+      },
+      // HU-E4 — administración de cupones; junto a "Cuentas web" porque no
+      // hay grupo propio de e-commerce. Gate por `ecommerce:gestionar_cupones`.
+      {
+        label: "Cupones",
+        href: "/ecommerce/cupones",
+        icon: TicketPercent,
+        permiso: "ecommerce:gestionar_cupones",
+      },
+      // HU-E5 — visibilidad web del catálogo; mismo grupo, debajo de "Cupones".
+      // Gate por `ecommerce:gestionar_catalogo`.
+      {
+        label: "Catálogo web",
+        href: "/ecommerce/catalogo",
+        icon: Globe,
+        permiso: "ecommerce:gestionar_catalogo",
+      },
+      // HU-E7 — órdenes web no abonadas y su anulación manual; debajo de
+      // "Catálogo web". Gate por `ecommerce:anular_orden_no_abonada`.
+      {
+        label: "Pedidos web",
+        href: "/ecommerce/pedidos",
+        icon: Ban,
+        permiso: "ecommerce:anular_orden_no_abonada",
+      },
+      {
+        label: "Pedidos pagados",
+        href: "/ecommerce/pedidos/pagados",
+        icon: Receipt,
+        permiso: "ecommerce:cancelar_pedido_pagado",
       },
     ],
   },
@@ -142,6 +304,53 @@ const SECCIONES: SeccionConfig[] = [
         icon: Banknote,
         permiso: "cuentas_por_pagar:leer",
       },
+      // HU-G5 (spec_modulo_G.md §9.7) — cuentas bancarias y cajas propias.
+      // Gate por `tesoreria:leer_cuentas_bancarias`; la gestión y el revelado
+      // de datos bancarios se gatean aparte dentro de la propia página.
+      // Orden fijo del grupo: … Cuentas propias, Comprobantes, …
+      {
+        label: "Cuentas propias",
+        href: "/tesoreria/cuentas-propias",
+        icon: Landmark,
+        permiso: "tesoreria:leer_cuentas_bancarias",
+      },
+      // HU-G3 (spec_modulo_G.md §9.5) — repositorio de comprobantes fiscales.
+      // Orden fijo del grupo: … Cuentas propias, Comprobantes, Libro de IVA, Alertas.
+      {
+        label: "Comprobantes",
+        href: "/tesoreria/comprobantes",
+        icon: Receipt,
+        permiso: "tesoreria:leer_comprobantes",
+      },
+      {
+        label: "Libro de IVA",
+        href: "/tesoreria/libro-iva",
+        icon: BookOpen,
+        permiso: "tesoreria:exportar_libro_iva",
+      },
+      // HU-D6 — panel de alertas de indicadores críticos (Gerente y Administrador).
+      {
+        label: "Alertas",
+        href: "/tesoreria/alertas",
+        icon: TriangleAlert,
+        permiso: "alertas:leer",
+      },
+    ],
+  },
+  {
+    // HU-F2 (Módulo F) — formularios de gestión de los roles de plataforma
+    // (spec_modulo_F.md §1). Gate por `notificaciones:administrar_plantillas`
+    // (exclusivo Administrador de Plataforma); sin el permiso la sección
+    // queda vacía y no se muestra.
+    label: "Administración",
+    icon: Settings,
+    items: [
+      {
+        label: "Plantillas de notificación",
+        href: "/administracion/notificaciones/plantillas",
+        icon: BellRing,
+        permiso: "notificaciones:administrar_plantillas",
+      },
     ],
   },
 ];
@@ -151,7 +360,7 @@ export async function Sidebar() {
 
   if (!session) return null;
 
-  const secciones: SidebarNavSection[] = await Promise.all(
+  const seccionesConVacias: SidebarNavSection[] = await Promise.all(
     SECCIONES.map(async (seccion) => {
       const SeccionIcon = seccion.icon;
       const items = (
@@ -197,6 +406,11 @@ export async function Sidebar() {
       };
     }),
   );
+
+  // Una sección sin ítems visibles (todos filtrados por permiso) no debe
+  // renderizar ni su header ni su chevron — la sección entera desaparece,
+  // no solo sus ítems.
+  const secciones = seccionesConVacias.filter((seccion) => seccion.items.length > 0);
 
   return <SidebarNav sections={secciones} />;
 }

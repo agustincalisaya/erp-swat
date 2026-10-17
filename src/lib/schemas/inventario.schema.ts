@@ -357,8 +357,10 @@ export type FiltrosHistorialTransferenciasInput = z.infer<typeof FiltrosHistoria
 // a futuro — ninguno de los dos implementa lógica de reserva propia.
 // ──────────────────────────────────────────────────────────────────────────────
 
-/** Los 3 orígenes válidos de una Reserva (enum `OrigenReserva` en schema.prisma). */
-export const ORIGENES_RESERVA = ["SENIA", "LICITACION", "PEDIDO_INSTITUCIONAL"] as const;
+/** Orígenes válidos de una Reserva (enum `OrigenReserva` en schema.prisma).
+ * `CHECKOUT_WEB` (HU-E1, D3): reserva de checkout del canal web, siempre con
+ * `ttl_horas` explícito (`ECOMMERCE_CHECKOUT_TTL_HORAS`). */
+export const ORIGENES_RESERVA = ["SENIA", "LICITACION", "PEDIDO_INSTITUCIONAL", "CHECKOUT_WEB"] as const;
 
 /**
  * Congelamiento de stock (spec §2.9). `ttl_horas` es opcional: si se omite,
@@ -435,6 +437,25 @@ export const ListarProductosPorDepositoQuerySchema = z.object({
 
 export type ListarProductosPorDepositoQuery = z.infer<
   typeof ListarProductosPorDepositoQuerySchema
+>;
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Mejora UX — stock disponible por depósito en alta de Presupuesto (HU-B3)
+// (task_mejora_ux_stock_deposito_presupuesto.md)
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Path param de `GET /api/inventario/variantes/[id]/stock-por-deposito`.
+ * `variante_sku_id` llega desde el segmento `[id]` de la URL, no como
+ * search param — mismo criterio que `deposito_id` en
+ * `ListarProductosPorDepositoQuerySchema`.
+ */
+export const ObtenerStockPorVarianteParamsSchema = z.object({
+  variante_sku_id: z.string().uuid(),
+});
+
+export type ObtenerStockPorVarianteParams = z.infer<
+  typeof ObtenerStockPorVarianteParamsSchema
 >;
 
 // ──────────────────────────────────────────────────────────────────────────────

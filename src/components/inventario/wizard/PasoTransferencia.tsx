@@ -129,8 +129,8 @@ export function PasoTransferencia({ depositoOrigenId, depositoOrigenNombre, depo
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2 rounded-lg border border-blue-100 bg-blue-50/50 px-3 py-2 text-sm text-blue-900">
-        <Building2 className="size-4 text-blue-600" aria-hidden="true" />
+      <div className="flex items-center gap-2 rounded-lg border border-info-foreground bg-info/50 px-3 py-2 text-sm text-info-foreground">
+        <Building2 className="size-4 text-info-foreground" aria-hidden="true" />
         Depósito origen: <span className="font-semibold">{depositoOrigenNombre}</span>
       </div>
 
@@ -181,13 +181,13 @@ export function PasoTransferencia({ depositoOrigenId, depositoOrigenNombre, depo
                 onChange={(event) => setCantidadAAgregar(Number(event.target.value))}
               />
             </div>
-            <div className="rounded-lg border bg-slate-50 px-4 py-3" aria-live="polite">
+            <div className="rounded-lg border bg-background px-4 py-3" aria-live="polite">
               <span className="block text-xs text-muted-foreground">Disponible comercial en origen</span>
-              <strong className="text-2xl text-slate-900">{disponible ?? "…"}</strong>
+              <strong className="text-2xl text-foreground">{disponible ?? "…"}</strong>
             </div>
             <Button
               type="button"
-              className="gap-2 bg-blue-600 text-white hover:bg-blue-700"
+              className="gap-2 bg-primary text-primary-foreground hover:bg-primary-hover"
               onClick={agregarAlCarrito}
               disabled={disponible === null || !varianteId || cantidadAAgregar < 1 || (disponible !== null && cantidadAAgregar > disponible)}
             >
@@ -206,7 +206,7 @@ export function PasoTransferencia({ depositoOrigenId, depositoOrigenNombre, depo
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <ShoppingCart className="size-5" /> Carrito del remito
-            {carrito.length > 0 && <Badge className="bg-blue-600 text-white">{carrito.length}</Badge>}
+            {carrito.length > 0 && <Badge className="bg-primary text-primary-foreground">{carrito.length}</Badge>}
           </CardTitle>
           <CardDescription>Revisá las variantes y cantidades antes de generar el remito.</CardDescription>
         </CardHeader>
@@ -216,10 +216,10 @@ export function PasoTransferencia({ depositoOrigenId, depositoOrigenNombre, depo
           ) : (
             <ul className="space-y-2">
               {carrito.map((item) => (
-                <li key={item.key} className="flex flex-wrap items-center gap-2 rounded-lg border border-blue-100 bg-blue-50/50 px-3 py-2 text-sm">
+                <li key={item.key} className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-selected/50 px-3 py-2 text-sm">
                   <div className="min-w-0 flex-1">
-                    <p className="truncate font-semibold text-blue-950">{item.nombre}</p>
-                    <p className="truncate text-xs text-blue-700">{item.sku} · {item.detalle}</p>
+                    <p className="truncate font-semibold text-foreground">{item.nombre}</p>
+                    <p className="truncate text-xs text-primary">{item.sku} · {item.detalle}</p>
                   </div>
                   <Input
                     type="number"
@@ -233,7 +233,7 @@ export function PasoTransferencia({ depositoOrigenId, depositoOrigenNombre, depo
                     type="button"
                     variant="ghost"
                     size="icon-sm"
-                    className="shrink-0 text-red-500 hover:bg-red-50 hover:text-red-600"
+                    className="shrink-0 text-destructive hover:bg-danger-soft hover:text-destructive"
                     onClick={() => quitarDelCarrito(item.key)}
                     aria-label={`Quitar ${item.nombre} del carrito`}
                   >
@@ -247,7 +247,7 @@ export function PasoTransferencia({ depositoOrigenId, depositoOrigenNombre, depo
           <div className="flex gap-2">
             <Button
               type="button"
-              className="flex-1 bg-red-500 text-white hover:bg-red-600"
+              className="flex-1 bg-destructive text-destructive-foreground hover:bg-destructive"
               onClick={vaciarCarrito}
               disabled={carrito.length === 0 || pending}
             >
@@ -255,7 +255,7 @@ export function PasoTransferencia({ depositoOrigenId, depositoOrigenNombre, depo
             </Button>
             <Button
               type="button"
-              className="flex-1 gap-2 bg-blue-600 text-white hover:bg-blue-700"
+              className="flex-1 gap-2 bg-primary text-primary-foreground hover:bg-primary-hover"
               onClick={despachar}
               disabled={pending || carrito.length === 0 || !destinoId}
             >
@@ -266,12 +266,12 @@ export function PasoTransferencia({ depositoOrigenId, depositoOrigenNombre, depo
       </Card>
 
       {remito && (
-        <Alert className="border-amber-300 bg-amber-50">
+        <Alert className="border-warning-foreground bg-warning">
           <Truck className="size-4" />
           <AlertDescription>
             <strong>Remito {remito.remito_id}</strong> · {remito.items.length} ítem{remito.items.length === 1 ? "" : "s"} ·{" "}
             {remito.items.reduce((acumulado, item) => acumulado + item.cantidad, 0)} unidades ·{" "}
-            <Badge variant="outline" className="border-amber-500 text-amber-700">EN_TRANSITO</Badge>
+            <Badge variant="outline" className="border-warning-foreground text-warning-foreground">EN_TRANSITO</Badge>
           </AlertDescription>
         </Alert>
       )}

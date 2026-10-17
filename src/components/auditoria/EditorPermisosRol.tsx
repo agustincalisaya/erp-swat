@@ -152,17 +152,17 @@ export function EditorPermisosRol({
         {hayDiff && (
           <div className="space-y-1.5 text-xs">
             {agregados.map((codigo) => (
-              <div key={`add-${codigo}`} className="flex items-center gap-1.5 text-green-700">
+              <div key={`add-${codigo}`} className="flex items-center gap-1.5 text-success-foreground">
                 <Plus className="size-3" aria-hidden="true" />
-                <Badge className="bg-green-100 text-green-700 border border-green-200 hover:bg-green-100 font-mono">
+                <Badge className="bg-success text-success-foreground border border-success-foreground hover:bg-success font-mono">
                   {codigo}
                 </Badge>
               </div>
             ))}
             {removidos.map((codigo) => (
-              <div key={`rem-${codigo}`} className="flex items-center gap-1.5 text-red-700">
+              <div key={`rem-${codigo}`} className="flex items-center gap-1.5 text-destructive">
                 <Minus className="size-3" aria-hidden="true" />
-                <Badge className="bg-red-100 text-red-700 border border-red-200 hover:bg-red-100 font-mono">
+                <Badge className="bg-danger-soft text-destructive border border-destructive hover:bg-danger-soft font-mono">
                   {codigo}
                 </Badge>
               </div>
@@ -183,7 +183,7 @@ export function EditorPermisosRol({
             type="button"
             disabled={!hayDiff || isPending}
             onClick={handleConfirm}
-            className="bg-blue-600 hover:bg-blue-700 text-white gap-2"
+            className="bg-primary hover:bg-primary-hover text-primary-foreground gap-2"
           >
             {isPending ? (
               <>

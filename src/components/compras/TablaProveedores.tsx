@@ -164,7 +164,7 @@ export function TablaProveedores({
             <Dialog open={nuevoAbierto} onOpenChange={setNuevoAbierto}>
               <Button
                 type="button"
-                className="bg-blue-600 hover:bg-blue-700 text-white gap-2"
+                className="bg-primary hover:bg-primary-hover text-primary-foreground gap-2"
                 onClick={() => setNuevoAbierto(true)}
               >
                 <UserPlus className="size-4" aria-hidden="true" />

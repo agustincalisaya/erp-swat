@@ -103,7 +103,7 @@ export function FormularioLogin() {
           name="email"
           render={({ field }) => (
             <FormItem>
-              <FormLabel className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-gray-700">
+              <FormLabel className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-foreground">
                 <Mail className="size-3.5" aria-hidden="true" />
                 Email
               </FormLabel>
@@ -113,7 +113,7 @@ export function FormularioLogin() {
                   type="email"
                   placeholder="jperez@swat-indumentarias.com"
                   autoComplete="username"
-                  className="focus-visible:border-blue-500 focus-visible:ring-blue-500/30"
+                  className="focus-visible:border-ring focus-visible:ring-ring"
                 />
               </FormControl>
               <FormMessage />
@@ -126,7 +126,7 @@ export function FormularioLogin() {
           name="password"
           render={({ field }) => (
             <FormItem>
-              <FormLabel className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-gray-700">
+              <FormLabel className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-foreground">
                 <Lock className="size-3.5" aria-hidden="true" />
                 Contraseña
               </FormLabel>
@@ -139,12 +139,12 @@ export function FormularioLogin() {
                     type={showPassword ? "text" : "password"}
                     autoComplete="current-password"
                     // pr-10 asegura que el texto no quede oculto detrás del ícono
-                    className="focus-visible:border-blue-500 focus-visible:ring-blue-500/30 pr-10"
+                    className="focus-visible:border-ring focus-visible:ring-ring pr-10"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 hover:text-gray-600 focus:outline-none transition-colors"
+                    className="absolute inset-y-0 right-0 flex items-center pr-3 text-muted-foreground hover:text-muted-foreground focus:outline-none transition-colors"
                     aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
                   >
                     {showPassword ? (
@@ -163,7 +163,7 @@ export function FormularioLogin() {
         <Button
           type="submit"
           disabled={isPending}
-          className="w-full bg-blue-600 hover:bg-blue-700 text-white gap-2 transition-colors"
+          className="w-full bg-primary hover:bg-primary-hover text-primary-foreground gap-2 transition-colors"
         >
           {isPending ? (
             <>

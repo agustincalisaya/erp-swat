@@ -67,12 +67,12 @@ const TODOS_LOS_USUARIOS: UsuarioParaFiltro = { id: "", nombre_completo: "Todos 
 // (siempre caían al gris por defecto) porque el `accion` real es
 // "TRANSFERENCIA_DESPACHADA"/"TRANSFERENCIA_RECIBIDA"/"DELETE_LOGICO".
 const ACCION_COLOR: Record<string, string> = {
-  CREATE: "bg-green-100 text-green-800 border-green-200",
-  UPDATE: "bg-blue-100 text-blue-800 border-blue-200",
-  INGRESO: "bg-emerald-100 text-emerald-800 border-emerald-200",
-  TRANSFERENCIA_DESPACHADA: "bg-cyan-100 text-cyan-800 border-cyan-200",
-  TRANSFERENCIA_RECIBIDA: "bg-cyan-100 text-cyan-800 border-cyan-200",
-  DELETE_LOGICO: "bg-red-100 text-red-800 border-red-200",
+  CREATE: "bg-success text-success-foreground border-success-foreground",
+  UPDATE: "bg-info text-info-foreground border-info-foreground",
+  INGRESO: "bg-success text-success-foreground border-success-foreground",
+  TRANSFERENCIA_DESPACHADA: "bg-info text-info-foreground border-info-foreground",
+  TRANSFERENCIA_RECIBIDA: "bg-info text-info-foreground border-info-foreground",
+  DELETE_LOGICO: "bg-danger-soft text-destructive border-destructive",
 };
 
 // FIX 4 (TC-HU7-07) — "Egreso" y "Ajuste" se sacaron: no existe ningún
@@ -343,7 +343,7 @@ export function TablaForenseInventario({
           size="sm"
           onClick={handleVerificarCadena}
           disabled={isPending}
-          className="shrink-0 gap-2 border-blue-200 text-blue-700 hover:bg-blue-50"
+          className="shrink-0 gap-2 border-info-foreground text-info-foreground hover:bg-info"
         >
           {isPending ? (
             <Loader2 className="size-4 animate-spin" />
@@ -360,12 +360,12 @@ export function TablaForenseInventario({
           variant={resultadoVerificacion.integra ? "default" : "destructive"}
           className={
             resultadoVerificacion.integra
-              ? "border-green-200 bg-green-50 text-green-800"
+              ? "border-success-foreground bg-success text-success-foreground"
               : undefined
           }
         >
           {resultadoVerificacion.integra ? (
-            <CheckCircle2 className="size-4 text-green-600" />
+            <CheckCircle2 className="size-4 text-success-foreground" />
           ) : (
             <XCircle className="size-4" />
           )}
@@ -454,7 +454,7 @@ export function TablaForenseInventario({
                     <td className="px-4 py-3">
                       <Badge
                         variant="outline"
-                        className={`text-[10px] font-mono ${ACCION_COLOR[registro.accion] ?? "bg-gray-100 text-gray-700 border-gray-200"}`}
+                        className={`text-[10px] font-mono ${ACCION_COLOR[registro.accion] ?? "bg-muted text-foreground border-border"}`}
                       >
                         {registro.accion}
                       </Badge>

@@ -98,16 +98,16 @@ export default async function VariantesPage({ searchParams }: VariantesPageProps
   const esInactivas = filtros.tab === "inactivas";
 
   return (
-    <main className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
+    <main className="min-h-screen bg-background p-4 sm:p-6 lg:p-8">
       <div className="mx-auto max-w-6xl space-y-5">
         {/* ── Header (R1: botón "Agregar variante" reubicado acá) ──────── */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-blue-100 text-blue-600 shrink-0">
+            <div className="p-2 rounded-xl bg-selected text-selected-foreground shrink-0">
               <Boxes className="size-5" aria-hidden="true" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-gray-900 tracking-tight">Variantes</h1>
+              <h1 className="text-xl font-bold text-foreground tracking-tight">Variantes</h1>
               <p className="text-sm text-muted-foreground">
                 Variantes activas y reporte de inventario inactivo (solo lectura) con baja
                 lógica justificada.
@@ -147,14 +147,14 @@ export default async function VariantesPage({ searchParams }: VariantesPageProps
             <AlertDescription>{errorCarga}</AlertDescription>
           </Alert>
         ) : resultado.variantes.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-blue-200 bg-white p-8 text-center text-sm text-muted-foreground">
+          <div className="rounded-xl border border-dashed border-border bg-card p-8 text-center text-sm text-muted-foreground">
             No se encontraron variantes
           </div>
         ) : (
-          <div className="overflow-hidden rounded-xl border bg-white shadow-sm">
+          <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
-                <thead className="bg-blue-50 text-xs uppercase tracking-wide text-blue-900">
+                <thead className="bg-muted text-xs uppercase tracking-wide text-selected-foreground">
                   <tr>
                     <th className="px-4 py-3 font-semibold">SKU</th>
                     <th className="px-4 py-3 font-semibold">Producto</th>
@@ -175,18 +175,18 @@ export default async function VariantesPage({ searchParams }: VariantesPageProps
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {resultado.variantes.map((v) => (
-                    <tr key={v.id} className="hover:bg-blue-50/40">
-                      <td className="px-4 py-3 font-mono text-xs text-gray-700">{v.sku}</td>
-                      <td className="px-4 py-3 text-gray-900">{v.producto}</td>
-                      <td className="px-4 py-3 text-gray-700">
+                    <tr key={v.id} className="hover:bg-accent">
+                      <td className="px-4 py-3 font-mono text-xs text-foreground">{v.sku}</td>
+                      <td className="px-4 py-3 text-foreground">{v.producto}</td>
+                      <td className="px-4 py-3 text-foreground">
                         {v.talle} / {v.color} / {v.genero}
                       </td>
                       <td className="px-4 py-3 text-right">
                         <span
                           className={
                             v.stockTotal > 0
-                              ? "inline-flex rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-800"
-                              : "inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-600"
+                              ? "inline-flex rounded-full bg-selected px-2 py-0.5 text-xs font-semibold text-selected-foreground"
+                              : "inline-flex rounded-full bg-muted px-2 py-0.5 text-xs font-semibold text-muted-foreground"
                           }
                         >
                           {v.stockTotal}
@@ -194,13 +194,13 @@ export default async function VariantesPage({ searchParams }: VariantesPageProps
                       </td>
                       {esInactivas ? (
                         <>
-                          <td className="px-4 py-3 text-xs text-gray-600">
+                          <td className="px-4 py-3 text-xs text-muted-foreground">
                             {formatFecha(v.deleted_at)}
                           </td>
-                          <td className="px-4 py-3 text-xs text-gray-600">
+                          <td className="px-4 py-3 text-xs text-muted-foreground">
                             {v.deleted_by_nombre ?? "—"}
                           </td>
-                          <td className="px-4 py-3 text-xs text-gray-600">
+                          <td className="px-4 py-3 text-xs text-muted-foreground">
                             {v.deletion_reason ?? "—"}
                           </td>
                         </>

@@ -28,7 +28,7 @@ import {
   type ComprobanteVigente,
 } from "@/app/(dashboard)/tesoreria/cuentas-por-pagar/actions";
 import { MarcarPagadaSchema, MEDIOS_PAGO } from "@/lib/schemas/cuentas-por-pagar.schema";
-import { listarCuentasOrigen } from "@/lib/tesoreria/cuentas-origen";
+import type { CuentaPropiaSelector } from "@/lib/services/tesoreria/cuenta-propia.service";
 import type { CuentaPorPagarPagada } from "@/lib/services/tesoreria/cuenta-por-pagar.service";
 import { ModalPagoRegistrado } from "@/components/tesoreria/ModalPagoRegistrado";
 
@@ -97,11 +97,18 @@ function valoresIniciales(): RegistroPagoFormValues {
 interface FormularioRegistroPagoProps {
   cuentaPorPagarId: string;
   numeroOrden: string;
+  /**
+   * HU-G5 — cuentas propias ACTIVAS para el selector de "cuenta de origen"
+   * (reemplaza el catálogo fijo retirado `cuentas-origen.ts`). Llega resuelta
+   * por el RSC padre.
+   */
+  cuentasOrigen: CuentaPropiaSelector[];
 }
 
 export function FormularioRegistroPago({
   cuentaPorPagarId,
   numeroOrden,
+  cuentasOrigen,
 }: FormularioRegistroPagoProps) {
   const router = useRouter();
   const fieldId = useId();
@@ -230,7 +237,7 @@ export function FormularioRegistroPago({
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Banknote className="size-4 text-blue-600" aria-hidden="true" />
+              <Banknote className="size-4 text-primary" aria-hidden="true" />
               Registrar pago — {numeroOrden}
             </DialogTitle>
             <DialogDescription>
@@ -261,7 +268,7 @@ export function FormularioRegistroPago({
               {!cargandoComprobantes &&
                 !errorComprobantes &&
                 comprobantes.length === 0 && (
-                  <p className="text-xs text-amber-600">
+                  <p className="text-xs text-warning-foreground">
                     La orden no tiene comprobantes vigentes. No se puede registrar
                     el pago.
                   </p>
@@ -358,9 +365,9 @@ export function FormularioRegistroPago({
                 {...form.register("cuenta_origen_id")}
               >
                 <option value="">Seleccioná una cuenta…</option>
-                {listarCuentasOrigen().map((cuenta) => (
+                {cuentasOrigen.map((cuenta) => (
                   <option key={cuenta.id} value={cuenta.id}>
-                    {cuenta.label}
+                    {cuenta.nombre}
                   </option>
                 ))}
               </select>

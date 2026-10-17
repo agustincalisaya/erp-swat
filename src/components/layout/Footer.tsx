@@ -7,7 +7,7 @@ export function Footer() {
   const anioActual = new Date().getFullYear();
 
   return (
-    <footer className="shrink-0 border-t border-border bg-white px-4 sm:px-6 py-3">
+    <footer className="shrink-0 border-t border-border bg-card px-4 sm:px-6 py-3">
       <p className="text-xs text-muted-foreground text-center">
         SWAT Indumentarias &copy; {anioActual} — Uso interno.
       </p>

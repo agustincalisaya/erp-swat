@@ -47,7 +47,7 @@ export function FiltrosHistorialTransferencias({ remitoInicial, desdeInicial, ha
   }
 
   return (
-    <form onSubmit={aplicarFiltros} className="space-y-3 rounded-xl border bg-white p-4">
+    <form onSubmit={aplicarFiltros} className="space-y-3 rounded-xl border bg-card p-4">
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(16rem,1fr)_auto_auto_auto] lg:items-end">
         <div className="space-y-1.5">
           <Label htmlFor="historial-remito">Remito</Label>

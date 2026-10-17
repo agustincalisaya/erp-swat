@@ -108,14 +108,14 @@ export const AutocompleteInput = forwardRef<HTMLInputElement, AutocompleteInputP
               ref={listaRef}
               role="listbox"
               style={{ top: posicion.top, left: posicion.left, width: posicion.width }}
-              className="fixed z-50 max-h-52 overflow-y-auto rounded-md border border-slate-200 bg-white shadow-md"
+              className="fixed z-50 max-h-52 overflow-y-auto rounded-md border border-border bg-card shadow-md"
             >
               {coincidencias.map((sugerencia) => (
                 <li key={sugerencia} role="option" aria-selected="false">
                   <button
                     type="button"
                     onClick={() => handleSeleccionar(sugerencia)}
-                    className="flex w-full items-center px-3 py-2 text-left text-sm hover:bg-slate-50"
+                    className="flex w-full items-center px-3 py-2 text-left text-sm hover:bg-accent"
                   >
                     {sugerencia}
                   </button>

@@ -35,7 +35,7 @@ export const domainEventBus = new DomainEventBus();
 // `audit-log.listener.ts` (que importa `domainEventBus` de este archivo) —
 // se dispara apenas se crea el singleton de arriba, antes de que cualquier
 // Route Handler llegue a emitir un evento.
-void import("@/lib/events/listeners/audit-log.listener").then(({ iniciarAuditLogListener }) => {
+const registroAuditoria = import("@/lib/events/listeners/audit-log.listener").then(({ iniciarAuditLogListener }) => {
   iniciarAuditLogListener();
 });
 
@@ -44,6 +44,64 @@ void import("@/lib/events/listeners/audit-log.listener").then(({ iniciarAuditLog
 // a propósito — el `EventEmitter` despacha a sus handlers en orden de registro,
 // así el asiento de auditoría de la propia `OrdenCompra` se encola antes de que
 // arranque la reacción de `CuentaPorPagar`.
-void import("@/lib/events/listeners/cuenta-por-pagar.listener").then(({ iniciarCuentaPorPagarListener }) => {
-  iniciarCuentaPorPagarListener();
-});
+const registroCuentasPorPagar = import("@/lib/events/listeners/cuenta-por-pagar.listener").then(
+  ({ iniciarCuentaPorPagarListener }) => {
+    iniciarCuentaPorPagarListener();
+  },
+);
+
+// HU-F3 (mínimo introducido por HU-E1) — Motor de Notificaciones internas.
+// Va después de `audit-log.listener`: el asiento de auditoría del evento se
+// encola antes de generar la notificación (mismo criterio de orden que arriba).
+const registroNotificaciones = import("@/lib/events/listeners/notificacion.listener").then(
+  ({ iniciarNotificacionListener }) => {
+    iniciarNotificacionListener();
+  },
+);
+
+// HU-E7 (spec_modulo_E.md §2.7, D3) — anulación automática de la orden web
+// cuando el TTL libera su reserva (`stock:reserva_liberada`, `TTL_VENCIDO`).
+// Va después de `audit-log.listener`: el asiento RESERVA_LIBERADA se encola
+// antes de que arranque la anulación (mismo criterio de orden que arriba).
+const registroAnulacionOrden = import("@/lib/events/listeners/anulacion-orden.listener").then(
+  ({ iniciarAnulacionOrdenListener }) => {
+    iniciarAnulacionOrdenListener();
+  },
+);
+
+// HU-G11 (spec_modulo_G.md §2.6) — quinto import dinámico de registro: el
+// listener REACTIVO de Ingresos de Tesorería por cobros web. Va después de
+// `audit-log.listener`: el asiento de auditoría del evento que lo dispara
+// (`ecommerce:pedido_pago_confirmado`) se encola antes de que arranque la
+// reacción de Tesorería (mismo criterio de orden que los anteriores).
+const registroIngresoTesoreria = import("@/lib/events/listeners/ingreso-tesoreria.listener").then(
+  ({ iniciarIngresoTesoreriaListener }) => {
+    iniciarIngresoTesoreriaListener();
+  },
+);
+
+// --- Sprint 5 · Cluster 6 ---
+// HU-D6 — reevaluación de alertas de indicadores críticos. Va después de
+// `audit-log.listener`: el asiento del evento de origen se encola antes.
+const registroAlertasDesvio = import("@/lib/events/listeners/alerta-desvio.listener").then(
+  ({ iniciarAlertaDesvioListener }) => {
+    iniciarAlertaDesvioListener();
+  },
+);
+
+/**
+ * HU-E7 — Resuelve cuando todos los imports dinámicos de arriba terminaron
+ * (con éxito o no). La usa `npm run job:reservas`, proceso de corta vida, para
+ * no liberar reservas antes de que estén suscriptos sus listeners. No cambia
+ * el registro ni el comportamiento de ningún listener. Un import que falla no
+ * rechaza esta promesa (`allSettled`).
+ */
+export const listenersRegistrados: Promise<void> = Promise.allSettled([
+  registroAuditoria,
+  registroCuentasPorPagar,
+  registroNotificaciones,
+  registroAnulacionOrden,
+  registroIngresoTesoreria,
+  // --- Sprint 5 · Cluster 6 ---
+  registroAlertasDesvio,
+]).then(() => undefined);

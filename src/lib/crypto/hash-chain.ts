@@ -60,8 +60,22 @@ export interface HashChainPayload {
  * Postgres (o de quien construya el payload), porque insert y verify
  * siempre convergen a la MISMA forma canónica sin importar el orden de
  * entrada.
+ *
+ * Valores con `toJSON()` (`Date`, `Prisma.Decimal`): se reemplazan por su
+ * `toJSON()` ANTES de recorrer claves. Sin esto, un `Date` (sin claves
+ * propias) se canonicalizaba como `{}` y un `Decimal` como su estructura
+ * interna `{d,e,s}` — pero Prisma persiste en jsonb lo que da `toJSON()`
+ * (texto ISO / string numérico), así que `verificar-cadena` recalculaba
+ * sobre el string y rompía la cadena en toda suspensión automática de
+ * usuario (`bloqueado_hasta: Date`, bug H7 de HU-F3). Aplicar `toJSON()` acá
+ * hace que insert y verify hasheen exactamente lo que queda en la base; para
+ * valores sin `toJSON()` (los que ya verificaban) el resultado no cambia.
  */
 function canonicalizarJson(value: unknown): unknown {
+  if (value !== null && typeof value === "object" && typeof (value as { toJSON?: unknown }).toJSON === "function") {
+    return canonicalizarJson((value as { toJSON: () => unknown }).toJSON());
+  }
+
   if (Array.isArray(value)) {
     return value.map(canonicalizarJson);
   }

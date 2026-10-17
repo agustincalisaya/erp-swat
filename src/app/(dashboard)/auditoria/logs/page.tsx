@@ -4,11 +4,11 @@
  *
  * D.3 — Consola de Auditoría Forense (spec_modulo_D.md §4.3/§4.4,
  * task_cali_auditoria_forense.md). Server Component: resuelve la sesión y
- * los permisos ampliados una sola vez, y llama `listarAuditLog()`
- * directamente (mismo service que consume el Route Handler
- * `GET /api/auditoria/logs` — sin duplicar la regla de segregación).
+ * los permisos ampliados y llama `listarAuditLog()` para el modo general.
+ * HU-C10 incorpora un modo Clientes separado dentro de la misma ruta.
  */
 import { Suspense } from "react";
+import Link from "next/link";
 import { ScrollText, AlertTriangle } from "lucide-react";
 import { getServerSession } from "@/lib/auth/session";
 import { usuarioTienePermiso } from "@/lib/auth/with-permission";
@@ -22,6 +22,9 @@ import { FiltrosAuditoriaSchema } from "@/lib/schemas/auditoria.schema";
 import { FiltrosAuditoria } from "@/components/auditoria/FiltrosAuditoria";
 import { TablaAuditLog } from "@/components/auditoria/TablaAuditLog";
 import { BotonVerificarCadena } from "@/components/auditoria/BotonVerificarCadena";
+import { VistaAuditoriaClientes } from "@/components/auditoria/VistaAuditoriaClientes";
+import { VistaAuditoriaProveedores } from "@/components/auditoria/VistaAuditoriaProveedores";
+import { PERMISO_LEER_AUDITORIA_CLIENTES } from "@/lib/services/clientes/auditoria-clientes.service";
 
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -54,7 +57,7 @@ export default async function LogsPage({ searchParams }: LogsPageProps) {
     // confirmada en HU-3) — una sesión recién revocada podría llegar hasta
     // acá antes de expirar criptográficamente.
     return (
-      <main className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
+      <main className="min-h-screen bg-background p-4 sm:p-6 lg:p-8">
         <div className="max-w-6xl mx-auto">
           <Alert variant="destructive">
             <AlertTriangle className="size-4" aria-hidden="true" />
@@ -67,12 +70,24 @@ export default async function LogsPage({ searchParams }: LogsPageProps) {
     );
   }
 
-  const [tieneLeerForense, tieneVerificarCadena] = await Promise.all([
-    usuarioTienePermiso(session.userId, PERMISO_LEER_FORENSE),
-    usuarioTienePermiso(session.userId, PERMISO_VERIFICAR_CADENA),
-  ]);
-
   const rawParams = await searchParams;
+  if (rawParams.modulo === "clientes" ||
+      (Array.isArray(rawParams.modulo) && rawParams.modulo.includes("clientes"))) {
+    return <VistaAuditoriaClientes userId={session.userId} rawParams={rawParams} />;
+  }
+  if (rawParams.modulo === "proveedores" ||
+      (Array.isArray(rawParams.modulo) && rawParams.modulo.includes("proveedores"))) {
+    return <VistaAuditoriaProveedores userId={session.userId} rawParams={rawParams} />;
+  }
+
+  const [tieneLeerForense, tieneVerificarCadena, tieneLeerAuditoriaClientes, tieneLeerAuditoriaProveedores] =
+    await Promise.all([
+      usuarioTienePermiso(session.userId, PERMISO_LEER_FORENSE),
+      usuarioTienePermiso(session.userId, PERMISO_VERIFICAR_CADENA),
+      usuarioTienePermiso(session.userId, PERMISO_LEER_AUDITORIA_CLIENTES),
+      usuarioTienePermiso(session.userId, "auditoria:leer_historico"),
+    ]);
+
   const parsedFiltros = FiltrosAuditoriaSchema.safeParse(rawParams);
   const filtros = parsedFiltros.success ? parsedFiltros.data : FiltrosAuditoriaSchema.parse({});
 
@@ -107,16 +122,16 @@ export default async function LogsPage({ searchParams }: LogsPageProps) {
   if (tieneLeerForense && filtros.usuario_id) queryBase.set("usuario_id", filtros.usuario_id);
 
   return (
-    <main className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
+    <main className="min-h-screen bg-background p-4 sm:p-6 lg:p-8">
       <div className="max-w-6xl mx-auto space-y-5">
         {/* ── Header ───────────────────────────────────────────────────── */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-blue-100 text-blue-600 shrink-0">
+            <div className="p-2 rounded-xl bg-selected text-selected-foreground shrink-0">
               <ScrollText className="size-5" aria-hidden="true" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-gray-900 tracking-tight">
+              <h1 className="text-xl font-bold text-foreground tracking-tight">
                 Auditoría Forense
               </h1>
               <p className="text-sm text-muted-foreground">
@@ -128,6 +143,18 @@ export default async function LogsPage({ searchParams }: LogsPageProps) {
           </div>
           {tieneVerificarCadena && <BotonVerificarCadena />}
         </div>
+
+        {(tieneLeerAuditoriaClientes || tieneLeerAuditoriaProveedores) && (
+          <nav aria-label="Módulo de auditoría" className="flex gap-4 text-sm">
+            <span aria-current="page" className="font-semibold">Historial general</span>
+            {tieneLeerAuditoriaClientes && (
+              <Link href="/auditoria/logs?modulo=clientes" className="text-primary hover:underline">Clientes</Link>
+            )}
+            {tieneLeerAuditoriaProveedores && (
+              <Link href="/auditoria/logs?modulo=proveedores" className="text-primary hover:underline">Proveedores</Link>
+            )}
+          </nav>
+        )}
 
         {/* ── Filtros ──────────────────────────────────────────────────── */}
         <Suspense fallback={null}>
@@ -142,7 +169,7 @@ export default async function LogsPage({ searchParams }: LogsPageProps) {
         <Card>
           <CardHeader className="border-b border-border">
             <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-              <ScrollText className="size-4 text-blue-500" aria-hidden="true" />
+              <ScrollText className="size-4 text-primary" aria-hidden="true" />
               Registros
             </CardTitle>
             <CardDescription>

@@ -97,6 +97,13 @@ export function EditorItemsOrdenCompra({
     [variantes],
   );
 
+  // Variantes ya elegidas en alguna fila del editor actual — se recalcula en
+  // cada render a partir del estado vivo, así que al quitar una fila la
+  // variante vuelve a estar disponible en el resto de los desplegables.
+  const varianteSkuIdsSeleccionados = new Set(
+    items.filter((f) => f.variante_sku_id).map((f) => f.variante_sku_id),
+  );
+
   const firmaInicial = useMemo(
     () =>
       firma(
@@ -208,7 +215,7 @@ export function EditorItemsOrdenCompra({
       )}
 
       <div className="flex items-center justify-between">
-        <Label className="text-xs font-semibold uppercase tracking-wide text-gray-700">
+        <Label className="text-xs font-semibold uppercase tracking-wide text-foreground">
           Editar ítems (orden en borrador)
         </Label>
         <Button
@@ -234,6 +241,11 @@ export function EditorItemsOrdenCompra({
         {items.map((fila, indice) => {
           const varId = `${editorId}-var-${indice}`;
           const cantId = `${editorId}-cant-${indice}`;
+          const variantesDisponibles = variantes.filter(
+            (v) =>
+              v.id === fila.variante_sku_id ||
+              !varianteSkuIdsSeleccionados.has(v.id),
+          );
           return (
           <div
             key={fila.key}
@@ -245,7 +257,7 @@ export function EditorItemsOrdenCompra({
               </Label>
               <ComboboxFiltrable
                 id={varId}
-                items={variantes}
+                items={variantesDisponibles}
                 getId={(v) => v.id}
                 getLabel={(v) => `${v.sku} — ${v.descripcion}`}
                 value={fila.variante_sku_id}
@@ -311,7 +323,7 @@ export function EditorItemsOrdenCompra({
           type="button"
           onClick={guardar}
           disabled={!dirty || isPending}
-          className="gap-2 bg-blue-600 hover:bg-blue-700 text-white"
+          className="gap-2 bg-primary hover:bg-primary-hover text-primary-foreground"
         >
           {isPending ? (
             <>

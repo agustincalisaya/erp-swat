@@ -132,8 +132,8 @@ export function RangoFechasCalendario({ desde, hasta, onChange }: RangoFechasCal
                 onClick={() => handleClickDia(dia)}
                 className={cn(
                   "flex size-8 items-center justify-center rounded-md text-sm hover:bg-muted",
-                  enRango && "bg-blue-50",
-                  esExtremo && "bg-blue-600 text-white hover:bg-blue-700",
+                  enRango && "bg-selected",
+                  esExtremo && "bg-primary text-primary-foreground hover:bg-primary-hover",
                 )}
               >
                 {dia}

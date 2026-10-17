@@ -1,12 +1,13 @@
-```markdown
 # Especificación Técnica — Módulo D (Seguridad, RBAC y Auditoría Forense)
+## Revisión 2 — Sprint 5: HU-D8 y HU-D6, rol Gerente y eventos transversales. La sección 8 amplía D.3/D.4 y prevalece para esas HU sobre las exclusiones históricas de §7. Referencia principal de esta revisión: `sprint_5_swat_indumentarias_erp.md`; el Product Backlog Sprint 5 `(1)` y el Alcance Funcional `(1)` quedan pendientes de cotejo.
 ## ERP SWAT Indumentarias
+## Revisión 1 — Sprint 4: se agrega D.4 (Configuración Global del Sistema, `ConfiguracionSistema`), tarea técnica del Sprint 4 sin dueño de módulo asignado en el Backlog. Se adopta en este documento porque D ya es la capa administrativa/transversal del sistema (mismo criterio que llevó a D a concentrar RBAC y auditoría) y porque sus primeros tres consumidores (HU-E1/E12, HU-E13, HU-B9) son de otros módulos — igual que `AuditLog`, conviene que la entidad viva en el módulo que ningún consumidor "posee" en particular. Si el equipo prefiere otro dueño, es un cambio de ubicación del documento, no de contrato: reportar antes de mover.
 
 **Metodología:** Specification-Driven Development (SDD)
 **Stack:** Next.js 14+ (App Router) · Node.js · PostgreSQL 16 · Prisma ORM · Zod
-**Referencias normativas:** `RULES.md` (Reglas N.° 1, 2 y 3) · `contexto_modulo_d.md` · `schema.prisma`
+**Referencias normativas:** `RULES.md` (Reglas N.° 1, 2 y 3) · `contexto_modulo_d.md` · `schema.prisma` · `Product Backlog — SWAT Indumentarias.xlsx` (hoja **Sprint 4**, tarea técnica "Entidad de configuración global del sistema")
 
-**Alcance de este documento:** D.2 (Gestión de Seguridad y Accesos — RBAC) y D.3 (Trazabilidad Forense — Log de Auditoría). **D.1 (Panel de Comando BI/Dashboard) queda explícitamente fuera de alcance** en esta etapa — depende de datos de módulos aún no construidos (Ventas, Proveedores) y de decisiones arquitectónicas (CQRS, mecanismo de tiempo real) no resueltas todavía. Se retomará como documento independiente cuando existan los módulos emisores de esos eventos.
+**Alcance de este documento:** D.2 (Gestión de Seguridad y Accesos — RBAC), D.3 (Trazabilidad Forense — Log de Auditoría) y D.4 (Configuración Global del Sistema, agregada en Sprint 4). **D.1 (Panel de Comando BI/Dashboard) queda explícitamente fuera de alcance** en esta etapa — depende de datos de módulos aún no construidos (Ventas, Proveedores) y de decisiones arquitectónicas (CQRS, mecanismo de tiempo real) no resueltas todavía. Se retomará como documento independiente cuando existan los módulos emisores de esos eventos.
 
 **Nota de conciliación de esquema:** este documento usa exclusivamente la entidad `AuditLog` ya presente en `schema.prisma` (Sprint 1). El modelo `LogAuditoria` mencionado en una versión previa de `spec_modulo_D.md` **no se adopta** — perdía el campo `ip` (exigido por la Regla N.° 2 de `RULES.md`) y el campo `hash_anterior` explícito, y ya existe código y specs del Módulo A (`spec_modulo_A.md`, `task_cali.md`) que referencian `AuditLog` por nombre.
 
@@ -230,6 +231,10 @@ export async function registrarEventoAuditoria(evento: DatosEventoAuditoria) {
 
 **Convención de campo `JSON.stringify` no canónico:** `JSON.stringify` en JavaScript no garantiza orden de claves estable entre distintas ejecuciones si el objeto se construye de forma no determinística. Los servicios que emiten eventos deben construir `valor_anterior`/`valor_nuevo` con orden de claves consistente (ideal: mismo orden que el schema Prisma del modelo afectado) para que la verificación retroactiva de la cadena (4.4) sea reproducible.
 
+**Valores con `toJSON()` en el payload (`Date`, `Prisma.Decimal`) — hallazgo H7 de HU-F3:** `canonicalizarJson()` (la canonicalización que usa `calcularHashEncadenado()` tanto al insertar como al verificar) aplica `toJSON()` a cualquier valor que lo tenga, antes de ordenar sus claves. Sin eso, un `Date` se hasheaba como `{}` y un `Decimal` como su estructura interna `{d,e,s}`, pero Prisma persiste en jsonb el resultado de `toJSON()` (texto ISO / string numérico): `verificar-cadena` recalculaba sobre el string releído y la cadena se rompía. El caso que lo disparó fue `usuario:suspendido_automaticamente` (`bloqueado_hasta: Date`).
+
+**Caso conocido — `Prisma.Decimal` en `producto_maestro:actualizado`:** `editarProductoMaestro()` (`src/lib/services/inventario/producto.service.ts:515`, `valorAnterior[campo] = actual[campo]`) copia los valores de la fila de Prisma sin convertir. Si se edita un campo `Decimal` (p. ej. `costo_estandar_referencia`, `Decimal(10,2)`), `valor_anterior` lleva un objeto `Prisma.Decimal`, no un número ni un string. El `toJSON()` de `canonicalizarJson()` ya lo cubre a nivel hash, así que **no rompe la cadena**: el `AuditLog` guarda `"1234.5"` y el hash se calcula sobre ese mismo string. Queda anotado para que no sorprenda si aparece en un listado forense o en un test. Cubierto por `src/lib/crypto/hash-chain.test.ts`.
+
 ### 4.3. Consola de Auditoría — Interfaz de solo lectura
 
 **Ruta:** `GET /app/api/auditoria/logs/route.ts`
@@ -302,6 +307,7 @@ D.3 no define eventos propios para emitir — es exclusivamente **consumidor**. 
 | `usuario:suspendido_automaticamente` | Módulo D (D.2 — flujo de login) | `accion="SUSPENSION_AUTOMATICA"`, `tabla_afectada="Usuario"` |
 | `usuario:baja_logica` | Módulo D (D.2) | `accion="DELETE_LOGICO"`, `tabla_afectada="Usuario"` |
 | `rol:permisos_actualizados` | Módulo D (D.2) | `accion="UPDATE_PERMISOS"`, `tabla_afectada="Rol"` |
+| `configuracion:actualizada` | Módulo D (D.4, Sprint 4) | `accion="UPDATE"`, `tabla_afectada="ConfiguracionSistema"` |
 
 ### 5.1. Regla de exclusión de datos sensibles en el payload de auditoría
 
@@ -309,9 +315,133 @@ Ningún evento debe incluir en `valor_anterior`/`valor_nuevo` el contenido en te
 
 ---
 
-## 6. Fuera de Alcance (diferido)
+## 6. D.4 — Configuración Global del Sistema (`ConfiguracionSistema`)
+
+### 6.1. Naturaleza de la entidad
+
+`ConfiguracionSistema` es un almacén genérico clave/valor para parámetros operativos que hoy están dispersos como constantes hardcodeadas o directamente ausentes en el resto del sistema — el Sprint 4 la necesita para tres consumidores concretos: el depósito del canal web (HU-E1/HU-E12), el TTL del checkout de e-commerce (HU-E1) y el plazo de retiro Click & Collect (HU-E13), a los que se suma el margen sugerido de precios de HU-B9 (Módulo B). No reemplaza ninguna configuración ya modelada como campo propio de una entidad (ej. `StockDeposito.punto_pedido` de Módulo A) — es exclusivamente para parámetros transversales sin entidad de dominio natural que los contenga.
+
+No tiene UI propia en Sprint 4: los cuatro consumidores la leen server-side; el alta/edición de valores se realiza vía Route Handler, consumible desde Postman o desde una pantalla de administración que se construya en un sprint posterior.
+
+### 6.2. Modelo de datos (referencia para `schema.prisma`)
+
+```prisma
+model ConfiguracionSistema {
+  id          String   @id @default(uuid())
+  clave       String   @unique
+  valor       String   // JSON serializado como string si el valor no es escalar simple
+  descripcion String?
+  modulo      String   // "E", "B", etc. — dominio dueño semántico del parámetro, no del modelo
+  actualizado_por_id String
+  actualizado_por    Usuario @relation(fields: [actualizado_por_id], references: [id], onDelete: Restrict)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@map("configuraciones_sistema")
+}
+```
+
+No lleva bloque de baja lógica (`is_active`/`deleted_at`/`deleted_by`/`deletion_reason`): un parámetro de configuración no se "da de baja", se actualiza o dejar de tener efecto reemplazando su `valor` — la Regla N.° 1 de `RULES.md` (prohibición de `DELETE` físico) aplica igual, pero no hay un estado "inactivo" con sentido para una fila clave/valor. Cada cambio de `valor` sí queda auditado (sección 6.4), preservando el historial completo sin necesidad de baja lógica.
+
+**Claves sembradas para Sprint 4** (`prisma/seed.ts`):
+
+| `clave` | `valor` (ejemplo) | `modulo` | Consumida por |
+|---|---|---|---|
+| `ECOMMERCE_DEPOSITO_CANAL_WEB_ID` | `"<uuid del Showroom>"` | `E` | HU-E1 (catálogo/disponibilidad), HU-E12 (ubicación física en depósito) |
+| `ECOMMERCE_CHECKOUT_TTL_HORAS` | `"1"` | `E` | HU-E1 (`ttl_horas` explícito pasado al servicio de reserva de HU-A10) |
+| `ECOMMERCE_PLAZO_RETIRO_DIAS` | `"10"` | `E` | HU-E13 (vencimiento de "Listo para Retiro") |
+| `VENTAS_MARGEN_SUGERIDO_PRECIO_VENTA` | `"0.35"` | `B` | HU-B9 (precio sugerido = costo de reposición × (1 + margen)) |
+
+### 6.3. Interfaces y Contratos
+
+**Ruta (consulta por clave):** `GET /app/api/configuracion/[clave]/route.ts`
+**Ruta (actualización):** `PATCH /app/api/configuracion/[clave]/route.ts`
+**Server Action equivalente:** `actualizarConfiguracionSistema()` en `app/(dashboard)/auditoria/configuracion/actions.ts`
+**Permiso requerido:** `configuracion:leer` (cualquier módulo que consuma un valor, vía llamada interna server-to-server — no gateado por sesión de usuario cuando la invocación es interna, ver nota 6.3.1); `configuracion:administrar` (exclusivo Administrador, para la mutación).
+
+```typescript
+// src/lib/schemas/configuracion.schema.ts
+export const ActualizarConfiguracionSistemaSchema = z.object({
+  valor: z.string().min(1, "El valor no puede estar vacío"),
+});
+export type ActualizarConfiguracionSistemaInput = z.infer<typeof ActualizarConfiguracionSistemaSchema>;
+```
+
+**Comportamiento esperado:**
+- La consulta por `clave` retorna `404 CONFIGURACION_NO_ENCONTRADA` si la clave no existe — ningún consumidor debe asumir un valor por defecto implícito en código; si un default tiene sentido, se siembra explícitamente en `seed.ts` (tabla de 6.2), nunca como fallback silencioso en el servicio consumidor.
+- La actualización es un `UPDATE` directo de una sola fila (`clave` es `@unique`, no requiere `$transaction` multi-tabla). Persiste `actualizado_por_id = usuarioId` de la sesión.
+- **6.3.1. Nota de acceso — servidor a servidor:** los cuatro consumidores de Sprint 4 (HU-E1, HU-E12, HU-E13, HU-B9) leen esta entidad desde su propia capa de servicios (`lib/services/**`), no desde el navegador — no pasan por el gate `withPermission("configuracion:leer")` de un usuario final, invocan directamente `obtenerConfiguracion(clave)` (función exportada de `lib/services/sistema/configuracion.service.ts`), que no revalida permiso porque no hay sesión de usuario en ese punto de la pila (es una lectura interna de servicio a servicio, mismo patrón ya usado por `resolverListaPrecioVigente()` de Módulo H). El Route Handler de 6.3 (`GET`) sí gatea `configuracion:leer` porque ese endpoint es la superficie expuesta a un cliente HTTP externo (Postman, una futura UI de administración), no la vía que usan los consumidores internos.
+
+**Respuesta `200 OK` (consulta):**
+```json
+{ "data": { "clave": "ECOMMERCE_CHECKOUT_TTL_HORAS", "valor": "1", "modulo": "E" }, "error": null }
+```
+
+**Respuesta `200 OK` (actualización):**
+```json
+{ "data": { "clave": "ECOMMERCE_PLAZO_RETIRO_DIAS", "valor_anterior": "10", "valor_nuevo": "15" }, "error": null }
+```
+
+**Respuesta `404 Not Found`:**
+```json
+{ "data": null, "error": { "code": "CONFIGURACION_NO_ENCONTRADA", "message": "No existe una configuración con clave ECOMMERCE_TTL_INEXISTENTE" } }
+```
+
+### 6.4. Auditoría de cambios
+
+Toda actualización de `valor` emite, tras el `COMMIT`, el evento `configuracion:actualizada` (agregado a la tabla de eventos de la sección 5) con `valor_anterior`/`valor_nuevo`, consumido por `audit-log.listener.ts` igual que el resto del sistema — sin mecanismo de hashing propio, mismo criterio que D.2/D.3.
+
+---
+
+## 7. Fuera de Alcance (diferido)
 
 - **D.1 — Panel de Comando BI/Dashboard:** requiere Módulo B (Ventas) y Módulo H (Proveedores) como emisores de datos reales, además de decisiones no resueltas de arquitectura CQRS y mecanismo de actualización en tiempo real (polling / SSE / WebSockets). Se especificará como documento independiente cuando existan esos módulos.
 - **Reactivación automática de `SUSPENDIDO` al expirar `bloqueado_hasta`:** este documento define la transición manual (2.2.3) y la transición automática de entrada a `SUSPENDIDO` (2.1), pero no un job/cron de reactivación automática al vencer el plazo — para Sprint actual, la reactivación es manual vía 2.2.3. Si se requiere automática, es una HU separada (job programado, fuera del ciclo request-response de Next.js).
 - **[CANCELADO — Sprint Review 21/08/2026] HU-A3 — Legajos de Prueba (`LegajoPrueba`) / estado `EN_PRUEBA`:** funcionalidad cancelada por decisión del Product Owner (no debía haber entrado al sprint); el código fue eliminado. Las referencias a `stock:legajo_prueba_iniciado` en las tablas de este documento quedan como registro histórico.
-```
+
+---
+
+## 8. Contratos Sprint 5 — HU-D8 y HU-D6 (Revisión 2)
+
+**Fuente y trazabilidad.** Para esta revisión, `sprint_5_swat_indumentarias_erp.md` es la referencia principal de HU-D8 y HU-D6. El `Product Backlog - SWAT Indumentarias Sprint 5 (1).xlsx` (hoja `Sprint 5`, filas 15 y 16) y el Alcance Funcional `(1)` Módulo D §5 se citan como fuentes adicionales pendientes de cotejo cuando estén disponibles; su mención no resuelve diferencias con el plan. Las IDs `D8-n` y `D6-n` de esta sección son requisitos verificables para derivar las tasks de cada HU.
+
+### 8.1. HU-D8 — Historial propio del usuario interno (backlog fila 15)
+
+| CA | Contrato verificable |
+|---|---|
+| D8-1 | `listarAuditLog(filtros, sesion)` fuerza `usuario_id = sesion.userId` cuando falta `auditoria:leer_forense`, descartando incluso un ID de tercero explícito. La ruta `GET /api/auditoria/logs` y `/auditoria/logs` usan esa misma función; ningún otro parámetro puede ampliar el alcance. |
+| D8-2 | `AuditLog` append-only, orden `created_at DESC, id DESC`, paginación en base y filtros de fecha/acción. No se crea tabla ni copia del log. |
+| D8-3 | `fecha_desde` y `fecha_hasta` son días `AAAA-MM-DD` en `America/Argentina/Buenos_Aires`; filtro `[inicio del día desde, inicio del día posterior a hasta)`. Día final completo incluido, incluso registros con milisegundos antes de medianoche. Rango invertido es 400; no usar `lte` a medianoche del día final. |
+| D8-4 | El selector `accion` para modo propio obtiene DISTINCT de acciones con `usuario_id = sesion.userId`. La opción se filtra en servidor; un usuario sin acciones recibe lista vacía. Con permiso forense, la consola conserva su selector global. |
+| D8-5 | Todo usuario interno autenticado accede a su vista propia sin permiso adicional; esta regla no otorga `auditoria:leer_forense`. |
+| D8-6 | El DTO propio omite `valor_anterior`, `valor_nuevo`, hash y controles de exportación/verificación; solo modo forense autorizado puede recibirlos. La eliminación de campos ocurre antes de serializar JSON. |
+| D8-7 | La UI de historial propio no ofrece búsqueda por otro usuario ni reemplaza la Consola Forense D5. |
+
+La implementación existente de `listarAuditLog` ya fuerza usuario para la lectura ordinaria; la task se centra en la fecha final inclusiva, selector de acciones propio y regresión de proyección. La corrección del rango beneficia también al modo forense. Pruebas HTTP comprueban ID de tercero ignorado, selector restringido, frontera horaria argentina, paginación y ausencia de campos forenses.
+
+### 8.2. HU-D6 — Alertas automáticas de desvíos críticos (backlog fila 16)
+
+| CA | Contrato verificable |
+|---|---|
+| D6-1 | Indicadores: stock por `StockDeposito` frente a `punto_pedido` de Módulo A y porcentaje `egresos / ingresos × 100` del mes argentino en curso calculado por `obtenerResumenMensual` de G14. No existe fórmula paralela en D. |
+| D6-2 | La lectura de stock actual se contrasta con el `punto_pedido` del depósito, sin sustituir la lógica de A. `cantidad <= 0` se evalúa siempre como Crítica, también cuando `punto_pedido = 0`. Con `punto_pedido = 0` y cantidad positiva no hay Advertencia. Se reusa `stock:umbral_critico_alcanzado` y se reevalúa al abrir el panel aun si A no emitió ese evento. |
+| D6-3 | D.4 siembra `TESORERIA_ALERTA_EGRESOS_INFORMATIVA_PCT=70`, `...ADVERTENCIA_PCT=85`, `...CRITICA_PCT=100`, `modulo=D`. `configuracion:administrar` permite editarlas como números positivos estrictamente crecientes `informativa < advertencia < critica`; la actualización valida el conjunto completo en la misma transacción y audita antes/después mediante `configuracion:actualizada`. Ningún fallback hardcodeado en el consumidor. |
+| D6-4 | Stock `0 < cantidad <= punto_pedido`: Advertencia; cantidad `<= 0`: Crítica, independientemente del punto de pedido. Egresos: mayor umbral `<= porcentaje`, con comparación inclusiva. Un cambio de severidad actualiza la alerta existente. |
+| D6-5 | Si ingresos del mes `<= 0`, porcentaje `null` y panel `No calculable`; no se crea alerta de egresos y se resuelve la activa del mes, como en G14. |
+| D6-6 | Egresos se reevalúa al recibir `gasto_operativo:creado/editado/dado_de_baja`, `cuenta_por_pagar:estado_cambiado` con acción `PAGAR`, y al abrir el panel. Un gasto editado entre meses reevalúa ambos meses, resolviendo el anterior si corresponde. Stock se reevalúa ante `stock:umbral_critico_alcanzado`, movimientos que afecten la cantidad y al abrir el panel; esta última lectura resuelve una alerta si un incremento no emitió evento. |
+| D6-7 | Panel filtrable por nivel y estado (`ACTIVA`, `RESUELTA`), lectura con `alertas:leer` para Gerente y Administrador. Al crear o subir una alerta a Crítica se emite evento para notificación interna F3 dirigida a **usuarios activos con ese permiso**, no a todo usuario por nombre de rol. |
+| D6-8 | Una sola alerta activa por `(indicador, referencia)`; stock usa `(variante_sku_id, deposito_id)`, egresos `AAAA-MM` argentino. Reevaluación idempotente actualiza la severidad de la misma fila, hacia arriba o abajo. Constraint único parcial de activas o transacción con bloqueo + constraint impide duplicados por eventos concurrentes. Cada cambio de nivel queda auditado. |
+| D6-9 | Se resuelve automáticamente si stock supera punto de pedido, porcentaje cae por debajo de Informativa, porcentaje no es calculable o termina el mes. Una resuelta queda como histórico inmutable del episodio; un nuevo cruce posterior crea episodio nuevo. Se prueba Advertencia → Crítica → Resuelta y reapertura como episodio nuevo. |
+| D6-10 | Creación, cambio de nivel y resolución emiten eventos de dominio después del COMMIT para D.3; cada asiento tiene actor (usuario o proceso), indicador, referencia, severidad anterior/nueva y fecha, sin datos sensibles. Se verifica integridad SHA-256 tras la secuencia. |
+| D6-11 | Sin Tablero de Comando, push PWA ni perfil propio Dueños/Directivos en esta HU. Las notificaciones son internas F3. |
+
+**Modelo y evaluación.** Entidad `AlertaDesvio` con `id`, `indicador`, `referencia`, `severidad`, `estado`, `created_at`, `updated_at`, `resuelta_at` y vínculo contextual para stock/mes; no se elimina físicamente. La función `reevaluarAlertaStock(variante, deposito)` consulta cantidad/punto de pedido actuales, incluidos depósitos con punto de pedido cero. `reevaluarAlertaEgresos(mes)` consume `obtenerResumenMensual` del G14 real y configuración D.4. Un evento repetido sin cambio de condición es no-op sin nueva fila, auditoría o notificación. Al abrir el panel se reevalúan el mes en curso y las alertas de stock activas antes de listar; una tarea de mantenimiento podrá cubrir otras referencias sin cambiar este contrato. Las acciones del panel no modifican directamente alertas. Las pruebas incluyen `punto_pedido = 0` con stock cero (Crítica) y con stock positivo (sin alerta), además de la transición de cero a positivo.
+
+**Mes terminado.** Las alertas de egresos tienen una referencia mensual; al evaluar el panel, cualquier activa de un mes anterior al actual se resuelve. Los eventos de G13 de un mes histórico pueden actualizar datos del reporte, pero no crear una alerta operativa de un mes ya terminado. Esto evita que una edición histórica notifique un desvío como si fuera actual.
+
+**Notificaciones F3.** D6 emite `alerta_desvio:creada`, `:nivel_cambiado`, `:resuelta` con `alerta_id` y transición; el listener de auditoría los registra. F3 consume creación y ascenso a Crítica, obtiene destinatarios por el permiso `alertas:leer`, y deriva `clave_idempotencia` de `evento_id + usuario_id` para que una entrega repetida no duplique avisos. El contrato de ampliación del motor está en `spec_modulo_F.md` §6; la bandeja existente sigue aislada por usuario.
+
+### 8.3. Matriz transversal y dependencia de integración
+
+La tarea transversal `docs/tasks/tareas tecnicas/T3-rol-gerente.md` crea `GERENTE` y `gerente.seed` con identidad fija; G14/G16/G5/D6 agregan sus permisos respectivos en seed según sus specs. G14 asigna al Gerente tanto `tesoreria:leer_reportes` como `tesoreria:leer_desglose_gastos`; T3 no concede permisos funcionales por sí misma. Antes de implementar D6 se cotejan nombres reales de eventos y DTO de `obtenerResumenMensual` contra la base compartida que efectivamente se integre. D8 es independiente. Cada task cita los criterios del plan y los IDs de esta sección y prueba API, UI, permisos, estado persistido y auditoría en los casos aplicables. Para el rechazo de publicación de E16, la garantía específica de asiento auditado y respuesta HTTP se define en `spec_modulo_E.md` §6.2; D.3 entrega una confirmación de persistencia al productor para ese evento.

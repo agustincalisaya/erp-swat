@@ -38,7 +38,7 @@ export function LogoutButton() {
       size="sm"
       onClick={handleLogout}
       disabled={isPending}
-      className="gap-1.5 text-gray-600 hover:text-red-600"
+      className="gap-1.5 text-muted-foreground hover:text-destructive"
     >
       {isPending ? (
         <Loader2 className="size-4 animate-spin" aria-hidden="true" />

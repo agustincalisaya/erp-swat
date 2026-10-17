@@ -70,6 +70,13 @@ export function FormularioNuevaOrdenCompra({
     [variantes],
   );
 
+  // Variantes ya elegidas en alguna fila del formulario actual — se recalcula
+  // en cada render a partir del estado vivo, así que al quitar una fila la
+  // variante vuelve a estar disponible en el resto de los desplegables.
+  const varianteSkuIdsSeleccionados = new Set(
+    items.filter((f) => f.variante_sku_id).map((f) => f.variante_sku_id),
+  );
+
   const setFila = (key: string, cambios: Partial<ItemFila>) => {
     setItems((prev) =>
       prev.map((fila) => (fila.key === key ? { ...fila, ...cambios } : fila)),
@@ -185,7 +192,7 @@ export function FormularioNuevaOrdenCompra({
 
       {/* ── Proveedor ───────────────────────────────────────────────────── */}
       <div className="space-y-1.5">
-        <Label htmlFor="oc-proveedor" className="text-xs font-semibold uppercase tracking-wide text-gray-700">
+        <Label htmlFor="oc-proveedor" className="text-xs font-semibold uppercase tracking-wide text-foreground">
           Proveedor
         </Label>
         <ComboboxFiltrable
@@ -205,7 +212,7 @@ export function FormularioNuevaOrdenCompra({
           pageSize={8}
         />
         {proveedores.length === 0 && (
-          <p className="text-xs text-amber-600">
+          <p className="text-xs text-warning-foreground">
             No hay proveedores en estado HOMOLOGADO. No es posible emitir una orden.
           </p>
         )}
@@ -217,7 +224,7 @@ export function FormularioNuevaOrdenCompra({
       {/* ── Ítems ───────────────────────────────────────────────────────── */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <Label className="text-xs font-semibold uppercase tracking-wide text-gray-700">
+          <Label className="text-xs font-semibold uppercase tracking-wide text-foreground">
             Ítems de la orden
           </Label>
           <Button type="button" variant="outline" size="sm" onClick={agregarFila} className="gap-1.5">
@@ -236,6 +243,11 @@ export function FormularioNuevaOrdenCompra({
           {items.map((fila, indice) => {
             const varId = `${formId}-var-${indice}`;
             const cantId = `${formId}-cant-${indice}`;
+            const variantesDisponibles = variantes.filter(
+              (v) =>
+                v.id === fila.variante_sku_id ||
+                !varianteSkuIdsSeleccionados.has(v.id),
+            );
             return (
             <div
               key={fila.key}
@@ -247,7 +259,7 @@ export function FormularioNuevaOrdenCompra({
                 </Label>
                 <ComboboxFiltrable
                   id={varId}
-                  items={variantes}
+                  items={variantesDisponibles}
                   getId={(v) => v.id}
                   getLabel={(v) => `${v.sku} — ${v.descripcion}`}
                   value={fila.variante_sku_id}
@@ -298,7 +310,7 @@ export function FormularioNuevaOrdenCompra({
 
       {/* ── Observaciones ───────────────────────────────────────────────── */}
       <div className="space-y-1.5">
-        <Label htmlFor="oc-observaciones" className="text-xs font-semibold uppercase tracking-wide text-gray-700">
+        <Label htmlFor="oc-observaciones" className="text-xs font-semibold uppercase tracking-wide text-foreground">
           Observaciones <span className="font-normal text-muted-foreground">(opcional)</span>
         </Label>
         <textarea
@@ -323,7 +335,7 @@ export function FormularioNuevaOrdenCompra({
         <Button
           type="submit"
           disabled={isPending || proveedores.length === 0}
-          className="bg-blue-600 hover:bg-blue-700 text-white gap-2"
+          className="bg-primary hover:bg-primary-hover text-primary-foreground gap-2"
         >
           {isPending ? (
             <>

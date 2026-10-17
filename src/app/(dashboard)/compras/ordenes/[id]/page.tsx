@@ -76,6 +76,16 @@ import { buttonVariants } from "@/components/ui/button";
 
 export const dynamic = "force-dynamic";
 
+// C1 (auditoría transversal Módulo H, 2026-09-26): esta ruta dinámica no
+// exportaba `metadata`, así que la pestaña mostraba el título por defecto de
+// Next ("Create Next App"). Título estático (sin `generateMetadata`): no
+// depende de datos del proveedor/orden, mismo patrón que
+// `compras/ordenes/page.tsx`.
+export const metadata = {
+  title: "Detalle de Orden de Compra — ERP SWAT",
+  description: "Detalle, transiciones de estado e historial de auditoría de una orden de compra (Módulo H).",
+};
+
 const ESTADOS_CANCELABLES = new Set(["BORRADOR", "ENVIADA"]);
 
 const money = new Intl.NumberFormat("es-AR", {
@@ -200,7 +210,7 @@ export default async function DetalleOrdenCompraPage({
     !entregaComprometida && ESTADOS_CANCELABLES.has(orden.estado);
 
   return (
-    <main className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
+    <main className="min-h-screen bg-background p-4 sm:p-6 lg:p-8">
       <div className="max-w-4xl mx-auto space-y-5">
         <Link
           href="/compras/ordenes"
@@ -214,7 +224,7 @@ export default async function DetalleOrdenCompraPage({
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
           <div className="space-y-1">
             <div className="flex items-center gap-3">
-              <h1 className="text-xl font-bold text-gray-900 tracking-tight font-mono">
+              <h1 className="text-xl font-bold text-foreground tracking-tight font-mono">
                 {orden.numero_orden}
               </h1>
               <EstadoOrdenCompraBadge estado={orden.estado} />
@@ -268,7 +278,7 @@ export default async function DetalleOrdenCompraPage({
                 />
               )}
               {mostrarPendienteAprobacion && (
-                <span className="inline-flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-700">
+                <span className="inline-flex items-center gap-2 rounded-lg border border-warning-foreground bg-warning px-3 py-1.5 text-xs font-medium text-warning-foreground">
                   <Hourglass className="size-3.5" aria-hidden="true" />
                   Pendiente de aprobación del Supervisor de Compras
                 </span>
@@ -280,7 +290,7 @@ export default async function DetalleOrdenCompraPage({
                 />
               )}
               {mostrarCancelarBloqueado && (
-                <span className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-600">
+                <span className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-muted-foreground">
                   <Lock className="size-3.5" aria-hidden="true" />
                   Solo el Supervisor de Compras puede cancelar esta orden
                 </span>
@@ -315,7 +325,7 @@ export default async function DetalleOrdenCompraPage({
         <Card>
           <CardHeader className="border-b border-border">
             <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-              <CalendarClock className="size-4 text-blue-500" aria-hidden="true" />
+              <CalendarClock className="size-4 text-primary" aria-hidden="true" />
               Fechas de seguimiento
             </CardTitle>
           </CardHeader>
@@ -334,13 +344,13 @@ export default async function DetalleOrdenCompraPage({
                   Entrega comprometida
                 </dt>
                 <dd
-                  className={`mt-0.5 ${orden.entrega_vencida ? "font-semibold text-red-700" : ""}`}
+                  className={`mt-0.5 ${orden.entrega_vencida ? "font-semibold text-destructive" : ""}`}
                 >
                   {entregaComprometida ? (
                     <>
                       {entregaComprometida}
                       {orden.entrega_vencida && (
-                        <span className="ml-1.5 text-xs font-semibold text-red-700">
+                        <span className="ml-1.5 text-xs font-semibold text-destructive">
                           · vencida
                         </span>
                       )}
@@ -364,7 +374,7 @@ export default async function DetalleOrdenCompraPage({
         <Card>
           <CardHeader className="border-b border-border">
             <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-              <FileText className="size-4 text-blue-500" aria-hidden="true" />
+              <FileText className="size-4 text-primary" aria-hidden="true" />
               Ítems ({orden.items.length})
             </CardTitle>
             <CardDescription>
@@ -447,7 +457,7 @@ export default async function DetalleOrdenCompraPage({
               <CardTitle className="text-sm font-semibold">Observaciones</CardTitle>
             </CardHeader>
             <CardContent className="pt-5">
-              <p className="text-sm whitespace-pre-wrap text-gray-700">
+              <p className="text-sm whitespace-pre-wrap text-foreground">
                 {orden.observaciones}
               </p>
             </CardContent>
@@ -470,11 +480,11 @@ export default async function DetalleOrdenCompraPage({
         <Card>
           <CardHeader className="border-b border-border">
             <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-              <History className="size-4 text-blue-500" aria-hidden="true" />
+              <History className="size-4 text-primary" aria-hidden="true" />
               Historial de estado
             </CardTitle>
             <CardDescription>
-              Leído del ledger de auditoría (Módulo D).
+              Leído del ledger de auditoría.
             </CardDescription>
           </CardHeader>
           <CardContent className="pt-5">
@@ -486,7 +496,7 @@ export default async function DetalleOrdenCompraPage({
               <ol className="space-y-4">
                 {historial.map((mov) => (
                   <li key={mov.id} className="flex gap-3">
-                    <div className="mt-1 size-2 rounded-full bg-blue-500 shrink-0" />
+                    <div className="mt-1 size-2 rounded-full bg-primary shrink-0" />
                     <div className="space-y-0.5">
                       <p className="text-sm font-medium">
                         {mov.estado_anterior && mov.estado_nuevo
@@ -498,7 +508,7 @@ export default async function DetalleOrdenCompraPage({
                         {mov.usuario_nombre ? ` · ${mov.usuario_nombre}` : ""}
                       </p>
                       {mov.detalle && (
-                        <p className="text-xs text-gray-600">{mov.detalle}</p>
+                        <p className="text-xs text-muted-foreground">{mov.detalle}</p>
                       )}
                     </div>
                   </li>

@@ -69,7 +69,7 @@ export function MovimientoWizard({ depositos, variantes, puedeRegistrarIngreso, 
           <ol className="flex items-center gap-2 text-xs text-muted-foreground">
             {PASOS.map((etiqueta, i) => (
               <li key={etiqueta} className="flex items-center gap-2">
-                <Badge variant={paso === i + 1 ? "default" : "outline"} className={paso === i + 1 ? "bg-blue-600 text-white" : ""}>
+                <Badge variant={paso === i + 1 ? "default" : "outline"} className={paso === i + 1 ? "bg-primary text-primary-foreground" : ""}>
                   {i + 1}
                 </Badge>
                 <span className={paso === i + 1 ? "font-semibold text-foreground" : ""}>{etiqueta}</span>
@@ -83,7 +83,7 @@ export function MovimientoWizard({ depositos, variantes, puedeRegistrarIngreso, 
         {paso === 1 && (
           <div className="max-w-sm space-y-3">
             <label htmlFor="wizard-deposito" className="flex items-center gap-1.5 text-sm font-medium">
-              <Building2 className="size-4 text-blue-600" aria-hidden="true" />
+              <Building2 className="size-4 text-primary" aria-hidden="true" />
               Depósito
             </label>
             <select
@@ -94,7 +94,7 @@ export function MovimientoWizard({ depositos, variantes, puedeRegistrarIngreso, 
             >
               {depositos.map((d) => <option key={d.id} value={d.id}>{d.nombre}</option>)}
             </select>
-            <Button onClick={() => setPaso(2)} disabled={!depositoId} className="bg-blue-600 text-white hover:bg-blue-700">Siguiente</Button>
+            <Button onClick={() => setPaso(2)} disabled={!depositoId} className="bg-primary text-primary-foreground hover:bg-primary-hover">Siguiente</Button>
           </div>
         )}
 
@@ -105,9 +105,9 @@ export function MovimientoWizard({ depositos, variantes, puedeRegistrarIngreso, 
                 type="button"
                 disabled={!puedeRegistrarIngreso}
                 onClick={() => { setTipo("INGRESO"); setPaso(3); }}
-                className="flex flex-col items-center gap-2 rounded-xl border p-5 text-center transition-colors enabled:hover:border-blue-400 enabled:hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"
+                className="flex flex-col items-center gap-2 rounded-xl border p-5 text-center transition-colors enabled:hover:border-ring enabled:hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <PackagePlus className="size-6 text-blue-600" aria-hidden="true" />
+                <PackagePlus className="size-6 text-primary" aria-hidden="true" />
                 <span className="font-semibold">Ingreso</span>
                 <span className="text-xs text-muted-foreground">Escaneo de mercadería entrante</span>
               </button>
@@ -115,9 +115,9 @@ export function MovimientoWizard({ depositos, variantes, puedeRegistrarIngreso, 
                 type="button"
                 disabled={!puedeTransferir}
                 onClick={() => { setTipo("TRANSFERENCIA"); setPaso(3); }}
-                className="flex flex-col items-center gap-2 rounded-xl border p-5 text-center transition-colors enabled:hover:border-blue-400 enabled:hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"
+                className="flex flex-col items-center gap-2 rounded-xl border p-5 text-center transition-colors enabled:hover:border-ring enabled:hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <ArrowRightLeft className="size-6 text-blue-600" aria-hidden="true" />
+                <ArrowRightLeft className="size-6 text-primary" aria-hidden="true" />
                 <span className="font-semibold">Transferencia</span>
                 <span className="text-xs text-muted-foreground">Despacho entre depósitos</span>
               </button>

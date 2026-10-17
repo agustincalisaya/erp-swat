@@ -171,7 +171,7 @@ export function BuscadorVarianteExistente({ onSeleccionar }: BuscadorVarianteExi
             ref={listaRef}
             role="listbox"
             style={{ top: posicion.top, left: posicion.left, width: posicion.width }}
-            className="fixed z-50 max-h-64 overflow-y-auto rounded-md border border-slate-200 bg-white shadow-md"
+            className="fixed z-50 max-h-64 overflow-y-auto rounded-md border border-border bg-card shadow-md"
           >
             {resultados.length === 0 && !buscando && (
               <li className="px-3 py-2 text-sm text-muted-foreground">
@@ -183,7 +183,7 @@ export function BuscadorVarianteExistente({ onSeleccionar }: BuscadorVarianteExi
                 <button
                   type="button"
                   onClick={() => handleSeleccionar(variante)}
-                  className="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left text-sm hover:bg-slate-50"
+                  className="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left text-sm hover:bg-accent"
                 >
                   <span className="flex w-full items-center justify-between gap-3">
                     <span className="font-mono text-xs">{variante.sku}</span>

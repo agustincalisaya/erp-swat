@@ -5,15 +5,16 @@
  * identidad (nombre, roles) del usuario autenticado; delega el logout —
  * única parte interactiva — a `LogoutButton` (Client Component).
  *
- * El espacio de notificaciones queda contemplado en el diseño (icono
- * deshabilitado) aunque ningún módulo emite notificaciones todavía —
- * ver task_cali_layout_dashboard.md §1.
+ * La campana de notificaciones (HU-F3) es un Client Component propio con
+ * polling del contador de no leídas — `CampanaNotificaciones`.
  */
-import { Bell, UserCircle2 } from "lucide-react";
+import { UserCircle2 } from "lucide-react";
 import { getServerSession } from "@/lib/auth/session";
 import { obtenerIdentidadUsuario } from "@/lib/services/auditoria/usuario.service";
 import { LogoutButton } from "@/components/layout/LogoutButton";
+import { CampanaNotificaciones } from "@/components/notificaciones/CampanaNotificaciones";
 import { Badge } from "@/components/ui/badge";
+import { ThemeSelector } from "@/components/theme/ThemeSelector";
 
 export async function Navbar() {
   const session = await getServerSession();
@@ -22,27 +23,18 @@ export async function Navbar() {
   const identidad = await obtenerIdentidadUsuario(session.userId);
 
   return (
-    <header className="h-14 shrink-0 border-b border-border bg-white flex items-center justify-between gap-4 px-4 sm:px-6">
+    <header className="h-14 shrink-0 border-b border-border bg-card flex items-center justify-between gap-4 px-4 sm:px-6">
       <div className="lg:hidden w-8" aria-hidden="true" />
 
-      <div className="flex-1" />
+      <div className="flex-1"><ThemeSelector /></div>
 
       <div className="flex items-center gap-3">
-        {/* Espacio reservado para notificaciones — sin fuente de datos hoy. */}
-        <button
-          type="button"
-          disabled
-          className="p-2 rounded-lg text-gray-300 cursor-not-allowed"
-          aria-label="Notificaciones (sin novedades)"
-          title="Sin notificaciones configuradas todavía"
-        >
-          <Bell className="size-4.5" aria-hidden="true" />
-        </button>
+        <CampanaNotificaciones />
 
         <div className="hidden sm:flex items-center gap-2 pl-1 border-l border-border">
-          <UserCircle2 className="size-6 text-gray-400 ml-2" aria-hidden="true" />
+          <UserCircle2 className="size-6 text-muted-foreground ml-2" aria-hidden="true" />
           <div className="flex flex-col leading-tight">
-            <span className="text-sm font-semibold text-gray-900">
+            <span className="text-sm font-semibold text-foreground">
               {identidad?.nombre_completo ?? session.nombreUsuario}
             </span>
             <div className="flex flex-wrap gap-1">
@@ -50,7 +42,7 @@ export async function Navbar() {
                 identidad!.roles.map((rol) => (
                   <Badge
                     key={rol}
-                    className="bg-blue-100 text-blue-700 border border-blue-200 hover:bg-blue-100 text-[10px] px-1.5 py-0"
+                    className="bg-info text-info-foreground border border-info-foreground hover:bg-info text-[10px] px-1.5 py-0"
                   >
                     {rol}
                   </Badge>

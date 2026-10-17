@@ -251,14 +251,14 @@ export function SelectorJerarquicoStock({
             <CardTitle>Umbrales de reposición</CardTitle>
             <CardDescription>
               <div className="flex flex-wrap items-center gap-2">
-                <span className="inline-flex items-center rounded-md bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-700/10">
+                <span className="inline-flex items-center rounded-md bg-selected px-2 py-1 text-xs font-medium text-selected-foreground ring-1 ring-inset ring-ring/10">
                   {productos.find((p) => p.id === productoId)?.nombre}
                 </span>
-                <span className="inline-flex items-center rounded-md bg-slate-50 px-2 py-1 text-xs font-medium text-slate-700 ring-1 ring-inset ring-slate-700/10">
+                <span className="inline-flex items-center rounded-md bg-background px-2 py-1 text-xs font-medium text-foreground ring-1 ring-inset ring-ring">
                   {depositos.find((d) => d.id === depositoId)?.nombre}
                 </span>
                 {varianteSeleccionada && (
-                  <span className="inline-flex items-center rounded-md bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700 ring-1 ring-inset ring-emerald-700/10">
+                  <span className="inline-flex items-center rounded-md bg-success px-2 py-1 text-xs font-medium text-success-foreground ring-1 ring-inset ring-success-foreground/10">
                     Talle {varianteSeleccionada.talle} · {varianteSeleccionada.color} · {varianteSeleccionada.genero}
                   </span>
                 )}

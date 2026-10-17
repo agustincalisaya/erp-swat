@@ -24,13 +24,114 @@ import "server-only";
 
 import { prisma } from "@/lib/db/prisma";
 import { domainEventBus } from "@/lib/events/domain-event-bus";
-import { registrarAuditLog } from "@/lib/services/auditoria/audit-log.service";
+import type {
+  AccesoDatoCifradoAuditadoPayload,
+  ConsentimientoDecisionRegistradaPayload,
+  ContraAsientoIngresoRegistradoPayload,
+  EcommercePedidoAdmitidoColaPayload,
+  EcommercePedidoCanceladoPayload,
+  EcommercePedidoListoParaRetiroPayload,
+  EcommercePedidoTomadoPayload,
+  EcommercePedidoVencidoSinRetiroPayload,
+  EcommercePlazoRetiroPorVencerPayload,
+  EcommerceReintegroEstadoCambiadoPayload,
+  EcommercePrioridadPreparacionCambiadaPayload,
+  EcommerceUnidadPreparacionConfirmadaPayload,
+  IngresoWebRegistradoPayload,
+  TransaccionPagoRegistradaPayload,
+  PedidoEntregadoPayload,
+  RetiroRechazadoPayload,
+  LibroIvaExportadoPayload,
+  DatosBancariosConsultadosPayload,
+  CuentaPropiaCreadaPayload,
+  CuentaPropiaEditadaPayload,
+  CuentaPropiaBajaLogicaPayload,
+} from "@/lib/events/event-types";
+import {
+  registrarAuditLog,
+  registrarAuditLogIdempotente,
+} from "@/lib/services/auditoria/audit-log.service";
 
 let registrado = false;
+
+/** Diagnóstico seguro: solo un código Prisma `PXXXX`; nunca el mensaje ni propiedades del error. */
+function codigoDiagnosticoAuditoria(error: unknown): string {
+  const codigo = typeof error === "object" && error !== null ? (error as { code?: unknown }).code : undefined;
+  return typeof codigo === "string" && /^P\d{4}$/.test(codigo) ? codigo : "ERROR_ESCRITURA_AUDITORIA";
+}
+
+async function registrarDecisionC4(payload: ConsentimientoDecisionRegistradaPayload): Promise<void> {
+  try {
+    await registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: `CONSENTIMIENTO_${payload.tipo}`,
+      tabla_afectada: "eventos_consentimiento_cliente",
+      registro_id: payload.evento_id,
+      ip: "internal-event",
+      valor_anterior: null,
+      valor_nuevo: {
+        cliente_id: payload.cliente_id, alcance: payload.alcance, tipo: payload.tipo,
+        fecha_evento: payload.fecha_evento, contexto: payload.contexto,
+        ...(payload.consentimiento_id ? { consentimiento_id: payload.consentimiento_id } : {}),
+        ...(payload.solicitud_evento_id ? { solicitud_evento_id: payload.solicitud_evento_id } : {}),
+      },
+    });
+  } catch {
+    console.error("[HU-C4] Falló la escritura del asiento central de consentimiento");
+  }
+}
+
+/** `cliente:creado` se emite después de confirmar el alta. C1 no transporta
+ * IDs C4: se leen los dos hechos iniciales reales y se validan antes de auditar. */
+async function auditarAltaC4(clienteId: string, usuarioId: string): Promise<void> {
+  try {
+    const hechos = await prisma.eventoConsentimientoCliente.findMany({
+      where: { cliente_id: clienteId, tipo: { in: ["ACEPTACION_INICIAL", "RECHAZO_COMERCIAL"] } },
+      include: { consentimiento: true },
+    });
+    const porAlcance = new Map(hechos.map((hecho) => [hecho.alcance, hecho]));
+    const coherentes = hechos.length === 2 && porAlcance.size === 2 &&
+      hechos[0].fecha_evento.getTime() === hechos[1].fecha_evento.getTime() &&
+      hechos.some((hecho) => hecho.alcance === "VENTA_ASISTIDA" && hecho.tipo === "ACEPTACION_INICIAL") &&
+      hechos.some((hecho) => hecho.alcance === "COMUNICACIONES_COMERCIALES" &&
+        (hecho.tipo === "ACEPTACION_INICIAL" || hecho.tipo === "RECHAZO_COMERCIAL")) &&
+      hechos.every((hecho) => hecho.is_active && hecho.cliente_id === clienteId &&
+        hecho.usuario_id === usuarioId && hecho.solicitud_evento_id === null &&
+        hecho.finalidad === (hecho.alcance === "VENTA_ASISTIDA" ?
+          "Tratamiento de datos personales para operar con el cliente" : "Comunicaciones comerciales") &&
+        (hecho.tipo === "RECHAZO_COMERCIAL" ? hecho.consentimiento_id === null :
+          !!hecho.consentimiento && hecho.consentimiento.origen === "EXPRESO" &&
+          hecho.consentimiento.is_active && hecho.consentimiento.cliente_id === clienteId &&
+          hecho.consentimiento.alcance === hecho.alcance &&
+          hecho.consentimiento.finalidad === hecho.finalidad &&
+          hecho.consentimiento.registrado_por_id === usuarioId &&
+          hecho.consentimiento.fecha_consentimiento.getTime() === hecho.fecha_evento.getTime()));
+    if (!coherentes) {
+      console.error("[HU-C4] Alta sin dos hechos iniciales coherentes; no se generaron asientos C4");
+      return;
+    }
+    for (const hecho of hechos) {
+      await registrarDecisionC4({
+        evento_id: hecho.id, cliente_id: hecho.cliente_id,
+        alcance: hecho.alcance as "VENTA_ASISTIDA" | "COMUNICACIONES_COMERCIALES",
+        tipo: hecho.tipo as "ACEPTACION_INICIAL" | "RECHAZO_COMERCIAL",
+        fecha_evento: hecho.fecha_evento.toISOString(), usuario_id: hecho.usuario_id,
+        consentimiento_id: hecho.consentimiento_id,
+        solicitud_evento_id: hecho.solicitud_evento_id, contexto: "ALTA",
+      });
+    }
+  } catch {
+    console.error("[HU-C4] Falló la lectura de hechos iniciales para auditoría central");
+  }
+}
 
 export function iniciarAuditLogListener(): void {
   if (registrado) return;
   registrado = true;
+
+  domainEventBus.on("consentimiento:decision_registrada", (payload) => {
+    void registrarDecisionC4(payload);
+  });
 
   domainEventBus.on("stock:transferencia_iniciada", (payload) => {
     void registrarAuditLog({
@@ -620,12 +721,496 @@ export function iniciarAuditLogListener(): void {
     });
   });
 
+  // HU-H2 — publicación de una ListaPrecioVersion cuya variación porcentual
+  // máxima supera UMBRAL_VARIACION_CRITICA_PORCENTUAL (`propose.md` —
+  // sección "Cálculo de variación porcentual y evento crítico"). El service
+  // (`lista-precios.service.ts`) nunca llama `registrarAuditLog()` directo:
+  // emite el evento post-COMMIT y este listener reacciona (misma regla de
+  // unificación que el resto del módulo). `tabla_afectada` usa el `@@map`
+  // en minúsculas (`listas_precio_version`); `registro_id` referencia la
+  // versión recién creada. `valor_anterior: null` — es un alta, no hay
+  // snapshot previo de la versión. `ip: "internal-event"` — mismo sentinel
+  // que `orden_compra:*` / `proveedor:*`, que también emiten post-COMMIT
+  // desde un service sin request HTTP directo asociado.
+  domainEventBus.on("proveedor:variacion_precio_critica", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "VARIACION_CRITICA",
+      tabla_afectada: "listas_precio_version",
+      registro_id: payload.lista_precio_version_id,
+      ip: "internal-event",
+      valor_anterior: null,
+      valor_nuevo: {
+        proveedor_id: payload.proveedor_id,
+        variacion_porcentual_maxima: payload.variacion_porcentual_maxima,
+        items_variacion_critica: payload.items_variacion_critica,
+      },
+    });
+  });
+
+  // HU-H2 — aprobación manual de una ListaPrecioVersion que había quedado
+  // pendiente por superar el umbral crítico de variación
+  // (`aprobarListaPrecioVersion()`, `propose.md` — contrato de función).
+  // `valor_anterior` asume el precondition documentado en la Spec
+  // (`publicada: false` / `requiere_aprobacion: true`) porque el payload no
+  // trae snapshot previo (mismo criterio que `stock:reclasificacion_solicitud_aprobada`).
+  domainEventBus.on("proveedor:lista_precio_aprobada", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "LISTA_PRECIO_APROBADA",
+      tabla_afectada: "listas_precio_version",
+      registro_id: payload.lista_precio_version_id,
+      ip: "internal-event",
+      valor_anterior: { publicada: false, requiere_aprobacion: true },
+      valor_nuevo: {
+        proveedor_id: payload.proveedor_id,
+        publicada: true,
+        requiere_aprobacion: false,
+        aprobada_por_id: payload.usuario_id,
+      },
+    });
+  });
+
   // HU-A10 — congelamiento de Reserva (spec_modulo_A.md §2.9). El service
   // (`reserva.service.ts`) nunca llama `registrarAuditLog()` directo: emite
   // el evento y este listener reacciona (misma regla de unificación que el
   // resto del proyecto). `tabla_afectada` usa el `@@map` en minúsculas
   // (`reservas`); `ip: "internal-event"` — mismo sentinel que los listeners
   // que emiten post-COMMIT desde un service sin request HTTP directo.
+  // ── HU-E1 (Módulo E) — auditoría estándar de carrito/checkout (D8). El
+  // actor es un Cliente Web, que NO es un `Usuario` del ERP: `usuario_id`
+  // queda null y la cuenta viaja en `valor_nuevo` (mismo criterio que los
+  // eventos disparados por el cron). Las mutaciones anónimas de ítems no se
+  // auditan (D8, aprobada).
+  // HU-E5 (task_relos.md D6/D12/D13): el mismo evento lo emite el aviso
+  // proactivo al ocultar o dar de baja el contenido web; ahí no es un bloqueo
+  // de checkout. Sin `origen` (o "CHECKOUT") el asiento queda igual que en E1.
+  domainEventBus.on("ecommerce:carrito_articulo_no_disponible", (payload) => {
+    const porVisibilidad = payload.origen === "VISIBILIDAD_WEB";
+    registrarAuditLog({
+      usuario_id: null,
+      accion: porVisibilidad ? "ARTICULO_NO_DISPONIBLE_VISIBILIDAD_WEB" : "CHECKOUT_BLOQUEADO",
+      tabla_afectada: "items_carrito_web",
+      registro_id: payload.carrito_item_id,
+      ip: "internal-event",
+      valor_anterior: null,
+      valor_nuevo: {
+        carrito_id: payload.carrito_id,
+        variante_sku_id: payload.variante_sku_id,
+        motivo: payload.motivo,
+        cliente_web_cuenta_id: payload.cliente_web_cuenta_id,
+        ...(porVisibilidad ? { origen: payload.origen } : {}),
+      },
+    }).catch((error: unknown) => {
+      console.error("[audit-log.listener] Falló la escritura de auditoría para ecommerce:carrito_articulo_no_disponible:", {
+        carrito_item_id: payload.carrito_item_id,
+        codigo_error: codigoDiagnosticoAuditoria(error),
+      });
+    });
+  });
+
+  domainEventBus.on("ecommerce:carrito_fusionado", (payload) => {
+    void registrarAuditLog({
+      usuario_id: null,
+      accion: "CARRITO_FUSIONADO",
+      tabla_afectada: "carritos_web",
+      registro_id: payload.carrito_origen_id,
+      ip: "internal-event",
+      valor_anterior: { is_active: true },
+      valor_nuevo: {
+        is_active: false,
+        deletion_reason: "FUSIONADO",
+        carrito_destino_id: payload.carrito_destino_id,
+        cliente_web_cuenta_id: payload.cliente_web_cuenta_id,
+        items_fusionados: payload.items_fusionados,
+      },
+    });
+  });
+
+  domainEventBus.on("ecommerce:checkout_iniciado", (payload) => {
+    void registrarAuditLog({
+      usuario_id: null,
+      accion: "CREATE",
+      tabla_afectada: "pedidos_venta_ecommerce",
+      registro_id: payload.pedido_venta_ecommerce_id,
+      ip: "internal-event",
+      valor_anterior: null,
+      valor_nuevo: {
+        pedido_venta_id: payload.pedido_venta_id,
+        numero_venta: payload.numero_venta,
+        estado_ecommerce: "PAGO_PENDIENTE",
+        cliente_web_cuenta_id: payload.cliente_web_cuenta_id,
+        carrito_id: payload.carrito_id,
+        reserva_ids: payload.reserva_ids,
+        ttl_expiracion: payload.ttl_expiracion,
+      },
+    });
+  });
+
+  domainEventBus.on("ecommerce:carrito_convertido_en_pedido", (payload) => {
+    void registrarAuditLog({
+      usuario_id: null,
+      accion: "DELETE_LOGICO",
+      tabla_afectada: "carritos_web",
+      registro_id: payload.carrito_id,
+      ip: "internal-event",
+      valor_anterior: { is_active: true },
+      valor_nuevo: {
+        is_active: false,
+        deleted_at: payload.deleted_at,
+        deleted_by: payload.cliente_web_cuenta_id,
+        deletion_reason: payload.deletion_reason,
+        pedido_venta_id: payload.pedido_venta_id,
+      },
+    });
+  });
+
+  domainEventBus.on("ecommerce:cuenta_web_registrada", (payload) => {
+    const { cuenta_id, actor_id, actor_tipo, ocurrido_en, ...datos } = payload;
+    void registrarAuditLog({ usuario_id: null, accion: "ecommerce:cuenta_web_registrada", tabla_afectada: "cuentas_cliente_web", registro_id: cuenta_id, ip: "internal-event", valor_anterior: null, valor_nuevo: { ...datos, actor_id, actor_tipo, ocurrido_en } });
+  });
+  domainEventBus.on("ecommerce:cuenta_web_bloqueada", (payload) => {
+    const { cuenta_id, actor_id, actor_tipo, ocurrido_en, ...datos } = payload;
+    void registrarAuditLog({ usuario_id: null, accion: "ecommerce:cuenta_web_bloqueada", tabla_afectada: "cuentas_cliente_web", registro_id: cuenta_id, ip: "internal-event", valor_anterior: null, valor_nuevo: { ...datos, actor_id, actor_tipo, ocurrido_en } });
+  });
+  domainEventBus.on("ecommerce:cuenta_web_vinculada", (payload) => {
+    const { cuenta_id, actor_id, actor_tipo, ocurrido_en, ...datos } = payload;
+    void registrarAuditLog({ usuario_id: actor_id, accion: "ecommerce:cuenta_web_vinculada", tabla_afectada: "cuentas_cliente_web", registro_id: cuenta_id, ip: "internal-event", valor_anterior: { vinculacion_pendiente: true }, valor_nuevo: { ...datos, actor_tipo, ocurrido_en, vinculacion_pendiente: false } });
+  });
+  domainEventBus.on("ecommerce:cuenta_web_recuperacion_habilitada", (payload) => {
+    const { cuenta_id, actor_id, actor_tipo, ocurrido_en, ...datos } = payload;
+    void registrarAuditLog({ usuario_id: actor_id, accion: "ecommerce:cuenta_web_recuperacion_habilitada", tabla_afectada: "cuentas_cliente_web", registro_id: cuenta_id, ip: "internal-event", valor_anterior: null, valor_nuevo: { ...datos, actor_tipo, ocurrido_en } });
+  });
+  domainEventBus.on("ecommerce:cuenta_web_password_redefinida", (payload) => {
+    const { cuenta_id, actor_id, actor_tipo, ocurrido_en, ...datos } = payload;
+    void registrarAuditLog({ usuario_id: null, accion: "ecommerce:cuenta_web_password_redefinida", tabla_afectada: "cuentas_cliente_web", registro_id: cuenta_id, ip: "internal-event", valor_anterior: null, valor_nuevo: { ...datos, actor_id, actor_tipo, ocurrido_en } });
+  });
+  domainEventBus.on("ecommerce:cuenta_web_baja", (payload) => {
+    const { cuenta_id, actor_id, actor_tipo, ocurrido_en, ...datos } = payload;
+    void registrarAuditLog({ usuario_id: null, accion: "ecommerce:cuenta_web_baja", tabla_afectada: "cuentas_cliente_web", registro_id: cuenta_id, ip: "internal-event", valor_anterior: { is_active: true }, valor_nuevo: { ...datos, actor_id, actor_tipo, ocurrido_en, is_active: false } });
+  });
+
+  // ── HU-E4 (Módulo E) — cupones de descuento (spec E §4). `usuario_id` es el
+  // actor cuando es un Usuario del ERP (administración o "Canal Web"); null
+  // cuando el actor es la cuenta del Cliente Web (mismo criterio que E8).
+  domainEventBus.on("ecommerce:cupon_creado", (payload) => {
+    const { cupon_id, actor_id, actor_tipo, ocurrido_en, ...datos } = payload;
+    void registrarAuditLog({
+      usuario_id: actor_id,
+      accion: "ecommerce:cupon_creado",
+      tabla_afectada: "cupones_descuento",
+      registro_id: cupon_id,
+      ip: "internal-event",
+      valor_anterior: null,
+      valor_nuevo: { ...datos, actor_tipo, ocurrido_en, is_active: true },
+    });
+  });
+  domainEventBus.on("ecommerce:cupon_editado", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.actor_id,
+      accion: "ecommerce:cupon_editado",
+      tabla_afectada: "cupones_descuento",
+      registro_id: payload.cupon_id,
+      ip: "internal-event",
+      valor_anterior: payload.antes,
+      valor_nuevo: { ...payload.despues, actor_tipo: payload.actor_tipo, ocurrido_en: payload.ocurrido_en },
+    });
+  });
+  domainEventBus.on("ecommerce:cupon_baja", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.actor_id,
+      accion: "ecommerce:cupon_baja",
+      tabla_afectada: "cupones_descuento",
+      registro_id: payload.cupon_id,
+      ip: "internal-event",
+      valor_anterior: { is_active: true },
+      valor_nuevo: {
+        is_active: false,
+        deleted_at: payload.ocurrido_en,
+        deleted_by: payload.actor_id,
+        deletion_reason: payload.motivo,
+        actor_tipo: payload.actor_tipo,
+      },
+    });
+  });
+  domainEventBus.on("ecommerce:cupon_aplicado", (payload) => {
+    const { aplicacion_id, actor_id, actor_tipo, ocurrido_en, ...datos } = payload;
+    void registrarAuditLog({
+      usuario_id: null,
+      accion: "ecommerce:cupon_aplicado",
+      tabla_afectada: "aplicaciones_cupon",
+      registro_id: aplicacion_id,
+      ip: "internal-event",
+      valor_anterior: null,
+      valor_nuevo: { ...datos, confirmada: false, actor_id, actor_tipo, ocurrido_en },
+    });
+  });
+  domainEventBus.on("ecommerce:cupon_consumido", (payload) => {
+    registrarAuditLog({
+      usuario_id: payload.actor_id,
+      accion: "ecommerce:cupon_consumido",
+      tabla_afectada: "aplicaciones_cupon",
+      registro_id: payload.aplicacion_id,
+      ip: "internal-event",
+      valor_anterior: { confirmada: false },
+      valor_nuevo: {
+        confirmada: true,
+        cupon_id: payload.cupon_id,
+        pedido_venta_id: payload.pedido_venta_id,
+        actor_tipo: payload.actor_tipo,
+        ocurrido_en: payload.ocurrido_en,
+      },
+    }).catch((error: unknown) => {
+      console.error("[audit-log.listener] Falló la escritura de auditoría para ecommerce:cupon_consumido:", {
+        aplicacion_id: payload.aplicacion_id,
+        pedido_venta_id: payload.pedido_venta_id,
+        codigo_error: codigoDiagnosticoAuditoria(error),
+      });
+    });
+  });
+  domainEventBus.on("ecommerce:cupon_aplicacion_liberada", (payload) => {
+    registrarAuditLog({
+      usuario_id: payload.actor_id,
+      accion: "ecommerce:cupon_aplicacion_liberada",
+      tabla_afectada: "aplicaciones_cupon",
+      registro_id: payload.aplicacion_id,
+      ip: "internal-event",
+      valor_anterior: { is_active: true },
+      valor_nuevo: {
+        is_active: false,
+        deleted_at: payload.ocurrido_en,
+        deletion_reason: payload.motivo,
+        cupon_id: payload.cupon_id,
+        pedido_venta_id: payload.pedido_venta_id,
+        actor_tipo: payload.actor_tipo,
+      },
+    }).catch((error: unknown) => {
+      console.error("[audit-log.listener] Falló la escritura de auditoría para ecommerce:cupon_aplicacion_liberada:", {
+        aplicacion_id: payload.aplicacion_id,
+        pedido_venta_id: payload.pedido_venta_id,
+        codigo_error: codigoDiagnosticoAuditoria(error),
+      });
+    });
+  });
+
+  // ── HU-E5 (Módulo E) — visibilidad web y baja lógica del contenido (spec E
+  // §2.5). El actor es siempre un Usuario del ERP (Administrador E-commerce).
+  domainEventBus.on("ecommerce:visibilidad_web_cambiada", (payload) => {
+    registrarAuditLog({
+      usuario_id: payload.actor_id,
+      accion: "ecommerce:visibilidad_web_cambiada",
+      tabla_afectada: "contenidos_producto_web",
+      registro_id: payload.producto_web_id,
+      ip: "internal-event",
+      valor_anterior: { visibilidad_web: payload.visibilidad_anterior },
+      valor_nuevo: {
+        visibilidad_web: payload.visibilidad_nueva,
+        motivo: payload.motivo,
+        producto_maestro_id: payload.producto_maestro_id,
+      },
+    }).catch((error: unknown) => {
+      console.error("[audit-log.listener] Falló la escritura de auditoría para ecommerce:visibilidad_web_cambiada:", {
+        producto_web_id: payload.producto_web_id,
+        codigo_error: codigoDiagnosticoAuditoria(error),
+      });
+    });
+  });
+  domainEventBus.on("ecommerce:contenido_web_baja", (payload) => {
+    registrarAuditLog({
+      usuario_id: payload.actor_id,
+      accion: "ecommerce:contenido_web_baja",
+      tabla_afectada: "contenidos_producto_web",
+      registro_id: payload.producto_web_id,
+      ip: "internal-event",
+      valor_anterior: { is_active: true },
+      valor_nuevo: {
+        is_active: false,
+        deleted_by: payload.actor_id,
+        deletion_reason: payload.deletion_reason,
+        visibilidad_web: false,
+        producto_maestro_id: payload.producto_maestro_id,
+      },
+    }).catch((error: unknown) => {
+      console.error("[audit-log.listener] Falló la escritura de auditoría para ecommerce:contenido_web_baja:", {
+        producto_web_id: payload.producto_web_id,
+        codigo_error: codigoDiagnosticoAuditoria(error),
+      });
+    });
+  });
+
+  // ── HU-E11 (Módulo E) — contenido comercial y fotos del catálogo (spec E
+  // §2.11/§4, task_relos.md D25). Actor: Usuario del ERP (Administrador
+  // E-commerce). El cambio colateral de principal viaja en el payload.
+  const fallaAuditoriaE11 = (evento: string, registroId: string) => (error: unknown) => {
+    console.error(`[audit-log.listener] Falló la escritura de auditoría para ${evento}:`, {
+      registro_id: registroId,
+      codigo_error: codigoDiagnosticoAuditoria(error),
+    });
+  };
+  domainEventBus.on("ecommerce:contenido_web_creado", (payload) => {
+    registrarAuditLog({
+      usuario_id: payload.actor_id,
+      accion: "ecommerce:contenido_web_creado",
+      tabla_afectada: "contenidos_producto_web",
+      registro_id: payload.producto_web_id,
+      ip: "internal-event",
+      valor_anterior: null,
+      valor_nuevo: {
+        producto_maestro_id: payload.producto_maestro_id,
+        titulo_comercial: payload.titulo_comercial,
+        descripcion: payload.descripcion,
+        visibilidad_web: false,
+      },
+    }).catch(fallaAuditoriaE11("ecommerce:contenido_web_creado", payload.producto_web_id));
+  });
+  domainEventBus.on("ecommerce:contenido_web_editado", (payload) => {
+    registrarAuditLog({
+      usuario_id: payload.actor_id,
+      accion: "ecommerce:contenido_web_editado",
+      tabla_afectada: "contenidos_producto_web",
+      registro_id: payload.producto_web_id,
+      ip: "internal-event",
+      valor_anterior: payload.antes,
+      valor_nuevo: payload.despues,
+    }).catch(fallaAuditoriaE11("ecommerce:contenido_web_editado", payload.producto_web_id));
+  });
+  domainEventBus.on("ecommerce:foto_web_subida", (payload) => {
+    registrarAuditLog({
+      usuario_id: payload.actor_id,
+      accion: "ecommerce:foto_web_subida",
+      tabla_afectada: "fotos_producto_web",
+      registro_id: payload.foto_id,
+      ip: "internal-event",
+      valor_anterior: null,
+      valor_nuevo: {
+        producto_web_id: payload.producto_web_id,
+        url: payload.url,
+        formato: payload.formato,
+        tamano_bytes: payload.tamano_bytes,
+        es_principal: payload.es_principal,
+        orden: payload.orden,
+        principal_anterior_id: payload.principal_anterior_id,
+      },
+    }).catch(fallaAuditoriaE11("ecommerce:foto_web_subida", payload.foto_id));
+  });
+  domainEventBus.on("ecommerce:foto_web_principal_cambiada", (payload) => {
+    registrarAuditLog({
+      usuario_id: payload.actor_id,
+      accion: "ecommerce:foto_web_principal_cambiada",
+      tabla_afectada: "fotos_producto_web",
+      registro_id: payload.foto_id,
+      ip: "internal-event",
+      valor_anterior: { es_principal: false, principal_anterior_id: payload.principal_anterior_id },
+      valor_nuevo: { es_principal: true },
+    }).catch(fallaAuditoriaE11("ecommerce:foto_web_principal_cambiada", payload.foto_id));
+  });
+  domainEventBus.on("ecommerce:foto_web_baja", (payload) => {
+    registrarAuditLog({
+      usuario_id: payload.actor_id,
+      accion: "ecommerce:foto_web_baja",
+      tabla_afectada: "fotos_producto_web",
+      registro_id: payload.foto_id,
+      ip: "internal-event",
+      valor_anterior: { is_active: true, es_principal: payload.era_principal },
+      valor_nuevo: {
+        is_active: false,
+        deleted_by: payload.actor_id,
+        deletion_reason: payload.deletion_reason,
+        principal_promovida_id: payload.principal_promovida_id,
+      },
+    }).catch(fallaAuditoriaE11("ecommerce:foto_web_baja", payload.foto_id));
+  });
+
+  // ── HU-E7 (Módulo E) — anulación de orden web no abonada (spec E §2.7/§4),
+  // evento sensible encadenado SHA-256. Manual: el Administrador E-commerce.
+  // Automática por TTL: `usuario_id` null (actor de sistema, mismo criterio que
+  // E2 y la liberación por TTL). El payload no trae el estado previo
+  // (PAGO_PENDIENTE o PAGO_RECHAZADO): `valor_anterior` registra que estaba activa.
+  domainEventBus.on("ecommerce:orden_anulada", (payload) => {
+    registrarAuditLog({
+      usuario_id: payload.usuario_id ?? null,
+      accion: "ecommerce:orden_anulada",
+      tabla_afectada: "pedidos_venta",
+      registro_id: payload.pedido_venta_id,
+      ip: "internal-event",
+      valor_anterior: { is_active: true },
+      valor_nuevo: {
+        estado_ecommerce: "ANULADO",
+        is_active: false,
+        deletion_reason: payload.deletion_reason,
+        automatico: payload.automatico,
+      },
+    }).catch((error: unknown) => {
+      console.error("[audit-log.listener] Falló la escritura de auditoría para ecommerce:orden_anulada:", {
+        pedido_venta_id: payload.pedido_venta_id,
+        codigo_error: codigoDiagnosticoAuditoria(error),
+      });
+    });
+  });
+
+  // ── HU-E2 (Módulo E) — pago web por webhook de Mercado Pago. El actor es
+  // Mercado Pago (sin `Usuario` del ERP): `usuario_id` null, mismo criterio que
+  // los eventos de E1. Sin datos de tarjeta ni payload crudo de MP (spec E §4).
+  domainEventBus.on("ecommerce:pedido_pago_confirmado", (payload) => {
+    void registrarAuditLog({
+      usuario_id: null,
+      accion: "PAGO_CONFIRMADO",
+      tabla_afectada: "pedidos_venta_ecommerce",
+      registro_id: payload.pedido_venta_ecommerce_id,
+      ip: "internal-event",
+      valor_anterior: { estado_ecommerce: "PAGO_PENDIENTE" },
+      valor_nuevo: {
+        estado_ecommerce: "PAGO_CONFIRMADO",
+        pedido_venta_id: payload.pedido_venta_id,
+        numero_venta: payload.numero_venta,
+        estado_venta: "FACTURADO",
+        mercadopago_payment_id: payload.mercadopago_payment_id,
+        monto: payload.monto,
+        moneda: payload.moneda,
+        fecha_aprobacion: payload.fecha_aprobacion,
+        comprobante_id: payload.comprobante_id,
+        cupon_aplicacion_id: payload.cupon_aplicacion_id,
+        cliente_web_cuenta_id: payload.cliente_web_cuenta_id,
+      },
+    });
+  });
+
+  domainEventBus.on("ecommerce:pago_rechazado", (payload) => {
+    void registrarAuditLog({
+      usuario_id: null,
+      accion: "PAGO_RECHAZADO",
+      tabla_afectada: "pedidos_venta_ecommerce",
+      registro_id: payload.pedido_venta_ecommerce_id,
+      ip: "internal-event",
+      valor_anterior: { estado_ecommerce: "PAGO_PENDIENTE" },
+      valor_nuevo: {
+        estado_ecommerce: "PAGO_RECHAZADO",
+        pedido_venta_id: payload.pedido_venta_id,
+        numero_venta: payload.numero_venta,
+        estado_venta: "ANULADO",
+        mercadopago_payment_id: payload.mercadopago_payment_id,
+        monto: payload.monto,
+        moneda: payload.moneda,
+        motivo_rechazo: payload.motivo_rechazo,
+        reserva_ids: payload.reserva_ids,
+        carrito_id: payload.carrito_id,
+        cliente_web_cuenta_id: payload.cliente_web_cuenta_id,
+      },
+    });
+  });
+
+  domainEventBus.on("ecommerce:pago_anomalo", (payload) => {
+    void registrarAuditLog({
+      usuario_id: null,
+      accion: "PAGO_ANOMALO",
+      tabla_afectada: "pedidos_venta_ecommerce",
+      registro_id: payload.pedido_venta_ecommerce_id,
+      ip: "internal-event",
+      valor_anterior: null,
+      valor_nuevo: { ...payload },
+    });
+  });
+
   domainEventBus.on("stock:reserva_congelada", (payload) => {
     void registrarAuditLog({
       usuario_id: payload.usuario_id,
@@ -749,6 +1334,917 @@ export function iniciarAuditLogListener(): void {
         variante_sku_id: payload.variante_sku_id,
         rechazada_motivo: payload.rechazada_motivo,
       },
+    });
+  });
+
+  // HU-B3 (Módulo B) — alta de Presupuesto EMITIDO (spec_modulo_B.md §2.3/§4).
+  // El service (`presupuesto.service.ts`) nunca llama `registrarAuditLog()`
+  // directo: emite el evento post-COMMIT (tras congelar todas las Reservas de
+  // Módulo A y persistir el Presupuesto) y este listener reacciona — misma
+  // regla de unificación que el resto del proyecto. `tabla_afectada` usa el
+  // `@@map` en minúsculas (`presupuestos`); `ip: "internal-event"` — mismo
+  // sentinel que `orden_compra:*` / `stock:reserva_congelada`.
+  domainEventBus.on("venta:presupuesto_emitido", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.creado_por_id,
+      accion: "CREATE",
+      tabla_afectada: "presupuestos",
+      registro_id: payload.presupuesto_id,
+      ip: "internal-event",
+      valor_anterior: null,
+      valor_nuevo: {
+        cliente_id: payload.cliente_id,
+        estado: "EMITIDO",
+        vigencia_hasta: payload.vigencia_hasta,
+        reserva_ids: payload.reserva_ids,
+      },
+    });
+  });
+
+  // HU-B3 — transición perezosa EMITIDO → VENCIDO (baja lógica, spec §3.1).
+  // `usuario_id: null`: disparada por una lectura, sin un usuario ejecutando
+  // una acción de negocio (mismo criterio que `stock:reserva_liberada` vía TTL).
+  domainEventBus.on("venta:presupuesto_vencido", (payload) => {
+    void registrarAuditLog({
+      usuario_id: null,
+      accion: "DELETE_LOGICO",
+      tabla_afectada: "presupuestos",
+      registro_id: payload.presupuesto_id,
+      ip: "internal-event",
+      valor_anterior: { estado: "EMITIDO", is_active: true },
+      valor_nuevo: {
+        estado: "VENCIDO",
+        is_active: false,
+        vigencia_hasta: payload.vigencia_hasta,
+      },
+    });
+  });
+
+  // HU-B3 — conversión de Presupuesto EMITIDO a PedidoVenta RESERVADO
+  // (`aceptarPresupuesto()`). No enumerado en la tabla de eventos de spec §4
+  // — añadido por el mismo precedente que `orden_compra:creada` (RULES.md §2).
+  domainEventBus.on("venta:presupuesto_aceptado", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.aceptado_por_id,
+      accion: "PRESUPUESTO_ACEPTADO",
+      tabla_afectada: "pedidos_venta",
+      registro_id: payload.pedido_venta_id,
+      ip: "internal-event",
+      valor_anterior: null,
+      valor_nuevo: {
+        presupuesto_id: payload.presupuesto_id,
+        numero_venta: payload.numero_venta,
+        cliente_id: payload.cliente_id,
+        estado: "RESERVADO",
+      },
+    });
+  });
+
+  // HU-B4 (Módulo B) — autorización de descuento fuera de margen (spec_modulo_B.md
+  // §2.4/§4). Evento SENSIBLE. `pedido-venta.service.ts` nunca llama
+  // `registrarAuditLog()` directo — emite el evento post-COMMIT y este
+  // listener reacciona (misma regla de unificación que el resto del
+  // proyecto). `autorizacion_id` (id de correlación generado por el
+  // servicio, ver DECISIÓN RESUELTA de `pedido-venta.service.ts`) viaja
+  // dentro de `valor_nuevo` para quedar buscable en el `AuditLog` real ya
+  // escrito, cerrando la trazabilidad sin violar la regla de escritura
+  // asíncrona. `tabla_afectada` usa el `@@map` en minúsculas (`pedidos_venta`).
+  domainEventBus.on("venta:descuento_fuera_margen", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_autorizante_id,
+      accion: "DESCUENTO_FUERA_MARGEN",
+      tabla_afectada: "pedidos_venta",
+      registro_id: payload.pedido_venta_id,
+      ip: "internal-event",
+      valor_anterior: null,
+      valor_nuevo: {
+        autorizacion_id: payload.autorizacion_id,
+        usuario_solicitante_id: payload.usuario_solicitante_id,
+        porcentaje_aplicado: payload.porcentaje_aplicado,
+        motivo: payload.motivo,
+        dispositivo: payload.dispositivo,
+        timestamp: payload.timestamp,
+      },
+    });
+  });
+
+  // HU-B4 (Módulo B) — cambio manual de precio de lista sobre un
+  // PedidoVentaItem (spec_modulo_B.md §2.4/§4). Evento SENSIBLE, mismo
+  // patrón que `venta:descuento_fuera_margen` (arriba). `registro_id` usa
+  // `pedido_venta_id` (la fila realmente afectada a nivel de agregado);
+  // `variante_sku_id` queda como contexto en `valor_nuevo`.
+  domainEventBus.on("venta:cambio_precio_manual", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_autorizante_id,
+      accion: "CAMBIO_PRECIO_MANUAL",
+      tabla_afectada: "pedidos_venta",
+      registro_id: payload.pedido_venta_id,
+      ip: "internal-event",
+      valor_anterior: { precio_unitario: payload.precio_anterior },
+      valor_nuevo: {
+        autorizacion_id: payload.autorizacion_id,
+        variante_sku_id: payload.variante_sku_id,
+        precio_unitario: payload.precio_nuevo,
+        motivo: payload.motivo,
+      },
+    });
+  });
+
+  // HU-B5 (Módulo B) — resolución (aprobación/rechazo) de una operación de
+  // cuenta corriente RETENIDA por exceso de límite de crédito (task HU-B5
+  // §2.3/§2.5). Evento SENSIBLE, mismo patrón que
+  // `venta:descuento_fuera_margen`: `usuario_id` es el autorizante (Supervisor),
+  // el solicitante y el `autorizacion_id` de correlación quedan en
+  // `valor_nuevo`. `registro_id` es la operación afectada (la fila realmente
+  // mutada); `pedido_venta_id`/`cliente_id` quedan como contexto.
+  domainEventBus.on("venta:excepcion_credito_resuelta", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_autorizante_id,
+      accion: payload.decision === "APROBAR" ? "EXCEPCION_CREDITO_APROBADA" : "EXCEPCION_CREDITO_RECHAZADA",
+      tabla_afectada: "cuenta_corriente_operaciones",
+      registro_id: payload.operacion_id,
+      ip: "internal-event",
+      valor_anterior: { estado: "RETENIDA" },
+      valor_nuevo: {
+        estado: payload.decision === "APROBAR" ? "APROBADA" : "RECHAZADA",
+        autorizacion_id: payload.autorizacion_id,
+        usuario_solicitante_id: payload.usuario_solicitante_id,
+        pedido_venta_id: payload.pedido_venta_id,
+        cliente_id: payload.cliente_id,
+        decision: payload.decision,
+        motivo: payload.motivo,
+        monto: payload.monto,
+      },
+    });
+  });
+
+  // HU-B9 (Módulo B) — publicación de una versión de la Lista de Precios de
+  // Venta (spec_modulo_B.md §2.9/§4). Evento SENSIBLE. `lista-precio-venta.service.ts`
+  // nunca llama `registrarAuditLog()` directo: emite post-COMMIT y este listener
+  // reacciona. `accion` = PUBLICAR_VERSION_LISTA_PRECIO_VENTA (Punto abierto 12).
+  // `valor_anterior` = la versión reemplazada (`version_anterior_id`, `null` si
+  // es la primera de la lista — Punto abierto 3, resuelto) y `valor_nuevo` =
+  // payload literal del spec.
+  domainEventBus.on("precio_venta:version_publicada", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.publicado_por_id,
+      accion: "PUBLICAR_VERSION_LISTA_PRECIO_VENTA",
+      tabla_afectada: "versiones_lista_precio_venta",
+      registro_id: payload.version_id,
+      ip: "internal-event",
+      valor_anterior: { version_anterior_id: payload.version_anterior_id },
+      valor_nuevo: { ...payload },
+    });
+  });
+
+  // HU-C1 (Módulo C) — alta NUEVA de un Cliente. `cliente.service.ts` nunca
+  // se emite al recuperar un DNI ya existente (spec §3.1: "no hay transición
+  // nueva"), así que este listener solo ve altas reales. Sin `ip` en el
+  // payload (mismo criterio que `producto_maestro:creado`, Módulo A).
+  domainEventBus.on("cliente:creado", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "CREATE",
+      tabla_afectada: "clientes",
+      registro_id: payload.cliente_id,
+      ip: "unknown",
+      valor_anterior: null,
+      valor_nuevo: { dni: payload.dni },
+    });
+  });
+
+  domainEventBus.on("cliente:creado", (payload) => {
+    void auditarAltaC4(payload.cliente_id, payload.usuario_id);
+  });
+
+  // Módulo C — mutación de la ficha del cliente cubierta por §2.3, con DOS
+  // consumidores del mismo evento `cliente:actualizado`:
+  //  - HU-C3: el alta de una `DireccionCliente` (`agregarDireccionCliente()`),
+  //    que NO envía los campos opcionales → el asiento cae a los defaults
+  //    históricos (`CREATE` / `direcciones_cliente` / id de la dirección).
+  //  - HU-C9: el cambio de `canal_preferido` (`actualizarCanalContacto()`),
+  //    que envía `accion:"UPDATE"` / `tabla_afectada:"clientes"` /
+  //    `registro_id: cliente_id`.
+  // `accion`/`tabla_afectada`/`registro_id` son opcionales y aditivos: la
+  // fila de HU-C3 queda byte-idéntica a la actual (`??` reproduce los valores
+  // que antes estaban fijos), mientras que HU-C9 aporta su propio asiento.
+  // El service emite post-COMMIT y este listener es la única vía de escritura
+  // a `AuditLog` (RULES.md: ningún service llama `registrarAuditLog()`).
+  //
+  // `registro_id` es el id de la fila realmente afectada (la dirección creada
+  // en C3, el cliente en C9); si faltara, cae al `cliente_id` para no perder
+  // el asiento. `AuditLog` NO tiene columna `campos_modificados` (verificado
+  // en `schema.prisma`), así que ese array se pliega dentro de `valor_nuevo`
+  // para que el snapshot forense conserve qué cambió. `ip: "unknown"` —
+  // mismo sentinel que `cliente:creado` (arriba).
+  domainEventBus.on("cliente:actualizado", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: payload.accion ?? "CREATE",
+      tabla_afectada: payload.tabla_afectada ?? "direcciones_cliente",
+      registro_id:
+        payload.registro_id ??
+        (payload.valor_nuevo?.id as string | undefined) ??
+        payload.cliente_id,
+      ip: "unknown",
+      valor_anterior: payload.valor_anterior,
+      valor_nuevo: {
+        cliente_id: payload.cliente_id,
+        campos_modificados: payload.campos_modificados,
+        ...payload.valor_nuevo,
+      },
+    });
+  });
+
+  // HU-C6 (Módulo C) — baja lógica de un Cliente (spec_modulo_C.md §2.6 ·
+  // RULES.md §1). `bajaCliente()` nunca llama `registrarAuditLog()` directo:
+  // emite `cliente:baja_logica` post-COMMIT y este listener reacciona (mismo
+  // criterio que `proveedor:baja_logica`). `valor_anterior` asume
+  // `is_active: true` porque el payload no trae snapshot previo — es correcto
+  // igual: la guarda `updateMany { is_active: true }` del service garantiza que
+  // solo se emite cuando el cliente estaba activo. `ip: "unknown"` — mismo
+  // sentinel que `cliente:creado`.
+  domainEventBus.on("cliente:baja_logica", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "DELETE_LOGICO",
+      tabla_afectada: "clientes",
+      registro_id: payload.cliente_id,
+      ip: "unknown",
+      valor_anterior: { is_active: true },
+      valor_nuevo: {
+        is_active: false,
+        deletion_reason: payload.deletion_reason,
+      },
+    });
+  });
+
+  // HU-B2 (Módulo B) — apertura de un TurnoCaja (task_relos.md §6.1/§7). El
+  // service (`turno-caja.service.ts`) nunca llama `registrarAuditLog()`
+  // directo: emite el evento y este listener reacciona (misma regla de
+  // unificación que el resto del proyecto). `tabla_afectada` usa el `@@map`
+  // en minúsculas (`turnos_caja`); `ip: "internal-event"` — mismo sentinel
+  // que `orden_compra:*` / `stock:reserva_congelada`.
+  domainEventBus.on("venta:turno_abierto", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "CREATE",
+      tabla_afectada: "turnos_caja",
+      registro_id: payload.turno_caja_id,
+      ip: "internal-event",
+      valor_anterior: null,
+      valor_nuevo: { fondo_fijo_inicial: payload.fondo_fijo_inicial },
+    });
+  });
+
+  // HU-B2 (Módulo B) — cierre de un TurnoCaja con arqueo ciego (task_relos.md
+  // §6.2/§7). Evento SENSIBLE cuando `requiere_justificacion: true`, mismo
+  // patrón que `venta:descuento_fuera_margen`/`venta:excepcion_credito_resuelta`
+  // (Módulo B) — la `accion` distingue el caso reforzado para que quede
+  // buscable en el ledger sin depender de inspeccionar `valor_nuevo`.
+  // `requiere_justificacion` viaja también dentro de `valor_nuevo` para que
+  // quede junto al resto del detalle forense de la fila.
+  domainEventBus.on("venta:turno_cerrado", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: payload.requiere_justificacion ? "CIERRE_TURNO_CON_JUSTIFICACION" : "CIERRE_TURNO",
+      tabla_afectada: "turnos_caja",
+      registro_id: payload.turno_caja_id,
+      ip: "internal-event",
+      valor_anterior: { fecha_cierre: null },
+      valor_nuevo: {
+        saldo_esperado: payload.saldo_esperado,
+        conteo_fisico_declarado: payload.conteo_fisico_declarado,
+        diferencia: payload.diferencia,
+        requiere_justificacion: payload.requiere_justificacion,
+        justificacion: payload.justificacion,
+      },
+    });
+  });
+
+  // HU-B1 (Módulo B) — registro de una venta de mostrador (spec_modulo_B.md
+  // §2.1/§4). `venta-mostrador.service.ts` nunca llama `registrarAuditLog()`
+  // directo: emite el evento post-COMMIT y este listener reacciona (misma
+  // regla de unificación que el resto del proyecto). `tabla_afectada` usa el
+  // `@@map` en minúsculas (`pedidos_venta`); `ip: "internal-event"` — mismo
+  // sentinel que `venta:presupuesto_emitido`/`stock:reserva_congelada`.
+  domainEventBus.on("venta:registrada", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "VENTA_MOSTRADOR_REGISTRADA",
+      tabla_afectada: "pedidos_venta",
+      registro_id: payload.pedido_venta_id,
+      ip: "internal-event",
+      valor_anterior: null,
+      valor_nuevo: {
+        cliente_id: payload.cliente_id,
+        total: payload.total,
+        medios_pago: payload.medios_pago,
+        turno_caja_id: payload.turno_caja_id,
+      },
+    });
+  });
+
+  // ── HU-E12 — Pick & Pack / Click & Collect ───────────────────────────────
+
+  async function auditarEcommerce(
+    accion: string,
+    payload: {
+      evento_id: string;
+      pedido_venta_id: string;
+      actor_id: string | null;
+      timestamp: string;
+    },
+    registroId: string,
+    valorAnterior: unknown,
+    valorNuevo: Record<string, unknown>,
+    tablaAfectada = "pedidos_venta_ecommerce",
+  ): Promise<void> {
+    try {
+      await registrarAuditLog({
+        usuario_id: payload.actor_id,
+        accion,
+        tabla_afectada: tablaAfectada,
+        registro_id: registroId,
+        ip: "internal-event",
+        valor_anterior: valorAnterior,
+        valor_nuevo: {
+          evento_id: payload.evento_id,
+          pedido_venta_id: payload.pedido_venta_id,
+          ...valorNuevo,
+          timestamp: payload.timestamp,
+        },
+      });
+    } catch (err) {
+      console.error(`[HU-E12] Falló la auditoría de ${accion}:`, err);
+    }
+  }
+
+  domainEventBus.on("ecommerce:pedido_admitido_cola", (payload: EcommercePedidoAdmitidoColaPayload) => {
+    void auditarEcommerce(
+      "PEDIDO_ADMITIDO_COLA",
+      payload,
+      payload.pedido_venta_ecommerce_id,
+      { estado_ecommerce: "PAGO_CONFIRMADO", visible_cola: false },
+      { estado_ecommerce: payload.estado_nuevo, visible_cola: true },
+    );
+  });
+
+  domainEventBus.on("ecommerce:pedido_tomado", (payload: EcommercePedidoTomadoPayload) => {
+    void auditarEcommerce(
+      "PEDIDO_TOMADO",
+      payload,
+      payload.pedido_venta_ecommerce_id,
+      { operador_asignado_id: null },
+      { operador_asignado_id: payload.actor_id, estado_ecommerce: payload.estado },
+    );
+  });
+
+  domainEventBus.on("ecommerce:prioridad_preparacion_cambiada", (payload: EcommercePrioridadPreparacionCambiadaPayload) => {
+    void auditarEcommerce(
+      "PRIORIDAD_PREPARACION_CAMBIADA",
+      payload,
+      payload.pedido_venta_ecommerce_id,
+      { prioridad_manual: payload.prioridad_anterior },
+      { prioridad_manual: payload.prioridad_nueva },
+    );
+  });
+
+  domainEventBus.on("ecommerce:unidad_preparacion_confirmada", (payload: EcommerceUnidadPreparacionConfirmadaPayload) => {
+    void auditarEcommerce(
+      "UNIDAD_PREPARACION_CONFIRMADA",
+      payload,
+      payload.pedido_venta_item_id,
+      { cantidad_confirmada: payload.cantidad_confirmada_anterior },
+      {
+        pedido_venta_id: payload.pedido_venta_id,
+        variante_sku_id: payload.variante_sku_id,
+        cantidad_confirmada: payload.cantidad_confirmada_nueva,
+      },
+      "pedido_venta_items",
+    );
+  });
+
+  domainEventBus.on("ecommerce:pedido_listo_para_retiro", (payload: EcommercePedidoListoParaRetiroPayload) => {
+    void auditarEcommerce(
+      "PEDIDO_LISTO_PARA_RETIRO",
+      payload,
+      payload.pedido_venta_ecommerce_id,
+      { estado_ecommerce: payload.estado_anterior },
+      {
+        estado_ecommerce: payload.estado_nuevo,
+        plazo_retiro_vencimiento: payload.plazo_retiro_vencimiento,
+        qr_generado: true,
+      },
+    );
+  });
+
+  // HU-E3: efectos agregados B/E y rechazos seguros, emitidos fuera del tx.
+  domainEventBus.on("ecommerce:pedido_entregado", (payload: PedidoEntregadoPayload) => {
+    void registrarAuditLog({
+      usuario_id: payload.actor_id,
+      accion: "PEDIDO_ENTREGADO",
+      tabla_afectada: "pedidos_venta_ecommerce",
+      registro_id: payload.pedido_venta_ecommerce_id,
+      ip: "internal-event",
+      valor_anterior: {
+        estado_ecommerce: payload.estado_anterior,
+        estado_pedido_venta: "FACTURADO",
+      },
+      valor_nuevo: {
+        evento_id: payload.evento_id,
+        pedido_venta_id: payload.pedido_venta_id,
+        estado_ecommerce: payload.estado_nuevo,
+        estado_pedido_venta: "CERRADO",
+        qr_consumido: true,
+        entrega_total: true,
+        timestamp: payload.timestamp,
+      },
+    }).catch(() => {
+      console.error("[HU-E3] Falló la auditoría de entrega");
+    });
+  });
+
+  domainEventBus.on("ecommerce:retiro_rechazado", (payload: RetiroRechazadoPayload) => {
+    void registrarAuditLog({
+      usuario_id: payload.actor_id,
+      accion: "RETIRO_RECHAZADO",
+      tabla_afectada: "pedidos_venta_ecommerce",
+      registro_id: payload.pedido_venta_ecommerce_id ?? null,
+      ip: "internal-event",
+      valor_anterior: null,
+      valor_nuevo: {
+        evento_id: payload.evento_id,
+        motivo: payload.motivo,
+        timestamp: payload.timestamp,
+        ...(payload.pedido_venta_id ? { pedido_venta_id: payload.pedido_venta_id } : {}),
+      },
+    }).catch(() => {
+      console.error("[HU-E3] Falló la auditoría de rechazo de retiro");
+    });
+  });
+
+  domainEventBus.on("ecommerce:pedido_cancelado", (payload: EcommercePedidoCanceladoPayload) => {
+    void registrarAuditLogIdempotente({
+      usuario_id: payload.actor_tipo === "USUARIO" ? payload.actor_id : null,
+      accion: "PEDIDO_PAGADO_CANCELADO",
+      tabla_afectada: "pedidos_venta_ecommerce",
+      registro_id: payload.reintegro_id,
+      ip: "internal-event",
+      valor_anterior: { estado_ecommerce: payload.estado_anterior },
+      valor_nuevo: {
+        evento_id: payload.evento_id,
+        pedido_venta_id: payload.pedido_venta_id,
+        reintegro_id: payload.reintegro_id,
+        estado_ecommerce: payload.estado_nuevo,
+        causa: payload.actor_tipo === "CLIENTE_WEB" ? "CANCELACION_CLIENTE" : "CANCELACION_ADMIN",
+        actor_tipo: payload.actor_tipo,
+        actor_id: payload.actor_id,
+        motivo: payload.motivo,
+        timestamp: payload.timestamp,
+      },
+    }).catch(() => console.error("[HU-E13] Falló la auditoría idempotente de cancelación"));
+  });
+
+  domainEventBus.on("ecommerce:pedido_vencido_sin_retiro", (payload: EcommercePedidoVencidoSinRetiroPayload) => {
+    void registrarAuditLogIdempotente({
+      usuario_id: null,
+      accion: "PEDIDO_VENCIDO_SIN_RETIRO",
+      tabla_afectada: "pedidos_venta_ecommerce",
+      registro_id: payload.reintegro_id,
+      ip: "internal-event",
+      valor_anterior: { estado_ecommerce: payload.estado_anterior },
+      valor_nuevo: {
+        evento_id: payload.evento_id,
+        pedido_venta_id: payload.pedido_venta_id,
+        reintegro_id: payload.reintegro_id,
+        estado_ecommerce: payload.estado_nuevo,
+        causa: "VENCIMIENTO",
+        actor_tipo: payload.actor_tipo,
+        actor_id: null,
+        motivo: payload.motivo,
+        timestamp: payload.timestamp,
+      },
+    }).catch(() => console.error("[HU-E13] Falló la auditoría idempotente de vencimiento"));
+  });
+
+  domainEventBus.on("ecommerce:plazo_retiro_por_vencer", (payload: EcommercePlazoRetiroPorVencerPayload) => {
+    void registrarAuditLogIdempotente({
+      usuario_id: null,
+      accion: "PLAZO_RETIRO_POR_VENCER",
+      tabla_afectada: "pedidos_venta_ecommerce",
+      registro_id: payload.clave_origen,
+      ip: "internal-event",
+      valor_anterior: null,
+      valor_nuevo: {
+        evento_id: payload.evento_id,
+        pedido_venta_id: payload.pedido_venta_id,
+        plazo_retiro_vencimiento: payload.plazo_retiro_vencimiento,
+        actor_tipo: "SISTEMA",
+        timestamp: payload.timestamp,
+      },
+    }).catch(() => console.error("[HU-E13] Falló la auditoría idempotente del recordatorio"));
+  });
+
+  domainEventBus.on("ecommerce:reintegro_estado_cambiado", (payload: EcommerceReintegroEstadoCambiadoPayload) => {
+    const accion = payload.estado_nuevo === "APROBADO"
+      ? "REINTEGRO_APROBADO"
+      : payload.estado_nuevo === "RECHAZADO"
+        ? "REINTEGRO_RECHAZADO"
+        : "REINTEGRO_REINTENTO_MANUAL";
+    void registrarAuditLogIdempotente({
+      usuario_id: accion === "REINTEGRO_REINTENTO_MANUAL" ? payload.actor_id : null,
+      accion,
+      tabla_afectada: "reintegro_refund_intentos",
+      registro_id: payload.intento_refund_id,
+      ip: "internal-event",
+      valor_anterior: { estado: payload.estado_anterior },
+      valor_nuevo: {
+        evento_id: payload.evento_id,
+        reintegro_id: payload.reintegro_id,
+        intento_refund_id: payload.intento_refund_id,
+        numero_intento: payload.numero_intento,
+        origen_intento: payload.origen_intento,
+        pedido_venta_id: payload.pedido_venta_id,
+        estado: payload.estado_nuevo,
+        actor_id: payload.actor_id,
+        motivo: payload.motivo,
+        timestamp: payload.timestamp,
+      },
+    }).catch(() => console.error("[HU-E13] Falló la auditoría idempotente del reintegro"));
+  });
+
+  // HU-F2 (Módulo F) — plantillas de notificación (spec_modulo_F.md §2.2/§4).
+  // `plantilla-notificacion.service.ts` nunca llama `registrarAuditLog()`
+  // directo: emite post-COMMIT y este listener reacciona. `tabla_afectada`
+  // usa el `@@map` (`plantillas_notificacion`); `ip: "internal-event"` —
+  // mismo sentinel que el resto de los eventos emitidos desde services.
+  domainEventBus.on("notificacion_plantilla:creada", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "CREATE",
+      tabla_afectada: "plantillas_notificacion",
+      registro_id: payload.plantilla_id,
+      ip: "internal-event",
+      valor_anterior: null,
+      valor_nuevo: { tipo_evento: payload.tipo_evento, ...payload.valor_nuevo },
+    });
+  });
+
+  domainEventBus.on("notificacion_plantilla:actualizada", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "UPDATE",
+      tabla_afectada: "plantillas_notificacion",
+      registro_id: payload.plantilla_id,
+      ip: "internal-event",
+      valor_anterior: payload.valor_anterior,
+      valor_nuevo: payload.valor_nuevo,
+    });
+  });
+
+  domainEventBus.on("notificacion_plantilla:baja_logica", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "DELETE_LOGICO",
+      tabla_afectada: "plantillas_notificacion",
+      registro_id: payload.plantilla_id,
+      ip: "internal-event",
+      valor_anterior: payload.valor_anterior,
+      valor_nuevo: payload.valor_nuevo,
+    });
+  });
+
+  // Task HU-F2 §4.1-bis — misma `accion` que `usuario:reactivado`.
+  domainEventBus.on("notificacion_plantilla:reactivada", (payload) => {
+    void registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "REACTIVACION",
+      tabla_afectada: "plantillas_notificacion",
+      registro_id: payload.plantilla_id,
+      ip: "internal-event",
+      valor_anterior: payload.valor_anterior,
+      valor_nuevo: payload.valor_nuevo,
+    });
+  });
+
+  // HU-G11 (Módulo G) — ingresos de Tesorería por cobros web. El actor es el
+  // sistema (listener reactivo sin request HTTP): `usuario_id` null, mismo
+  // criterio que el resto de los eventos emitidos desde services. El payload ya
+  // viene sanitizado (sin datos de tarjeta, credenciales ni campos cifrados).
+  domainEventBus.on("tesoreria:ingreso_web_registrado", (payload: IngresoWebRegistradoPayload) => {
+    void registrarAuditLog({
+      usuario_id: null,
+      accion: "CREATE",
+      tabla_afectada: "ingresos_tesoreria",
+      registro_id: payload.ingreso_id,
+      ip: "internal-event",
+      valor_anterior: null,
+      valor_nuevo: payload,
+    });
+  });
+
+  // HU-G11 — contra-asiento de un reintegro (origen HU-E13). Asiento inmutable:
+  // solo alta, nunca edición ni baja.
+  domainEventBus.on(
+    "tesoreria:contra_asiento_ingreso_registrado",
+    (payload: ContraAsientoIngresoRegistradoPayload) => {
+      void registrarAuditLog({
+        usuario_id: null,
+        accion: "CREATE",
+        tabla_afectada: "contra_asientos_ingreso",
+        registro_id: payload.contra_asiento_id,
+        ip: "internal-event",
+        valor_anterior: null,
+        valor_nuevo: payload,
+      });
+    },
+  );
+
+  // ── HU-E6 (Módulo E) — log de transacciones de pago online (spec E §2.6/§4).
+  // El actor es el sistema (listener reactivo sin request HTTP directo):
+  // `usuario_id` null, mismo criterio que el resto de los eventos de pago (E2).
+  // El payload NO trae datos de facturación ni de tarjeta; el valor cifrado
+  // queda exclusivamente en `log_transacciones_pago` (AES-256, Ley N.° 25.326).
+  domainEventBus.on(
+    "ecommerce:transaccion_pago_registrada",
+    (payload: TransaccionPagoRegistradaPayload) => {
+      registrarAuditLog({
+        usuario_id: null,
+        accion: "TRANSACCION_PAGO_REGISTRADA",
+        tabla_afectada: "log_transacciones_pago",
+        registro_id: payload.transaccion_id,
+        ip: "internal-event",
+        valor_anterior: null,
+        valor_nuevo: {
+          pedido_venta_id: payload.pedido_venta_id,
+          monto: payload.monto,
+          estado_pago: payload.estado_pago,
+          mercadopago_payment_id: payload.mercadopago_payment_id,
+        },
+      }).catch((error: unknown) => {
+        console.error("[audit-log.listener] Falló la escritura de auditoría para ecommerce:transaccion_pago_registrada:", {
+          registro_id: payload.transaccion_id,
+          codigo_error: codigoDiagnosticoAuditoria(error),
+        });
+      });
+    },
+  );
+
+  // HU-E6 (R3) — lectura de un dato de facturación cifrado por un Auditor. El
+  // actor SÍ es un Usuario del ERP (Auditor): `usuario_id` = auditor. Se emite
+  // una vez por lectura; `valor_nuevo` solo lleva el timestamp, nunca el dato.
+  domainEventBus.on(
+    "ecommerce:acceso_dato_cifrado_auditado",
+    (payload: AccesoDatoCifradoAuditadoPayload) => {
+      registrarAuditLog({
+        usuario_id: payload.usuario_auditor_id,
+        accion: "ACCESO_DATO_CIFRADO_AUDITADO",
+        tabla_afectada: "log_transacciones_pago",
+        registro_id: payload.transaccion_id,
+        ip: "internal-event",
+        valor_anterior: null,
+        valor_nuevo: { timestamp: payload.timestamp },
+      }).catch((error: unknown) => {
+        console.error("[audit-log.listener] Falló la escritura de auditoría para ecommerce:acceso_dato_cifrado_auditado:", {
+          registro_id: payload.transaccion_id,
+          codigo_error: codigoDiagnosticoAuditoria(error),
+        });
+      });
+    },
+  );
+
+  // ── Sprint 5 — cada cluster registra sus suscripciones SOLO en su bloque ────
+  // --- Sprint 5 · Cluster 1 ---
+  // --- Sprint 5 · Cluster 2 ---
+  // --- Sprint 5 · Cluster 3 ---
+  // --- Sprint 5 · Cluster 4 ---
+  const marcaLibroIva = Symbol.for("swat.audit-log.libro-iva");
+  if (!domainEventBus.listeners("tesoreria:libro_iva_exportado").some((handler) => Reflect.get(handler, marcaLibroIva))) {
+    const auditarLibroIva = (payload: LibroIvaExportadoPayload) => {
+      // Confirmar exclusivamente DESPUÉS del commit; no callbacks en el payload.
+      // Whitelist explícita: nunca persistir líneas, importes o contrapartes.
+      // Dependencia exclusiva de este evento: no cambia la carga de handlers previos.
+      void import("@/lib/events/libro-iva-confirmacion").then(({ confirmacionesLibroIva }) => registrarAuditLog({
+        usuario_id: payload.usuario_id,
+        accion: "LIBRO_IVA_EXPORTADO",
+        tabla_afectada: "libro_iva",
+        registro_id: payload.exportacion_id,
+        ip: "internal-event",
+        valor_anterior: null,
+        valor_nuevo: {
+          exportacion_id: payload.exportacion_id,
+          periodo: payload.periodo,
+          tipo_libro: payload.tipo_libro,
+          formato: payload.formato ?? "TXT",
+          timestamp: payload.timestamp,
+        },
+      }).then(
+        () => confirmacionesLibroIva.confirmar(payload.exportacion_id, true),
+        () => confirmacionesLibroIva.confirmar(payload.exportacion_id, false),
+      )).catch(() => {
+        // Si ni siquiera puede cargarse el coordinador, el productor agota su espera.
+        // No propagar rechazos ni imprimir datos del error.
+      });
+    };
+    // El símbolo sobre el handler evita duplicarlo aun si se recarga este módulo.
+    Reflect.set(auditarLibroIva, marcaLibroIva, true);
+    domainEventBus.on("tesoreria:libro_iva_exportado", auditarLibroIva);
+  }
+  // --- Sprint 5 · Cluster 5 ---
+  // HU-G5 (G5-4) — toda lectura de CBU/alias (enmascarada o revelada) deja
+  // asiento, UNA vez por cuenta leída. `valor_nuevo` solo lleva el timestamp:
+  // el valor descifrado nunca cruza este límite (spec §9.7, RULES.md Regla 3).
+  domainEventBus.on(
+    "tesoreria:datos_bancarios_consultados",
+    (payload: DatosBancariosConsultadosPayload) => {
+      registrarAuditLog({
+        usuario_id: payload.usuario_id,
+        accion: "ACCESO_DATO_CIFRADO_AUDITADO",
+        tabla_afectada: "cuentas_propias",
+        registro_id: payload.cuenta_propia_id,
+        ip: "internal-event",
+        valor_anterior: null,
+        valor_nuevo: { timestamp: payload.timestamp },
+      }).catch((error: unknown) => {
+        console.error("[audit-log.listener] Falló la escritura de auditoría para tesoreria:datos_bancarios_consultados:", {
+          registro_id: payload.cuenta_propia_id,
+          codigo_error: codigoDiagnosticoAuditoria(error),
+        });
+      });
+    },
+  );
+
+  // HU-G5 (G5-8) — alta de una CuentaPropia. `valor_nuevo` solo con campos NO
+  // sensibles; el CBU/alias jamás aparece en el payload ni acá.
+  domainEventBus.on(
+    "tesoreria:cuenta_propia_creada",
+    (payload: CuentaPropiaCreadaPayload) => {
+      registrarAuditLog({
+        usuario_id: payload.usuario_id,
+        accion: "CREATE",
+        tabla_afectada: "cuentas_propias",
+        registro_id: payload.cuenta_propia_id,
+        ip: "internal-event",
+        valor_anterior: null,
+        valor_nuevo: {
+          nombre: payload.nombre,
+          tipo: payload.tipo,
+          banco: payload.banco,
+          is_active: true,
+        },
+      }).catch((error: unknown) => {
+        console.error("[audit-log.listener] Falló la escritura de auditoría para tesoreria:cuenta_propia_creada:", {
+          registro_id: payload.cuenta_propia_id,
+          codigo_error: codigoDiagnosticoAuditoria(error),
+        });
+      });
+    },
+  );
+
+  // HU-G5 (G5-8) — edición de una CuentaPropia. Los datos sensibles se
+  // reportan SOLO como booleano `cambiado`, sin valor.
+  domainEventBus.on(
+    "tesoreria:cuenta_propia_editada",
+    (payload: CuentaPropiaEditadaPayload) => {
+      registrarAuditLog({
+        usuario_id: payload.usuario_id,
+        accion: "UPDATE",
+        tabla_afectada: "cuentas_propias",
+        registro_id: payload.cuenta_propia_id,
+        ip: "internal-event",
+        valor_anterior: null,
+        valor_nuevo: {
+          campos_editados: payload.campos_editados,
+          cbu_cambiado: payload.cbu_cambiado,
+          alias_cambiado: payload.alias_cambiado,
+        },
+      }).catch((error: unknown) => {
+        console.error("[audit-log.listener] Falló la escritura de auditoría para tesoreria:cuenta_propia_editada:", {
+          registro_id: payload.cuenta_propia_id,
+          codigo_error: codigoDiagnosticoAuditoria(error),
+        });
+      });
+    },
+  );
+
+  // HU-G5 (G5-8) — baja lógica de una CuentaPropia. El `motivo` es el texto
+  // del usuario; no hay dato bancario involucrado.
+  domainEventBus.on(
+    "tesoreria:cuenta_propia_baja_logica",
+    (payload: CuentaPropiaBajaLogicaPayload) => {
+      registrarAuditLog({
+        usuario_id: payload.usuario_id,
+        accion: "DELETE_LOGICO",
+        tabla_afectada: "cuentas_propias",
+        registro_id: payload.cuenta_propia_id,
+        ip: "internal-event",
+        valor_anterior: { is_active: true },
+        valor_nuevo: { is_active: false, deletion_reason: payload.motivo },
+      }).catch((error: unknown) => {
+        console.error("[audit-log.listener] Falló la escritura de auditoría para tesoreria:cuenta_propia_baja_logica:", {
+          registro_id: payload.cuenta_propia_id,
+          codigo_error: codigoDiagnosticoAuditoria(error),
+        });
+      });
+    },
+  );
+  // --- Sprint 5 · Cluster 6 ---
+  // HU-D6 (task_relos.md D9, D20, D23) — transiciones de `AlertaDesvio`. El
+  // actor es el usuario del evento de origen o `null` (proceso automático);
+  // `ip: "internal-event"` como el resto de los eventos emitidos desde
+  // services. El payload no trae datos personales: solo indicador,
+  // referencia (IDs o `AAAA-MM`), severidades y el detalle numérico.
+  domainEventBus.on("alerta_desvio:creada", (payload) => {
+    registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "ALERTA_DESVIO_CREADA",
+      tabla_afectada: "alertas_desvio",
+      registro_id: payload.alerta_id,
+      ip: "internal-event",
+      valor_anterior: null,
+      valor_nuevo: {
+        evento_id: payload.evento_id,
+        indicador: payload.indicador,
+        referencia: payload.referencia,
+        estado: "ACTIVA",
+        severidad: payload.severidad_nueva,
+        fecha: payload.fecha,
+        ...payload.detalle,
+      },
+    }).catch((error: unknown) => {
+      console.error("[audit-log.listener] Falló la escritura de auditoría para alerta_desvio:creada:", {
+        registro_id: payload.alerta_id,
+        codigo_error: codigoDiagnosticoAuditoria(error),
+      });
+    });
+  });
+
+  domainEventBus.on("alerta_desvio:nivel_cambiado", (payload) => {
+    registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "ALERTA_DESVIO_NIVEL_CAMBIADO",
+      tabla_afectada: "alertas_desvio",
+      registro_id: payload.alerta_id,
+      ip: "internal-event",
+      valor_anterior: { severidad: payload.severidad_anterior },
+      valor_nuevo: {
+        evento_id: payload.evento_id,
+        indicador: payload.indicador,
+        referencia: payload.referencia,
+        severidad: payload.severidad_nueva,
+        fecha: payload.fecha,
+        ...payload.detalle,
+      },
+    }).catch((error: unknown) => {
+      console.error("[audit-log.listener] Falló la escritura de auditoría para alerta_desvio:nivel_cambiado:", {
+        registro_id: payload.alerta_id,
+        codigo_error: codigoDiagnosticoAuditoria(error),
+      });
+    });
+  });
+
+  domainEventBus.on("alerta_desvio:resuelta", (payload) => {
+    registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "ALERTA_DESVIO_RESUELTA",
+      tabla_afectada: "alertas_desvio",
+      registro_id: payload.alerta_id,
+      ip: "internal-event",
+      valor_anterior: { estado: "ACTIVA", severidad: payload.severidad_anterior },
+      valor_nuevo: {
+        evento_id: payload.evento_id,
+        indicador: payload.indicador,
+        referencia: payload.referencia,
+        estado: "RESUELTA",
+        fecha: payload.fecha,
+        ...payload.detalle,
+      },
+    }).catch((error: unknown) => {
+      console.error("[audit-log.listener] Falló la escritura de auditoría para alerta_desvio:resuelta:", {
+        registro_id: payload.alerta_id,
+        codigo_error: codigoDiagnosticoAuditoria(error),
+      });
+    });
+  });
+
+  // D.4 (spec_modulo_D.md §5/§6.4): `accion = "UPDATE"` sobre
+  // `configuraciones_sistema` (nombre `@@map`, D23). `ConfiguracionSistema` no
+  // viaja con su id en el payload: `registro_id` es la `clave` (`@unique`).
+  domainEventBus.on("configuracion:actualizada", (payload) => {
+    registrarAuditLog({
+      usuario_id: payload.usuario_id,
+      accion: "UPDATE",
+      tabla_afectada: "configuraciones_sistema",
+      registro_id: payload.clave,
+      ip: "internal-event",
+      valor_anterior: { clave: payload.clave, valor: payload.valor_anterior },
+      valor_nuevo: { clave: payload.clave, valor: payload.valor_nuevo },
+    }).catch((error: unknown) => {
+      console.error("[audit-log.listener] Falló la escritura de auditoría para configuracion:actualizada:", {
+        registro_id: payload.clave,
+        codigo_error: codigoDiagnosticoAuditoria(error),
+      });
     });
   });
 }

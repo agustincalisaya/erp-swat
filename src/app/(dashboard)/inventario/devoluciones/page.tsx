@@ -48,9 +48,9 @@ function UnidadesDevueltasTable({
 }) {
   if (unidades.length === 0) {
     return (
-      <div className="rounded-xl border border-dashed border-blue-200 bg-blue-50/50 p-8 text-center">
-        <PackageX className="mx-auto size-8 text-blue-300" aria-hidden="true" />
-        <p className="mt-2 text-sm text-blue-700/80">
+      <div className="rounded-xl border border-dashed border-border bg-selected/50 p-8 text-center">
+        <PackageX className="mx-auto size-8 text-primary" aria-hidden="true" />
+        <p className="mt-2 text-sm text-primary">
           No hay unidades en estado DEVUELTO para reclasificar.
         </p>
       </div>
@@ -58,9 +58,9 @@ function UnidadesDevueltasTable({
   }
 
   return (
-    <div className="overflow-hidden rounded-xl border border-blue-100 bg-white shadow-sm">
+    <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
       <table className="w-full text-left text-sm">
-        <thead className="bg-blue-50 text-xs uppercase tracking-wide text-blue-800">
+        <thead className="bg-muted text-xs uppercase tracking-wide text-selected-foreground">
           <tr>
             <th className="px-4 py-3 font-semibold">SKU / Producto</th>
             <th className="px-4 py-3 font-semibold">Cantidad</th>
@@ -71,16 +71,16 @@ function UnidadesDevueltasTable({
         </thead>
         <tbody className="divide-y divide-gray-100">
           {unidades.map((unidad) => (
-            <tr key={unidad.id} className="hover:bg-blue-50/40">
+            <tr key={unidad.id} className="hover:bg-accent">
               <td className="px-4 py-3">
-                <p className="font-medium text-gray-900">{unidad.sku}</p>
-                <p className="text-xs text-gray-600">{unidad.producto_nombre}</p>
+                <p className="font-medium text-foreground">{unidad.sku}</p>
+                <p className="text-xs text-muted-foreground">{unidad.producto_nombre}</p>
               </td>
-              <td className="px-4 py-3 text-gray-700">{unidad.cantidad}</td>
-              <td className="px-4 py-3 text-gray-700">
+              <td className="px-4 py-3 text-foreground">{unidad.cantidad}</td>
+              <td className="px-4 py-3 text-foreground">
                 {unidad.deposito_id ? unidad.deposito_id.slice(0, 8) : "—"}
               </td>
-              <td className="px-4 py-3 text-gray-700">{formatearFecha(unidad.created_at)}</td>
+              <td className="px-4 py-3 text-foreground">{formatearFecha(unidad.created_at)}</td>
               <td className="px-4 py-3 text-right">
                 <ModalReclasificacion
                   unidad={{
@@ -126,8 +126,8 @@ export default async function DevolucionesPage() {
     <main className="mx-auto w-full max-w-5xl space-y-6 p-4 sm:p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold text-blue-900">Devoluciones</h1>
-          <p className="text-sm text-gray-600">
+          <h1 className="text-xl font-bold text-foreground">Devoluciones</h1>
+          <p className="text-sm text-muted-foreground">
             Reclasificación de unidades devueltas: APTO reincorpora al stock, NO_APTO
             da de baja con motivo obligatorio. Sobre el umbral se requiere aprobación.
           </p>
@@ -137,7 +137,7 @@ export default async function DevolucionesPage() {
             type="button"
             variant="outline"
             size="sm"
-            className="gap-1.5 border-blue-200 text-blue-700 hover:bg-blue-50 hover:text-blue-800"
+            className="gap-1.5 border-border text-primary hover:bg-accent hover:text-foreground"
           >
             <Undo2 className="size-3.5" />
             Volver a Inventario

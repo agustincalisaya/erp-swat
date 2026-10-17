@@ -193,7 +193,7 @@ export function FormularioNuevoProveedor({
       )}
 
       <div className="space-y-1.5">
-        <Label htmlFor="prov-razon-social" className="text-xs font-semibold uppercase tracking-wide text-gray-700">
+        <Label htmlFor="prov-razon-social" className="text-xs font-semibold uppercase tracking-wide text-foreground">
           Razón social
         </Label>
         <Input
@@ -206,7 +206,7 @@ export function FormularioNuevoProveedor({
       </div>
 
       <div className="space-y-1.5">
-        <Label htmlFor="prov-nombre-fantasia" className="text-xs font-semibold uppercase tracking-wide text-gray-700">
+        <Label htmlFor="prov-nombre-fantasia" className="text-xs font-semibold uppercase tracking-wide text-foreground">
           Nombre de fantasía <span className="font-normal text-muted-foreground">(opcional)</span>
         </Label>
         <Input
@@ -219,7 +219,7 @@ export function FormularioNuevoProveedor({
       </div>
 
       <div className="space-y-1.5">
-        <Label htmlFor="prov-cuit" className="text-xs font-semibold uppercase tracking-wide text-gray-700">
+        <Label htmlFor="prov-cuit" className="text-xs font-semibold uppercase tracking-wide text-foreground">
           CUIT
         </Label>
         <Input
@@ -240,7 +240,7 @@ export function FormularioNuevoProveedor({
       </div>
 
       <div className="space-y-1.5">
-        <Label htmlFor="prov-categorias" className="text-xs font-semibold uppercase tracking-wide text-gray-700">
+        <Label htmlFor="prov-categorias" className="text-xs font-semibold uppercase tracking-wide text-foreground">
           Categorías de producto
         </Label>
         <Input
@@ -257,7 +257,7 @@ export function FormularioNuevoProveedor({
       </div>
 
       <div className="space-y-1.5">
-        <Label htmlFor="prov-condiciones" className="text-xs font-semibold uppercase tracking-wide text-gray-700">
+        <Label htmlFor="prov-condiciones" className="text-xs font-semibold uppercase tracking-wide text-foreground">
           Condiciones de pago <span className="font-normal text-muted-foreground">(opcional)</span>
         </Label>
         <Input
@@ -270,7 +270,7 @@ export function FormularioNuevoProveedor({
       </div>
 
       <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-3">
-        <p className="text-xs font-semibold uppercase tracking-wide text-gray-700">
+        <p className="text-xs font-semibold uppercase tracking-wide text-foreground">
           Contacto <span className="font-normal text-muted-foreground">(opcional)</span>
         </p>
         <div className="space-y-1.5">
@@ -303,8 +303,8 @@ export function FormularioNuevoProveedor({
         </div>
       </div>
 
-      <div className="rounded-lg border border-blue-200 bg-blue-50/50 p-3 space-y-3">
-        <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">
+      <div className="rounded-lg border border-border bg-selected/50 p-3 space-y-3">
+        <p className="text-xs font-semibold uppercase tracking-wide text-primary">
           Datos bancarios{" "}
           <span className="font-normal text-muted-foreground">
             {esEdicion ? "(reemplazo — opcional)" : "(opcional)"}
@@ -354,7 +354,7 @@ export function FormularioNuevoProveedor({
         <Button
           type="submit"
           disabled={isPending}
-          className="bg-blue-600 hover:bg-blue-700 text-white gap-2"
+          className="bg-primary hover:bg-primary-hover text-primary-foreground gap-2"
         >
           {isPending ? (
             <>

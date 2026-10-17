@@ -90,7 +90,7 @@ export function DialogHomologar({
           type="button"
           variant="outline"
           size="sm"
-          className="gap-1.5 text-blue-700 border-blue-200 bg-blue-50 hover:bg-blue-100"
+          className="gap-1.5 text-selected-foreground border-border bg-selected hover:bg-accent"
           onClick={() => setOpenInterno(true)}
         >
           <BadgeCheck className="size-3.5" aria-hidden="true" />
@@ -100,7 +100,7 @@ export function DialogHomologar({
 
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle className="flex items-center gap-2 text-blue-700">
+          <AlertDialogTitle className="flex items-center gap-2 text-primary">
             <BadgeCheck className="size-4" aria-hidden="true" />
             Homologar a {razonSocial}
           </AlertDialogTitle>
@@ -109,7 +109,7 @@ export function DialogHomologar({
             {estadoActual === "SUSPENDIDO"
               ? " (re-homologación): vuelve a ser seleccionable para nuevas órdenes de compra."
               : ": queda seleccionable para nuevas órdenes de compra."}
-            {" "}El cambio queda registrado en la auditoría (Módulo D).
+            {" "}El cambio queda registrado en la auditoría.
           </AlertDialogDescription>
         </AlertDialogHeader>
 
@@ -127,7 +127,7 @@ export function DialogHomologar({
             type="button"
             disabled={isPending}
             onClick={handleConfirm}
-            className="bg-blue-600 hover:bg-blue-700 text-white gap-2"
+            className="bg-primary hover:bg-primary-hover text-primary-foreground gap-2"
           >
             {isPending ? (
               <>

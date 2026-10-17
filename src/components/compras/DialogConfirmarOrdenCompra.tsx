@@ -76,7 +76,7 @@ export function DialogConfirmarOrdenCompra({
     <AlertDialog open={open} onOpenChange={(o) => (o ? setOpen(true) : handleClose())}>
       <Button
         type="button"
-        className="gap-2 bg-indigo-600 hover:bg-indigo-700 text-white"
+        className="gap-2 bg-primary hover:bg-primary-hover text-primary-foreground"
         onClick={() => setOpen(true)}
       >
         <CalendarCheck className="size-4" aria-hidden="true" />
@@ -86,7 +86,7 @@ export function DialogConfirmarOrdenCompra({
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle className="flex items-center gap-2">
-            <CalendarCheck className="size-4 text-indigo-600" aria-hidden="true" />
+            <CalendarCheck className="size-4 text-primary" aria-hidden="true" />
             Confirmar la orden {numeroOrden}
           </AlertDialogTitle>
           <AlertDialogDescription>
@@ -106,7 +106,7 @@ export function DialogConfirmarOrdenCompra({
         <div className="space-y-1.5">
           <label
             htmlFor={`fecha-entrega-${ordenCompraId}`}
-            className="text-xs font-semibold uppercase tracking-wide text-gray-700"
+            className="text-xs font-semibold uppercase tracking-wide text-foreground"
           >
             Fecha de entrega comprometida
           </label>
@@ -130,7 +130,7 @@ export function DialogConfirmarOrdenCompra({
             type="button"
             disabled={!fechaValida || isPending}
             onClick={handleConfirm}
-            className="gap-2 bg-indigo-600 hover:bg-indigo-700 text-white"
+            className="gap-2 bg-primary hover:bg-primary-hover text-primary-foreground"
           >
             {isPending ? (
               <>

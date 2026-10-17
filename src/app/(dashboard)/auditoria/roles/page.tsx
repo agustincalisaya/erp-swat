@@ -70,11 +70,11 @@ async function RolesData() {
 
   if (roles.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-16 rounded-xl border-2 border-dashed border-blue-100 bg-blue-50/40 text-center">
-        <div className="p-4 rounded-full bg-blue-100 text-blue-500 mb-4">
+      <div className="flex flex-col items-center justify-center py-16 rounded-xl border-2 border-dashed border-border bg-selected/40 text-center">
+        <div className="p-4 rounded-full bg-selected text-selected-foreground mb-4">
           <ShieldCheck className="size-8" />
         </div>
-        <p className="text-sm font-medium text-gray-600">No hay roles activos</p>
+        <p className="text-sm font-medium text-muted-foreground">No hay roles activos</p>
         <p className="text-xs text-muted-foreground mt-1">
           Dá de alta el primer rol usando el botón superior.
         </p>
@@ -101,7 +101,7 @@ async function RolesData() {
 
         <TableBody>
           {roles.map((rol) => (
-            <TableRow key={rol.id} className="hover:bg-blue-50/30">
+            <TableRow key={rol.id} className="hover:bg-accent">
               <TableCell>
                 <div className="flex flex-col gap-0.5">
                   <span className="text-xs font-semibold">{rol.nombre}</span>
@@ -137,7 +137,7 @@ export default async function RolesPage() {
 
   if (!session) {
     return (
-      <main className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
+      <main className="min-h-screen bg-background p-4 sm:p-6 lg:p-8">
         <div className="max-w-6xl mx-auto">
           <Alert variant="destructive">
             <AlertTriangle className="size-4" aria-hidden="true" />
@@ -160,16 +160,16 @@ export default async function RolesPage() {
   const permisosParaAlta = await listarPermisos();
 
   return (
-    <main className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
+    <main className="min-h-screen bg-background p-4 sm:p-6 lg:p-8">
       <div className="max-w-6xl mx-auto space-y-5">
         {/* ── Header + CTA ────────────────────────────────────────────── */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-blue-100 text-blue-600 shrink-0">
+            <div className="p-2 rounded-xl bg-selected text-selected-foreground shrink-0">
               <ShieldCheck className="size-5" aria-hidden="true" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-gray-900 tracking-tight">Roles y Permisos</h1>
+              <h1 className="text-xl font-bold text-foreground tracking-tight">Roles y Permisos</h1>
               <p className="text-sm text-muted-foreground">
                 Los cambios de permisos afectan de inmediato a todos los usuarios con ese rol.
               </p>
@@ -184,7 +184,7 @@ export default async function RolesPage() {
         <Card>
           <CardHeader className="border-b border-border">
             <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-              <ShieldCheck className="size-4 text-blue-500" aria-hidden="true" />
+              <ShieldCheck className="size-4 text-primary" aria-hidden="true" />
               Roles activos
             </CardTitle>
             <CardDescription>Roles del sistema y sus permisos asignados.</CardDescription>
@@ -194,7 +194,7 @@ export default async function RolesPage() {
             <Suspense
               fallback={
                 <div className="flex items-center justify-center gap-3 py-12 text-sm text-muted-foreground">
-                  <span className="size-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+                  <span className="size-4 border-2 border-ring border-t-transparent rounded-full animate-spin" />
                   Cargando roles…
                 </div>
               }

@@ -80,7 +80,7 @@ export function BotonVerificarCadena() {
       )}
 
       {resultado && resultado.integra && (
-        <Alert className="max-w-sm border-green-200 bg-green-50 text-green-800">
+        <Alert className="max-w-sm border-success-foreground bg-success text-success-foreground">
           <ShieldCheck className="size-4" aria-hidden="true" />
           <AlertDescription>
             Cadena íntegra — {resultado.registros_verificados} registro

@@ -144,7 +144,7 @@ export function FormularioRegistrarComprobante({
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <FilePlus2 className="size-4 text-blue-600" aria-hidden="true" />
+            <FilePlus2 className="size-4 text-primary" aria-hidden="true" />
             Registrar comprobante — {numeroOrden}
           </DialogTitle>
           <DialogDescription>
