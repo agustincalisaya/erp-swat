@@ -608,6 +608,18 @@ const PEDIDO_WEB_ANULADO_IDS = { pedido: "d0ebfcb9-743b-412b-89c1-12a38a117ffd",
 // de reportes financieros (Alcance G §5). Los demás permisos del sprint los
 // siembra cada cluster con los UUID reservados en la Asignación.
 const PERMISO_TESORERIA_LEER_REPORTES_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000047";
+// HU-G12 — UUID generados una vez con crypto.randomUUID() (18/10/2026).
+// El mapeo estable está documentado en docs/testing/Modulo G/hu-g12/identificadores.md.
+const PERMISO_TESORERIA_GESTIONAR_CATEGORIAS_GASTO_ID = "b553f01a-8781-4996-8d80-094a1735994c";
+// HU-G13 — generado una vez con crypto.randomUUID() (18/10/2026).
+const PERMISO_TESORERIA_GESTIONAR_GASTOS_ID = "b187ec7f-0b6c-48e8-954d-9f5411d9d648";
+const CATEGORIAS_GASTO_INICIALES = [
+  { id: "8a7edb7f-a0bb-4306-9290-7a23f9e050ac", nombre: "Sueldos" },
+  { id: "f85301d1-9236-44a6-b576-3fa958dfd771", nombre: "Alquiler" },
+  { id: "273d5c4e-f873-4ad0-b392-bf7c1810b38a", nombre: "Servicios" },
+  { id: "0a84613f-0026-4180-a656-df50cf3f4c1f", nombre: "Impuestos" },
+  { id: "44d9e5f5-f95b-4e0b-9210-82e72a161c40", nombre: "Otros" },
+] as const;
 const ROL_GERENTE_ID = "1a2b3c4d-2222-4a1a-8a1a-000000000006";
 const USUARIO_GERENTE_SEED_ID = "1a2b3c4d-4444-4a1a-8a1a-000000000007";
 const USUARIO_ROL_GERENTE_ID = "1a2b3c4d-5555-4a1a-8a1a-000000000007";
@@ -5113,7 +5125,68 @@ async function seedSprint5Cluster1(prisma: PrismaClient): Promise<void> {
 
 // Cluster 2 · categorías iniciales (HU-G12), gastos (HU-G13) e histórico (T1).
 async function seedSprint5Cluster2(prisma: PrismaClient): Promise<void> {
-  void prisma;
+  const codigo = "tesoreria:gestionar_categorias_gasto";
+  const permisosEnConflicto = await prisma.permiso.findMany({
+    where: { OR: [{ id: PERMISO_TESORERIA_GESTIONAR_CATEGORIAS_GASTO_ID }, { codigo }] },
+    select: { id: true, codigo: true },
+  });
+  if (permisosEnConflicto.some((p) => p.id !== PERMISO_TESORERIA_GESTIONAR_CATEGORIAS_GASTO_ID || p.codigo !== codigo)) {
+    throw new Error("HU-G12: conflicto de UUID/código de permiso; revisar seed sin sobrescribir referencias.");
+  }
+  await prisma.permiso.upsert({
+    where: { id: PERMISO_TESORERIA_GESTIONAR_CATEGORIAS_GASTO_ID },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: {
+      id: PERMISO_TESORERIA_GESTIONAR_CATEGORIAS_GASTO_ID,
+      codigo,
+      descripcion: "Gestionar categorías de gasto operativo (HU-G12) — ADMINISTRADOR",
+      modulo: "MODULO_G",
+    },
+  });
+  await prisma.rolPermiso.upsert({
+    where: { rol_id_permiso_id: { rol_id: ROL_ADMINISTRADOR_ID, permiso_id: PERMISO_TESORERIA_GESTIONAR_CATEGORIAS_GASTO_ID } },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: { rol_id: ROL_ADMINISTRADOR_ID, permiso_id: PERMISO_TESORERIA_GESTIONAR_CATEGORIAS_GASTO_ID },
+  });
+
+  for (const categoria of CATEGORIAS_GASTO_INICIALES) {
+    const existentes = await prisma.categoriaGasto.findMany({
+      where: { OR: [{ id: categoria.id }, { nombre_normalizado: categoria.nombre.toLowerCase() }] },
+      select: { id: true, nombre_normalizado: true },
+    });
+    if (existentes.some((fila) => fila.id !== categoria.id)) {
+      throw new Error(`HU-G12: conflicto de UUID/nombre para ${categoria.nombre}; revisar seed sin sobrescribir ediciones.`);
+    }
+    await prisma.categoriaGasto.upsert({
+      where: { id: categoria.id },
+      update: {}, // Las categorías son editables; el seed no revierte cambios del Administrador.
+      create: { id: categoria.id, nombre: categoria.nombre, nombre_normalizado: categoria.nombre.toLowerCase() },
+    });
+  }
+
+  const codigoGastos = "tesoreria:gestionar_gastos";
+  const permisosGastosEnConflicto = await prisma.permiso.findMany({
+    where: { OR: [{ id: PERMISO_TESORERIA_GESTIONAR_GASTOS_ID }, { codigo: codigoGastos }] },
+    select: { id: true, codigo: true },
+  });
+  if (permisosGastosEnConflicto.some((permiso) => permiso.id !== PERMISO_TESORERIA_GESTIONAR_GASTOS_ID || permiso.codigo !== codigoGastos)) {
+    throw new Error("HU-G13: conflicto de UUID/código de permiso; revisar seed sin sobrescribir referencias.");
+  }
+  await prisma.permiso.upsert({
+    where: { id: PERMISO_TESORERIA_GESTIONAR_GASTOS_ID },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: {
+      id: PERMISO_TESORERIA_GESTIONAR_GASTOS_ID,
+      codigo: codigoGastos,
+      descripcion: "Gestionar gastos operativos (HU-G13) — TESORERO_CENTRAL",
+      modulo: "MODULO_G",
+    },
+  });
+  await prisma.rolPermiso.upsert({
+    where: { rol_id_permiso_id: { rol_id: ROL_TESORERO_ID, permiso_id: PERMISO_TESORERIA_GESTIONAR_GASTOS_ID } },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: { rol_id: ROL_TESORERO_ID, permiso_id: PERMISO_TESORERIA_GESTIONAR_GASTOS_ID },
+  });
 }
 
 // Cluster 3 · permisos de desglose y exportación del reporte mensual (HU-G14, HU-G16).
