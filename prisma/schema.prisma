@@ -1268,10 +1268,11 @@ model CuentaPorPagar {
   /// `DEFINITIVA → PAGADA`. Nullable y sin `@default`: las cuentas que aún no
   /// se pagaron (o se pagaron antes de HU-G10) no tienen valor.
   medio_pago       MedioPago?
-  /// HU-G10 — referencia LIBRE a la cuenta de origen del pago
-  /// (`src/lib/tesoreria/cuentas-origen.ts`). Sin FK porque todavía no existe
-  /// una entidad `CuentaBancaria` / `CajaChica` en el modelo.
-  /// TODO(HU futura): migrar a FK cuando exista esa entidad.
+  /// HU-G10 — referencia LIBRE a la cuenta de origen del pago. Desde HU-G5
+  /// apunta al `id` de una `CuentaPropia` (el catálogo fijo en código se
+  /// retiró), pero SIGUE SIN FK en este sprint (G5-5): el servicio de pago
+  /// valida existencia y estado dentro de la transacción.
+  /// TODO(HU futura): migrar a FK cuando el sprint lo habilite.
   cuenta_origen_id String?
   /// HU-G5 — etiqueta CONGELADA de la cuenta de origen al momento del pago.
   /// Se copia de `CuentaPropia.nombre` dentro de la transacción de

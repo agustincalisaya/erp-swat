@@ -21,7 +21,10 @@ import type { NextRequest } from "next/server";
 
 import { withPermission } from "@/lib/auth/with-permission";
 import { ServiceError } from "@/lib/errors/service-error";
-import { RegistrarSaldoDiarioSchema } from "@/lib/schemas/posicion-diaria.schema";
+import {
+  DiaIsoSchema,
+  RegistrarSaldoDiarioSchema,
+} from "@/lib/schemas/posicion-diaria.schema";
 import {
   obtenerPosicionDiaria,
   PERMISO_LEER_REPORTES,
@@ -33,10 +36,27 @@ import { diaNegocioIso } from "@/lib/utils/fecha-negocio";
 export const GET = withPermission(
   PERMISO_LEER_REPORTES,
   async (req: NextRequest) => {
-    const dia = req.nextUrl.searchParams.get("dia") ?? diaNegocioIso();
+    // `?dia` se valida con el MISMO schema que el POST: formato AAAA-MM-DD,
+    // día calendario real y no futuro respecto del día de negocio argentino
+    // (G7-2). Sin esta validación un `?dia=foo` llegaba al servicio y
+    // terminaba en 500 en vez de 400.
+    const diaRaw = req.nextUrl.searchParams.get("dia") ?? diaNegocioIso();
+    const diaParseado = DiaIsoSchema.safeParse(diaRaw);
+    if (!diaParseado.success) {
+      return NextResponse.json(
+        {
+          data: null,
+          error: {
+            code: "VALIDATION_ERROR",
+            message: diaParseado.error.issues[0]?.message ?? "Día inválido",
+          },
+        },
+        { status: 400 },
+      );
+    }
 
     try {
-      const posicion = await obtenerPosicionDiaria(dia);
+      const posicion = await obtenerPosicionDiaria(diaParseado.data);
       return NextResponse.json({ data: posicion, error: null }, { status: 200 });
     } catch (err) {
       if (err instanceof ServiceError) {
