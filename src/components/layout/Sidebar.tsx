@@ -326,6 +326,12 @@ const SECCIONES: SeccionConfig[] = [
         icon: Wallet,
         permiso: "tesoreria:leer_reportes",
       },
+      {
+        label: "Reporte mensual",
+        href: "/tesoreria/reporte-mensual",
+        icon: FileText,
+        permiso: "tesoreria:leer_reportes",
+      },
       // HU-G5 (spec_modulo_G.md §9.7) — cuentas bancarias y cajas propias.
       // Gate por `tesoreria:leer_cuentas_bancarias`; la gestión y el revelado
       // de datos bancarios se gatean aparte dentro de la propia página.
