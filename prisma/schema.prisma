@@ -2966,6 +2966,38 @@ model CuentaPropia {
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
+  // --- Relaciones ---
+  /// Asientos append-only de saldo diario de esta cuenta (HU-G7).
+  saldos SaldoDiarioCuenta[]
+
   @@index([tipo, is_active])
   @@map("cuentas_propias")
+}
+
+// ============================================================================
+// Sprint 5 · Cluster 5 (HU-G7) — Saldos diarios de cuentas propias (append-only)
+// ============================================================================
+
+/// Asiento append-only del saldo de una `CuentaPropia` (spec_modulo_G.md §9.8,
+/// G7-4). NO existe ruta de edición ni de baja: una corrección es OTRA fila del
+/// mismo día y prevalece la de mayor `created_at` (desempate por `id`). De ahí
+/// que NO haya `@@unique([cuenta_id, fecha])` — un unique prohibiría corregir.
+///
+/// `fecha` es una "fecha-solo" persistida a medianoche UTC (`inicioDiaUtc`), no
+/// un instante real; `saldo` admite 0 y negativos (`Decimal(12,2)`).
+/// `registrado_por_id` es el actor, `String` SIN FK a `Usuario` (D2 — evita
+/// agregar una relación inversa y mantiene la migración 100% aditiva).
+model SaldoDiarioCuenta {
+  id                String   @id @default(uuid())
+  cuenta_id         String
+  fecha             DateTime
+  saldo             Decimal  @db.Decimal(12, 2)
+  registrado_por_id String
+  created_at        DateTime @default(now())
+
+  // --- Relaciones ---
+  cuenta CuentaPropia @relation(fields: [cuenta_id], references: [id], onDelete: Restrict)
+
+  @@index([cuenta_id, fecha, created_at])
+  @@map("saldos_diarios_cuenta")
 }

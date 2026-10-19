@@ -1591,6 +1591,19 @@ export interface CuentaPropiaBajaLogicaPayload {
   motivo: string;
 }
 
+/**
+ * HU-G7 (G7-4) — post-COMMIT tras registrar un `SaldoDiarioCuenta`
+ * (append-only). `saldo` es un monto de cuenta propia (no un dato bancario
+ * cifrado): el CBU/alias NUNCA viajan en este payload.
+ */
+export interface SaldoDiarioRegistradoPayload {
+  cuenta_propia_id: string;
+  fecha: string;
+  saldo: string;
+  usuario_id: string;
+  timestamp: string;
+}
+
 // --- Sprint 5 · Cluster 6 ---
 // HU-D6 (emite `alerta-desvio.service.ts`; consumen D.3 y F3) y D.4
 // (`configuracion:actualizada`, spec_modulo_D.md §5/§6.4). task_relos.md D9, D20.
@@ -1864,6 +1877,8 @@ export interface DomainEventMap {
   "tesoreria:cuenta_propia_editada": CuentaPropiaEditadaPayload;
   /** HU-G5 (G5-8): post-COMMIT tras la baja lógica de una CuentaPropia. */
   "tesoreria:cuenta_propia_baja_logica": CuentaPropiaBajaLogicaPayload;
+  /** HU-G7 (G7-4): post-COMMIT tras registrar un saldo diario (append-only). Lo escucha D.3. */
+  "tesoreria:saldo_diario_registrado": SaldoDiarioRegistradoPayload;
   // --- Sprint 5 · Cluster 6 ---
   /** HU-D6: post-COMMIT tras crear una AlertaDesvio. Lo escuchan D.3 y F3. */
   "alerta_desvio:creada": AlertaDesvioCreadaPayload;
@@ -2000,6 +2015,7 @@ export const TIPOS_EVENTO_DOMINIO = [
   "tesoreria:cuenta_propia_creada",
   "tesoreria:cuenta_propia_editada",
   "tesoreria:cuenta_propia_baja_logica",
+  "tesoreria:saldo_diario_registrado",
   // --- Sprint 5 · Cluster 6 ---
   "alerta_desvio:creada",
   "alerta_desvio:nivel_cambiado",
