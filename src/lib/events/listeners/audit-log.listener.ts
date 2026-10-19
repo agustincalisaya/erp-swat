@@ -46,6 +46,7 @@ import type {
   CuentaPropiaCreadaPayload,
   CuentaPropiaEditadaPayload,
   CuentaPropiaBajaLogicaPayload,
+  SaldoDiarioRegistradoPayload,
 } from "@/lib/events/event-types";
 import {
   registrarAuditLog,
@@ -2149,6 +2150,39 @@ export function iniciarAuditLogListener(): void {
       });
     },
   );
+
+  // HU-G7 (G7-4) — registro append-only de un `SaldoDiarioCuenta`. El payload
+  // D1 no trae el id de la fila (que no existe hasta el COMMIT), así que
+  // `registro_id` referencia la CUENTA afectada (`cuenta_propia_id`), no el
+  // asiento. `valor_nuevo` solo lleva campos NO sensibles (fecha/saldo): el
+  // CBU/alias nunca viaja por este evento ni por su asiento. El guard por
+  // `Symbol` evita duplicar el handler si el módulo se recarga (mismo patrón
+  // que el bloque de HU-G4 en este archivo).
+  const marcaSaldoDiario = Symbol.for("swat.audit-log.saldo-diario");
+  if (
+    !domainEventBus
+      .listeners("tesoreria:saldo_diario_registrado")
+      .some((handler) => Reflect.get(handler, marcaSaldoDiario))
+  ) {
+    const auditarSaldoDiario = (payload: SaldoDiarioRegistradoPayload) => {
+      registrarAuditLog({
+        usuario_id: payload.usuario_id,
+        accion: "CREATE",
+        tabla_afectada: "saldos_diarios_cuenta",
+        registro_id: payload.cuenta_propia_id,
+        ip: "internal-event",
+        valor_anterior: null,
+        valor_nuevo: { fecha: payload.fecha, saldo: payload.saldo },
+      }).catch((error: unknown) => {
+        console.error("[audit-log.listener] Falló la escritura de auditoría para tesoreria:saldo_diario_registrado:", {
+          registro_id: payload.cuenta_propia_id,
+          codigo_error: codigoDiagnosticoAuditoria(error),
+        });
+      });
+    };
+    Reflect.set(auditarSaldoDiario, marcaSaldoDiario, true);
+    domainEventBus.on("tesoreria:saldo_diario_registrado", auditarSaldoDiario);
+  }
   // --- Sprint 5 · Cluster 6 ---
   // HU-D6 (task_relos.md D9, D20, D23) — transiciones de `AlertaDesvio`. El
   // actor es el usuario del evento de origen o `null` (proceso automático);

@@ -304,6 +304,16 @@ const SECCIONES: SeccionConfig[] = [
         icon: Banknote,
         permiso: "cuentas_por_pagar:leer",
       },
+      // HU-G7 (spec_modulo_G.md §9.8) — posición diaria consolidada de
+      // Tesorería. Gate por `tesoreria:leer_reportes`; el registro de saldo se
+      // gatea aparte (`tesoreria:registrar_saldo_diario`) dentro de la página.
+      // Orden fijo del grupo: … Posición diaria, Cuentas propias, …
+      {
+        label: "Posición diaria",
+        href: "/tesoreria/posicion-diaria",
+        icon: Wallet,
+        permiso: "tesoreria:leer_reportes",
+      },
       // HU-G5 (spec_modulo_G.md §9.7) — cuentas bancarias y cajas propias.
       // Gate por `tesoreria:leer_cuentas_bancarias`; la gestión y el revelado
       // de datos bancarios se gatean aparte dentro de la propia página.

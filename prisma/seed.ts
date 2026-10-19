@@ -5409,12 +5409,86 @@ async function seedSprint5Cluster5(prisma: PrismaClient): Promise<void> {
     });
   }
 
+  // ── HU-G7 — permiso de registro de saldo + saldos diarios de ejemplo ──
+  // `tesoreria:registrar_saldo_diario` (UUID preasignado …055 en el doc del
+  // Sprint 5): SOLO TESORERO_CENTRAL escribe saldos (spec §9.8 / G7-4/G7-10).
+  // Ni se re-crea `tesoreria:leer_reportes` (…047) ni el rol GERENTE (`…0006`):
+  // ambos vienen del PR 0.
+  const PERMISO_REGISTRAR_SALDO_DIARIO_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000055";
+  await prisma.permiso.upsert({
+    where: { id: PERMISO_REGISTRAR_SALDO_DIARIO_ID },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: {
+      id: PERMISO_REGISTRAR_SALDO_DIARIO_ID,
+      codigo: "tesoreria:registrar_saldo_diario",
+      descripcion:
+        "Registrar el saldo diario (append-only) de una cuenta propia (HU-G7) — TESORERO_CENTRAL",
+      modulo: "MODULO_G",
+    },
+  });
+  await prisma.rol.findUniqueOrThrow({ where: { id: ROL_TESORERO_ID }, select: { id: true } });
+  await prisma.rolPermiso.upsert({
+    where: { rol_id_permiso_id: { rol_id: ROL_TESORERO_ID, permiso_id: PERMISO_REGISTRAR_SALDO_DIARIO_ID } },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: { rol_id: ROL_TESORERO_ID, permiso_id: PERMISO_REGISTRAR_SALDO_DIARIO_ID },
+  });
+
+  // Saldos diarios de ejemplo para las 3 cuentas propias. La tabla es
+  // append-only (sin unique por `(cuenta_id, fecha)`), así que NO se hace
+  // `upsert` por clave natural: se usa un `id` UUID fijo estable con
+  // `findUnique` + `create`, de modo que re-correr el seed NO duplica asientos
+  // ni reescribe los ya creados. `registrado_por_id` = usuario Tesorero del seed
+  // (columna sin FK). `fecha` es fecha-solo a medianoche UTC (convención
+  // `inicioDiaUtc`). Valores que hacen visible la posición del día.
+  const saldosSeed: { id: string; cuenta_id: string; fecha: string; saldo: string }[] = [
+    {
+      id: "1a2b3c4d-6666-4a1a-8a1a-000000000001",
+      cuenta_id: "banco-nacion-cc-principal",
+      fecha: "2026-10-15T00:00:00.000Z",
+      saldo: "1250000.00",
+    },
+    {
+      id: "1a2b3c4d-6666-4a1a-8a1a-000000000002",
+      cuenta_id: "banco-galicia-cc-operativa",
+      fecha: "2026-10-15T00:00:00.000Z",
+      saldo: "480500.75",
+    },
+    {
+      id: "1a2b3c4d-6666-4a1a-8a1a-000000000003",
+      cuenta_id: "caja-chica-central",
+      fecha: "2026-10-15T00:00:00.000Z",
+      saldo: "38500.00",
+    },
+  ];
+  let saldosCreados = 0;
+  for (const saldo of saldosSeed) {
+    const existente = await prisma.saldoDiarioCuenta.findUnique({
+      where: { id: saldo.id },
+      select: { id: true },
+    });
+    if (!existente) {
+      await prisma.saldoDiarioCuenta.create({
+        data: {
+          id: saldo.id,
+          cuenta_id: saldo.cuenta_id,
+          fecha: new Date(saldo.fecha),
+          saldo: saldo.saldo,
+          registrado_por_id: USUARIO_TESORERO_SEED_ID,
+        },
+      });
+      saldosCreados += 1;
+    }
+  }
+
   console.log("\nSeed Sprint 5 — Cluster 5 (HU-G5) cuentas propias completado:");
   console.table({
     permiso_gestionar_cuentas_bancarias: PERMISO_GESTIONAR_CUENTAS_BANCARIAS_ID,
     permiso_leer_cuentas_bancarias: PERMISO_LEER_CUENTAS_BANCARIAS_ID,
     permiso_ver_datos_bancarios: PERMISO_VER_DATOS_BANCARIOS_ID,
+    permiso_registrar_saldo_diario: PERMISO_REGISTRAR_SALDO_DIARIO_ID,
     cuentas: cuentasSeed.length,
+    saldos_diarios: saldosSeed.length,
+    saldos_diarios_creados: saldosCreados,
   });
 }
 
