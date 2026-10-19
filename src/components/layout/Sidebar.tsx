@@ -32,7 +32,7 @@
  */
 import type { LucideIcon } from "lucide-react";
 // 1. Agregamos el ícono "Layers" a la importación
-import { ScrollText, ShieldCheck, Users, Package, Warehouse, ScanBarcode, Layers, FileSearch, ShoppingCart, ClipboardList, Store, PackageCheck, Undo2, Wallet, Banknote, Receipt, FileText, UserPlus, Tags, TicketPercent, Settings, BellRing, Globe, Ban, BookOpen, TriangleAlert, Landmark } from "lucide-react";
+import { ScrollText, ShieldCheck, Users, Package, Warehouse, ScanBarcode, Layers, FileSearch, ShoppingCart, ClipboardList, Store, PackageCheck, Undo2, Wallet, Banknote, Receipt, ReceiptText, FileText, UserPlus, Tags, TicketPercent, Settings, BellRing, Globe, Ban, BookOpen, TriangleAlert, Landmark } from "lucide-react";
 import { getServerSession } from "@/lib/auth/session";
 import { usuarioTienePermiso } from "@/lib/auth/with-permission";
 import { SidebarNav, type SidebarNavSection } from "@/components/layout/SidebarNav";
@@ -303,6 +303,18 @@ const SECCIONES: SeccionConfig[] = [
         href: "/tesoreria/cuentas-por-pagar",
         icon: Banknote,
         permiso: "cuentas_por_pagar:leer",
+      },
+      {
+        label: "Categorías de gasto",
+        href: "/tesoreria/categorias-gasto",
+        icon: Tags,
+        permiso: "tesoreria:gestionar_categorias_gasto",
+      },
+      {
+        label: "Gastos operativos",
+        href: "/tesoreria/gastos-operativos",
+        icon: ReceiptText,
+        permiso: "tesoreria:gestionar_gastos",
       },
       // HU-G7 (spec_modulo_G.md §9.8) — posición diaria consolidada de
       // Tesorería. Gate por `tesoreria:leer_reportes`; el registro de saldo se

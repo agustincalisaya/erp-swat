@@ -62,6 +62,8 @@
 }
 
 :root {
+  --swat-logo-ink: #1E231D;
+  --swat-logo-olive: #404A29;
   --background: #F4F5F3;
   --foreground: #202521;
   --card: #FFFFFF;
@@ -110,6 +112,8 @@
 }
 
 .dark {
+  --swat-logo-ink: #E9EDE5;
+  --swat-logo-olive: #A3B58C;
   --background: #141714;
   --foreground: #E9EDE5;
   --card: #1D221D;
@@ -179,6 +183,10 @@
     accent-color: var(--primary);
   }
 }
+
+/* Las rutas editoriales usan todo el ancho; las demás conservan el marco de lectura. */
+.tienda-main { max-width: 72rem; margin-inline: auto; padding: 1.5rem 1rem; }
+.tienda-main:has(> [data-tienda-wide]) { max-width: none; padding: 0; }
 
 /*
  * El viewport de toasts (components/ui/toast.tsx) sale con z-50, el mismo

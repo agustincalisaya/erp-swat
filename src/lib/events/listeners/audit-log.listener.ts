@@ -1929,6 +1929,48 @@ export function iniciarAuditLogListener(): void {
     });
   });
 
+  // HU-G12 — asiento del cambio confirmado de categoría de gasto.
+  for (const [evento, accion] of [
+    ["categoria_gasto:creada", "CREATE"],
+    ["categoria_gasto:editada", "UPDATE"],
+    ["categoria_gasto:dada_de_baja", "DELETE_LOGICO"],
+  ] as const) {
+    domainEventBus.on(evento, (payload) => {
+      void registrarAuditLog({
+        usuario_id: payload.usuario_id,
+        accion,
+        tabla_afectada: "categorias_gasto",
+        registro_id: payload.categoria_gasto_id,
+        ip: "internal-event",
+        valor_anterior: payload.valor_anterior,
+        valor_nuevo: payload.valor_nuevo,
+      }).catch((error: unknown) => {
+        console.error(`[HU-G12] Falló la auditoría de ${evento}:`, error);
+      });
+    });
+  }
+
+  // HU-G13 — transiciones confirmadas de gastos operativos.
+  domainEventBus.on("gasto_operativo:creado", (payload) => {
+    void registrarAuditLog({ usuario_id: payload.usuario_id, accion: "CREATE", tabla_afectada: "gastos_operativos",
+      registro_id: payload.gasto_operativo_id, ip: "internal-event", valor_anterior: null,
+      valor_nuevo: { categoria_gasto_id: payload.categoria_gasto_id, fecha: payload.fecha, monto: payload.monto },
+    }).catch((error: unknown) => console.error("[HU-G13] Falló auditoría de alta:", error));
+  });
+  domainEventBus.on("gasto_operativo:editado", (payload) => {
+    void registrarAuditLog({ usuario_id: payload.usuario_id, accion: "UPDATE", tabla_afectada: "gastos_operativos",
+      registro_id: payload.gasto_operativo_id, ip: "internal-event", valor_anterior: payload.valor_anterior,
+      valor_nuevo: payload.valor_nuevo,
+    }).catch((error: unknown) => console.error("[HU-G13] Falló auditoría de edición:", error));
+  });
+  domainEventBus.on("gasto_operativo:dado_de_baja", (payload) => {
+    void registrarAuditLog({ usuario_id: payload.usuario_id, accion: "DELETE_LOGICO", tabla_afectada: "gastos_operativos",
+      registro_id: payload.gasto_operativo_id, ip: "internal-event",
+      valor_anterior: { categoria_gasto_id: payload.categoria_gasto_id, fecha: payload.fecha, monto: payload.monto, is_active: true },
+      valor_nuevo: { categoria_gasto_id: payload.categoria_gasto_id, fecha: payload.fecha, monto: payload.monto, is_active: false, deletion_reason: payload.motivo },
+    }).catch((error: unknown) => console.error("[HU-G13] Falló auditoría de baja:", error));
+  });
+
   // HU-G11 (Módulo G) — ingresos de Tesorería por cobros web. El actor es el
   // sistema (listener reactivo sin request HTTP): `usuario_id` null, mismo
   // criterio que el resto de los eventos emitidos desde services. El payload ya

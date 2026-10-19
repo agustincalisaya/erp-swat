@@ -1483,6 +1483,21 @@ export interface NotificacionPlantillaReactivadaPayload {
   valor_nuevo: { is_active: true };
 }
 
+/** HU-G12 — estado persistido de una categoría, sin campos de personas. */
+export interface CategoriaGastoDatos {
+  nombre: string;
+  descripcion: string | null;
+  is_active: boolean;
+  deletion_reason: string | null;
+}
+
+export interface CategoriaGastoEventoPayload {
+  categoria_gasto_id: string;
+  usuario_id: string;
+  valor_anterior: CategoriaGastoDatos | null;
+  valor_nuevo: CategoriaGastoDatos;
+}
+
 // --- Sprint 5 · Cluster 2 ---
 // Contrato HU-G13 (emite, Cluster 2) → HU-D6 (escucha, Cluster 6). Solo declarados en el PR 0.
 
@@ -1853,6 +1868,10 @@ export interface DomainEventMap {
   "notificacion_plantilla:baja_logica": NotificacionPlantillaBajaLogicaPayload;
   /** HU-F2 (task §4.1-bis): se emite tras reactivar una PlantillaNotificacion dada de baja. */
   "notificacion_plantilla:reactivada": NotificacionPlantillaReactivadaPayload;
+  /** HU-G12: transiciones de la categoría tras el commit. */
+  "categoria_gasto:creada": CategoriaGastoEventoPayload;
+  "categoria_gasto:editada": CategoriaGastoEventoPayload;
+  "categoria_gasto:dada_de_baja": CategoriaGastoEventoPayload;
   /** HU-G11: se emite post-COMMIT tras registrar el IngresoTesoreria de un cobro web. */
   "tesoreria:ingreso_web_registrado": IngresoWebRegistradoPayload;
   /** HU-G11: se emite post-COMMIT tras registrar el contra-asiento de un reintegro (HU-E13). */
@@ -2000,6 +2019,9 @@ export const TIPOS_EVENTO_DOMINIO = [
   "notificacion_plantilla:actualizada",
   "notificacion_plantilla:baja_logica",
   "notificacion_plantilla:reactivada",
+  "categoria_gasto:creada",
+  "categoria_gasto:editada",
+  "categoria_gasto:dada_de_baja",
   "tesoreria:ingreso_web_registrado",
   "tesoreria:contra_asiento_ingreso_registrado",
   // --- Sprint 5 · Cluster 1 ---

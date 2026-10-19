@@ -17,16 +17,12 @@
  * (Mercado Pago falló al iniciar la compra) la crea acá; si vuelve a fallar,
  * se ofrece reintentar recargando.
  */
-import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { buttonVariants } from "@/components/ui/button";
-import { DesgloseCupon } from "@/components/tienda/DesgloseCupon";
-import { formatearPrecio } from "@/components/tienda/formato";
 import { getSesionClienteWeb, getSesionClienteWebVinculada } from "@/lib/auth/sesion-cliente-web";
 import { obtenerPedidoWebPendiente } from "@/lib/services/ecommerce/checkout.service";
 import { obtenerOCrearPreferencia, obtenerResultadoPago } from "@/lib/services/ecommerce/pago-web.service";
 import { z } from "zod";
+import { CheckoutPendienteVista } from "../CheckoutPendienteVista";
 
 /** HU-E2: `checkout_url` del pedido, creándolo si falta. `null` si MP no respondió. */
 async function urlDePago(pedidoVentaEcommerceId: string, guardada: string | null): Promise<string | null> {
@@ -46,12 +42,6 @@ const formatoHora = new Intl.DateTimeFormat("es-AR", {
   day: "2-digit",
   month: "2-digit",
 });
-
-const volverAlCatalogo = (
-  <Link href="/tienda/catalogo" className={buttonVariants({ variant: "outline" })}>
-    Volver al catálogo
-  </Link>
-);
 
 const PedidoIdSchema = z.string().uuid();
 
@@ -79,67 +69,15 @@ export default async function CheckoutPendienteTiendaPage({
   }
 
   if (!pedido) {
-    return (
-      <div className="mx-auto max-w-lg space-y-4">
-        <Alert>
-          <AlertTitle>No encontramos esa compra pendiente</AlertTitle>
-          <AlertDescription>Agregá productos al carrito para iniciar una compra.</AlertDescription>
-        </Alert>
-        {volverAlCatalogo}
-      </div>
-    );
+    return <CheckoutPendienteVista pedido={null} vencimiento={null} checkoutUrl={null} />;
   }
 
   const vencimiento = formatoHora.format(new Date(pedido.ttl_expiracion));
 
   if (pedido.estado_visible === "RESERVA_VENCIDA") {
-    return (
-      <div className="mx-auto max-w-lg space-y-4">
-        <h1 className="text-2xl font-semibold">Reserva vencida</h1>
-        <Alert variant="destructive">
-          <AlertTitle>Pedido {pedido.numero_venta} — Reserva vencida</AlertTitle>
-          <AlertDescription>
-            El pago no se confirmó antes de las {vencimiento}: la reserva venció y los artículos volvieron a estar
-            disponibles. Podés armar el carrito de nuevo e iniciar otra compra.
-          </AlertDescription>
-        </Alert>
-        {volverAlCatalogo}
-      </div>
-    );
+    return <CheckoutPendienteVista pedido={pedido} vencimiento={vencimiento} checkoutUrl={null} />;
   }
 
   const checkoutUrl = await urlDePago(pedido.pedido_venta_ecommerce_id, pedido.checkout_url);
-
-  return (
-    <div className="mx-auto max-w-lg space-y-4">
-      <h1 className="text-2xl font-semibold">Reservamos tu compra</h1>
-      <Alert>
-        <AlertTitle>Pedido {pedido.numero_venta} — Pago pendiente</AlertTitle>
-        <AlertDescription>
-          Total {formatearPrecio(pedido.total)}. Los artículos quedan reservados hasta las <strong>{vencimiento}</strong>.
-          Si el pago no se confirma antes, la reserva vence y el stock vuelve a estar disponible.
-        </AlertDescription>
-      </Alert>
-      {pedido.cupon && <DesgloseCupon cupon={pedido.cupon} total={pedido.total} />}
-      {checkoutUrl ? (
-        <>
-          {/* Checkout Pro: la tarjeta se carga en Mercado Pago, nunca en SWAT (CA1). */}
-          <a href={checkoutUrl} className={buttonVariants({ className: "w-full" })}>
-            Pagar con Mercado Pago
-          </a>
-          <p className="text-xs text-muted-foreground">
-            Vas a pagar en el sitio de Mercado Pago. Tus datos de tarjeta nunca pasan por SWAT Indumentarias.
-          </p>
-        </>
-      ) : (
-        <Alert variant="destructive">
-          <AlertTitle>No pudimos conectar con Mercado Pago</AlertTitle>
-          <AlertDescription>
-            Tu reserva sigue vigente. <Link href={`/tienda/checkout/pendiente?pedido=${pedido.pedido_venta_id}`}>Reintentá</Link>{" "}
-            en unos segundos.
-          </AlertDescription>
-        </Alert>
-      )}
-    </div>
-  );
+  return <CheckoutPendienteVista pedido={pedido} vencimiento={vencimiento} checkoutUrl={checkoutUrl} />;
 }
