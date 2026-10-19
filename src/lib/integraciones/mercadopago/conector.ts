@@ -14,6 +14,7 @@ import type { EntornoConectorPago, EstadoConectorPago } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { decrypt } from "@/lib/crypto/aes";
 import { ServiceError } from "@/lib/errors/service-error";
+import { seleccionarEntornoMercadoPago } from "./entorno";
 
 export interface ConectorActivo {
   id: string;
@@ -22,9 +23,9 @@ export interface ConectorActivo {
   webhook_secret: string;
 }
 
-/** spec F §3.1: `NODE_ENV` mapeado a SANDBOX/PRODUCCION. */
+/** Permite una demo SANDBOX en un despliegue Vercel; sin override conserva el comportamiento previo. */
 export function entornoVigente(): EntornoConectorPago {
-  return process.env.NODE_ENV === "production" ? "PRODUCCION" : "SANDBOX";
+  return seleccionarEntornoMercadoPago(process.env.MP_ENTORNO, process.env.NODE_ENV);
 }
 
 /**
