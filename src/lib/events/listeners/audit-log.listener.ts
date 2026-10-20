@@ -42,6 +42,7 @@ import type {
   PedidoEntregadoPayload,
   RetiroRechazadoPayload,
   LibroIvaExportadoPayload,
+  ReporteMensualExportadoPayload,
   DatosBancariosConsultadosPayload,
   CuentaPropiaCreadaPayload,
   CuentaPropiaEditadaPayload,
@@ -2061,6 +2062,31 @@ export function iniciarAuditLogListener(): void {
   // --- Sprint 5 · Cluster 1 ---
   // --- Sprint 5 · Cluster 2 ---
   // --- Sprint 5 · Cluster 3 ---
+  const marcaReporte = Symbol.for("swat.audit-log.reporte-mensual");
+  if (!domainEventBus.listeners("tesoreria:reporte_exportado").some((handler) => Reflect.get(handler, marcaReporte))) {
+    const auditarReporte = (payload: ReporteMensualExportadoPayload) => {
+      void import("@/lib/events/reporte-mensual-confirmacion").then(({ confirmacionesReporteMensual }) =>
+        registrarAuditLogIdempotente({
+          usuario_id: payload.usuario_id,
+          accion: "REPORTE_MENSUAL_EXPORTADO",
+          tabla_afectada: "reporte_mensual",
+          registro_id: payload.exportacion_id,
+          ip: "internal-event",
+          valor_anterior: null,
+          valor_nuevo: {
+            exportacion_id: payload.exportacion_id, anio: payload.anio, mes: payload.mes,
+            formato: payload.formato, timestamp: payload.timestamp,
+          },
+        }).then(
+          () => confirmacionesReporteMensual.confirmar(payload.exportacion_id, true),
+          () => confirmacionesReporteMensual.confirmar(payload.exportacion_id, false),
+        )).catch(() => {
+          // El productor agota su espera si no se puede cargar el coordinador.
+        });
+    };
+    Reflect.set(auditarReporte, marcaReporte, true);
+    domainEventBus.on("tesoreria:reporte_exportado", auditarReporte);
+  }
   // --- Sprint 5 · Cluster 4 ---
   const marcaLibroIva = Symbol.for("swat.audit-log.libro-iva");
   if (!domainEventBus.listeners("tesoreria:libro_iva_exportado").some((handler) => Reflect.get(handler, marcaLibroIva))) {

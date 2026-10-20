@@ -5,11 +5,16 @@ import { diaDeVigencia, formatearFechaNegocio } from "@/lib/utils/fecha-negocio"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { cargarReporteMensual } from "@/lib/services/tesoreria/reporte-mensual.pantalla";
 import { interpretarMesReporte } from "@/lib/services/tesoreria/reporte-mensual.periodo";
 import { PERMISO_LEER_DESGLOSE_GASTOS, PERMISO_LEER_REPORTES } from "@/lib/services/tesoreria/reporte-mensual.service";
 import type { DetalleMovimientoMensualDto } from "@/lib/services/tesoreria/reporte-mensual.detalle.types";
+import { obtenerSerieSeisMeses } from "@/lib/services/tesoreria/reporte-mensual.serie.service";
+import { proyectarSerieVisual, proyectarDesgloseVisual } from "@/lib/services/tesoreria/reporte-mensual.graficos.datos";
+import { GraficosReporteMensual } from "@/components/tesoreria/reporte-mensual.graficos";
+import { PERMISO_EXPORTAR_REPORTES } from "@/lib/services/tesoreria/reporte-mensual.export.service";
+import type { PuntoVisual } from "@/lib/services/tesoreria/reporte-mensual.graficos.datos";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Reporte mensual — ERP SWAT" };
@@ -50,10 +55,17 @@ export default async function ReporteMensualPage({
   const seleccionado = typeof query.mes === "string" ? query.mes : Array.isArray(query.mes) ? "" : undefined;
   const periodo = interpretarMesReporte(seleccionado);
   const desglose = await usuarioTienePermiso(session.userId, PERMISO_LEER_DESGLOSE_GASTOS);
+  const puedeExportar = await usuarioTienePermiso(session.userId, PERMISO_EXPORTAR_REPORTES);
   let reporte: Awaited<ReturnType<typeof cargarReporteMensual>> | null = null;
+  let serie: PuntoVisual[] | null = null;
   if (periodo) {
     try {
       reporte = await cargarReporteMensual(periodo.anio, periodo.mes, { incluir_desglose_gastos: desglose });
+      try {
+        serie = proyectarSerieVisual(await obtenerSerieSeisMeses(reporte.resumen));
+      } catch {
+        // El gráfico no invalida el reporte principal.
+      }
     } catch {
       // El error técnico no se envía al navegador.
     }
@@ -82,6 +94,12 @@ export default async function ReporteMensualPage({
           </p>
         ) : (
           <>
+            {puedeExportar && <div className="flex flex-wrap gap-2">
+              <a className={buttonVariants({ variant: "outline" })} href={`/api/tesoreria/reporte-mensual/exportar/csv?mes=${periodo.mesIso}`}>Exportar CSV</a>
+              <a className={buttonVariants({ variant: "outline" })} href={`/api/tesoreria/reporte-mensual/exportar/pdf?mes=${periodo.mesIso}`}>Exportar PDF</a>
+            </div>}
+            {serie ? <GraficosReporteMensual serie={serie} {...proyectarDesgloseVisual(resumen)} />
+              : <p role="status" className="text-sm text-muted-foreground">Los gráficos no están disponibles en este momento.</p>}
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {[
                 ["Ingresos", resumen.ingresos.total],

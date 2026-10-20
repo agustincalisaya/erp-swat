@@ -1547,6 +1547,16 @@ export interface GastoOperativoDadoDeBajaPayload {
   motivo: string;
 }
 
+// --- Sprint 5 · Cluster 3 — HU-G16 ---
+export interface ReporteMensualExportadoPayload {
+  exportacion_id: string;
+  usuario_id: string;
+  anio: number;
+  mes: number;
+  formato: "CSV" | "PDF";
+  timestamp: string;
+}
+
 // --- Sprint 5 · Cluster 4 — HU-G4 ---
 export interface LibroIvaExportadoPayload {
   exportacion_id: string;
@@ -1885,6 +1895,7 @@ export interface DomainEventMap {
   /** HU-G13: post-COMMIT tras la baja lógica de un GastoOperativo. Lo escucha HU-D6. */
   "gasto_operativo:dado_de_baja": GastoOperativoDadoDeBajaPayload;
   // --- Sprint 5 · Cluster 3 ---
+  "tesoreria:reporte_exportado": ReporteMensualExportadoPayload;
   // --- Sprint 5 · Cluster 4 ---
   "tesoreria:libro_iva_exportado": LibroIvaExportadoPayload;
   // --- Sprint 5 · Cluster 5 ---
@@ -2030,6 +2041,7 @@ export const TIPOS_EVENTO_DOMINIO = [
   "gasto_operativo:editado",
   "gasto_operativo:dado_de_baja",
   // --- Sprint 5 · Cluster 3 ---
+  "tesoreria:reporte_exportado",
   // --- Sprint 5 · Cluster 4 ---
   "tesoreria:libro_iva_exportado",
   // --- Sprint 5 · Cluster 5 ---
