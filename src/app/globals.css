@@ -259,3 +259,7 @@
     display: none;
   }
 }
+
+:root { --report-income: #445a40; --report-expense: #986728; }
+#mes-reporte { text-transform: capitalize; }
+#mes-reporte::-webkit-datetime-edit-text { text-transform: lowercase; }

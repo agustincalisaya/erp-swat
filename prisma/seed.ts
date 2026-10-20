@@ -5216,6 +5216,28 @@ async function seedSprint5Cluster3(prisma: PrismaClient): Promise<void> {
       create: { rol_id, permiso_id: permisoId },
     });
   }
+  const exportarId = "1a2b3c4d-1111-4a1a-8a1a-000000000049";
+  const exportarCodigo = "tesoreria:exportar_reportes";
+  const conflictosExportar = await prisma.permiso.findMany({
+    where: { OR: [{ id: exportarId }, { codigo: exportarCodigo }] },
+    select: { id: true, codigo: true },
+  });
+  if (conflictosExportar.some((p) => p.id !== exportarId || p.codigo !== exportarCodigo)) {
+    throw new Error("HU-G16: conflicto de UUID/código del permiso de exportación");
+  }
+  await prisma.permiso.upsert({
+    where: { id: exportarId },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: { id: exportarId, codigo: exportarCodigo, modulo: "MODULO_G",
+      descripcion: "Exportar el reporte mensual en CSV o PDF (HU-G16)" },
+  });
+  for (const rol_id of [ROL_GERENTE_ID, ROL_TESORERO_ID, ROL_AUDITOR_ID]) {
+    await prisma.rolPermiso.upsert({
+      where: { rol_id_permiso_id: { rol_id, permiso_id: exportarId } },
+      update: REACTIVAR_REFERENCIA_RBAC,
+      create: { rol_id, permiso_id: exportarId },
+    });
+  }
 }
 
 // HU-G4 · Libro de IVA. Bloque propio, fuera de cluster 4 (HU-G3), cuyo cuerpo

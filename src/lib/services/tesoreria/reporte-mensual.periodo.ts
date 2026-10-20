@@ -2,8 +2,10 @@ import { diaNegocioIso, rangoMesNegocio } from "@/lib/utils/fecha-negocio";
 
 /** Devuelve null ante una query inválida; jamás usa la fecha del navegador. */
 export function interpretarMesReporte(valor: string | null | undefined, ahora: Date = new Date()) {
-  const mesIso = valor ?? diaNegocioIso(ahora).slice(0, 7);
+  const mesActual = diaNegocioIso(ahora).slice(0, 7);
+  const mesIso = valor ?? mesActual;
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(mesIso)) return null;
+  if (mesIso > mesActual) return null;
   const anio = Number(mesIso.slice(0, 4));
   const mes = Number(mesIso.slice(5, 7));
   try {

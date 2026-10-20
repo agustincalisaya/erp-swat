@@ -375,7 +375,7 @@ test(
       assert.deepEqual(ids, todas.alertas.map((a) => a.id), "páginas de 1 = mismo orden, sin repetidos ni faltantes");
     });
 
-    await t.test("c — reevaluación al abrir: stock cambiado sin evento; egresos con el G14 stub (no calculable)", async () => {
+    await t.test("c — reevaluación al abrir: stock cambiado sin evento; egresos con G14 real", async () => {
       const sube = await crearPar(4, 5);
       const baja = await crearPar(4, 5);
       await evaluarStock(sube);
@@ -389,16 +389,7 @@ test(
       assert.equal(fila(antes, baja)[0]?.severidad, "CRITICA", "decremento sin evento: sube a CRITICA al abrir");
       assert.equal(fila(antes, baja)[0]?.detalle, "Stock 0 (punto de pedido 5)");
 
-      // Egresos. El servidor usa el G14 REAL, que hoy es el stub del PR 0:
-      // porcentaje null = «no calculable» (criterio 5 / D2), que es un resultado
-      // válido, NO un fallo de la fuente (D7). Por eso:
-      //  - fuente_egresos.estado = "NO_CALCULABLE" (no "NO_DISPONIBLE");
-      //  - una alerta ACTIVA del mes en curso SE RESUELVE (criterio 5: «una
-      //    alerta de egresos activa de ese mes se resuelve»);
-      //  - una alerta ACTIVA de un mes anterior SE RESUELVE (mes terminado, D5).
-      // Lo que D7 protege («nunca se modifica una alerta por un error del
-      // resumen») es el caso de G14 que LANZA; con el stub no ocurre por HTTP
-      // y está probado en test:integration:d6 (d2) con G14 inyectado.
+      // El servidor usa G14 real; el estado depende de los ingresos del mes.
       const hoy = new Date();
       const referenciaHoy = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Argentina/Buenos_Aires", year: "numeric", month: "2-digit" }).format(hoy).slice(0, 7);
       const [anio, mes] = referenciaHoy.split("-").map(Number) as [number, number];
@@ -419,16 +410,24 @@ test(
       const idAnterior = (await activaEgresos(referenciaAnterior))!.id;
 
       const data = await panel(administrador, "estado=todas&page_size=100");
-      assert.deepEqual(data.fuente_egresos, { estado: "NO_CALCULABLE", referencia: referenciaHoy });
+      const { obtenerResumenMensual } = await import("../tesoreria/reporte-mensual.service.ts");
+      const resumen = await obtenerResumenMensual(anio, mes, { incluir_desglose_gastos: false });
+      assert.ok(Number(resumen.ingresos.total) > 0, "fixture del mes: ingresos positivos");
+      assert.notEqual(resumen.porcentaje_egresos_sobre_ingresos, null);
+      assert.deepEqual(data.fuente_egresos, {
+        estado: "CALCULABLE", referencia: referenciaHoy,
+        porcentaje: resumen.porcentaje_egresos_sobre_ingresos,
+      });
       const [filaHoy, filaAnterior] = [data.alertas.find((a) => a.id === idHoy), data.alertas.find((a) => a.id === idAnterior)];
-      assert.equal(filaHoy?.estado, "RESUELTA", "no calculable → resuelta (criterio 5)");
+      assert.equal(filaHoy?.estado, "RESUELTA", "porcentaje debajo del umbral → resuelta");
       assert.equal(filaHoy?.detalle, "90,0% (umbral 85%)", "D28: conserva el último desvío");
       assert.equal(filaAnterior?.estado, "RESUELTA", "mes terminado → resuelta (D5)");
       assert.equal(filaAnterior?.detalle, "80,0% (umbral 70%)");
       assert.equal(await activaEgresos(referenciaHoy), null);
       assert.equal(await activaEgresos(referenciaAnterior), null);
       const pagina = await llamar("GET", "/tesoreria/alertas", administrador);
-      assert.match(pagina.texto, /No calculable \(los ingresos del mes son cero o negativos\)/);
+      assert.match(pagina.texto, /Egresos sobre ingresos de/);
+      assert.doesNotMatch(pagina.texto, /No calculable \(los ingresos del mes son cero o negativos\)/);
     });
 
     await t.test("d — PATCH umbrales: admin cambia y el GET lo muestra; asiento real; 403/401/400/405; mismo conjunto sin cambio", async () => {
