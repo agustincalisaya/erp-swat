@@ -7,8 +7,13 @@
  *
  * CA4: cada ítem no comprable muestra un aviso que lo identifica, y si el
  * checkout responde 422 ARTICULO_NO_DISPONIBLE se marcan los ítems que
- * devolvió el servidor (`details.items[]`). CA6: sin sesión, "Iniciar compra"
- * lleva al ingreso y vuelve al carrito.
+ * devolvió el servidor (`details.items[]`). CA6: sin sesión, "Ingresar para
+ * comprar" lleva al ingreso y vuelve al carrito.
+ *
+ * HU-E15 (E15-1/E15-2): con sesión vinculada el botón dice "Proceder al pago";
+ * el aviso informa el plazo de la reserva en minutos (`plazoReservaMinutos`,
+ * leído en el servidor). Sin plazo disponible, o con la cuenta pendiente de
+ * vinculación, se conserva el texto genérico.
  */
 import { useState, useTransition } from "react";
 import Link from "next/link";
@@ -25,7 +30,31 @@ import type { CarritoVista } from "@/lib/services/ecommerce/carrito.service";
 import { fotoPublicaProducto } from "@/components/tienda/foto-publica";
 import styles from "@/components/tienda/compra.module.css";
 
-export function CarritoCliente({ carrito, conSesion, compraBloqueada = false }: { carrito: CarritoVista; conSesion: boolean; compraBloqueada?: boolean }) {
+/**
+ * HU-E15 (E15-2): aviso del plazo de la reserva. Recibe solo minutos (nunca la
+ * clave ni las horas). Sin minutos: texto genérico, sin número ni default.
+ */
+export function AvisoPlazoReserva({ minutos }: { minutos: number | null }) {
+  return (
+    <p className={styles.summaryNote}>
+      {minutos === null
+        ? "Al iniciar la compra reservamos el stock por un tiempo limitado mientras completás el pago."
+        : `Al proceder al pago reservamos tu stock durante ${minutos} minutos: esa cantidad deja de estar disponible para otros compradores. Si el pago no se confirma en ese plazo, la reserva se libera.`}
+    </p>
+  );
+}
+
+export function CarritoCliente({
+  carrito,
+  conSesion,
+  compraBloqueada = false,
+  plazoReservaMinutos = null,
+}: {
+  carrito: CarritoVista;
+  conSesion: boolean;
+  compraBloqueada?: boolean;
+  plazoReservaMinutos?: number | null;
+}) {
   const router = useRouter();
   const [pendiente, startTransition] = useTransition();
   const [error, setError] = useState<ErrorApiTienda | null>(null);
@@ -174,9 +203,8 @@ export function CarritoCliente({ carrito, conSesion, compraBloqueada = false }: 
               <span>Total</span>
               <strong>{formatearPrecio(carrito.total)}</strong>
             </div>
-            <p className={styles.summaryNote}>
-              Al iniciar la compra reservamos el stock por un tiempo limitado mientras completás el pago.
-            </p>
+            {/* P3: la cuenta pendiente no tiene acción de checkout → texto genérico. */}
+            <AvisoPlazoReserva minutos={compraBloqueada ? null : plazoReservaMinutos} />
             {conSesion && (
               <label className={styles.couponField}>Código de cupón (opcional)
               <Input
@@ -191,7 +219,7 @@ export function CarritoCliente({ carrito, conSesion, compraBloqueada = false }: 
             )}
             {!compraBloqueada && (
               <Button className={styles.primaryAction} disabled={pendiente} onClick={iniciarCompra}>
-                {pendiente ? "Procesando…" : conSesion ? "Iniciar compra" : "Ingresar para comprar"}
+                {pendiente ? "Procesando…" : conSesion ? "Proceder al pago" : "Ingresar para comprar"}
               </Button>
             )}
         </div>

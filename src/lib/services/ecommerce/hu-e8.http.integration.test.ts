@@ -171,6 +171,6 @@ test("HU-E8 HTTP — rutas, permisos, cookies y aislamiento", { skip: !BASE_URL 
     const pagina = await llamar(login.jar, "/tienda/carrito"); assert.equal(pagina.status, 200);
     const html = await pagina.response.text();
     assert.match(html, /href="\/tienda\/cuenta"/);
-    assert.doesNotMatch(html, /Iniciar compra|Ingresar para comprar/);
+    assert.doesNotMatch(html, /Iniciar compra|Proceder al pago|Ingresar para comprar/);
   });
 });
