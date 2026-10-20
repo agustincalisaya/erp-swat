@@ -11,4 +11,7 @@ export interface DetalleMovimientoMensualDto {
   concepto: string;
   importe: Importe;
   impacta_resultado: boolean;
+  medio_pago?: string;
+  categoria_gasto_id?: string;
+  proveedor_id?: string;
 }

@@ -57,7 +57,7 @@ export async function consultarReporteMensual(
     cliente.cuentaPorPagar.findMany({
       where: { estado: "PAGADA", is_active: true, fecha_pago: pagosPosibles },
       select: { id: true, monto: true, fecha_pago: true,
-        orden_compra: { select: { proveedor: { select: { razon_social: true } } } } },
+        orden_compra: { select: { proveedor_id: true, proveedor: { select: { razon_social: true } } } } },
     }),
   ]);
   const pagos = cuentas.filter((fila) => fila.fecha_pago !== null && diaDeVigencia(fila.fecha_pago).slice(0, 7) === mesIso);
@@ -123,13 +123,13 @@ export async function consultarReporteMensual(
     ...medios.map((fila) => ({ id: `VENTA_MOSTRADOR:${fila.id}`, fuente_id: fila.id, tipo: "VENTA_MOSTRADOR" as const,
       fecha: fila.pedido_venta.fecha_facturacion!.toISOString(),
       concepto: `${fila.pedido_venta.numero_venta} · ${fila.medio.replaceAll("_", " ")}`,
-      importe: importe(fila.importe), impacta_resultado: fila.medio !== "CUENTA_CORRIENTE" })),
+      importe: importe(fila.importe), medio_pago: fila.medio, impacta_resultado: fila.medio !== "CUENTA_CORRIENTE" })),
     ...pagos.map((fila) => ({ id: `EGRESO_PROVEEDOR:${fila.id}`, fuente_id: fila.id, tipo: "EGRESO_PROVEEDOR" as const,
       fecha: fila.fecha_pago!.toISOString(), concepto: fila.orden_compra.proveedor.razon_social,
-      importe: importe(fila.monto.neg()), impacta_resultado: true })),
+      importe: importe(fila.monto.neg()), proveedor_id: fila.orden_compra.proveedor_id, impacta_resultado: true })),
     ...(gastos ?? []).map((fila) => ({ id: `GASTO_OPERATIVO:${fila.id}`, fuente_id: fila.id, tipo: "GASTO_OPERATIVO" as const,
       fecha: fila.fecha.toISOString(), concepto: `${fila.categoria.nombre} · ${fila.descripcion}`,
-      importe: importe(fila.monto.neg()), impacta_resultado: true })),
+      importe: importe(fila.monto.neg()), categoria_gasto_id: fila.categoria_gasto_id, impacta_resultado: true })),
   ].sort((a, b) => a.fecha.localeCompare(b.fecha) || a.id.localeCompare(b.id));
   return { resumen, detalle };
 }
