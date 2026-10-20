@@ -5191,7 +5191,31 @@ async function seedSprint5Cluster2(prisma: PrismaClient): Promise<void> {
 
 // Cluster 3 · permisos de desglose y exportación del reporte mensual (HU-G14, HU-G16).
 async function seedSprint5Cluster3(prisma: PrismaClient): Promise<void> {
-  void prisma;
+  // UUID ...048 reservado a HU-G14 por Asignación Sprint 5. ...049 es de HU-G16.
+  const permisoId = "1a2b3c4d-1111-4a1a-8a1a-000000000048";
+  const codigo = "tesoreria:leer_desglose_gastos";
+  const conflictos = await prisma.permiso.findMany({
+    where: { OR: [{ id: permisoId }, { codigo }] },
+    select: { id: true, codigo: true },
+  });
+  if (conflictos.some((p) => p.id !== permisoId || p.codigo !== codigo)) {
+    throw new Error("HU-G14: conflicto de UUID/código de permiso de desglose");
+  }
+  await prisma.permiso.upsert({
+    where: { id: permisoId },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: {
+      id: permisoId, codigo, modulo: "MODULO_G",
+      descripcion: "Consultar categorías y filas individuales de gastos del reporte mensual (HU-G14)",
+    },
+  });
+  for (const rol_id of [ROL_TESORERO_ID, ROL_AUDITOR_ID, ROL_ADMINISTRADOR_ID, ROL_GERENTE_ID]) {
+    await prisma.rolPermiso.upsert({
+      where: { rol_id_permiso_id: { rol_id, permiso_id: permisoId } },
+      update: REACTIVAR_REFERENCIA_RBAC,
+      create: { rol_id, permiso_id: permisoId },
+    });
+  }
 }
 
 // HU-G4 · Libro de IVA. Bloque propio, fuera de cluster 4 (HU-G3), cuyo cuerpo
