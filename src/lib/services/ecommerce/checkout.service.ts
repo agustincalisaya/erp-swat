@@ -50,9 +50,11 @@ import { domainEventBus } from "@/lib/events/domain-event-bus";
 import type { CarritoArticuloNoDisponiblePayload } from "@/lib/events/event-types";
 import type { ReservaCongeladaPayload } from "@/lib/events/event-types";
 import { ServiceError } from "@/lib/errors/service-error";
+import { MOTIVO_ANULACION_TTL } from "@/lib/services/ecommerce/anulacion-orden.reglas";
 import { resolverVariantesWeb } from "@/lib/services/ecommerce/catalogo-web.service";
 import {
   derivarEstadoVisiblePedidoWeb,
+  resolverPlazoCheckoutMinutos,
   type EstadoVisiblePedidoWeb,
 } from "@/lib/services/ecommerce/pedido-web.reglas";
 import {
@@ -266,6 +268,78 @@ export async function obtenerPedidoWebPendiente(
     ttl_expiracion: ttl.toISOString(),
     estado_visible: derivarEstadoVisiblePedidoWeb(ttl, ahora),
   };
+}
+
+/**
+ * HU-E15 (E15-7; docs/modulos/modulo E/HU15_MODULO_E.md D7/P6): pedido web que
+ * el job de TTL ya ANULÓ (HU-E7 vía automática, spec §2.7.d), para que
+ * `/tienda/checkout/pendiente` muestre "Reserva vencida" en lugar de "no
+ * encontrado". Solo lectura.
+ *
+ * Excepción explícita y acotada a la Regla N.° 1 (RULES.md §1; precedentes
+ * spec §2.7.b y §2.13.9): lee la extensión y el `PedidoVenta` dados de baja,
+ * SOLO si es del cliente de la sesión, canal WEB, `ANULADO` y la baja la firmó
+ * el usuario de sistema Canal Web con `MOTIVO_ANULACION_TTL` — la anulación
+ * manual (HU-E7) firma con el Administrador, así que nunca califica. No expone
+ * datos adicionales: misma vista que el pendiente, sin cupón ni enlace de pago.
+ */
+export async function obtenerPedidoWebVencidoPorTtl(
+  pedidoVentaId: string,
+  clienteId: string,
+  canalWebId: string,
+): Promise<PedidoWebPendienteVista | null> {
+  const anulado = await prisma.pedidoVentaEcommerce.findFirst({
+    where: {
+      estado_ecommerce: "ANULADO",
+      is_active: false,
+      deleted_at: { not: null },
+      deleted_by: canalWebId,
+      deletion_reason: MOTIVO_ANULACION_TTL,
+      pedido_venta: { id: pedidoVentaId, cliente_id: clienteId, canal: "WEB" },
+    },
+    select: {
+      id: true,
+      deleted_at: true,
+      pedido_venta: {
+        select: {
+          id: true,
+          numero_venta: true,
+          total: true,
+          items: { where: { is_active: true }, select: { reserva: { select: { fecha_expiracion: true } } } },
+        },
+      },
+    },
+  });
+  if (!anulado) return null;
+
+  // `fecha_expiracion` persiste al liberar la reserva (solo se cierra con
+  // `fecha_fin_reserva`): es el mismo vencimiento que se mostraba antes del job.
+  const vencimientos = anulado.pedido_venta.items
+    .map((i) => i.reserva?.fecha_expiracion.getTime())
+    .filter((t): t is number => t !== undefined);
+  const ttl = new Date(vencimientos.length > 0 ? Math.min(...vencimientos) : anulado.deleted_at!.getTime());
+
+  return {
+    pedido_venta_id: anulado.pedido_venta.id,
+    pedido_venta_ecommerce_id: anulado.id,
+    checkout_url: null,
+    numero_venta: anulado.pedido_venta.numero_venta,
+    total: anulado.pedido_venta.total.toNumber(),
+    cupon: null,
+    ttl_expiracion: ttl.toISOString(),
+    estado_visible: "RESERVA_VENCIDA",
+  };
+}
+
+/**
+ * HU-E15 (E15-2, docs/modulos/modulo E/HU15_MODULO_E.md P1/P2): plazo de la
+ * reserva del checkout en MINUTOS para la página del carrito. Nunca expone la
+ * clave ni las horas. `null` si `ECOMMERCE_CHECKOUT_TTL_HORAS` falta o es
+ * inválida (texto genérico, sin default); otros errores se propagan.
+ * `CarritoVista` no cambia: solo la invoca `app/(tienda)/tienda/carrito/page.tsx`.
+ */
+export async function obtenerPlazoReservaCheckoutMinutos(): Promise<number | null> {
+  return resolverPlazoCheckoutMinutos(obtenerTtlCheckoutHoras);
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

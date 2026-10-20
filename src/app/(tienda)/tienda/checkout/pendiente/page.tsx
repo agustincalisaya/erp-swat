@@ -16,11 +16,16 @@
  * Pro, redirect al `checkout_url`). Si el pedido todavía no tiene preferencia
  * (Mercado Pago falló al iniciar la compra) la crea acá; si vuelve a fallar,
  * se ofrece reintentar recargando.
+ *
+ * HU-E15 (E15-7): si el job de TTL ya anuló el pedido (HU-E7), las lecturas
+ * anteriores no lo encuentran (extensión dada de baja); una lectura acotada
+ * (`obtenerPedidoWebVencidoPorTtl`) lo vuelve a mostrar como "Reserva vencida".
  */
 import { redirect } from "next/navigation";
 import { getSesionClienteWeb, getSesionClienteWebVinculada } from "@/lib/auth/sesion-cliente-web";
-import { obtenerPedidoWebPendiente } from "@/lib/services/ecommerce/checkout.service";
+import { obtenerPedidoWebPendiente, obtenerPedidoWebVencidoPorTtl } from "@/lib/services/ecommerce/checkout.service";
 import { obtenerOCrearPreferencia, obtenerResultadoPago } from "@/lib/services/ecommerce/pago-web.service";
+import { obtenerUsuarioCanalWebId } from "@/lib/services/ecommerce/usuario-canal-web";
 import { z } from "zod";
 import { CheckoutPendienteVista } from "../CheckoutPendienteVista";
 
@@ -61,11 +66,16 @@ export default async function CheckoutPendienteTiendaPage({
     redirect(`/tienda/ingresar?redirect=${encodeURIComponent(volver)}`);
   }
 
-  const pedido = pedidoId.success ? await obtenerPedidoWebPendiente(pedidoId.data, sesion.clienteId) : null;
+  let pedido = pedidoId.success ? await obtenerPedidoWebPendiente(pedidoId.data, sesion.clienteId) : null;
 
   // HU-E2: si el pedido ya se pagó o se rechazó, su estado está en la página de resultado.
   if (!pedido && pedidoId.success && (await obtenerResultadoPago(pedidoId.data, sesion.clienteId))) {
     redirect(`/tienda/checkout/resultado?pedido=${pedidoId.data}`);
+  }
+
+  // HU-E15 (E15-7): anulado por el job de TTL → "Reserva vencida", no "no encontrado".
+  if (!pedido && pedidoId.success) {
+    pedido = await obtenerPedidoWebVencidoPorTtl(pedidoId.data, sesion.clienteId, await obtenerUsuarioCanalWebId());
   }
 
   if (!pedido) {
