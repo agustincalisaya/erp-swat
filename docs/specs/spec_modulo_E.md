@@ -1959,3 +1959,11 @@ Nota aditiva de §6.2 (E16-4). Evento nuevo en `src/lib/events/event-types.ts` (
 | E14-5 | No se crea enlace al detalle administrativo del pedido mientras no exista esa pantalla. La tarjeta conserva las acciones operativas de HU-E12. |
 
 La autorización se expresa por permisos y nunca por nombre de rol. Si el cliente destinatario no puede resolverse, la respuesta usa una etiqueta explícita de dato no disponible sin exponer otra identidad ni datos de facturación. La task de E14 debe fijar esa etiqueta en UI y cubrir ambas proyecciones en pruebas de servicio/API.
+
+**Cierre HU-E14 (21/10/2026) — registro no normativo.** No modifica las filas E14-1 a E14-5 ni el párrafo anterior; registra cómo quedaron implementadas. Evidencia en `docs/modulos/modulo E/HU14_MODULO_E.md`.
+
+- Ruta real: `GET /api/ecommerce/preparacion` (permiso `ecommerce:leer_cola_preparacion`; los nombres de §2.12 bajo `pick-pack/**` y el campo `fecha_pago` son históricos). Se conserva `fecha_pago_confirmado`.
+- Proyección base, para todo lector de la cola: cada ítem agrega `cliente_nombre: string | null` (solo `Cliente.nombre`; nunca DNI, email ni teléfono) y `unidades_totales` (suma de `cantidad` de los ítems vigentes, igual a `progreso.total_requerido`). La consulta no lee `PedidoVenta.total`, `VentaMedioPago`, `TransaccionPagoLog` ni comprobantes, y la clave `pago` está ausente.
+- Proyección con pago: el handler resuelve `ecommerce:leer_historial_ordenes` con `usuarioTienePermiso` antes de llamar al servicio (sin cache: una revocación rige en el request siguiente) y solo entonces cada ítem agrega `pago: { total, medios }`. `total` es `PedidoVenta.total` como string de 2 decimales (convención de lecturas administrativas, §2.13.15); `medios` es la lista de `VentaMedioPago.medio` activos, sin duplicados. Nunca se expone `VentaMedioPago.referencia` (payment_id).
+- Cliente no resoluble (`cliente_id` nulo, o `Cliente` con `is_active = false` o `deleted_at`): `cliente_nombre = null` y la UI muestra la etiqueta fija «Cliente no disponible». No se sigue `fusionado_en_id`: un pedido de un cliente secundario fusionado muestra la etiqueta, no el nombre del primario.
+- No existe endpoint de detalle de preparación: el «detalle» de E14-2 es el panel de la consola, alimentado por el mismo ítem de la cola y por las respuestas de scan/completar, que no contienen datos de pago.

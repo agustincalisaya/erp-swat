@@ -7,7 +7,12 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { SelectorOperacion, TarjetaPedidoCola } from "./ConsolaPickPack";
 import { ProgresoBarra } from "./ProgresoBarra";
 import { BotonCompletar, LineaPreparacionVista, PreparacionPedidoPanel } from "./PreparacionPedidoPanel";
-import type { ItemColaPreparacionJson, LineaPreparacionJson } from "./pick-pack-client";
+import { TEXTO_FECHA_PAGO_LEGACY } from "./pick-pack-client";
+import type {
+  ItemColaPreparacionConPagoJson,
+  ItemColaPreparacionJson,
+  LineaPreparacionJson,
+} from "./pick-pack-client";
 
 const fuenteConsola = readFileSync(new URL("./ConsolaPickPack.tsx", import.meta.url), "utf8");
 
@@ -23,10 +28,12 @@ const pedidoBase: ItemColaPreparacionJson = {
   pedido_venta_id: "pv-1",
   pedido_venta_ecommerce_id: "pve-1",
   numero_venta: "V-2026-000099",
+  cliente_nombre: "Juan Pérez",
   fecha_pago_confirmado: "2026-10-02T10:00:00.000Z",
   prioridad_manual: 5,
   estado_ecommerce: "PAGO_CONFIRMADO",
   operador_asignado_id: null,
+  unidades_totales: 3,
   lineas: [lineaBase],
   progreso: { total_requerido: 3, total_confirmado: 1, porcentaje: 33, completo: false },
 };
@@ -204,6 +211,81 @@ test("seguridad: el markup de cola y líneas no expone campos sensibles", () => 
     "dni",
     "email",
   ]) {
+    assert.ok(!html.includes(campo), `El render no debe incluir ${campo}`);
+  }
+});
+
+// ── HU-E14 — datos de venta en la tarjeta (spec E §6.3) ──────────────────────
+
+const pedidoConPago: ItemColaPreparacionConPagoJson = {
+  ...pedidoBase,
+  pago: { total: "12345.50", medios: ["MERCADO_PAGO"] },
+};
+
+test("E14-1/E14-2: sin `pago` muestra número, cliente, fecha y unidades, sin total ni medio", () => {
+  const html = renderTarjeta();
+  assert.match(html, /V-2026-000099/);
+  assert.match(html, />Cliente</);
+  assert.match(html, /Juan Pérez/);
+  assert.match(html, />3 unidades</);
+  assert.ok(!html.includes(TEXTO_FECHA_PAGO_LEGACY), "la fecha de pago debe formatearse");
+  for (const prohibido of ["Total", "Medio de pago", "Mercado Pago", "$"]) {
+    assert.ok(!html.includes(prohibido), `sin pago no debe renderizar ${prohibido}`);
+  }
+});
+
+test("E14-3: con `pago` muestra total formateado y medio", () => {
+  const html = renderTarjeta({ pedido: pedidoConPago });
+  assert.match(html, />Total</);
+  assert.match(html, /\$\s?12\.345,50/);
+  assert.match(html, />Medio de pago</);
+  assert.match(html, />Mercado Pago</);
+  assert.match(html, /Juan Pérez/);
+});
+
+test("§6.3: cliente no resoluble muestra la etiqueta fija y ningún otro nombre", () => {
+  const html = renderTarjeta({ pedido: { ...pedidoBase, cliente_nombre: null } });
+  assert.match(html, /Cliente no disponible/);
+  assert.ok(!html.includes("Juan Pérez"));
+});
+
+test("E14-1: una sola unidad usa singular", () => {
+  assert.match(renderTarjeta({ pedido: { ...pedidoBase, unidades_totales: 1 } }), />1 unidad</);
+});
+
+test("E14-5: sin enlace a detalle y con las acciones de HU-E12", () => {
+  for (const pedido of [pedidoBase, pedidoConPago]) {
+    const html = renderTarjeta({ pedido, puedePreparar: true });
+    assert.ok(!/<a[\s>]/.test(html) && !html.includes("href="), "la tarjeta no enlaza a un detalle");
+    assert.match(html, /Tomar pedido/);
+  }
+  const propio = renderTarjeta({
+    pedido: { ...pedidoConPago, estado_ecommerce: "EN_PREPARACION", operador_asignado_id: "op-1" },
+    puedePreparar: true,
+    esPropio: true,
+  });
+  assert.match(propio, /Continuar preparación/);
+  const admin = renderTarjeta({
+    pedido: { ...pedidoConPago, estado_ecommerce: "EN_PREPARACION", operador_asignado_id: null },
+    puedePriorizar: true,
+  });
+  assert.match(admin, /prioridad/i);
+});
+
+test("E14-4: la tarjeta decide por el JSON, no por permiso ni rol", () => {
+  const inicio = fuenteConsola.indexOf("export function TarjetaPedidoCola");
+  const fin = fuenteConsola.indexOf("// Consola principal");
+  const tarjeta = fuenteConsola.slice(inicio, fin);
+  assert.ok(inicio > 0 && fin > inicio);
+  assert.match(tarjeta, /tieneDatosPago\(pedido\)/);
+  for (const prohibido of ["leer_historial_ordenes", "puedeVerPago", "ADMINISTRADOR_ECOMMERCE", "OPERADOR_PICK_PACK"]) {
+    assert.ok(!tarjeta.includes(prohibido), `la tarjeta no debe referenciar ${prohibido}`);
+  }
+});
+
+test("E14: el markup con pago tampoco expone payment ids ni PII", () => {
+  const html = renderTarjeta({ pedido: pedidoConPago });
+  for (const campo of ["referencia", "payment_id", "dni", "email", "telefono", "MERCADO_PAGO"]) {
     assert.ok(!html.includes(campo), `El render no debe incluir ${campo}`);
   }
 });

@@ -9,8 +9,10 @@
  *  - Admin Ecommerce (`puedePriorizar`): cambiar/quitar prioridad.
  *  - Operador Pick&Pack (`puedePreparar`): tomar pedido y abrir preparación.
  *
- * No renderiza PII, QR, payment ids ni códigos escaneados — solo los campos
- * seguros del DTO de cola.
+ * HU-E14 (spec E §6.3): renderiza solo el nombre del cliente destinatario
+ * (§2.10); total y medio de pago únicamente si el servidor los incluye en el
+ * JSON (la UI no decide por permiso). Nunca QR, payment ids, DNI/email/teléfono
+ * ni códigos escaneados.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -40,12 +42,18 @@ import { cn } from "@/lib/utils";
 import {
   aplicarResultadoScan,
   cambiarPrioridadApi,
+  formatearClienteCola,
   formatearEstadoEcommerce,
   formatearFechaPagoConfirmado,
+  formatearMediosPago,
+  formatearTotalPago,
+  formatearUnidades,
   mensajeErrorPickPack,
   obtenerColaPreparacion,
+  tieneDatosPago,
   tomarPedidoApi,
   type ColaPreparacionJson,
+  type ItemColaPreparacionConPagoJson,
   type ItemColaPreparacionJson,
   type ResultadoConfirmarJson,
 } from "./pick-pack-client";
@@ -116,7 +124,7 @@ export function TarjetaPedidoCola({
   onPreparar,
   onPrioridad,
 }: {
-  pedido: ItemColaPreparacionJson;
+  pedido: ItemColaPreparacionJson | ItemColaPreparacionConPagoJson;
   puedePriorizar: boolean;
   puedePreparar: boolean;
   /** `operador_asignado_id === usuarioId` de la sesión actual. */
@@ -148,6 +156,24 @@ export function TarjetaPedidoCola({
           {formatearFechaPagoConfirmado(pedido.fecha_pago_confirmado)}
         </CardDescription>
       </CardHeader>
+      <CardContent className="px-4">
+        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
+          <dt className="text-muted-foreground">Cliente</dt>
+          <dd className={cn("min-w-0 break-words", pedido.cliente_nombre === null && "italic text-muted-foreground")}>
+            {formatearClienteCola(pedido.cliente_nombre)}
+          </dd>
+          <dt className="text-muted-foreground">Unidades</dt>
+          <dd>{formatearUnidades(pedido.unidades_totales)}</dd>
+          {tieneDatosPago(pedido) && (
+            <>
+              <dt className="text-muted-foreground">Total</dt>
+              <dd className="tabular-nums">{formatearTotalPago(pedido.pago.total)}</dd>
+              <dt className="text-muted-foreground">Medio de pago</dt>
+              <dd>{formatearMediosPago(pedido.pago.medios)}</dd>
+            </>
+          )}
+        </dl>
+      </CardContent>
       <CardContent className="flex flex-1 flex-col gap-3 px-4">
         <div className="space-y-1">
           <div className="flex justify-between text-xs text-muted-foreground">
