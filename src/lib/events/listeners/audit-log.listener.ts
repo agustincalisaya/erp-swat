@@ -42,6 +42,7 @@ import type {
   PedidoEntregadoPayload,
   RetiroRechazadoPayload,
   LibroIvaExportadoPayload,
+  PublicacionWebRechazadaPayload,
   ReporteMensualExportadoPayload,
   DatosBancariosConsultadosPayload,
   CuentaPropiaCreadaPayload,
@@ -1122,6 +1123,42 @@ export function iniciarAuditLogListener(): void {
       },
     }).catch(fallaAuditoriaE11("ecommerce:foto_web_baja", payload.foto_id));
   });
+
+  // ── HU-E16 (Módulo E) — rechazo de publicación por contenido incompleto
+  // (spec E §6.2, E16-4). Un asiento por `intento_id`; el productor espera la
+  // confirmación para responder 422 (o 503 si no llega). Mismo patrón que el
+  // libro IVA: marca Symbol anti-duplicado e import dinámico del coordinador.
+  const marcaPublicacionWebRechazada = Symbol.for("swat.audit-log.publicacion-web-rechazada");
+  if (
+    !domainEventBus
+      .listeners("ecommerce:publicacion_web_rechazada")
+      .some((handler) => Reflect.get(handler, marcaPublicacionWebRechazada))
+  ) {
+    const auditarPublicacionWebRechazada = (payload: PublicacionWebRechazadaPayload) => {
+      // Confirmar exclusivamente DESPUÉS de persistir. Whitelist explícita:
+      // nunca descripción ni URLs de fotos aunque viajaran en el payload.
+      void import("@/lib/events/publicacion-web-confirmacion").then(({ confirmacionesPublicacionWeb }) => registrarAuditLog({
+        usuario_id: payload.actor_id,
+        accion: "ecommerce:publicacion_web_rechazada",
+        tabla_afectada: "contenidos_producto_web",
+        registro_id: payload.producto_web_id,
+        ip: "internal-event",
+        valor_anterior: null,
+        valor_nuevo: {
+          intento_id: payload.intento_id,
+          faltantes: payload.faltantes,
+          timestamp: payload.timestamp,
+        },
+      }).then(
+        () => confirmacionesPublicacionWeb.confirmar(payload.intento_id, true),
+        () => confirmacionesPublicacionWeb.confirmar(payload.intento_id, false),
+      )).catch(() => {
+        // Si ni siquiera puede cargarse el coordinador, el productor agota su espera (503).
+      });
+    };
+    Reflect.set(auditarPublicacionWebRechazada, marcaPublicacionWebRechazada, true);
+    domainEventBus.on("ecommerce:publicacion_web_rechazada", auditarPublicacionWebRechazada);
+  }
 
   // ── HU-E7 (Módulo E) — anulación de orden web no abonada (spec E §2.7/§4),
   // evento sensible encadenado SHA-256. Manual: el Administrador E-commerce.

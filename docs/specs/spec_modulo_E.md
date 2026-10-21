@@ -1174,6 +1174,13 @@ Tres claves nuevas de módulo `E`, sembradas con `upsert` y `update: {}`, con ge
 | 422 | `ARCHIVO_VACIO` / `ARCHIVO_DEMASIADO_GRANDE` / `FORMATO_IMAGEN_NO_ADMITIDO` | archivo de 0 bytes / mayor al máximo (real o por tope del cuerpo) / firma no reconocida o formato no habilitado |
 | 500 | `INTERNAL_ERROR` | inesperado; configuración de fotos ausente o inválida; falta `CATALOGO_FOTOS_DIR` |
 
+**Nota aditiva — Revisión 10 (HU-E16, §6.2).** Filas que se suman a esta tabla para `PATCH /api/ecommerce/catalogo/[producto_web_id]/visibilidad`; las filas anteriores no cambian:
+
+| Status | `code` | Cuándo |
+|---|---|---|
+| 422 | `CONTENIDO_NO_PUBLICABLE` | `false → true` sin descripción (`trim()` vacío) o sin foto activa; único código del catálogo que agrega `error.details: { faltantes }` (`['descripcion']`, `['foto']` o `['descripcion', 'foto']`). Se responde recién después de que D.3 confirmó el asiento del rechazo; no hay UPDATE de visibilidad |
+| 503 | `AUDITORIA_NO_DISPONIBLE` | el rechazo anterior no pudo auditarse (falla, timeout o ausencia del listener de D.3); la visibilidad queda intacta y la operación puede reintentarse |
+
 ### 2.12. Cola de preparación y entrega Click & Collect (HU-E12)
 
 **Revisión 7 — lectura obligatoria antes de los pasajes históricos siguientes:** la implementación E12 termina en `LISTO_PARA_RETIRO`; su ruta real es `/api/ecommerce/preparacion/**`. Toda referencia inferior a `/app/api/ecommerce/pick-pack/[id]/validar-retiro`, a `ValidarRetiroSchema` con `codigo_qr`/`dni_receptor`, a `422 QR_INVALIDO`, a la entrega como responsabilidad E12 o a la generación de notificación F3 ya operativa queda **sustituida por 2.3.b–2.3.d**. Las rutas/verbos de preparación escritos en la Revisión 1 son diseño histórico; consultar las rutas reales de E12 al implementar. E12 conserva la emisión del evento `pedido_listo_para_retiro`; E3 completa únicamente su payload de destinatario y la suscripción F3.
@@ -1867,6 +1874,14 @@ Cinco eventos nuevos en `src/lib/events/event-types.ts` (y en `TIPOS_EVENTO_DOMI
 | `ecommerce:foto_web_subida` | `{ foto_id, producto_web_id, url, formato, tamano_bytes, es_principal, orden, principal_anterior_id, actor_id }` | `fotos_producto_web` / foto; `null` → todo menos `actor_id` |
 | `ecommerce:foto_web_principal_cambiada` | `{ foto_id, producto_web_id, principal_anterior_id, actor_id }` | `fotos_producto_web` / foto; `{ es_principal: false, principal_anterior_id }` → `{ es_principal: true }` |
 | `ecommerce:foto_web_baja` | `{ foto_id, producto_web_id, deletion_reason, era_principal, principal_promovida_id, actor_id }` | `fotos_producto_web` / foto; `{ is_active: true, es_principal }` → `{ is_active: false, deleted_by, deletion_reason, principal_promovida_id }` |
+
+### Extensión de eventos — Revisión 10 (HU-E16)
+
+Nota aditiva de §6.2 (E16-4). Evento nuevo en `src/lib/events/event-types.ts` (y en `TIPOS_EVENTO_DOMINIO`), emitido por `cambiarVisibilidadWeb` **fuera de la transacción** y sin UPDATE cuando un `false → true` se rechaza por contenido incompleto. No es fire-and-forget: el productor registra la espera antes de emitir y aguarda la confirmación de D.3 (`publicacion-web-confirmacion.ts`, mismo patrón que el libro IVA, plazo 10 s); solo con confirmación responde 422, si no 503. Handler en `audit-log.listener.ts` con marca `Symbol` anti-duplicado e import dinámico del coordinador; confirma después de persistir. Sin descripción ni URLs de fotos. Un asiento por `intento_id`, incluso para rechazos repetidos del mismo contenido.
+
+| Evento | Payload | Asiento (`tabla_afectada` / `registro_id`; antes → después) |
+|---|---|---|
+| `ecommerce:publicacion_web_rechazada` | `{ intento_id, actor_id, producto_web_id, faltantes, timestamp }` | `usuario_id` = actor, `accion` = evento, `ip = "internal-event"`; `contenidos_producto_web` / contenido; `null` → `{ intento_id, faltantes, timestamp }` |
 
 ## 5. Fuera de Alcance (diferido / bloqueado)
 

@@ -20,7 +20,14 @@ const STATUS_POR_CODIGO: Record<string, number> = {
   ARCHIVO_VACIO: 422,
   ARCHIVO_DEMASIADO_GRANDE: 422,
   FORMATO_IMAGEN_NO_ADMITIDO: 422,
+  // HU-E16 (spec E §6.2): mostrar en la tienda un contenido incompleto (rechazo
+  // ya auditado) y auditoría del rechazo no confirmada por D.3.
+  CONTENIDO_NO_PUBLICABLE: 422,
+  AUDITORIA_NO_DISPONIBLE: 503,
 };
+
+/** Únicos códigos que exponen `error.details` (HU-E16: `{ faltantes }`). */
+const CODIGOS_CON_DETALLE = new Set(["CONTENIDO_NO_PUBLICABLE"]);
 
 export function respuestaOkCatalogo<T>(data: T): NextResponse {
   return NextResponse.json({ data, error: null }, { status: 200 });
@@ -44,8 +51,9 @@ export function respuestaValidacionCatalogo(error: ZodError): NextResponse {
 
 export function respuestaErrorCatalogo(err: unknown, ruta: string): NextResponse {
   if (err instanceof ServiceError && STATUS_POR_CODIGO[err.code]) {
+    const conDetalle = CODIGOS_CON_DETALLE.has(err.code) && err.details !== undefined;
     return NextResponse.json(
-      { data: null, error: { code: err.code, message: err.message } },
+      { data: null, error: { code: err.code, message: err.message, ...(conDetalle ? { details: err.details } : {}) } },
       { status: STATUS_POR_CODIGO[err.code] },
     );
   }
