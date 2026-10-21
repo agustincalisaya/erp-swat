@@ -8,6 +8,10 @@
  * `producto_activo` es solo informativo: no condiciona ninguna acción (D22).
  * HU-E11 (spec E §2.11): alta, edición de título/descripción y gestión de
  * fotos con los formularios de `ContenidoWebFormularios.tsx`.
+ * HU-E16 (spec E §6.2): `publicable` y `faltantes` llegan calculados del
+ * servidor; "Mostrar en tienda" se deshabilita con el motivo y un contenido
+ * visible que dejó de ser publicable muestra "No publicable". Ocultar siempre
+ * queda habilitado. Si el 422/503 llega igual (carrera), se informa y se refresca.
  */
 import Image from "next/image";
 import Link from "next/link";
@@ -26,6 +30,7 @@ import {
   type LimitesFotos,
   type ProductoSinContenidoOpcion,
 } from "@/components/ecommerce/ContenidoWebFormularios";
+import { ETIQUETA_FALTANTE, type FaltantePublicacion } from "@/lib/services/ecommerce/publicabilidad-web.reglas";
 
 interface Fila {
   producto_web_id: string;
@@ -35,6 +40,9 @@ interface Fila {
   producto_activo: boolean;
   visibilidad_web: boolean;
   fotos_activas: number;
+  /** HU-E16: calculados en el servidor (`evaluarPublicabilidad`); la UI no recalcula. */
+  publicable: boolean;
+  faltantes: FaltantePublicacion[];
   /** HU-E11: descripción y fotos activas (principal primero). */
   descripcion: string;
   fotos: FotoAdmin[];
@@ -49,8 +57,18 @@ interface Pagina {
 
 interface RespuestaApi {
   data: unknown;
-  error: { code?: string; message?: string; fieldErrors?: Record<string, string[] | undefined> } | null;
+  error: {
+    code?: string;
+    message?: string;
+    fieldErrors?: Record<string, string[] | undefined>;
+    /** HU-E16: solo en 422 CONTENIDO_NO_PUBLICABLE. */
+    details?: { faltantes?: FaltantePublicacion[] };
+  } | null;
 }
+
+/** HU-E16 — "Falta la descripción · Falta al menos una foto activa". */
+const textoFaltantes = (faltantes: FaltantePublicacion[]) =>
+  faltantes.map((f) => ETIQUETA_FALTANTE[f] ?? f).join(" · ");
 
 const MENSAJE_GENERICO = "No se pudo completar la operación. Intentá nuevamente.";
 const CLASE_TEXTAREA =
@@ -77,11 +95,24 @@ const mensajeDe = (json: RespuestaApi, campo: string) =>
 // Ocultar / mostrar
 // ──────────────────────────────────────────────────────────────────────────────
 
-function FormularioVisibilidad({ fila, onHecho, onCancelar }: { fila: Fila; onHecho: (aviso: string) => void; onCancelar: () => void }) {
+function FormularioVisibilidad({
+  fila,
+  onHecho,
+  onCancelar,
+  onDesactualizado,
+}: {
+  fila: Fila;
+  onHecho: (aviso: string) => void;
+  onCancelar: () => void;
+  /** HU-E16: la fila cambió en el servidor (carrera); refresca sin cerrar el diálogo. */
+  onDesactualizado: () => void;
+}) {
   const nueva = !fila.visibilidad_web;
   const [motivo, setMotivo] = useState("");
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // HU-E16: tras un 422 la fila quedó desactualizada; no se reintenta desde este diálogo.
+  const [rechazado, setRechazado] = useState(false);
 
   const enviar = async (evento: SubmitEvent<HTMLFormElement>) => {
     evento.preventDefault();
@@ -93,6 +124,15 @@ function FormularioVisibilidad({ fila, onHecho, onCancelar }: { fila: Fila; onHe
     });
     setEnviando(false);
     if (!ok) {
+      // HU-E16: carrera (p. ej. se dio de baja la última foto) → el servidor rechaza con los faltantes.
+      if (json.error?.code === "CONTENIDO_NO_PUBLICABLE") {
+        const faltantes = json.error.details?.faltantes ?? [];
+        setError(`No se puede mostrar en la tienda. ${textoFaltantes(faltantes)}.`);
+        setRechazado(true);
+        onDesactualizado();
+        return;
+      }
+      // 503 AUDITORIA_NO_DISPONIBLE: no se cambió nada; se puede reintentar.
       setError(mensajeDe(json, "motivo"));
       return;
     }
@@ -130,7 +170,7 @@ function FormularioVisibilidad({ fila, onHecho, onCancelar }: { fila: Fila; onHe
         <Button type="button" variant="outline" onClick={onCancelar} disabled={enviando}>
           Volver
         </Button>
-        <Button type="submit" disabled={enviando}>
+        <Button type="submit" disabled={enviando || rechazado}>
           {enviando ? "Guardando…" : nueva ? "Mostrar en tienda" : "Ocultar en tienda"}
         </Button>
       </div>
@@ -314,7 +354,13 @@ export function CatalogoWebAdmin({
                   {fila.fotos_activas} {fila.fotos_activas === 1 ? "foto" : "fotos"}
                 </Badge>
                 {!fila.producto_activo && <Badge variant="outline">Producto inactivo en inventario</Badge>}
+                {fila.visibilidad_web && !fila.publicable && <Badge variant="destructive">No publicable</Badge>}
               </div>
+              {fila.visibilidad_web && !fila.publicable && (
+                <p className="text-sm text-destructive">
+                  {textoFaltantes(fila.faltantes)}. La tienda no lo muestra hasta completar el contenido.
+                </p>
+              )}
               <div className="flex flex-col gap-2 sm:flex-row">
                 <Button
                   type="button"
@@ -344,6 +390,9 @@ export function CatalogoWebAdmin({
                   type="button"
                   variant="outline"
                   className="sm:flex-1"
+                  // HU-E16 (E16-2): solo "Mostrar" depende de la publicabilidad; "Ocultar" siempre se permite.
+                  disabled={!fila.visibilidad_web && !fila.publicable}
+                  aria-describedby={!fila.visibilidad_web && !fila.publicable ? `motivo-no-publicable-${fila.producto_web_id}` : undefined}
                   onClick={() => {
                     setAviso(null);
                     setModal({ tipo: "visibilidad", fila });
@@ -363,6 +412,11 @@ export function CatalogoWebAdmin({
                   Dar de baja
                 </Button>
               </div>
+              {!fila.visibilidad_web && !fila.publicable && (
+                <p id={`motivo-no-publicable-${fila.producto_web_id}`} className="text-sm text-muted-foreground">
+                  No se puede mostrar en la tienda: {textoFaltantes(fila.faltantes)}.
+                </p>
+              )}
             </li>
           ))}
         </ul>
@@ -397,7 +451,13 @@ export function CatalogoWebAdmin({
             {filaModal && <DialogDescription>Producto: {filaModal.producto_nombre}</DialogDescription>}
           </DialogHeader>
           {modal?.tipo === "visibilidad" ? (
-            <FormularioVisibilidad key={modal.fila.producto_web_id} fila={modal.fila} onHecho={hecho} onCancelar={() => setModal(null)} />
+            <FormularioVisibilidad
+              key={modal.fila.producto_web_id}
+              fila={modal.fila}
+              onHecho={hecho}
+              onCancelar={() => setModal(null)}
+              onDesactualizado={() => router.refresh()}
+            />
           ) : modal?.tipo === "baja" ? (
             <FormularioBaja key={modal.fila.producto_web_id} fila={modal.fila} onHecho={hecho} onCancelar={() => setModal(null)} />
           ) : modal?.tipo === "crear" ? (
