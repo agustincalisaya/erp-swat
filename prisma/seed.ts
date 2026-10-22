@@ -5283,6 +5283,340 @@ async function seedSprint5Cluster2(prisma: PrismaClient): Promise<void> {
     update: REACTIVAR_REFERENCIA_RBAC,
     create: { rol_id: ROL_TESORERO_ID, permiso_id: PERMISO_TESORERIA_GESTIONAR_GASTOS_ID },
   });
+
+  if (!process.argv.includes("--without-t1")) await seedHistoricoT1(prisma);
+}
+
+/** UUID estable, separado de los identificadores ya asignados a otras HU. */
+function idHistoricoT1(clave: string): string {
+  const hex = createHash("sha256").update(`swat:sprint5:t1:${clave}`).digest("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+}
+
+/** Datos de demo T1. No usa servicios de negocio: esos emiten eventos/AuditLog. */
+async function seedHistoricoT1(prisma: PrismaClient): Promise<void> {
+  const { default: QRCode } = await import("qrcode");
+  const fecha = (valor: string) => new Date(valor);
+  const qr = (tipo: string, numero: string, importe: number, cae: string) =>
+    QRCode.toDataURL(JSON.stringify({
+      ver: 1, simulado: true, cuitEmisor: "30000000007",
+      tipoComprobante: tipo,
+      numeroComprobante: tipo === "NOTA_CREDITO" ? `NC-${numero}` : numero,
+      importe, moneda: "PES", cae,
+    }), { errorCorrectionLevel: "M" });
+
+  const ventas = [
+    { clave: "mostrador-mayo", canal: "MOSTRADOR", fecha: "2026-05-12T15:00:00.000Z", total: 45000,
+      pagos: [["EFECTIVO", 20000], ["TARJETA", 25000]] as const, cliente: CLIENTE_JUAN_PEREZ_ID, cae: "68031598279111" },
+    { clave: "mostrador-junio-cc", canal: "MOSTRADOR", fecha: "2026-06-17T17:00:00.000Z", total: 60000,
+      pagos: [["CUENTA_CORRIENTE", 60000]] as const, cliente: CLIENTE_JUAN_PEREZ_ID, cae: "68031598279112" },
+    { clave: "web-junio", canal: "WEB", fecha: "2026-06-20T16:00:00.000Z", total: 36000,
+      pagos: [["MERCADO_PAGO", 36000]] as const, cliente: CLIENTE_JUAN_PEREZ_ID, cae: "68031598279113" },
+    { clave: "mostrador-julio", canal: "MOSTRADOR", fecha: "2026-07-08T14:00:00.000Z", total: 52000,
+      pagos: [["TRANSFERENCIA", 52000]] as const, cliente: CLIENTE_JUAN_PEREZ_ID, cae: "68031598279114" },
+    { clave: "web-julio-reintegro", canal: "WEB", fecha: "2026-07-16T18:00:00.000Z", total: 28000,
+      pagos: [["MERCADO_PAGO", 28000]] as const, cliente: CLIENTE_JUAN_PEREZ_ID, cae: "68031598279115" },
+  ] as const;
+
+  // Ampliación de demo: conserva primero los cinco fixtures originales.
+  const ventasAmpliadas: { clave: string; canal: "MOSTRADOR" | "WEB"; fecha: string;
+    total: number; pagos: readonly (readonly ["EFECTIVO" | "TARJETA" | "TRANSFERENCIA" | "MERCADO_PAGO" | "CUENTA_CORRIENTE", number])[];
+    cliente: string; cae: string }[] = [...ventas];
+  for (const mes of [4, 5, 6, 7]) {
+    const mostradorPrevio = ventas.filter(v => v.canal === "MOSTRADOR" && Number(v.fecha.slice(5, 7)) === mes).length;
+    const webPrevio = ventas.filter(v => v.canal === "WEB" && Number(v.fecha.slice(5, 7)) === mes).length;
+    for (const canal of ["MOSTRADOR", "WEB"] as const) {
+      const cantidad = canal === "MOSTRADOR" ? 8 - mostradorPrevio : 4 - webPrevio;
+      for (let i = 1; i <= cantidad; i++) {
+        const total = 23500 + mes * 1700 + i * 2325.25;
+        ventasAmpliadas.push({
+          clave: `${canal.toLowerCase()}-${mes}-extra-${i}`,
+          canal, fecha: `2026-0${mes}-${String(2 + i * 3).padStart(2, "0")}T16:00:00.000Z`, total,
+          pagos: canal === "WEB" ? [["MERCADO_PAGO", total]] : i % 2
+            ? [["EFECTIVO", 10000], ["TARJETA", total - 10000]] : [["TRANSFERENCIA", total]],
+          cliente: CLIENTE_JUAN_PEREZ_ID, cae: `6803159828${mes}${canal === "WEB" ? 2 : 1}${String(i).padStart(2, "0")}`,
+        });
+      }
+    }
+  }
+
+  // La cerradura serializa a dos ejecuciones del seed. La clave única de
+  // numero_venta protege además frente a escritores que no usan esta cerradura.
+  await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(2026, 5)::text`;
+    const existentes = await tx.pedidoVenta.findMany({
+      where: { numero_venta: { startsWith: "V-2026-" } },
+      select: { numero_venta: true },
+    });
+    let siguiente = Math.max(0, ...existentes.map(({ numero_venta }) =>
+      /^V-2026-\d{6}$/.test(numero_venta) ? Number(numero_venta.slice(-6)) : 0));
+    for (const venta of ventasAmpliadas) {
+      const id = idHistoricoT1(`venta:${venta.clave}`);
+      if (await tx.pedidoVenta.findUnique({ where: { id }, select: { id: true } })) continue;
+      const numero_venta = `V-2026-${String(++siguiente).padStart(6, "0")}`;
+      await tx.pedidoVenta.create({ data: {
+        id, numero_venta, cliente_id: venta.cliente, canal: venta.canal,
+        estado: "FACTURADO", total: venta.total, fecha_facturacion: fecha(venta.fecha),
+        registrado_por_id: venta.canal === "WEB" ? USUARIO_CANAL_WEB_ID : USUARIO_CAJERO_SEED_ID,
+        created_at: fecha(venta.fecha),
+      } });
+    }
+  }, { timeout: 20000 });
+
+  for (const venta of ventasAmpliadas) {
+    const pedidoId = idHistoricoT1(`venta:${venta.clave}`);
+    const pedido = await prisma.pedidoVenta.findUniqueOrThrow({ where: { id: pedidoId }, select: { numero_venta: true } });
+    const esWeb = venta.canal === "WEB";
+    const paymentId = `t1-seed-mp-${venta.clave}`;
+    await prisma.pedidoVentaItem.upsert({
+      where: { id: idHistoricoT1(`item:${venta.clave}`) }, update: {},
+      create: {
+        id: idHistoricoT1(`item:${venta.clave}`), pedido_venta_id: pedidoId,
+        variante_sku_id: VARIANTE_CAMISA_TACTICA_2_ID, cantidad: 1,
+        precio_unitario: venta.total, cantidad_facturada: 1, cantidad_entregada: esWeb ? 0 : 1,
+      },
+    });
+    for (const [indice, [medio, importe]] of venta.pagos.entries()) {
+      await prisma.ventaMedioPago.upsert({
+        where: { id: idHistoricoT1(`medio:${venta.clave}:${indice}`) }, update: {},
+        create: {
+          id: idHistoricoT1(`medio:${venta.clave}:${indice}`), pedido_venta_id: pedidoId,
+          medio, importe, referencia: esWeb ? paymentId : null,
+          created_at: fecha(venta.fecha),
+        },
+      });
+    }
+    await prisma.comprobanteFiscal.upsert({
+      where: { id: idHistoricoT1(`comprobante:${venta.clave}`) }, update: {},
+      create: {
+        id: idHistoricoT1(`comprobante:${venta.clave}`), pedido_venta_id: pedidoId,
+        tipo_comprobante: "FACTURA_B", cae_simulado: venta.cae,
+        qr_data_url: await qr("FACTURA_B", pedido.numero_venta, venta.total, venta.cae),
+        monto_total: venta.total, es_simulado: true,
+        emitido_por_id: esWeb ? USUARIO_CANAL_WEB_ID : USUARIO_CAJERO_SEED_ID,
+        created_at: fecha(venta.fecha),
+      },
+    });
+    if (venta.clave === "mostrador-junio-cc") {
+      await prisma.cuentaCorrienteOperacion.upsert({
+        where: { id: idHistoricoT1("cuenta-corriente:junio") }, update: {},
+        create: {
+          id: idHistoricoT1("cuenta-corriente:junio"),
+          cuenta_corriente_id: CUENTA_CORRIENTE_JUAN_PEREZ_ID,
+          pedido_venta_id: pedidoId, monto: venta.total, estado: "APROBADA",
+          created_at: fecha(venta.fecha),
+        },
+      });
+    }
+    if (!esWeb) continue;
+    await prisma.pedidoVentaEcommerce.upsert({
+      where: { pedido_venta_id: pedidoId }, update: {},
+      create: {
+        id: idHistoricoT1(`ecommerce:${venta.clave}`), pedido_venta_id: pedidoId,
+        estado_ecommerce: venta.clave === "web-julio-reintegro" ? "CANCELADO" : "PAGO_CONFIRMADO",
+        mercadopago_payment_id: paymentId, fecha_pago_confirmado: fecha(venta.fecha),
+        ...(venta.clave === "web-julio-reintegro" ? {
+          is_active: false, deleted_at: fecha("2026-07-22T19:00:00.000Z"),
+          deleted_by: USUARIO_CANAL_WEB_ID, deletion_reason: "Cancelación histórica de ejemplo",
+        } : {}),
+        created_at: fecha(venta.fecha),
+      },
+    });
+    await prisma.ingresoTesoreria.upsert({
+      where: { pedido_venta_id: pedidoId }, update: {},
+      create: {
+        id: idHistoricoT1(`ingreso:${venta.clave}`), pedido_venta_id: pedidoId,
+        mercadopago_payment_id: paymentId, monto: venta.total, fecha: fecha(venta.fecha),
+        estado: venta.clave === "web-junio" ? "CONCILIADO" : "PENDIENTE_CONCILIACION",
+        created_at: fecha(venta.fecha),
+      },
+    });
+  }
+
+  const reintegroVenta = ventas[4];
+  const reintegroPedidoId = idHistoricoT1(`venta:${reintegroVenta.clave}`);
+  const reintegroPedido = await prisma.pedidoVenta.findUniqueOrThrow({
+    where: { id: reintegroPedidoId }, select: { numero_venta: true },
+  });
+  const fechaReintegro = fecha("2026-07-22T19:00:00.000Z");
+  const ncId = idHistoricoT1("comprobante:nc-web-julio");
+  const contraId = idHistoricoT1("contra:web-julio");
+  const intentoId = idHistoricoT1("intento:web-julio");
+  await prisma.comprobanteFiscal.upsert({
+    where: { id: ncId }, update: {},
+    create: {
+      id: ncId, pedido_venta_id: reintegroPedidoId, tipo_comprobante: "NOTA_CREDITO",
+      cae_simulado: "68031598279116",
+      qr_data_url: await qr("NOTA_CREDITO", reintegroPedido.numero_venta, reintegroVenta.total, "68031598279116"),
+      monto_total: reintegroVenta.total, es_simulado: true,
+      emitido_por_id: USUARIO_CANAL_WEB_ID,
+      comprobante_original_id: idHistoricoT1(`comprobante:${reintegroVenta.clave}`),
+      created_at: fechaReintegro,
+    },
+  });
+  await prisma.contraAsientoIngreso.upsert({
+    where: { pedido_venta_id: reintegroPedidoId }, update: {},
+    create: {
+      id: contraId, pedido_venta_id: reintegroPedidoId,
+      ingreso_original_id: idHistoricoT1(`ingreso:${reintegroVenta.clave}`),
+      monto: reintegroVenta.total, motivo: "Reintegro web histórico T1",
+      created_at: fechaReintegro,
+    },
+  });
+  await prisma.reintegroPedidoWeb.upsert({
+    where: { pedido_venta_id: reintegroPedidoId }, update: {},
+    create: {
+      id: idHistoricoT1("reintegro:web-julio"), pedido_venta_id: reintegroPedidoId,
+      mercadopago_payment_id: `t1-seed-mp-${reintegroVenta.clave}`,
+      estado: "APROBADO", monto_total: reintegroVenta.total,
+      motivo: "Cancelación histórica de ejemplo", solicitado_por_tipo: "SISTEMA",
+      nota_credito_id: ncId, contra_asiento_ingreso_id: contraId,
+      resuelto_at: fechaReintegro,
+      created_at: fechaReintegro,
+    },
+  });
+  await prisma.reintegroRefundIntento.upsert({
+    where: { id: intentoId }, update: {},
+    create: {
+      id: intentoId, reintegro_id: idHistoricoT1("reintegro:web-julio"),
+      numero: 1, origen: "INICIAL", clave_idempotencia: "t1-seed-refund-web-julio",
+      estado: "APROBADO", refund_id: "t1-seed-refund-id-web-julio",
+      resuelto_at: fechaReintegro, created_at: fechaReintegro,
+    },
+  });
+  await prisma.reintegroPedidoWeb.updateMany({
+    where: { pedido_venta_id: reintegroPedidoId, intento_aprobado_id: null },
+    data: { intento_aprobado_id: intentoId },
+  });
+
+  const compras = [
+    { clave: "mayo", proveedor: PROVEEDOR_HOMOLOGADO_ID, fecha: "2026-05-19T15:00:00.000Z",
+      pago: "2026-05-28T15:00:00.000Z", total: 50000, facturas: [30000, 20000], numero: "OC-T1-2026-01" },
+    { clave: "julio", proveedor: PROVEEDOR_SEGUNDO_HOMOLOGADO_ID, fecha: "2026-07-06T15:00:00.000Z",
+      pago: "2026-07-21T15:00:00.000Z", total: 40000, facturas: [40000], numero: "OC-T1-2026-02" },
+  ] as const;
+  const comprasAmpliadas = [...compras] as { clave: string; proveedor: string; fecha: string;
+    pago: string; total: number; facturas: readonly number[]; numero: string }[];
+  for (const mes of [4, 5, 6, 7]) {
+    const previas = compras.filter(c => Number(c.fecha.slice(5, 7)) === mes).length;
+    for (let i = 1; i <= 3 - previas; i++) {
+      const total = 27000 + mes * 3300 + i * 4520.5;
+      comprasAmpliadas.push({ clave: `${mes}-extra-${i}`,
+        proveedor: i % 2 ? PROVEEDOR_HOMOLOGADO_ID : PROVEEDOR_SEGUNDO_HOMOLOGADO_ID,
+        fecha: `2026-0${mes}-${String(3 + i * 4).padStart(2, "0")}T15:00:00.000Z`,
+        pago: `2026-0${mes}-${String(15 + i * 3).padStart(2, "0")}T15:00:00.000Z`,
+        total, facturas: [total], numero: `OC-T1-2026-${mes}-${i}` });
+    }
+  }
+  for (const [compraIndice, compra] of comprasAmpliadas.entries()) {
+    const ordenId = idHistoricoT1(`orden:${compra.clave}`);
+    const cuentaId = idHistoricoT1(`cuenta:${compra.clave}`);
+    await prisma.ordenCompra.upsert({
+      where: { id: ordenId }, update: {},
+      create: {
+        id: ordenId, numero_orden: compra.numero, proveedor_id: compra.proveedor,
+        estado: "RECIBIDA_COMPLETA", fecha_emision: fecha(compra.fecha),
+        fecha_envio: fecha(compra.fecha), fecha_confirmacion: fecha(compra.fecha),
+        fecha_cierre: fecha(compra.fecha), creada_por_id: USUARIO_COMPRADOR_SEED_ID,
+        observaciones: "Compra histórica T1", created_at: fecha(compra.fecha),
+      },
+    });
+    await prisma.ordenCompraItem.upsert({
+      where: { id: idHistoricoT1(`orden-item:${compra.clave}`) }, update: {},
+      create: {
+        id: idHistoricoT1(`orden-item:${compra.clave}`), orden_compra_id: ordenId,
+        variante_sku_id: VARIANTE_CAMISA_TACTICA_2_ID, cantidad_solicitada: 1,
+        precio_unitario: compra.total, created_at: fecha(compra.fecha),
+      },
+    });
+    await prisma.cuentaPorPagar.upsert({
+      where: { id: cuentaId }, update: {},
+      create: {
+        id: cuentaId, orden_compra_id: ordenId, monto: compra.total,
+        estado: "PAGADA", fecha_vencimiento: fecha(compra.pago), fecha_pago: fecha(compra.pago),
+        medio_pago: "TRANSFERENCIA", observaciones: "Pago histórico T1",
+        created_at: fecha(compra.fecha),
+      },
+    });
+    for (const [indice, monto] of compra.facturas.entries()) {
+      const comprobanteId = idHistoricoT1(`proveedor-comprobante:${compra.clave}:${indice}`);
+      await prisma.comprobanteProveedor.upsert({
+        where: { id: comprobanteId }, update: {},
+        create: {
+          id: comprobanteId, orden_compra_id: ordenId, proveedor_id: compra.proveedor,
+          tipo: "FACTURA_A", numero_comprobante: `0001-${String(compra.clave === "mayo" ? 1001 + indice : compra.clave === "julio" ? 2001 : 3001 + compraIndice * 10 + indice).padStart(8, "0")}`,
+          fecha_emision: fecha(compra.fecha), monto_total: monto,
+          registrado_por_id: USUARIO_COMPRADOR_SEED_ID,
+          created_at: fecha(compra.fecha),
+        },
+      });
+      await prisma.cuentaPorPagarComprobante.upsert({
+        where: { cuenta_por_pagar_id_comprobante_proveedor_id: {
+          cuenta_por_pagar_id: cuentaId, comprobante_proveedor_id: comprobanteId,
+        } }, update: {},
+        create: {
+          id: idHistoricoT1(`imputacion:${compra.clave}:${indice}`),
+          cuenta_por_pagar_id: cuentaId, comprobante_proveedor_id: comprobanteId,
+          created_at: fecha(compra.pago),
+        },
+      });
+    }
+  }
+
+  const gastos = [
+    { clave: "alquiler-mayo", categoria: 1, dia: "2026-05-05", monto: 18000, activo: true },
+    { clave: "servicios-junio", categoria: 2, dia: "2026-06-10", monto: 7500, activo: true },
+    { clave: "sueldos-julio", categoria: 0, dia: "2026-07-04", monto: 32000, activo: true },
+    { clave: "otros-julio-baja", categoria: 4, dia: "2026-07-11", monto: 1500, activo: false },
+  ] as const;
+  const descripcionesOriginales: Record<string, string> = {
+    "alquiler-mayo": "Alquiler del local comercial — mayo",
+    "servicios-junio": "Energía eléctrica y agua del local — junio",
+    "sueldos-julio": "Haberes del equipo de atención — julio",
+    "otros-julio-baja": "Mensajería duplicada, comprobante anulado",
+  };
+  const gastosAmpliados = gastos.map(g => ({ ...g, descripcion: descripcionesOriginales[g.clave] })) as {
+    clave: string; categoria: number; dia: string; monto: number; activo: boolean; descripcion: string }[];
+  const conceptos = [
+    [0, "Haberes del equipo de depósito", 42000], [1, "Alquiler del depósito", 26000],
+    [2, "Servicio de energía eléctrica", 8700], [2, "Internet y telefonía comercial", 5600],
+    [3, "Tasa municipal de actividad comercial", 12000], [4, "Bolsas y embalajes para despachos", 4300],
+    [4, "Limpieza del local y vidrieras", 6200], [4, "Mantenimiento de impresoras fiscales", 7800],
+    [4, "Fletes de reposición al depósito", 9100], [2, "Seguro integral del comercio", 11500],
+  ] as const;
+  for (const mes of [4, 5, 6, 7]) {
+    for (const [i, [categoria, descripcion, base]] of conceptos.entries()) {
+      gastosAmpliados.push({ clave: `${mes}-extra-${i}`, categoria,
+        dia: `2026-0${mes}-${String(2 + i * 2).padStart(2, "0")}`,
+        monto: base * (mes === 6 ? 4 : 1) + mes * 121.25 + i * 73.5,
+        activo: true, descripcion: `${descripcion} — ${["abril", "mayo", "junio", "julio"][mes - 4]}` });
+    }
+    gastosAmpliados.push({ clave: `${mes}-anulado`, categoria: 4, dia: `2026-0${mes}-09`,
+      monto: 2350.75, activo: false, descripcion: "Envío de muestras cancelado por el transportista" });
+  }
+  for (const gasto of gastosAmpliados) {
+    // Migra solo el UUID propio de T1 y solo si cambió el texto. Así una
+    // reejecución no modifica updated_at de filas que ya están actualizadas.
+    await prisma.gastoOperativo.updateMany({
+      where: { id: idHistoricoT1(`gasto:${gasto.clave}`), descripcion: { not: gasto.descripcion } },
+      data: { descripcion: gasto.descripcion },
+    });
+    await prisma.gastoOperativo.upsert({
+      where: { id: idHistoricoT1(`gasto:${gasto.clave}`) }, update: {},
+      create: {
+        id: idHistoricoT1(`gasto:${gasto.clave}`),
+        categoria_gasto_id: CATEGORIAS_GASTO_INICIALES[gasto.categoria].id,
+        monto: gasto.monto, fecha: fecha(`${gasto.dia}T00:00:00.000Z`),
+        descripcion: gasto.descripcion,
+        registrado_por_id: USUARIO_TESORERO_SEED_ID,
+        is_active: gasto.activo,
+        deleted_at: gasto.activo ? null : fecha("2026-07-12T14:00:00.000Z"),
+        deleted_by: gasto.activo ? null : USUARIO_TESORERO_SEED_ID,
+        deletion_reason: gasto.activo ? null : "Gasto de prueba dado de baja",
+        created_at: fecha(`${gasto.dia}T00:00:00.000Z`),
+      },
+    });
+  }
 }
 
 // Cluster 3 · permisos de desglose y exportación del reporte mensual (HU-G14, HU-G16).
@@ -5769,7 +6103,9 @@ async function seedSprint5Cluster6(prisma: PrismaClient): Promise<void> {
   console.table({ permiso_alertas_leer_id: PERMISO_ALERTAS_LEER_ID });
 }
 
-main()
+// Permite verificar T1 por separado, una vez que el seed base ya creó sus FK.
+// El comando habitual `prisma db seed` conserva el recorrido completo.
+(process.argv.includes("--t1-only") ? seedHistoricoT1(prisma) : main())
   .catch((error) => {
     console.error(error);
     process.exitCode = 1;

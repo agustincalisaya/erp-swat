@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { ChevronDown, Menu, X, ChevronLeft, ChevronRight } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { SwatLogo } from "@/components/layout/SwatLogo";
 import {
   Collapsible,
   CollapsibleTrigger,
@@ -260,26 +261,22 @@ export function SidebarNav({ sections }: SidebarNavProps) {
           {colapsado ? <ChevronRight className="size-3" /> : <ChevronLeft className="size-3" />}
         </button>
 
-        {/* HEADER DEL SIDEBAR - LOGO RENOVADO CON AZUL RELUCIENTE */}
-        {/* El logo es un enlace al home: conserva las clases exactas del div;
-            `block` mantiene el layout de bloque del anchor y Tailwind preflight
-            evita el azul/subrayado por defecto de los links. */}
+        {/* Marca enlazada al inicio, con un único nombre accesible. */}
         <Link
           href="/"
           onClick={() => setAbiertoMobile(false)}
-          title={colapsado ? "Ir al inicio" : undefined}
-          className={cn("block px-4 mb-4 mt-14 lg:mt-0", colapsado ? "text-center px-0" : "")}
+          aria-label="SWAT Indumentarias"
+          title={colapsado ? "SWAT Indumentarias" : undefined}
+          className={cn(
+            "mb-4 mt-14 flex h-[66px] min-w-0 items-center lg:mt-0",
+            colapsado ? "justify-center px-2" : "px-4",
+          )}
         >
-          {!colapsado ? (
-            <div className="whitespace-nowrap overflow-hidden">
-              <span className="text-base font-extrabold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent tracking-tight">
-                SWAT
-              </span>
-              <p className="text-xs font-medium text-sidebar-muted-foreground">Indumentarias</p>
-            </div>
+          {colapsado ? (
+            <SwatLogo variant="icon" className="w-[30px]" />
           ) : (
-            <div className="flex items-center justify-center h-8 w-8 mx-auto bg-gradient-to-tr from-blue-600 to-indigo-600 text-white font-bold text-xs rounded-md shadow-sm shadow-blue-500/30">
-              SW
+            <div className="min-w-0 w-full max-w-[182px]">
+              <SwatLogo variant="full" className="w-full" />
             </div>
           )}
         </Link>

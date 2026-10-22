@@ -127,7 +127,7 @@ export interface ComprobanteFiscalPdf extends Omit<ComprobanteWebDescargable, "m
   } | null;
 }
 
-const LEYENDA_SIMULADO = "SIMULADO — SIN VALIDEZ FISCAL ANTE AFIP";
+const LEYENDA_SIMULADO = "SIMULADO — SIN VALIDEZ FISCAL ANTE ARCA";
 const CANALES: Record<CanalVenta, string> = { MOSTRADOR: "Mostrador", WEB: "Web" };
 const MEDIOS: Record<MedioPagoVenta, string> = {
   EFECTIVO: "Efectivo",
@@ -394,7 +394,6 @@ export async function generarComprobanteFiscalPdf(comprobante: ComprobanteFiscal
   const filasTotales: [string, number][] = [
     ...(subtotal !== null ? [["Subtotal", signo * subtotal] as [string, number]] : []),
     ...(descuento > 0 ? [["Descuento", -descuento] as [string, number]] : []), // negativo también en la NC (spec B §2.10)
-    ["IVA contenido (21 %)", signo * iva],
   ];
   const altoPagos = pagos.length > 0 ? 18 + pagos.length * 16 : 0;
   const altoTotales = filasTotales.length * 16 + 34;
@@ -440,7 +439,7 @@ export async function generarComprobanteFiscalPdf(comprobante: ComprobanteFiscal
   const paginas = documento.getPages();
   paginas.forEach((hoja, indice) => {
     hoja.drawRectangle({ x: 0, y: 0, width: ANCHO_PAGINA, height: ALTO_FRANJA, color: COLORES.secundario });
-    hoja.drawText("Documento generado por el ERP SWAT a partir del comprobante archivado. No válido como factura ante AFIP.", {
+    hoja.drawText("Documento generado por el ERP SWAT a partir del comprobante archivado. No válido como factura ante ARCA.", {
       x: MARGEN, y: 13, size: 7.5, font: regular, color: COLORES.suave,
     });
     textoDerecha(hoja, `Página ${indice + 1} de ${paginas.length}`, ANCHO_PAGINA - MARGEN, 13, { size: 7.5, font: regular, color: COLORES.suave });

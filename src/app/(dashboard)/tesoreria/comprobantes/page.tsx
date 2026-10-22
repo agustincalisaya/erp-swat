@@ -41,7 +41,7 @@ export const dynamic = "force-dynamic";
 
 export const metadata = {
   title: "Comprobantes fiscales — ERP SWAT",
-  description: "Repositorio de comprobantes fiscales de mostrador y de la tienda web (Módulo G).",
+  description: "Repositorio de comprobantes fiscales de mostrador y de la tienda web.",
 };
 
 interface ComprobantesPageProps {
