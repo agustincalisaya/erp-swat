@@ -9,6 +9,7 @@
  */
 import { Suspense } from "react";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { ScrollText, AlertTriangle } from "lucide-react";
 import { getServerSession } from "@/lib/auth/session";
 import { usuarioTienePermiso } from "@/lib/auth/with-permission";
@@ -16,6 +17,7 @@ import {
   listarAuditLog,
   listarAccionesDistintas,
   listarUsuariosParaFiltro,
+  type ListadoAuditLog,
   type UsuarioParaFiltro,
 } from "@/lib/services/auditoria/audit-log.service";
 import { FiltrosAuditoriaSchema } from "@/lib/schemas/auditoria.schema";
@@ -88,12 +90,27 @@ export default async function LogsPage({ searchParams }: LogsPageProps) {
       usuarioTienePermiso(session.userId, "auditoria:leer_historico"),
     ]);
 
+  // HU-D8 (spec_modulo_D.md §8.1 D8-1): sin permiso forense, el modo general
+  // es el historial propio, que vive en su propia vista. Se conservan los
+  // filtros que esa vista entiende; `usuario_id` y el resto se descartan.
+  if (!tieneLeerForense) {
+    const destino = new URLSearchParams();
+    for (const clave of ["fecha_desde", "fecha_hasta", "accion"]) {
+      const valor = rawParams[clave];
+      if (typeof valor === "string" && valor !== "") destino.set(clave, valor);
+    }
+    const query = destino.toString();
+    redirect(query ? `/auditoria/mi-historial?${query}` : "/auditoria/mi-historial");
+  }
+
   const parsedFiltros = FiltrosAuditoriaSchema.safeParse(rawParams);
   const filtros = parsedFiltros.success ? parsedFiltros.data : FiltrosAuditoriaSchema.parse({});
 
-  let resultado;
+  let resultado: ListadoAuditLog;
   try {
-    resultado = await listarAuditLog(filtros, session);
+    // Con `auditoria:leer_forense` (garantizado por el redirect de arriba)
+    // `listarAuditLog()` devuelve el listado forense completo.
+    resultado = (await listarAuditLog(filtros, session)) as ListadoAuditLog;
   } catch (err) {
     console.error("[LogsPage] Error al obtener AuditLog:", err);
     resultado = { registros: [], total: 0, page: filtros.page, page_size: filtros.page_size };

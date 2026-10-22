@@ -74,6 +74,15 @@ export const GET = withAuth(async (req: NextRequest, session) => {
     const resultado = await listarAuditLog(parsed.data, session);
     return NextResponse.json({ data: resultado, error: null }, { status: 200 });
   } catch (err) {
+    // HU-D8: solo la rama sin permiso forense (delegada en
+    // `listarHistorialPropio`) puede lanzar VALIDATION_ERROR por un día fuera
+    // de rango; el camino forense no la lanza.
+    if (err instanceof ServiceError && err.code === "VALIDATION_ERROR") {
+      return NextResponse.json(
+        { data: null, error: { code: "VALIDATION_ERROR", message: err.message } },
+        { status: 400 },
+      );
+    }
     console.error("[GET /api/auditoria/logs] Error inesperado:", err);
     return NextResponse.json(
       { data: null, error: { code: "INTERNAL_ERROR", message: "Error interno del servidor" } },
