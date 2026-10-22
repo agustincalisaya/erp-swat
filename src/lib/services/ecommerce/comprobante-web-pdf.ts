@@ -439,7 +439,7 @@ export async function generarComprobanteFiscalPdf(comprobante: ComprobanteFiscal
   const paginas = documento.getPages();
   paginas.forEach((hoja, indice) => {
     hoja.drawRectangle({ x: 0, y: 0, width: ANCHO_PAGINA, height: ALTO_FRANJA, color: COLORES.secundario });
-    hoja.drawText("Documento generado por el ERP SWAT a partir del comprobante archivado. No válido como factura ante AFIP.", {
+    hoja.drawText("Documento generado por el ERP SWAT a partir del comprobante archivado. No válido como factura ante ARCA.", {
       x: MARGEN, y: 13, size: 7.5, font: regular, color: COLORES.suave,
     });
     textoDerecha(hoja, `Página ${indice + 1} de ${paginas.length}`, ANCHO_PAGINA - MARGEN, 13, { size: 7.5, font: regular, color: COLORES.suave });
