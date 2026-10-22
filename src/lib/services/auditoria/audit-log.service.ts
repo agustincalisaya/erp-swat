@@ -16,6 +16,9 @@
  *    `usuario_id` a la sesión actual, descartando cualquier valor recibido.
  *    Esta decisión vive acá (no en el Route Handler) para que cualquier
  *    otro punto de entrada futuro reciba la misma garantía sin reimplementarla.
+ *  - spec_modulo_D.md §8.1 (HU-D8) — esa rama sin permiso delega en
+ *    `listarHistorialPropio()`, la única regla del historial propio (también
+ *    usada por `/auditoria/mi-historial`). El camino forense no cambia.
  */
 import "server-only";
 
@@ -24,7 +27,16 @@ import { prisma } from "@/lib/db/prisma";
 import { calcularHashEncadenado, HASH_GENESIS } from "@/lib/crypto/hash-chain";
 import { usuarioTienePermiso } from "@/lib/auth/with-permission";
 import type { ServerSession } from "@/lib/auth/session";
-import type { FiltrosAuditoriaInput } from "@/lib/schemas/auditoria.schema";
+import type { FiltrosAuditoriaInput, HistorialPropioFiltrosInput } from "@/lib/schemas/auditoria.schema";
+import { ServiceError } from "@/lib/errors/service-error";
+import {
+  ORDEN_AUDIT_LOG,
+  SELECT_HISTORIAL_PROPIO,
+  construirWhereHistorialPropio,
+  type ListadoHistorialPropio,
+} from "@/lib/services/auditoria/historial-propio.reglas";
+
+export type { ListadoHistorialPropio, RegistroHistorialPropio } from "@/lib/services/auditoria/historial-propio.reglas";
 
 const PERMISO_LEER_FORENSE = "auditoria:leer_forense";
 
@@ -243,11 +255,10 @@ async function anexarRegistroAuditLog(
  *
  * - Con `auditoria:leer_forense`: se respetan los filtros tal como llegan,
  *   incluyendo `usuario_id` de un tercero.
- * - Sin ese permiso: `usuario_id` se fuerza server-side a la sesión actual,
- *   descartando cualquier valor recibido en `filtros.usuario_id` — y
- *   `valor_anterior`/`valor_nuevo` se omiten de la respuesta (decisión
- *   confirmada: Personal Operativo ve el resumen de su propio historial,
- *   no el detalle completo del payload, ni siquiera del propio).
+ * - Sin ese permiso (HU-D8): delega en `listarHistorialPropio()` con el
+ *   `usuario_id` de la sesión, descartando `filtros.usuario_id`,
+ *   `tabla_afectada` y `registro_id`. Devuelve el DTO reducido del historial
+ *   propio (sin payloads, hashes, IP ni usuario), fechas como días ART.
  *
  * @param filtros - Validados por `FiltrosAuditoriaSchema`.
  * @param sesion - Sesión autenticada que ejecuta la consulta.
@@ -255,8 +266,23 @@ async function anexarRegistroAuditLog(
 export async function listarAuditLog(
   filtros: FiltrosAuditoriaInput,
   sesion: ServerSession,
-): Promise<ListadoAuditLog> {
+): Promise<ListadoAuditLog | ListadoHistorialPropio> {
   const tienePermisoAmpliado = await usuarioTienePermiso(sesion.userId, PERMISO_LEER_FORENSE);
+
+  if (!tienePermisoAmpliado) {
+    // `FiltrosAuditoriaSchema` coerciona "AAAA-MM-DD" a la medianoche UTC de
+    // ese día: `toISOString().slice(0, 10)` recupera el día pedido.
+    return listarHistorialPropio(
+      {
+        fecha_desde: filtros.fecha_desde?.toISOString().slice(0, 10),
+        fecha_hasta: filtros.fecha_hasta?.toISOString().slice(0, 10),
+        accion: filtros.accion,
+        page: filtros.page,
+        page_size: filtros.page_size,
+      },
+      sesion.userId,
+    );
+  }
 
   const usuarioIdEfectivo = tienePermisoAmpliado ? filtros.usuario_id : sesion.userId;
 
@@ -301,6 +327,67 @@ export async function listarAuditLog(
     page: filtros.page,
     page_size: filtros.page_size,
   };
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Lectura — historial propio (HU-D8, spec_modulo_D.md §8.1)
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Historial propio del usuario interno. `usuarioId` llega SIEMPRE de la
+ * sesión (Route Handler / Server Component); los filtros no pueden cambiarlo.
+ *
+ * - `select` explícito (`SELECT_HISTORIAL_PROPIO`): `valor_anterior`,
+ *   `valor_nuevo`, hashes, `ip` y usuario nunca salen de la base (D8-6).
+ * - Rango de días ART semiabierto vía `rangoDiasNegocio` (D8-3).
+ * - Orden `created_at DESC, id DESC` y paginación en base (D8-2).
+ * - Una `accion` que el usuario no tiene da lista vacía, no error (D8-4).
+ *
+ * Estrictamente de lectura sobre `audit_logs`.
+ *
+ * @throws {ServiceError} `VALIDATION_ERROR` si el rango de días no es válido
+ *         (defensa en profundidad: `HistorialPropioFiltrosSchema` ya lo filtra).
+ */
+export async function listarHistorialPropio(
+  filtros: HistorialPropioFiltrosInput,
+  usuarioId: string,
+): Promise<ListadoHistorialPropio> {
+  let where: Prisma.AuditLogWhereInput;
+  try {
+    where = construirWhereHistorialPropio(usuarioId, filtros);
+  } catch (err) {
+    if (err instanceof RangeError) throw new ServiceError("VALIDATION_ERROR", err.message);
+    throw err;
+  }
+
+  const [registros, total] = await Promise.all([
+    prisma.auditLog.findMany({
+      where,
+      select: SELECT_HISTORIAL_PROPIO,
+      orderBy: [...ORDEN_AUDIT_LOG],
+      skip: (filtros.page - 1) * filtros.page_size,
+      take: filtros.page_size,
+    }),
+    prisma.auditLog.count({ where }),
+  ]);
+
+  return { registros, total, page: filtros.page, page_size: filtros.page_size };
+}
+
+/**
+ * Valores DISTINCT de `accion` registrados por el propio usuario, para el
+ * selector de "Acción" del historial propio (D8-4). Un usuario sin registros
+ * recibe `[]`.
+ */
+export async function listarAccionesPropias(usuarioId: string): Promise<string[]> {
+  const filas = await prisma.auditLog.findMany({
+    where: { usuario_id: usuarioId },
+    distinct: ["accion"],
+    select: { accion: true },
+    orderBy: { accion: "asc" },
+  });
+
+  return filas.map((fila) => fila.accion);
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

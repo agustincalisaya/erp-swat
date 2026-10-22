@@ -32,7 +32,7 @@
  */
 import type { LucideIcon } from "lucide-react";
 // 1. Agregamos el ícono "Layers" a la importación
-import { ScrollText, ShieldCheck, Users, Package, Warehouse, ScanBarcode, Layers, FileSearch, ShoppingCart, ClipboardList, Store, PackageCheck, Undo2, Wallet, Banknote, Receipt, ReceiptText, FileText, UserPlus, Tags, TicketPercent, Settings, BellRing, Globe, Ban, BookOpen, TriangleAlert, Landmark } from "lucide-react";
+import { History, ScrollText, ShieldCheck, Users, Package, Warehouse, ScanBarcode, Layers, FileSearch, ShoppingCart, ClipboardList, Store, PackageCheck, Undo2, Wallet, Banknote, Receipt, ReceiptText, FileText, UserPlus, Tags, TicketPercent, Settings, BellRing, Globe, Ban, BookOpen, TriangleAlert, Landmark } from "lucide-react";
 import { getServerSession } from "@/lib/auth/session";
 import { usuarioTienePermiso } from "@/lib/auth/with-permission";
 import { SidebarNav, type SidebarNavSection } from "@/components/layout/SidebarNav";
@@ -89,6 +89,9 @@ const SECCIONES: SeccionConfig[] = [
           },
         ],
       },
+      // HU-D8 (spec_modulo_D.md §8.1 D8-5) — historial propio: SIN `permiso`,
+      // visible para toda sesión interna. No otorga `auditoria:leer_forense`.
+      { label: "Mi historial", href: "/auditoria/mi-historial", icon: History },
       {
         label: "Auditoría del Inventario",
         href: "/inventario/auditoria",
@@ -315,6 +318,22 @@ const SECCIONES: SeccionConfig[] = [
         href: "/tesoreria/gastos-operativos",
         icon: ReceiptText,
         permiso: "tesoreria:gestionar_gastos",
+      },
+      // HU-G7 (spec_modulo_G.md §9.8) — posición diaria consolidada de
+      // Tesorería. Gate por `tesoreria:leer_reportes`; el registro de saldo se
+      // gatea aparte (`tesoreria:registrar_saldo_diario`) dentro de la página.
+      // Orden fijo del grupo: … Posición diaria, Cuentas propias, …
+      {
+        label: "Posición diaria",
+        href: "/tesoreria/posicion-diaria",
+        icon: Wallet,
+        permiso: "tesoreria:leer_reportes",
+      },
+      {
+        label: "Reporte mensual",
+        href: "/tesoreria/reporte-mensual",
+        icon: FileText,
+        permiso: "tesoreria:leer_reportes",
       },
       // HU-G5 (spec_modulo_G.md §9.7) — cuentas bancarias y cajas propias.
       // Gate por `tesoreria:leer_cuentas_bancarias`; la gestión y el revelado

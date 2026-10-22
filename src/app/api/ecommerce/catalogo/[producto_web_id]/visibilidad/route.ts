@@ -5,6 +5,9 @@
  *
  * Respuestas `{ data, error }`: 200 · 400 VALIDATION_ERROR · 401 UNAUTHORIZED ·
  * 403 FORBIDDEN · 404 PRODUCTO_WEB_NO_ENCONTRADO · 500 INTERNAL_ERROR.
+ * HU-E16 (spec E §6.2): 422 CONTENIDO_NO_PUBLICABLE con `error.details.faltantes`
+ * (mostrar sin descripción o sin foto activa; rechazo auditado) · 503
+ * AUDITORIA_NO_DISPONIBLE (D.3 no confirmó el asiento; visibilidad intacta).
  */
 import type { NextRequest } from "next/server";
 import { PERMISO_GESTIONAR_CATALOGO } from "@/lib/auth/permisos-ecommerce";

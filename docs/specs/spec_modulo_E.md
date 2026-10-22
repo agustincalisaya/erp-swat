@@ -1174,6 +1174,13 @@ Tres claves nuevas de módulo `E`, sembradas con `upsert` y `update: {}`, con ge
 | 422 | `ARCHIVO_VACIO` / `ARCHIVO_DEMASIADO_GRANDE` / `FORMATO_IMAGEN_NO_ADMITIDO` | archivo de 0 bytes / mayor al máximo (real o por tope del cuerpo) / firma no reconocida o formato no habilitado |
 | 500 | `INTERNAL_ERROR` | inesperado; configuración de fotos ausente o inválida; falta `CATALOGO_FOTOS_DIR` |
 
+**Nota aditiva — Revisión 10 (HU-E16, §6.2).** Filas que se suman a esta tabla para `PATCH /api/ecommerce/catalogo/[producto_web_id]/visibilidad`; las filas anteriores no cambian:
+
+| Status | `code` | Cuándo |
+|---|---|---|
+| 422 | `CONTENIDO_NO_PUBLICABLE` | `false → true` sin descripción (`trim()` vacío) o sin foto activa; único código del catálogo que agrega `error.details: { faltantes }` (`['descripcion']`, `['foto']` o `['descripcion', 'foto']`). Se responde recién después de que D.3 confirmó el asiento del rechazo; no hay UPDATE de visibilidad |
+| 503 | `AUDITORIA_NO_DISPONIBLE` | el rechazo anterior no pudo auditarse (falla, timeout o ausencia del listener de D.3); la visibilidad queda intacta y la operación puede reintentarse |
+
 ### 2.12. Cola de preparación y entrega Click & Collect (HU-E12)
 
 **Revisión 7 — lectura obligatoria antes de los pasajes históricos siguientes:** la implementación E12 termina en `LISTO_PARA_RETIRO`; su ruta real es `/api/ecommerce/preparacion/**`. Toda referencia inferior a `/app/api/ecommerce/pick-pack/[id]/validar-retiro`, a `ValidarRetiroSchema` con `codigo_qr`/`dni_receptor`, a `422 QR_INVALIDO`, a la entrega como responsabilidad E12 o a la generación de notificación F3 ya operativa queda **sustituida por 2.3.b–2.3.d**. Las rutas/verbos de preparación escritos en la Revisión 1 son diseño histórico; consultar las rutas reales de E12 al implementar. E12 conserva la emisión del evento `pedido_listo_para_retiro`; E3 completa únicamente su payload de destinatario y la suscripción F3.
@@ -1868,6 +1875,14 @@ Cinco eventos nuevos en `src/lib/events/event-types.ts` (y en `TIPOS_EVENTO_DOMI
 | `ecommerce:foto_web_principal_cambiada` | `{ foto_id, producto_web_id, principal_anterior_id, actor_id }` | `fotos_producto_web` / foto; `{ es_principal: false, principal_anterior_id }` → `{ es_principal: true }` |
 | `ecommerce:foto_web_baja` | `{ foto_id, producto_web_id, deletion_reason, era_principal, principal_promovida_id, actor_id }` | `fotos_producto_web` / foto; `{ is_active: true, es_principal }` → `{ is_active: false, deleted_by, deletion_reason, principal_promovida_id }` |
 
+### Extensión de eventos — Revisión 10 (HU-E16)
+
+Nota aditiva de §6.2 (E16-4). Evento nuevo en `src/lib/events/event-types.ts` (y en `TIPOS_EVENTO_DOMINIO`), emitido por `cambiarVisibilidadWeb` **fuera de la transacción** y sin UPDATE cuando un `false → true` se rechaza por contenido incompleto. No es fire-and-forget: el productor registra la espera antes de emitir y aguarda la confirmación de D.3 (`publicacion-web-confirmacion.ts`, mismo patrón que el libro IVA, plazo 10 s); solo con confirmación responde 422, si no 503. Handler en `audit-log.listener.ts` con marca `Symbol` anti-duplicado e import dinámico del coordinador; confirma después de persistir. Sin descripción ni URLs de fotos. Un asiento por `intento_id`, incluso para rechazos repetidos del mismo contenido.
+
+| Evento | Payload | Asiento (`tabla_afectada` / `registro_id`; antes → después) |
+|---|---|---|
+| `ecommerce:publicacion_web_rechazada` | `{ intento_id, actor_id, producto_web_id, faltantes, timestamp }` | `usuario_id` = actor, `accion` = evento, `ip = "internal-event"`; `contenidos_producto_web` / contenido; `null` → `{ intento_id, faltantes, timestamp }` |
+
 ## 5. Fuera de Alcance (diferido / bloqueado)
 
 **Rev.6 — E11:** reactivación de contenido o fotos dados de baja; recorte, redimensionado o compresión de imágenes; proveedor en la nube y CDN (un Adapter nuevo del Gateway de §2.11.b); procedimiento de limpieza de archivos huérfanos; volumen persistente para `CATALOGO_FOTOS_DIR` cuando la app se contenedorice (hoy `docker-compose.yml` solo levanta Postgres y el cron). Pendientes de validar con el equipo/PO: el almacenamiento por el servidor con Gateway y disco local (§2.11.b), los valores 8 / 5 MB / JPG-PNG-WebP (§2.11.c), la falta de reactivación del contenido dado de baja (§2.11.d) y la ausencia de Server Actions (§2.11.a).
@@ -1944,3 +1959,11 @@ Cinco eventos nuevos en `src/lib/events/event-types.ts` (y en `TIPOS_EVENTO_DOMI
 | E14-5 | No se crea enlace al detalle administrativo del pedido mientras no exista esa pantalla. La tarjeta conserva las acciones operativas de HU-E12. |
 
 La autorización se expresa por permisos y nunca por nombre de rol. Si el cliente destinatario no puede resolverse, la respuesta usa una etiqueta explícita de dato no disponible sin exponer otra identidad ni datos de facturación. La task de E14 debe fijar esa etiqueta en UI y cubrir ambas proyecciones en pruebas de servicio/API.
+
+**Cierre HU-E14 (21/10/2026) — registro no normativo.** No modifica las filas E14-1 a E14-5 ni el párrafo anterior; registra cómo quedaron implementadas. Evidencia en `docs/modulos/modulo E/HU14_MODULO_E.md`.
+
+- Ruta real: `GET /api/ecommerce/preparacion` (permiso `ecommerce:leer_cola_preparacion`; los nombres de §2.12 bajo `pick-pack/**` y el campo `fecha_pago` son históricos). Se conserva `fecha_pago_confirmado`.
+- Proyección base, para todo lector de la cola: cada ítem agrega `cliente_nombre: string | null` (solo `Cliente.nombre`; nunca DNI, email ni teléfono) y `unidades_totales` (suma de `cantidad` de los ítems vigentes, igual a `progreso.total_requerido`). La consulta no lee `PedidoVenta.total`, `VentaMedioPago`, `TransaccionPagoLog` ni comprobantes, y la clave `pago` está ausente.
+- Proyección con pago: el handler resuelve `ecommerce:leer_historial_ordenes` con `usuarioTienePermiso` antes de llamar al servicio (sin cache: una revocación rige en el request siguiente) y solo entonces cada ítem agrega `pago: { total, medios }`. `total` es `PedidoVenta.total` como string de 2 decimales (convención de lecturas administrativas, §2.13.15); `medios` es la lista de `VentaMedioPago.medio` activos, sin duplicados. Nunca se expone `VentaMedioPago.referencia` (payment_id).
+- Cliente no resoluble (`cliente_id` nulo, o `Cliente` con `is_active = false` o `deleted_at`): `cliente_nombre = null` y la UI muestra la etiqueta fija «Cliente no disponible». No se sigue `fusionado_en_id`: un pedido de un cliente secundario fusionado muestra la etiqueta, no el nombre del primario.
+- No existe endpoint de detalle de preparación: el «detalle» de E14-2 es el panel de la consola, alimentado por el mismo ítem de la cola y por las respuestas de scan/completar, que no contienen datos de pago.

@@ -1,7 +1,7 @@
 import "server-only";
 
 import { randomBytes } from "node:crypto";
-import { Prisma } from "@prisma/client";
+import { Prisma, type MedioPagoVenta } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { ServiceError } from "@/lib/errors/service-error";
 import { domainEventBus } from "@/lib/events/domain-event-bus";
@@ -19,8 +19,11 @@ import type {
 } from "@/lib/schemas/pick-pack.schema";
 import type {
   AdmisionResultado,
+  ColaPreparacionItemConPagoDto,
   ColaPreparacionItemDto,
   LineaPreparacionDto,
+  OpcionesColaPreparacion,
+  PaginacionColaPreparacionConPagoDto,
   PaginacionColaPreparacionDto,
   PrioridadResultado,
   ProgresoPreparacionDto,
@@ -423,10 +426,27 @@ export function calcularProgreso(
  * 1. `prioridad_manual DESC NULLS LAST`
  * 2. `fecha_pago_confirmado ASC NULLS LAST`
  * 3. `PedidoVenta.id ASC`
+ *
+ * HU-E14 (spec E §6.3): cada ítem incluye `cliente_nombre` y
+ * `unidades_totales`. El bloque `pago` (total congelado + medios) solo se
+ * consulta y se agrega con `opciones.incluirDatosPago`, que el caller resuelve
+ * por permiso (`ecommerce:leer_historial_ordenes`, nunca por nombre de rol)
+ * ANTES de llamar: sin esa opción la consulta no lee `PedidoVenta.total` ni
+ * `VentaMedioPago`, y la clave `pago` no existe en el ítem.
  */
 export async function listarColaPreparacion(
   filtros: ColaPreparacionQuery,
-): Promise<PaginacionColaPreparacionDto> {
+  opciones: { incluirDatosPago: true },
+): Promise<PaginacionColaPreparacionConPagoDto>;
+export async function listarColaPreparacion(
+  filtros: ColaPreparacionQuery,
+  opciones?: OpcionesColaPreparacion,
+): Promise<PaginacionColaPreparacionDto>;
+export async function listarColaPreparacion(
+  filtros: ColaPreparacionQuery,
+  opciones: OpcionesColaPreparacion = {},
+): Promise<PaginacionColaPreparacionDto | PaginacionColaPreparacionConPagoDto> {
+  const incluirDatosPago = opciones.incluirDatosPago === true;
   const { page, page_size } = filtros;
   const skip = (page - 1) * page_size;
 
@@ -469,11 +489,19 @@ export async function listarColaPreparacion(
     return { items: [], total, page, page_size };
   }
 
+  // HU-E14: el `select` se decide antes de consultar — la proyección base no
+  // pide `total`. Del Cliente solo nombre + flags de baja lógica (una relación
+  // to-one no admite `where`: el filtro RULES §1 se aplica en el mapeo).
   const pedidos = await prisma.pedidoVentaEcommerce.findMany({
     where: { id: { in: ids } },
     include: {
       pedido_venta: {
-        select: { id: true, numero_venta: true },
+        select: {
+          id: true,
+          numero_venta: true,
+          total: incluirDatosPago,
+          cliente: { select: { nombre: true, is_active: true, deleted_at: true } },
+        },
       },
       operador_asignado: {
         select: { id: true, nombre_completo: true },
@@ -536,8 +564,24 @@ export async function listarColaPreparacion(
     itemsPorPedido.set(item.pedido_venta_id, lista);
   }
 
-  const items: ColaPreparacionItemDto[] = pedidosOrdenados.map((pve) => {
+  // HU-E14: medios de pago solo con permiso de historial; nunca `referencia`.
+  const mediosPorPedido = new Map<string, MedioPagoVenta[]>();
+  if (incluirDatosPago) {
+    const medios = await prisma.ventaMedioPago.findMany({
+      where: { pedido_venta_id: { in: pedidoIds }, is_active: true, deleted_at: null },
+      select: { pedido_venta_id: true, medio: true },
+      orderBy: { created_at: "asc" },
+    });
+    for (const m of medios) {
+      const lista = mediosPorPedido.get(m.pedido_venta_id) ?? [];
+      if (!lista.includes(m.medio)) lista.push(m.medio);
+      mediosPorPedido.set(m.pedido_venta_id, lista);
+    }
+  }
+
+  const items: Array<ColaPreparacionItemDto | ColaPreparacionItemConPagoDto> = pedidosOrdenados.map((pve) => {
     const lineasRaw = itemsPorPedido.get(pve.pedido_venta_id) ?? [];
+    const cliente = pve.pedido_venta.cliente;
     const lineas: LineaPreparacionDto[] = lineasRaw.map((l) => ({
       pedido_venta_item_id: l.pedido_venta_item_id,
       variante: {
@@ -552,16 +596,27 @@ export async function listarColaPreparacion(
       cantidad_confirmada: l.confirmados,
       completa: l.confirmados >= l.cantidad,
     }));
-    return {
+    const base: ColaPreparacionItemDto = {
       pedido_venta_id: pve.pedido_venta_id,
       pedido_venta_ecommerce_id: pve.id,
       numero_venta: pve.pedido_venta.numero_venta,
+      cliente_nombre:
+        cliente && cliente.is_active && cliente.deleted_at === null ? cliente.nombre : null,
       fecha_pago_confirmado: pve.fecha_pago_confirmado,
       prioridad_manual: pve.prioridad_manual,
       estado_ecommerce: pve.estado_ecommerce,
       operador_asignado_id: pve.operador_asignado_id,
+      unidades_totales: lineasRaw.reduce((acc, l) => acc + l.cantidad, 0),
       lineas,
       progreso: calcularProgreso(lineas),
+    };
+    if (!incluirDatosPago) return base;
+    return {
+      ...base,
+      pago: {
+        total: pve.pedido_venta.total!.toFixed(2),
+        medios: mediosPorPedido.get(pve.pedido_venta_id) ?? [],
+      },
     };
   });
 

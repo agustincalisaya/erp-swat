@@ -39,20 +39,52 @@ export interface ProgresoPreparacionJson {
   completo: boolean;
 }
 
+/** Ítem de cola — proyección base, sin datos de pago (spec E §6.3 E14-2). */
 export interface ItemColaPreparacionJson {
   pedido_venta_id: string;
   pedido_venta_ecommerce_id: string;
   numero_venta: string;
+  /** HU-E14: solo el nombre; `null` = cliente no disponible. */
+  cliente_nombre: string | null;
   fecha_pago_confirmado: string | null;
   prioridad_manual: number | null;
   estado_ecommerce: string;
   operador_asignado_id: string | null;
+  /** HU-E14: suma de cantidades de ítems vigentes. */
+  unidades_totales: number;
   lineas: LineaPreparacionJson[];
   progreso: ProgresoPreparacionJson;
 }
 
+/** Espejo del enum Prisma `MedioPagoVenta` (este módulo no importa Prisma). */
+export type MedioPagoVentaJson =
+  | "EFECTIVO"
+  | "TRANSFERENCIA"
+  | "E_CHEQ"
+  | "MERCADO_PAGO"
+  | "TARJETA"
+  | "CUENTA_CORRIENTE";
+
+/** HU-E14: `total` congelado como string de 2 decimales y medios registrados. */
+export interface PagoColaPreparacionJson {
+  total: string;
+  medios: MedioPagoVentaJson[];
+}
+
+/** Ítem con pago — el servidor lo entrega solo con `ecommerce:leer_historial_ordenes`. */
+export interface ItemColaPreparacionConPagoJson extends ItemColaPreparacionJson {
+  pago: PagoColaPreparacionJson;
+}
+
+/** La UI decide por la presencia de la clave en el JSON, nunca por permiso. */
+export function tieneDatosPago(
+  item: ItemColaPreparacionJson | ItemColaPreparacionConPagoJson,
+): item is ItemColaPreparacionConPagoJson {
+  return "pago" in item;
+}
+
 export interface ColaPreparacionJson {
-  items: ItemColaPreparacionJson[];
+  items: Array<ItemColaPreparacionJson | ItemColaPreparacionConPagoJson>;
   total: number;
   page: number;
   page_size: number;
@@ -312,6 +344,43 @@ export function formatearFechaPagoConfirmado(iso: string | null): string {
   const fecha = new Date(iso);
   if (Number.isNaN(fecha.getTime())) return TEXTO_FECHA_PAGO_LEGACY;
   return formatearFechaHoraNegocio(fecha);
+}
+
+/** HU-E14 (spec E §6.3): etiqueta fija cuando el cliente no puede resolverse. */
+export const TEXTO_CLIENTE_NO_DISPONIBLE = "Cliente no disponible";
+
+export function formatearClienteCola(nombre: string | null): string {
+  return nombre ?? TEXTO_CLIENTE_NO_DISPONIBLE;
+}
+
+export function formatearUnidades(unidades: number): string {
+  return unidades === 1 ? "1 unidad" : `${unidades} unidades`;
+}
+
+export const ETIQUETA_MEDIO_PAGO: Record<MedioPagoVentaJson, string> = {
+  EFECTIVO: "Efectivo",
+  TRANSFERENCIA: "Transferencia",
+  E_CHEQ: "E-Cheq",
+  MERCADO_PAGO: "Mercado Pago",
+  TARJETA: "Tarjeta",
+  CUENTA_CORRIENTE: "Cuenta corriente",
+};
+
+export const TEXTO_SIN_MEDIO_PAGO = "Sin medio registrado";
+
+/** Lista de medios unida con coma; un valor desconocido se muestra crudo. */
+export function formatearMediosPago(medios: string[]): string {
+  if (medios.length === 0) return TEXTO_SIN_MEDIO_PAGO;
+  return medios
+    .map((m) => ETIQUETA_MEDIO_PAGO[m as MedioPagoVentaJson] ?? m)
+    .join(", ");
+}
+
+const formatoMoneda = new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS" });
+
+/** `total` llega como string decimal del servidor; solo se formatea. */
+export function formatearTotalPago(total: string): string {
+  return formatoMoneda.format(Number(total));
 }
 
 const ETIQUETAS_ESTADO: Record<string, string> = {

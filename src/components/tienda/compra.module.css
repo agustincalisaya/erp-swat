@@ -59,6 +59,13 @@
 .paymentAction { width: 100%; justify-content: center; }
 .stateNote { margin: 15px 0 0; color: var(--muted-foreground); font-size: 12px; line-height: 1.6; }
 .stateAlert { border-radius: 2px; }
+/* HU-E15 — selector informativo de medio de pago (E15-3) */
+.paymentMethods { margin: 0 0 4px; padding: 0; border: 0; min-width: 0; }
+.paymentMethodsLegend { margin-bottom: 10px; padding: 0; font-size: 12px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; color: var(--muted-foreground); }
+.paymentMethod { display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; border: 1px solid var(--primary); border-radius: 2px; background: var(--card); line-height: 1.4; }
+.paymentMethod input { flex: none; margin-top: 3px; width: 16px; height: 16px; accent-color: var(--primary); }
+.paymentMethod strong { display: block; font-weight: 650; }
+.paymentMethodHint { display: block; margin-top: 3px; color: var(--muted-foreground); font-size: 12px; }
 .shell a:focus-visible, .shell button:focus-visible, .shell input:focus-visible, .stateShell a:focus-visible { outline: 3px solid var(--ring); outline-offset: 3px; }
 @media (max-width: 850px) { .cartGrid { grid-template-columns: 1fr; } .summary { max-width: none; } }
 @media (max-width: 600px) { .shell { width: calc(100% - 36px); padding: 23px 0 80px; } .breadcrumbs { margin-bottom: 33px; } .intro { margin-bottom: 30px; font-size: 14px; } .item { grid-template-columns: 96px minmax(0, 1fr); gap: 14px; padding: 20px 0; } .photo { width: 96px; height: 119px; } .itemName { font-size: 16px; } .itemSubtotal { grid-column: 2; grid-row: 2; margin: 0; } .itemActions { gap: 7px; margin-top: 14px; } .summary { padding: 22px; } .stateShell { padding: 26px 18px 80px; } }

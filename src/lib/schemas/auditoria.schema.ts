@@ -117,6 +117,45 @@ export const FiltrosAuditoriaSchema = z
 export type FiltrosAuditoriaInput = z.infer<typeof FiltrosAuditoriaSchema>;
 
 // ──────────────────────────────────────────────────────────────────────────────
+// HU-D8 — Historial propio del usuario interno
+// ──────────────────────────────────────────────────────────────────────────────
+
+/** Un parámetro de URL vacío (`?accion=`) equivale a no filtrar. */
+const opcional = <T extends z.ZodTypeAny>(schema: T) =>
+  z.preprocess((valor) => (typeof valor === "string" && valor.trim() === "" ? undefined : valor), schema.optional());
+
+const esDiaCalendario = (dia: string) =>
+  /^\d{4}-\d{2}-\d{2}$/.test(dia) && new Date(`${dia}T00:00:00.000Z`).toISOString().slice(0, 10) === dia;
+
+const DiaSchema = z.string().refine(esDiaCalendario, "La fecha debe tener formato AAAA-MM-DD y existir en el calendario");
+
+/**
+ * Filtros de `GET /api/auditoria/mi-historial` y `/auditoria/mi-historial`.
+ *
+ * NO declara `usuario_id` (ni `userId`, `tabla_afectada`, `registro_id`): el
+ * `z.object` descarta las claves no declaradas, así que un ID de tercero
+ * enviado en la URL nunca llega al servicio ni se valida (spec_modulo_D.md
+ * §8.1 D8-1). `fecha_desde`/`fecha_hasta` son días de Argentina; el servicio
+ * los convierte con `rangoDiasNegocio` (D8-3). `page`/`page_size`: misma
+ * convención que `FiltrosAuditoriaSchema`.
+ *
+ * @see docs/modulos/modulo D/HU8_TASKS.md T01
+ */
+export const HistorialPropioFiltrosSchema = z
+  .object({
+    fecha_desde: opcional(DiaSchema),
+    fecha_hasta: opcional(DiaSchema),
+    accion: opcional(z.string().trim().min(1).max(100)),
+    page: z.coerce.number().int().min(1).default(1),
+    page_size: z.coerce.number().int().min(1).max(100).default(25),
+  })
+  .refine((f) => !f.fecha_desde || !f.fecha_hasta || f.fecha_desde <= f.fecha_hasta, {
+    message: "La fecha desde no puede ser posterior a la fecha hasta",
+    path: ["fecha_hasta"],
+  });
+export type HistorialPropioFiltrosInput = z.infer<typeof HistorialPropioFiltrosSchema>;
+
+// ──────────────────────────────────────────────────────────────────────────────
 // Endpoints 2.2.5 / 2.2.6 — Gestión de Roles y Permisos
 // ──────────────────────────────────────────────────────────────────────────────
 

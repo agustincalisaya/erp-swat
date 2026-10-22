@@ -21,8 +21,7 @@ import type {
  * alertas, registrados por `listenersRegistrados`). Cada caso crea sus propias
  * fixtures (variantes y depósitos con un marcador único; meses 2099-xx para
  * egresos con reloj inyectado) y no depende del orden de los demás. Los casos
- * que pasan por el listener de alertas usan el reloj y el HU-G14 reales (stub
- * del PR 0: porcentaje `null` = no calculable).
+ * que pasan por el listener de alertas usan el reloj y el HU-G14 reales.
  *
  * Limpieza con el criterio de los tests recientes (HU-E11, HU-F3): nunca se
  * borra nada. Al final, las alertas creadas por la suite se dan de baja lógica
@@ -58,6 +57,7 @@ test(
       reservas,
       { reclasificarDevuelto },
       { diaNegocioIso },
+      { obtenerResumenMensual },
     ] = await Promise.all([
       import("../../db/prisma.ts"),
       import("../../events/domain-event-bus.ts"),
@@ -74,6 +74,7 @@ test(
       import("../inventario/reserva.service.ts"),
       import("../inventario/reclasificacion.service.ts"),
       import("../../utils/fecha-negocio.ts"),
+      import("../tesoreria/reporte-mensual.service.ts"),
     ]);
     const { evaluarStock, evaluarEgresos } = servicio;
 
@@ -517,6 +518,22 @@ test(
       assert.equal(await alertaEgresos("2099-02"), null);
     });
 
+    await t.test("d6 — G14 real sin ingresos informa NO_CALCULABLE en D6", caso("d6"), async () => {
+      const periodo = { anio: 2198, mes: 11 };
+      const referencia = "2198-11";
+      referenciasEgresosSuite.add(referencia);
+      const resumen = await obtenerResumenMensual(periodo.anio, periodo.mes, { incluir_desglose_gastos: false });
+      assert.equal(resumen.ingresos.total, "0.00", "mes sin ingresos en la base de test");
+      assert.equal(resumen.porcentaje_egresos_sobre_ingresos, null);
+
+      const ahora = () => new Date("2198-11-15T15:00:00.000Z");
+      const evaluacion = await evaluarEgresos(periodo, { dependencias: { ahora } });
+      assert.equal(evaluacion.estado, "EVALUADO");
+      assert.equal(evaluacion.estado === "EVALUADO" && evaluacion.porcentaje, null);
+      const panel = await obtenerPanelAlertas({ estado: "todas", page: 1, page_size: 100 }, { dependencias: { ahora } });
+      assert.deepEqual(panel.fuente_egresos, { estado: "NO_CALCULABLE", referencia });
+    });
+
     await t.test("d3 — mes pasado: se resuelve sin llamar a G14", caso("d3"), async () => {
       referenciasEgresosSuite.add("2099-03");
       await evaluarEgresos({ anio: 2099, mes: 3 }, { dependencias: egresosInyectados(() => 80, { reloj: () => new Date("2099-03-20T15:00:00.000Z") }).dependencias });
@@ -589,7 +606,14 @@ test(
       assert.equal(await activaDe(subeSinEvento), null, "resuelta al abrir el panel");
       assert.equal((await activaDe(bajaSinEvento))?.severidad, "CRITICA", "subió de nivel al abrir el panel");
       assert.equal(await alertaEgresos(referenciaAnterior), null, "mes pasado resuelto al abrir el panel");
-      assert.equal(panel.fuente_egresos.estado, "NO_CALCULABLE", "G14 real (stub) → no calculable");
+      const resumen = await obtenerResumenMensual(anioHoy, mesHoy, { incluir_desglose_gastos: false });
+      assert.ok(Number(resumen.ingresos.total) > 0, "fixture del mes: ingresos positivos");
+      assert.notEqual(resumen.porcentaje_egresos_sobre_ingresos, null);
+      assert.deepEqual(panel.fuente_egresos, {
+        estado: "CALCULABLE",
+        referencia: referenciaHoy,
+        porcentaje: resumen.porcentaje_egresos_sobre_ingresos,
+      });
       assert.deepEqual(panel.umbrales, { informativa: 70, advertencia: 85, critica: 100 });
     });
 

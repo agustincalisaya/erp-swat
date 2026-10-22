@@ -14,16 +14,28 @@
  *
  * Los eventos se emiten DESPUÉS del COMMIT con una captura local: un listener
  * que lanza nunca convierte en error una operación ya confirmada.
+ *
+ * HU-E16 (spec §6.2): el `false → true` exige contenido publicable, validado
+ * bajo el lock compartido con las fotos. El rechazo NO es fire-and-forget:
+ * espera la confirmación del asiento (`auditarRechazoPublicacionWeb`).
  */
 import "server-only";
 
 import { prisma } from "@/lib/db/prisma";
 import { domainEventBus } from "@/lib/events/domain-event-bus";
 import type { DomainEventMap } from "@/lib/events/event-types";
+import { auditarRechazoPublicacionWeb } from "@/lib/events/publicacion-web-auditoria";
 import { ServiceError } from "@/lib/errors/service-error";
 import type { BajaContenidoWebInput, CambiarVisibilidadWebInput } from "@/lib/schemas/ecommerce.schema";
+import { bloquearContenidoActivo } from "@/lib/services/ecommerce/contenido-web-lock";
+import {
+  ETIQUETA_FALTANTE,
+  evaluarPublicabilidad,
+  type FaltantePublicacion,
+} from "@/lib/services/ecommerce/publicabilidad-web.reglas";
 
 const CONTENIDO_ACTIVO = { is_active: true, deleted_at: null } as const;
+const FOTO_ACTIVA = { is_active: true, deleted_at: null } as const;
 
 function noEncontrado(): ServiceError {
   return new ServiceError("PRODUCTO_WEB_NO_ENCONTRADO", "El contenido web no existe o fue dado de baja");
@@ -63,7 +75,16 @@ export interface ResultadoVisibilidadWeb {
  * UPDATE, sin evento y sin notificaciones (D2). El UPDATE es condicional al
  * valor anterior, así dos pedidos concurrentes iguales emiten un solo evento.
  *
+ * HU-E16 (spec §6.2): la transacción toma el mismo lock del contenido que las
+ * operaciones de fotos, y SOLO el `false → true` exige descripción y una foto
+ * activa (`evaluarPublicabilidad`, la misma regla del listado). Si falta algo
+ * no hay UPDATE: fuera de la transacción se audita el rechazo esperando la
+ * confirmación de D.3 y recién entonces se responde 422. Ocultar y el no-op no
+ * cambian (contrato E5).
+ *
  * @throws {ServiceError} PRODUCTO_WEB_NO_ENCONTRADO (404) — inexistente o dado de baja (D3)
+ * @throws {ServiceError} CONTENIDO_NO_PUBLICABLE (422) — `details: { faltantes }`, rechazo ya auditado
+ * @throws {ServiceError} AUDITORIA_NO_DISPONIBLE (503) — D.3 no confirmó el asiento del rechazo
  */
 export async function cambiarVisibilidadWeb(
   productoWebId: string,
@@ -71,13 +92,27 @@ export async function cambiarVisibilidadWeb(
   actorId: string,
 ): Promise<ResultadoVisibilidadWeb> {
   const nuevo = input.visibilidad_web;
-  const cambio = await prisma.$transaction(async (tx) => {
-    const contenido = await tx.productoWebContenido.findFirst({
-      where: { id: productoWebId, ...CONTENIDO_ACTIVO },
-      select: { id: true, producto_maestro_id: true, visibilidad_web: true },
+  const resultado = await prisma.$transaction(async (tx) => {
+    await bloquearContenidoActivo(tx, productoWebId);
+    const contenido = await tx.productoWebContenido.findUniqueOrThrow({
+      where: { id: productoWebId },
+      select: {
+        producto_maestro_id: true,
+        visibilidad_web: true,
+        descripcion: true,
+        _count: { select: { fotos: { where: FOTO_ACTIVA } } },
+      },
     });
-    if (!contenido) throw noEncontrado();
     if (contenido.visibilidad_web === nuevo) return null;
+
+    if (nuevo) {
+      const { publicable, faltantes } = evaluarPublicabilidad({
+        descripcion: contenido.descripcion,
+        fotos_activas: contenido._count.fotos,
+      });
+      // Sin UPDATE y sin lanzar dentro de la tx: el rechazo se audita después del COMMIT.
+      if (!publicable) return { rechazo: faltantes };
+    }
 
     const actualizado = await tx.productoWebContenido.updateMany({
       where: { id: productoWebId, ...CONTENIDO_ACTIVO, visibilidad_web: !nuevo },
@@ -92,9 +127,21 @@ export async function cambiarVisibilidadWeb(
       if (!actual) throw noEncontrado();
       return null;
     }
-    return { producto_maestro_id: contenido.producto_maestro_id };
+    return { cambio: { producto_maestro_id: contenido.producto_maestro_id } };
   });
 
+  const rechazo = resultado?.rechazo;
+  if (rechazo) {
+    // Espera la confirmación de D.3; si no llega lanza 503 (nunca publica).
+    await auditarRechazoPublicacionWeb({ actor_id: actorId, producto_web_id: productoWebId, faltantes: rechazo });
+    throw new ServiceError(
+      "CONTENIDO_NO_PUBLICABLE",
+      `No se puede mostrar en la tienda: ${rechazo.map((f) => ETIQUETA_FALTANTE[f].toLowerCase()).join(" y ")}.`,
+      { faltantes: rechazo },
+    );
+  }
+
+  const cambio = resultado?.cambio;
   if (cambio) {
     emitirPostCommitSeguroE5(
       "ecommerce:visibilidad_web_cambiada",
@@ -247,6 +294,9 @@ export interface ContenidoWebAdminFila {
   producto_activo: boolean;
   visibilidad_web: boolean;
   fotos_activas: number;
+  /** HU-E16 (E16-2/E16-3): calculado en servidor con `evaluarPublicabilidad`; no filtra el listado. */
+  publicable: boolean;
+  faltantes: FaltantePublicacion[];
 }
 
 export interface ContenidoWebAdminPagina {
@@ -275,8 +325,10 @@ export async function listarContenidoWebAdmin(
         id: true,
         titulo_comercial: true,
         visibilidad_web: true,
+        // Solo para calcular la publicabilidad; la descripción no viaja en la fila.
+        descripcion: true,
         producto_maestro: { select: { id: true, nombre: true, is_active: true, deleted_at: true } },
-        _count: { select: { fotos: { where: { is_active: true, deleted_at: null } } } },
+        _count: { select: { fotos: { where: FOTO_ACTIVA } } },
       },
     }),
   ]);
@@ -289,6 +341,7 @@ export async function listarContenidoWebAdmin(
       producto_activo: f.producto_maestro.is_active && f.producto_maestro.deleted_at === null,
       visibilidad_web: f.visibilidad_web,
       fotos_activas: f._count.fotos,
+      ...evaluarPublicabilidad({ descripcion: f.descripcion, fotos_activas: f._count.fotos }),
     })),
     total,
     page,

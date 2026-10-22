@@ -1234,6 +1234,20 @@ export interface FotoWebBajaPayload {
 }
 
 /**
+ * HU-E16 (spec E §6.2, E16-4) — intento de mostrar en la tienda un contenido
+ * incompleto. Un `intento_id` por rechazo; sin descripción ni URLs de fotos.
+ * El productor espera la confirmación de D.3 antes de responder 422.
+ */
+export interface PublicacionWebRechazadaPayload {
+  intento_id: string;
+  actor_id: string;
+  producto_web_id: string;
+  /** Orden canónico: `descripcion` antes que `foto`. */
+  faltantes: ("descripcion" | "foto")[];
+  timestamp: string;
+}
+
+/**
  * HU-E7 (spec E §2.7/§4) — evento sensible: orden web no abonada anulada,
  * manual (Administrador E-commerce) o automática por vencimiento de reserva.
  * `usuario_id` ausente en la vía automática (actor de sistema).
@@ -1547,6 +1561,16 @@ export interface GastoOperativoDadoDeBajaPayload {
   motivo: string;
 }
 
+// --- Sprint 5 · Cluster 3 — HU-G16 ---
+export interface ReporteMensualExportadoPayload {
+  exportacion_id: string;
+  usuario_id: string;
+  anio: number;
+  mes: number;
+  formato: "CSV" | "PDF";
+  timestamp: string;
+}
+
 // --- Sprint 5 · Cluster 4 — HU-G4 ---
 export interface LibroIvaExportadoPayload {
   exportacion_id: string;
@@ -1604,6 +1628,19 @@ export interface CuentaPropiaBajaLogicaPayload {
   cuenta_propia_id: string;
   usuario_id: string;
   motivo: string;
+}
+
+/**
+ * HU-G7 (G7-4) — post-COMMIT tras registrar un `SaldoDiarioCuenta`
+ * (append-only). `saldo` es un monto de cuenta propia (no un dato bancario
+ * cifrado): el CBU/alias NUNCA viajan en este payload.
+ */
+export interface SaldoDiarioRegistradoPayload {
+  cuenta_propia_id: string;
+  fecha: string;
+  saldo: string;
+  usuario_id: string;
+  timestamp: string;
 }
 
 // --- Sprint 5 · Cluster 6 ---
@@ -1845,6 +1882,8 @@ export interface DomainEventMap {
   "ecommerce:foto_web_principal_cambiada": FotoWebPrincipalCambiadaPayload;
   /** HU-E11: tras el commit de la baja lógica de una foto. */
   "ecommerce:foto_web_baja": FotoWebBajaPayload;
+  /** HU-E16: rechazo de `false → true` por contenido incompleto; fuera de la transacción, con confirmación de D.3. */
+  "ecommerce:publicacion_web_rechazada": PublicacionWebRechazadaPayload;
   /** HU-E7: se emite tras el commit de la anulación de una orden web no abonada (manual o por TTL). */
   "ecommerce:orden_anulada": OrdenAnuladaPayload;
   /** HU-F2: se emite tras el alta de una PlantillaNotificacion. */
@@ -1872,6 +1911,7 @@ export interface DomainEventMap {
   /** HU-G13: post-COMMIT tras la baja lógica de un GastoOperativo. Lo escucha HU-D6. */
   "gasto_operativo:dado_de_baja": GastoOperativoDadoDeBajaPayload;
   // --- Sprint 5 · Cluster 3 ---
+  "tesoreria:reporte_exportado": ReporteMensualExportadoPayload;
   // --- Sprint 5 · Cluster 4 ---
   "tesoreria:libro_iva_exportado": LibroIvaExportadoPayload;
   // --- Sprint 5 · Cluster 5 ---
@@ -1883,6 +1923,8 @@ export interface DomainEventMap {
   "tesoreria:cuenta_propia_editada": CuentaPropiaEditadaPayload;
   /** HU-G5 (G5-8): post-COMMIT tras la baja lógica de una CuentaPropia. */
   "tesoreria:cuenta_propia_baja_logica": CuentaPropiaBajaLogicaPayload;
+  /** HU-G7 (G7-4): post-COMMIT tras registrar un saldo diario (append-only). Lo escucha D.3. */
+  "tesoreria:saldo_diario_registrado": SaldoDiarioRegistradoPayload;
   // --- Sprint 5 · Cluster 6 ---
   /** HU-D6: post-COMMIT tras crear una AlertaDesvio. Lo escuchan D.3 y F3. */
   "alerta_desvio:creada": AlertaDesvioCreadaPayload;
@@ -1999,6 +2041,7 @@ export const TIPOS_EVENTO_DOMINIO = [
   "ecommerce:foto_web_subida",
   "ecommerce:foto_web_principal_cambiada",
   "ecommerce:foto_web_baja",
+  "ecommerce:publicacion_web_rechazada",
   "ecommerce:orden_anulada",
   "notificacion_plantilla:creada",
   "notificacion_plantilla:actualizada",
@@ -2015,6 +2058,7 @@ export const TIPOS_EVENTO_DOMINIO = [
   "gasto_operativo:editado",
   "gasto_operativo:dado_de_baja",
   // --- Sprint 5 · Cluster 3 ---
+  "tesoreria:reporte_exportado",
   // --- Sprint 5 · Cluster 4 ---
   "tesoreria:libro_iva_exportado",
   // --- Sprint 5 · Cluster 5 ---
@@ -2022,6 +2066,7 @@ export const TIPOS_EVENTO_DOMINIO = [
   "tesoreria:cuenta_propia_creada",
   "tesoreria:cuenta_propia_editada",
   "tesoreria:cuenta_propia_baja_logica",
+  "tesoreria:saldo_diario_registrado",
   // --- Sprint 5 · Cluster 6 ---
   "alerta_desvio:creada",
   "alerta_desvio:nivel_cambiado",

@@ -18,6 +18,7 @@ import type { DomainEventMap } from "@/lib/events/event-types";
 import { ServiceError } from "@/lib/errors/service-error";
 import { SubirFotoProductoSchema } from "@/lib/schemas/ecommerce.schema";
 import type { AlmacenamientoImagenesGateway } from "@/lib/services/ecommerce/almacenamiento-imagenes.gateway";
+import { bloquearContenidoActivo } from "@/lib/services/ecommerce/contenido-web-lock";
 import { obtenerAlmacenamientoImagenes } from "@/lib/services/ecommerce/almacenamiento-imagenes.local.adapter";
 import { MENSAJE_ERROR_IMAGEN, validarImagen } from "@/lib/services/ecommerce/validacion-imagen";
 import {
@@ -55,15 +56,6 @@ function emitirPostCommitSeguroE11<K extends keyof DomainEventMap>(
       tipo_error: error instanceof Error ? error.name : "desconocido",
     });
   }
-}
-
-/** Lock de la fila del contenido ACTIVO; 404 si no existe o fue dado de baja. */
-async function bloquearContenidoActivo(tx: Prisma.TransactionClient, productoWebId: string): Promise<void> {
-  const filas = await tx.$queryRaw<{ id: string }[]>`
-    SELECT id FROM contenidos_producto_web
-    WHERE id = ${productoWebId} AND is_active = true AND deleted_at IS NULL
-    FOR UPDATE`;
-  if (filas.length === 0) throw contenidoNoEncontrado();
 }
 
 export interface FotoWebResultado {

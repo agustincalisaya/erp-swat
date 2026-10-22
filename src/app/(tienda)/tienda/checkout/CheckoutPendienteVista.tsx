@@ -1,11 +1,21 @@
-/** Presentación de la reserva ya resuelta por el servidor. */
+/**
+ * Presentación de la reserva ya resuelta por el servidor.
+ *
+ * HU-E15: con reserva vigente, selector informativo (E15-3) y diálogo de
+ * confirmación (E15-4/E15-5). Sin `checkoutUrl` se conserva tal cual el aviso
+ * de reintento de HU-E2 y no se ofrece el diálogo (E15-6). "Reserva vencida"
+ * es un único bloque para las dos procedencias (E15-7): derivada de
+ * `ttl_expiracion` antes del job, o pedido ya anulado por TTL después.
+ */
 import Link from "next/link";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { buttonVariants } from "@/components/ui/button";
+import { ConfirmarPagoDialog } from "@/components/tienda/ConfirmarPagoDialog";
 import { DesgloseCupon } from "@/components/tienda/DesgloseCupon";
+import { SelectorMedioPagoInformativo } from "@/components/tienda/SelectorMedioPagoInformativo";
 import { formatearPrecio } from "@/components/tienda/formato";
 import type { PedidoWebPendienteVista } from "@/lib/services/ecommerce/checkout.service";
-import { AlertTriangle, Clock3, CreditCard, ShoppingBag } from "lucide-react";
+import { AlertTriangle, Clock3, ShoppingBag } from "lucide-react";
 import styles from "@/components/tienda/compra.module.css";
 
 const volverAlCatalogo = (
@@ -57,12 +67,13 @@ export function CheckoutPendienteVista({ pedido, vencimiento, checkoutUrl }: {
         Si el pago no se confirma antes, la reserva vence y el stock vuelve a estar disponible.</p>
       <div className={styles.orderTotal}><span>Total del pedido</span><strong>{formatearPrecio(pedido.total)}</strong></div>
       {pedido.cupon && <DesgloseCupon cupon={pedido.cupon} total={pedido.total} />}
+      {/* HU-E15 (E15-3): informativo, no envía nada. */}
+      <SelectorMedioPagoInformativo />
       {checkoutUrl ? (
         <div className={styles.stateActions}>
-          {/* Checkout Pro: la tarjeta se carga en Mercado Pago, nunca en SWAT (CA1). */}
-          <a href={checkoutUrl} className={`${buttonVariants()} ${styles.paymentAction}`}>
-            <CreditCard size={18} aria-hidden="true" /> Pagar con Mercado Pago
-          </a>
+          {/* Checkout Pro: la tarjeta se carga en Mercado Pago, nunca en SWAT (CA1).
+              HU-E15 (E15-4/E15-5): confirmación previa con el total leído en el servidor. */}
+          <ConfirmarPagoDialog total={pedido.total} ttlExpiracion={pedido.ttl_expiracion} checkoutUrl={checkoutUrl} />
           <p className={styles.stateNote}>
             Vas a pagar en el sitio de Mercado Pago. Tus datos de tarjeta nunca pasan por SWAT Indumentarias.
           </p>

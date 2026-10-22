@@ -550,6 +550,13 @@ const FOTO_WEB_BORCEGOS_ID = "8e490a11-2b5d-494a-91be-e0516f7727f5";
 const FOTO_WEB_CAMISA_POLICIA_ID = "6378eec9-b0e2-449a-a426-55d160d4cb43";
 const FOTO_WEB_GORRA_TACTICA_ID = "27e8250b-aaad-4f88-a0ca-8eafa3736357";
 
+// HU-E16 (spec E §6.2, E16-5) — contenido con descripción y SIN foto activa:
+// no publicable, queda oculto. Para probar el bloqueo de "Mostrar en tienda".
+const PRODUCTO_CINTURON_TACTICO_ID = "c6628346-fa8e-49be-b54c-ae590616e9f3";
+const VARIANTE_CINTURON_TACTICO_ID = "df0a5c02-e3ed-4783-89fa-5489e3229bcb";
+const CONTENIDO_WEB_CINTURON_TACTICO_ID = "4f151400-53c6-4e19-9f0c-53bf8a2c6438";
+const STOCK_CINTURON_SHOWROOM_ID = "e86f2cde-131a-4d77-b258-68cc6b864713";
+
 // HU-E1 — stock del depósito del canal web (Showroom) para las variantes
 // con precio que todavía no tenían fila ahí.
 const STOCK_CT2_SHOWROOM_ID = "d039332f-6f4f-4355-b6e7-6b340897ebdb";
@@ -4016,6 +4023,95 @@ async function main() {
     });
   }
 
+  // ── HU-E16 — Contenido sin foto (E16-5) ─────────────────────────────────────
+  // Producto con precio vigente y stock en el canal web, y contenido con
+  // descripción pero sin ninguna `ProductoWebFoto`: no publicable, queda
+  // oculto. "Mostrar en tienda" responde 422 CONTENIDO_NO_PUBLICABLE ['foto'].
+  // `update: {}`: re-correr el seed no lo vuelve visible ni lo modifica.
+  const productoCinturonTactico = await prisma.productoMaestro.upsert({
+    where: { id: PRODUCTO_CINTURON_TACTICO_ID },
+    update: {},
+    create: {
+      id: PRODUCTO_CINTURON_TACTICO_ID,
+      codigo_producto: "CINTAC",
+      nombre: "Cinturón Táctico",
+      rubro: "Indumentaria",
+      categoria: "Accesorios",
+      unidad_medida: "UNIDAD",
+      descripcion: "Cinturón táctico — datos de prueba (Sprint 5, HU-E16 contenido sin foto)",
+      costo_estandar_referencia: 6000.0,
+      is_active: true,
+    },
+  });
+
+  await prisma.varianteSKU.upsert({
+    where: { id: VARIANTE_CINTURON_TACTICO_ID },
+    update: {},
+    create: {
+      id: VARIANTE_CINTURON_TACTICO_ID,
+      producto_maestro_id: productoCinturonTactico.id,
+      proveedor_id: proveedorHomologado.id,
+      sku: generarSku({
+        codigoProducto: productoCinturonTactico.codigo_producto,
+        modelo: "Operativo",
+        talle: "U",
+        codigoColor: "Negro",
+        genero: "UNISEX",
+      }),
+      ean_qr: "7791234500160",
+      talle: "U",
+      color: "Negro",
+      genero: "UNISEX",
+      modelo: "Operativo",
+      is_active: true,
+    },
+  });
+
+  // Precio manual, mismo criterio que la Gorra (sin ListaPrecio de proveedor).
+  await prisma.listaPrecioVentaItem.upsert({
+    where: {
+      version_id_variante_sku_id: {
+        version_id: listaPrecioVentaVersion1.id,
+        variante_sku_id: VARIANTE_CINTURON_TACTICO_ID,
+      },
+    },
+    update: {},
+    create: {
+      version_id: listaPrecioVentaVersion1.id,
+      variante_sku_id: VARIANTE_CINTURON_TACTICO_ID,
+      precio_venta: 8500.0,
+      costo_reposicion_referencia: null,
+    },
+  });
+
+  await prisma.stockDeposito.upsert({
+    where: {
+      variante_sku_id_deposito_id: { variante_sku_id: VARIANTE_CINTURON_TACTICO_ID, deposito_id: depositoShowroom.id },
+    },
+    update: {},
+    create: {
+      id: STOCK_CINTURON_SHOWROOM_ID,
+      variante_sku_id: VARIANTE_CINTURON_TACTICO_ID,
+      deposito_id: depositoShowroom.id,
+      cantidad: 4,
+      punto_pedido: 0,
+      stock_seguridad: 0,
+      is_active: true,
+    },
+  });
+
+  await prisma.productoWebContenido.upsert({
+    where: { producto_maestro_id: productoCinturonTactico.id },
+    update: {},
+    create: {
+      id: CONTENIDO_WEB_CINTURON_TACTICO_ID,
+      producto_maestro_id: productoCinturonTactico.id,
+      titulo_comercial: "Cinturón Táctico Operativo",
+      descripcion: "Cinturón táctico con hebilla de liberación rápida. Datos de prueba — sin foto, no publicable (HU-E16).",
+      visibilidad_web: false,
+    },
+  });
+
   // ── HU-E1 — Stock del canal web (Showroom) ──────────────────────────────────
   // Filas NUEVAS; las ya sembradas (CT1 = 4, B1 = 3 en Showroom) no se tocan.
   // Mismo criterio del resto del seed: la cantidad se siembra directo en
@@ -5191,7 +5287,53 @@ async function seedSprint5Cluster2(prisma: PrismaClient): Promise<void> {
 
 // Cluster 3 · permisos de desglose y exportación del reporte mensual (HU-G14, HU-G16).
 async function seedSprint5Cluster3(prisma: PrismaClient): Promise<void> {
-  void prisma;
+  // UUID ...048 reservado a HU-G14 por Asignación Sprint 5. ...049 es de HU-G16.
+  const permisoId = "1a2b3c4d-1111-4a1a-8a1a-000000000048";
+  const codigo = "tesoreria:leer_desglose_gastos";
+  const conflictos = await prisma.permiso.findMany({
+    where: { OR: [{ id: permisoId }, { codigo }] },
+    select: { id: true, codigo: true },
+  });
+  if (conflictos.some((p) => p.id !== permisoId || p.codigo !== codigo)) {
+    throw new Error("HU-G14: conflicto de UUID/código de permiso de desglose");
+  }
+  await prisma.permiso.upsert({
+    where: { id: permisoId },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: {
+      id: permisoId, codigo, modulo: "MODULO_G",
+      descripcion: "Consultar categorías y filas individuales de gastos del reporte mensual (HU-G14)",
+    },
+  });
+  for (const rol_id of [ROL_TESORERO_ID, ROL_AUDITOR_ID, ROL_ADMINISTRADOR_ID, ROL_GERENTE_ID]) {
+    await prisma.rolPermiso.upsert({
+      where: { rol_id_permiso_id: { rol_id, permiso_id: permisoId } },
+      update: REACTIVAR_REFERENCIA_RBAC,
+      create: { rol_id, permiso_id: permisoId },
+    });
+  }
+  const exportarId = "1a2b3c4d-1111-4a1a-8a1a-000000000049";
+  const exportarCodigo = "tesoreria:exportar_reportes";
+  const conflictosExportar = await prisma.permiso.findMany({
+    where: { OR: [{ id: exportarId }, { codigo: exportarCodigo }] },
+    select: { id: true, codigo: true },
+  });
+  if (conflictosExportar.some((p) => p.id !== exportarId || p.codigo !== exportarCodigo)) {
+    throw new Error("HU-G16: conflicto de UUID/código del permiso de exportación");
+  }
+  await prisma.permiso.upsert({
+    where: { id: exportarId },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: { id: exportarId, codigo: exportarCodigo, modulo: "MODULO_G",
+      descripcion: "Exportar el reporte mensual en CSV o PDF (HU-G16)" },
+  });
+  for (const rol_id of [ROL_GERENTE_ID, ROL_TESORERO_ID, ROL_AUDITOR_ID]) {
+    await prisma.rolPermiso.upsert({
+      where: { rol_id_permiso_id: { rol_id, permiso_id: exportarId } },
+      update: REACTIVAR_REFERENCIA_RBAC,
+      create: { rol_id, permiso_id: exportarId },
+    });
+  }
 }
 
 // HU-G4 · Libro de IVA. Bloque propio, fuera de cluster 4 (HU-G3), cuyo cuerpo
@@ -5482,12 +5624,86 @@ async function seedSprint5Cluster5(prisma: PrismaClient): Promise<void> {
     });
   }
 
+  // ── HU-G7 — permiso de registro de saldo + saldos diarios de ejemplo ──
+  // `tesoreria:registrar_saldo_diario` (UUID preasignado …055 en el doc del
+  // Sprint 5): SOLO TESORERO_CENTRAL escribe saldos (spec §9.8 / G7-4/G7-10).
+  // Ni se re-crea `tesoreria:leer_reportes` (…047) ni el rol GERENTE (`…0006`):
+  // ambos vienen del PR 0.
+  const PERMISO_REGISTRAR_SALDO_DIARIO_ID = "1a2b3c4d-1111-4a1a-8a1a-000000000055";
+  await prisma.permiso.upsert({
+    where: { id: PERMISO_REGISTRAR_SALDO_DIARIO_ID },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: {
+      id: PERMISO_REGISTRAR_SALDO_DIARIO_ID,
+      codigo: "tesoreria:registrar_saldo_diario",
+      descripcion:
+        "Registrar el saldo diario (append-only) de una cuenta propia (HU-G7) — TESORERO_CENTRAL",
+      modulo: "MODULO_G",
+    },
+  });
+  await prisma.rol.findUniqueOrThrow({ where: { id: ROL_TESORERO_ID }, select: { id: true } });
+  await prisma.rolPermiso.upsert({
+    where: { rol_id_permiso_id: { rol_id: ROL_TESORERO_ID, permiso_id: PERMISO_REGISTRAR_SALDO_DIARIO_ID } },
+    update: REACTIVAR_REFERENCIA_RBAC,
+    create: { rol_id: ROL_TESORERO_ID, permiso_id: PERMISO_REGISTRAR_SALDO_DIARIO_ID },
+  });
+
+  // Saldos diarios de ejemplo para las 3 cuentas propias. La tabla es
+  // append-only (sin unique por `(cuenta_id, fecha)`), así que NO se hace
+  // `upsert` por clave natural: se usa un `id` UUID fijo estable con
+  // `findUnique` + `create`, de modo que re-correr el seed NO duplica asientos
+  // ni reescribe los ya creados. `registrado_por_id` = usuario Tesorero del seed
+  // (columna sin FK). `fecha` es fecha-solo a medianoche UTC (convención
+  // `inicioDiaUtc`). Valores que hacen visible la posición del día.
+  const saldosSeed: { id: string; cuenta_id: string; fecha: string; saldo: string }[] = [
+    {
+      id: "1a2b3c4d-6666-4a1a-8a1a-000000000001",
+      cuenta_id: "banco-nacion-cc-principal",
+      fecha: "2026-10-15T00:00:00.000Z",
+      saldo: "1250000.00",
+    },
+    {
+      id: "1a2b3c4d-6666-4a1a-8a1a-000000000002",
+      cuenta_id: "banco-galicia-cc-operativa",
+      fecha: "2026-10-15T00:00:00.000Z",
+      saldo: "480500.75",
+    },
+    {
+      id: "1a2b3c4d-6666-4a1a-8a1a-000000000003",
+      cuenta_id: "caja-chica-central",
+      fecha: "2026-10-15T00:00:00.000Z",
+      saldo: "38500.00",
+    },
+  ];
+  let saldosCreados = 0;
+  for (const saldo of saldosSeed) {
+    const existente = await prisma.saldoDiarioCuenta.findUnique({
+      where: { id: saldo.id },
+      select: { id: true },
+    });
+    if (!existente) {
+      await prisma.saldoDiarioCuenta.create({
+        data: {
+          id: saldo.id,
+          cuenta_id: saldo.cuenta_id,
+          fecha: new Date(saldo.fecha),
+          saldo: saldo.saldo,
+          registrado_por_id: USUARIO_TESORERO_SEED_ID,
+        },
+      });
+      saldosCreados += 1;
+    }
+  }
+
   console.log("\nSeed Sprint 5 — Cluster 5 (HU-G5) cuentas propias completado:");
   console.table({
     permiso_gestionar_cuentas_bancarias: PERMISO_GESTIONAR_CUENTAS_BANCARIAS_ID,
     permiso_leer_cuentas_bancarias: PERMISO_LEER_CUENTAS_BANCARIAS_ID,
     permiso_ver_datos_bancarios: PERMISO_VER_DATOS_BANCARIOS_ID,
+    permiso_registrar_saldo_diario: PERMISO_REGISTRAR_SALDO_DIARIO_ID,
     cuentas: cuentasSeed.length,
+    saldos_diarios: saldosSeed.length,
+    saldos_diarios_creados: saldosCreados,
   });
 }
 

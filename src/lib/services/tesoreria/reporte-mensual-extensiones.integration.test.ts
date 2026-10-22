@@ -14,8 +14,8 @@ import { EstadoCuentaPorPagar } from "@prisma/client";
  *   HU_G15_INTEGRATION_DATABASE_URL=$TEST_DB npm run test:integration:g15
  *
  * Usa el servicio real (`generarBloquesAdicionales`) contra la base, con
- * `obtenerResumenMensual` de HU-G14 inyectado como doble (el servicio real de
- * G14 todavía es el stub del PR 0); el caso k usa las dependencias reales.
+ * `obtenerResumenMensual` inyectado como doble para los casos de G15; el caso k
+ * usa ambos servicios reales para verificar la integración G14/G15.
  * Cada caso crea sus propias fixtures directo con Prisma (proveedor, orden de
  * compra y cuentas por pagar con `fecha_pago` a medida), marcadas con
  * `G15IT-xxxx`, en un mes propio (2099, y 2098 para los casos que no entran en
@@ -491,21 +491,53 @@ test(
       );
     });
 
-    await escenario("k", "obtenerBloquesAdicionales con las dependencias reales (G14 stub)", [[2098, 3]], async () => {
-      for (const [anio, mes] of [[2098, 3], [2098, 2]] as Mes[]) {
-        const resumen = await obtenerResumenMensual(anio, mes, SIN_DESGLOSE);
+    await escenario("k", "G14 y G15 reales: pagos, fechas límite, comparación y mes vacío",
+      [[2098, 2], [2098, 3], [2098, 5], [2098, 6]], async () => {
+        await proveedorConPagos("Mes anterior", [["40.00", "2098-02-01T00:00:00.000Z"]]);
+        await proveedorConPagos("Histórico", [["75.00", "2098-03-01T00:00:00.000Z"]],
+          { dadoDeBaja: true, ordenDadaDeBaja: true });
+        await proveedorConPagos("Fin de mes", [
+          ["25.25", "2098-03-31T00:00:00.000Z"],
+          ["0.25", "2098-04-01T02:59:59.999Z"],
+        ]);
+        const excluido = await crearProveedor("No pagado");
+        await crearCuenta((await crearOrden(excluido.id)).id, "999.00",
+          "2098-03-15T15:00:00.000Z", { estado: "DEFINITIVA" });
+
+        const anterior = await obtenerResumenMensual(2098, 2, SIN_DESGLOSE);
+        const actual = await obtenerResumenMensual(2098, 3, SIN_DESGLOSE);
         assert.deepEqual(
-          { ingresos: resumen.ingresos.total, egresos: resumen.egresos.total, resultado_neto: resumen.resultado_neto },
-          CEROS,
-          "El obtenerResumenMensual real ya no devuelve ceros (¿se mergeó HU-G14?): adaptar el caso k",
+          { ingresos: anterior.ingresos.total, egresos: anterior.egresos.total, resultado_neto: anterior.resultado_neto },
+          { ingresos: "0.00", egresos: "40.00", resultado_neto: "-40.00" },
         );
-      }
-      await proveedorConPagos("Dependencias reales", [["75.00", "2098-03-20T15:00:00.000Z"]]);
-      verificarBloques(
-        await obtenerBloquesAdicionales(2098, 3, CON_DESGLOSE),
-        [[rs("Dependencias reales"), "75,00", "1"]],
-        { columnas: ["Febrero 2098", "Marzo 2098"], filas: FILAS_COMPARACION_CEROS },
-      );
+        assert.deepEqual(
+          { ingresos: actual.ingresos.total, egresos: actual.egresos.total, resultado_neto: actual.resultado_neto },
+          { ingresos: "0.00", egresos: "100.50", resultado_neto: "-100.50" },
+        );
+        assert.equal(actual.egresos.proveedores, "100.50");
+        const bloques = await obtenerBloquesAdicionales(2098, 3, CON_DESGLOSE);
+        const proveedores = bloques.find((bloque) => bloque.clave === "egresos_por_proveedor");
+        const totalBloqueCentavos = (proveedores?.filas ?? []).reduce((total, fila) =>
+          total + BigInt(fila[1]!.replaceAll(".", "").replace(",", "")), BigInt(0));
+        assert.equal(totalBloqueCentavos, BigInt(actual.egresos.proveedores.replace(".", "")));
+        verificarBloques(bloques,
+          [[rs("Histórico"), "75,00", "1"], [rs("Fin de mes"), "25,50", "2"]],
+          { columnas: ["Febrero 2098", "Marzo 2098"], filas: [
+            ["Ingresos", "0,00", "0,00", "0,00", "—"],
+            ["Egresos", "40,00", "100,50", "+60,50", "+151,3 %"],
+            ["Resultado neto", "-40,00", "-100,50", "-60,50", "-151,3 %"],
+          ] },
+        );
+
+        for (const [anio, mes] of [[2098, 5], [2098, 6]] as Mes[]) {
+          const resumen = await obtenerResumenMensual(anio, mes, SIN_DESGLOSE);
+          assert.deepEqual(
+            { ingresos: resumen.ingresos.total, egresos: resumen.egresos.total, resultado_neto: resumen.resultado_neto },
+            CEROS,
+          );
+        }
+        verificarBloques(await obtenerBloquesAdicionales(2098, 6, SIN_DESGLOSE), [],
+          { columnas: ["Mayo 2098", "Junio 2098"], filas: FILAS_COMPARACION_CEROS });
     });
 
     await t.test("l — si HU-G14 falla no se devuelven bloques y no queda nada sin limpiar", caso("l"), async (tl) => {

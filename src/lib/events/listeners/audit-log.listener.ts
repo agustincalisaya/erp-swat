@@ -42,10 +42,13 @@ import type {
   PedidoEntregadoPayload,
   RetiroRechazadoPayload,
   LibroIvaExportadoPayload,
+  PublicacionWebRechazadaPayload,
+  ReporteMensualExportadoPayload,
   DatosBancariosConsultadosPayload,
   CuentaPropiaCreadaPayload,
   CuentaPropiaEditadaPayload,
   CuentaPropiaBajaLogicaPayload,
+  SaldoDiarioRegistradoPayload,
 } from "@/lib/events/event-types";
 import {
   registrarAuditLog,
@@ -1121,6 +1124,42 @@ export function iniciarAuditLogListener(): void {
     }).catch(fallaAuditoriaE11("ecommerce:foto_web_baja", payload.foto_id));
   });
 
+  // ── HU-E16 (Módulo E) — rechazo de publicación por contenido incompleto
+  // (spec E §6.2, E16-4). Un asiento por `intento_id`; el productor espera la
+  // confirmación para responder 422 (o 503 si no llega). Mismo patrón que el
+  // libro IVA: marca Symbol anti-duplicado e import dinámico del coordinador.
+  const marcaPublicacionWebRechazada = Symbol.for("swat.audit-log.publicacion-web-rechazada");
+  if (
+    !domainEventBus
+      .listeners("ecommerce:publicacion_web_rechazada")
+      .some((handler) => Reflect.get(handler, marcaPublicacionWebRechazada))
+  ) {
+    const auditarPublicacionWebRechazada = (payload: PublicacionWebRechazadaPayload) => {
+      // Confirmar exclusivamente DESPUÉS de persistir. Whitelist explícita:
+      // nunca descripción ni URLs de fotos aunque viajaran en el payload.
+      void import("@/lib/events/publicacion-web-confirmacion").then(({ confirmacionesPublicacionWeb }) => registrarAuditLog({
+        usuario_id: payload.actor_id,
+        accion: "ecommerce:publicacion_web_rechazada",
+        tabla_afectada: "contenidos_producto_web",
+        registro_id: payload.producto_web_id,
+        ip: "internal-event",
+        valor_anterior: null,
+        valor_nuevo: {
+          intento_id: payload.intento_id,
+          faltantes: payload.faltantes,
+          timestamp: payload.timestamp,
+        },
+      }).then(
+        () => confirmacionesPublicacionWeb.confirmar(payload.intento_id, true),
+        () => confirmacionesPublicacionWeb.confirmar(payload.intento_id, false),
+      )).catch(() => {
+        // Si ni siquiera puede cargarse el coordinador, el productor agota su espera (503).
+      });
+    };
+    Reflect.set(auditarPublicacionWebRechazada, marcaPublicacionWebRechazada, true);
+    domainEventBus.on("ecommerce:publicacion_web_rechazada", auditarPublicacionWebRechazada);
+  }
+
   // ── HU-E7 (Módulo E) — anulación de orden web no abonada (spec E §2.7/§4),
   // evento sensible encadenado SHA-256. Manual: el Administrador E-commerce.
   // Automática por TTL: `usuario_id` null (actor de sistema, mismo criterio que
@@ -2060,6 +2099,31 @@ export function iniciarAuditLogListener(): void {
   // --- Sprint 5 · Cluster 1 ---
   // --- Sprint 5 · Cluster 2 ---
   // --- Sprint 5 · Cluster 3 ---
+  const marcaReporte = Symbol.for("swat.audit-log.reporte-mensual");
+  if (!domainEventBus.listeners("tesoreria:reporte_exportado").some((handler) => Reflect.get(handler, marcaReporte))) {
+    const auditarReporte = (payload: ReporteMensualExportadoPayload) => {
+      void import("@/lib/events/reporte-mensual-confirmacion").then(({ confirmacionesReporteMensual }) =>
+        registrarAuditLogIdempotente({
+          usuario_id: payload.usuario_id,
+          accion: "REPORTE_MENSUAL_EXPORTADO",
+          tabla_afectada: "reporte_mensual",
+          registro_id: payload.exportacion_id,
+          ip: "internal-event",
+          valor_anterior: null,
+          valor_nuevo: {
+            exportacion_id: payload.exportacion_id, anio: payload.anio, mes: payload.mes,
+            formato: payload.formato, timestamp: payload.timestamp,
+          },
+        }).then(
+          () => confirmacionesReporteMensual.confirmar(payload.exportacion_id, true),
+          () => confirmacionesReporteMensual.confirmar(payload.exportacion_id, false),
+        )).catch(() => {
+          // El productor agota su espera si no se puede cargar el coordinador.
+        });
+    };
+    Reflect.set(auditarReporte, marcaReporte, true);
+    domainEventBus.on("tesoreria:reporte_exportado", auditarReporte);
+  }
   // --- Sprint 5 · Cluster 4 ---
   const marcaLibroIva = Symbol.for("swat.audit-log.libro-iva");
   if (!domainEventBus.listeners("tesoreria:libro_iva_exportado").some((handler) => Reflect.get(handler, marcaLibroIva))) {
@@ -2191,6 +2255,39 @@ export function iniciarAuditLogListener(): void {
       });
     },
   );
+
+  // HU-G7 (G7-4) — registro append-only de un `SaldoDiarioCuenta`. El payload
+  // D1 no trae el id de la fila (que no existe hasta el COMMIT), así que
+  // `registro_id` referencia la CUENTA afectada (`cuenta_propia_id`), no el
+  // asiento. `valor_nuevo` solo lleva campos NO sensibles (fecha/saldo): el
+  // CBU/alias nunca viaja por este evento ni por su asiento. El guard por
+  // `Symbol` evita duplicar el handler si el módulo se recarga (mismo patrón
+  // que el bloque de HU-G4 en este archivo).
+  const marcaSaldoDiario = Symbol.for("swat.audit-log.saldo-diario");
+  if (
+    !domainEventBus
+      .listeners("tesoreria:saldo_diario_registrado")
+      .some((handler) => Reflect.get(handler, marcaSaldoDiario))
+  ) {
+    const auditarSaldoDiario = (payload: SaldoDiarioRegistradoPayload) => {
+      registrarAuditLog({
+        usuario_id: payload.usuario_id,
+        accion: "CREATE",
+        tabla_afectada: "saldos_diarios_cuenta",
+        registro_id: payload.cuenta_propia_id,
+        ip: "internal-event",
+        valor_anterior: null,
+        valor_nuevo: { fecha: payload.fecha, saldo: payload.saldo },
+      }).catch((error: unknown) => {
+        console.error("[audit-log.listener] Falló la escritura de auditoría para tesoreria:saldo_diario_registrado:", {
+          registro_id: payload.cuenta_propia_id,
+          codigo_error: codigoDiagnosticoAuditoria(error),
+        });
+      });
+    };
+    Reflect.set(auditarSaldoDiario, marcaSaldoDiario, true);
+    domainEventBus.on("tesoreria:saldo_diario_registrado", auditarSaldoDiario);
+  }
   // --- Sprint 5 · Cluster 6 ---
   // HU-D6 (task_relos.md D9, D20, D23) — transiciones de `AlertaDesvio`. El
   // actor es el usuario del evento de origen o `null` (proceso automático);
