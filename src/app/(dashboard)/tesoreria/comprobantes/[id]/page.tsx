@@ -112,7 +112,7 @@ export default async function DetalleComprobanteFiscalPage({ params, searchParam
               <h1 className="text-xl font-bold text-foreground tracking-tight font-mono">{comprobante.numero}</h1>
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant="outline">{ETIQUETAS_TIPO_COMPROBANTE[comprobante.tipo_comprobante]}</Badge>
-                <Badge className="bg-warning text-warning-foreground">Simulado · sin validez ante AFIP</Badge>
+                <Badge className="bg-warning text-warning-foreground">Simulado · sin validez ante ARCA</Badge>
               </div>
             </div>
           </div>

@@ -134,7 +134,7 @@ export function FiltrosComprobantes() {
           <X className="size-3.5" aria-hidden="true" />
           Limpiar
         </Button>
-        <Badge className="bg-warning text-warning-foreground sm:ml-auto">Simulado · sin validez ante AFIP</Badge>
+        <Badge className="bg-warning text-warning-foreground sm:ml-auto">Simulado · sin validez ante ARCA</Badge>
       </div>
     </form>
   );
