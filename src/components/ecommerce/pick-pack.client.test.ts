@@ -6,13 +6,21 @@ import {
   cantidadPendiente,
   describirLinea,
   ejecutarEscaneo,
+  ETIQUETA_MEDIO_PAGO,
+  formatearClienteCola,
   formatearEstadoEcommerce,
   formatearFechaPagoConfirmado,
+  formatearMediosPago,
   formatearPlazoRetiro,
+  formatearTotalPago,
+  formatearUnidades,
   mensajeErrorPickPack,
   mensajeErrorRetiro,
+  tieneDatosPago,
   validarRetiroApi,
+  TEXTO_CLIENTE_NO_DISPONIBLE,
   TEXTO_FECHA_PAGO_LEGACY,
+  TEXTO_SIN_MEDIO_PAGO,
   type ItemColaPreparacionJson,
   type ResultadoConfirmarJson,
 } from "./pick-pack-client";
@@ -55,10 +63,12 @@ const pedidoBase: ItemColaPreparacionJson = {
   pedido_venta_id: "pv-1",
   pedido_venta_ecommerce_id: "pve-1",
   numero_venta: "V-2026-000099",
+  cliente_nombre: "Juan Pérez",
   fecha_pago_confirmado: "2026-10-02T10:00:00.000Z",
   prioridad_manual: null,
   estado_ecommerce: "EN_PREPARACION",
   operador_asignado_id: null,
+  unidades_totales: 2,
   lineas: [
     {
       pedido_venta_item_id: "li-1",
@@ -214,4 +224,34 @@ test("formato: estado, plazo, pendiente y descripción de línea", () => {
   assert.equal(cantidadPendiente({ ...linea, cantidad_confirmada: 5 }), 0);
   assert.equal(describirLinea(linea), "Remera (M)");
   assert.equal(describirLinea({ ...linea, variante: { ...linea.variante, talle: null } }), "Remera");
+});
+
+// ── HU-E14 — datos de venta (spec E §6.3) ─────────────────────────────────────
+
+test("E14: tieneDatosPago depende solo de la presencia de la clave `pago`", () => {
+  assert.equal(tieneDatosPago(pedidoBase), false);
+  assert.equal(tieneDatosPago({ ...pedidoBase, pago: { total: "10.00", medios: [] } }), true);
+});
+
+test("E14: cliente no disponible y unidades", () => {
+  assert.equal(TEXTO_CLIENTE_NO_DISPONIBLE, "Cliente no disponible");
+  assert.equal(formatearClienteCola(null), "Cliente no disponible");
+  assert.equal(formatearClienteCola("Juan Pérez"), "Juan Pérez");
+  assert.equal(formatearUnidades(1), "1 unidad");
+  assert.equal(formatearUnidades(2), "2 unidades");
+});
+
+test("E14: etiquetas de medio de pago unidas con coma", () => {
+  assert.deepEqual(Object.keys(ETIQUETA_MEDIO_PAGO).sort(), [
+    "CUENTA_CORRIENTE", "EFECTIVO", "E_CHEQ", "MERCADO_PAGO", "TARJETA", "TRANSFERENCIA",
+  ]);
+  assert.equal(formatearMediosPago(["MERCADO_PAGO"]), "Mercado Pago");
+  assert.equal(formatearMediosPago(["MERCADO_PAGO", "TARJETA"]), "Mercado Pago, Tarjeta");
+  assert.equal(formatearMediosPago(["OTRO_MEDIO"]), "OTRO_MEDIO");
+  assert.equal(formatearMediosPago([]), TEXTO_SIN_MEDIO_PAGO);
+});
+
+test("E14: total formateado en pesos desde el string del servidor", () => {
+  assert.match(formatearTotalPago("12345.50"), /^\$\s?12\.345,50$/);
+  assert.match(formatearTotalPago("0.00"), /^\$\s?0,00$/);
 });

@@ -1,3 +1,4 @@
+import type { MedioPagoVenta } from "@prisma/client";
 import type { EcommercePedidoAdmitidoColaPayload } from "@/lib/events/event-types";
 
 /**
@@ -5,6 +6,9 @@ import type { EcommercePedidoAdmitidoColaPayload } from "@/lib/events/event-type
  *
  * Estos tipos son proyecciones deliberadamente mínimas: no exponen modelos
  * Prisma completos ni datos sensibles (QR, pagos, PII fiscal, etc.).
+ * Única excepción: `ColaPreparacionItemConPagoDto` (HU-E14, spec E §6.3
+ * E14-3), que solo se construye para quien tiene
+ * `ecommerce:leer_historial_ordenes`.
  */
 
 /** Representación de una variante en la línea de preparación. */
@@ -34,17 +38,48 @@ export interface ProgresoPreparacionDto {
   completo: boolean;
 }
 
-/** Ítem de la cola de preparación (GET /api/ecommerce/pick-pack/cola). */
+/**
+ * Ítem de la cola de preparación (GET /api/ecommerce/preparacion) —
+ * proyección base, sin datos de pago ni fiscales (spec E §6.3 E14-2).
+ */
 export interface ColaPreparacionItemDto {
   pedido_venta_id: string;
   pedido_venta_ecommerce_id: string;
   numero_venta: string;
+  /**
+   * HU-E14: solo `Cliente.nombre` (nunca DNI, email ni teléfono). `null` si
+   * el pedido no tiene cliente o el cliente está dado de baja (incluye
+   * fusionados: no se sigue `fusionado_en_id`).
+   */
+  cliente_nombre: string | null;
   fecha_pago_confirmado: Date | null;
   prioridad_manual: number | null;
   estado_ecommerce: string;
   operador_asignado_id: string | null;
+  /** HU-E14: suma de cantidades de los ítems vigentes (E14-1). */
+  unidades_totales: number;
   lineas: LineaPreparacionDto[];
   progreso: ProgresoPreparacionDto;
+}
+
+/**
+ * HU-E14 — datos de pago ya registrados de la venta (E14-3). `total` es
+ * `PedidoVenta.total` congelado como string de 2 decimales (convención de
+ * lecturas administrativas, §2.13.15). Sin `referencia` (payment_id) ni importe.
+ */
+export interface DatosPagoColaPreparacionDto {
+  total: string;
+  medios: MedioPagoVenta[];
+}
+
+/** Ítem de la cola con datos de pago — solo con `ecommerce:leer_historial_ordenes`. */
+export interface ColaPreparacionItemConPagoDto extends ColaPreparacionItemDto {
+  pago: DatosPagoColaPreparacionDto;
+}
+
+/** Opciones de `listarColaPreparacion`; default seguro: sin datos de pago. */
+export interface OpcionesColaPreparacion {
+  incluirDatosPago?: boolean;
 }
 
 /** Detalle completo de un pedido en Pick & Pack (GET /.../pick-pack/[id]). */
@@ -124,4 +159,9 @@ export interface PaginacionColaPreparacionDto {
   total: number;
   page: number;
   page_size: number;
+}
+
+/** Paginación de la cola con datos de pago (HU-E14). */
+export interface PaginacionColaPreparacionConPagoDto extends Omit<PaginacionColaPreparacionDto, "items"> {
+  items: ColaPreparacionItemConPagoDto[];
 }
