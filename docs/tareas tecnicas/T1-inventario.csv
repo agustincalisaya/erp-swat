@@ -1,0 +1,357 @@
+mes,entidad,clave determinística,uuid
+2026-05,venta,venta:mostrador-mayo,3ba1f7f1-452e-4223-80fa-ce7c1fe223fd
+2026-05,comprobante fiscal,comprobante:mostrador-mayo,94e33888-677f-4820-8767-03d89bc2fea0
+2026-05,ítem venta,item:mostrador-mayo,6e842a53-fb08-40b2-819b-f37a2fed658c
+2026-05,medio de pago,medio:mostrador-mayo:0,8c9df933-cbe0-48ae-8ef8-c4e8cae35944
+2026-05,medio de pago,medio:mostrador-mayo:1,30192185-ecfb-4986-8566-01d2e27f83c0
+2026-06,venta,venta:mostrador-junio-cc,bf02699f-06f6-4661-8897-0e25c7e2019d
+2026-06,comprobante fiscal,comprobante:mostrador-junio-cc,b0263ac0-889d-43aa-80e0-71897a0c15f7
+2026-06,ítem venta,item:mostrador-junio-cc,ee904ea9-f241-4664-8b72-49dc814312d2
+2026-06,medio de pago,medio:mostrador-junio-cc:0,697e48e1-55ae-4c24-8d98-4e6cf55dce7a
+2026-06,venta,venta:web-junio,4de0433b-c216-40b7-8e2e-8e3d0a607943
+2026-06,comprobante fiscal,comprobante:web-junio,778274c7-afcf-4fbf-8f46-b135c0b59c99
+2026-06,ítem venta,item:web-junio,163c2ecd-ab9c-4f68-8772-d1a1ca1ab866
+2026-06,medio de pago,medio:web-junio:0,bf169571-061d-4fa1-8c44-87d7e4d91f44
+2026-06,ingreso,ingreso:web-junio,593efd31-8c1f-4472-85a6-ac40da038acf
+2026-06,ecommerce,ecommerce:web-junio,1394cc94-4a4b-4445-8483-527f92fc6b18
+2026-07,venta,venta:mostrador-julio,8fd0115e-e99a-4361-89b7-33396a86ed89
+2026-07,comprobante fiscal,comprobante:mostrador-julio,9bd8e08c-7fd1-43d8-8e24-983d5314dc4b
+2026-07,ítem venta,item:mostrador-julio,e259bca8-5159-40e3-8bf2-2b197899b9ab
+2026-07,medio de pago,medio:mostrador-julio:0,86699e84-664e-4246-877d-0fe6431ac1ec
+2026-07,venta,venta:web-julio-reintegro,7f0d8540-c965-414e-83e4-83cd25a8e583
+2026-07,comprobante fiscal,comprobante:web-julio-reintegro,8d779d1a-95cc-403e-8539-38e981743380
+2026-07,ítem venta,item:web-julio-reintegro,957d4cf8-14c4-413e-8718-c2f5601d3334
+2026-07,medio de pago,medio:web-julio-reintegro:0,a43dcb68-6692-4877-8bb1-212bd3a70245
+2026-07,ingreso,ingreso:web-julio-reintegro,692827a2-b507-4efa-8914-e3be8a475882
+2026-07,ecommerce,ecommerce:web-julio-reintegro,64df5f40-7b4b-43ce-8eaf-a94c96105c34
+2026-04,venta,venta:mostrador-4-extra-1,371fdbb8-5328-447a-8e1c-d86c9ff312ab
+2026-04,comprobante fiscal,comprobante:mostrador-4-extra-1,d97f89b8-c5f9-4721-843e-bf31ff4fd4b5
+2026-04,ítem venta,item:mostrador-4-extra-1,f0b41a30-1dbc-49fe-80b0-6bbaf3a9b4cf
+2026-04,medio de pago,medio:mostrador-4-extra-1:0,4c50dc87-0463-4e2b-81b3-7175a103bb03
+2026-04,medio de pago,medio:mostrador-4-extra-1:1,af49af13-e1dc-4671-8a5a-6ee4c3ea922a
+2026-04,venta,venta:mostrador-4-extra-2,c888a020-c40b-4d4c-83b8-e2132150bae3
+2026-04,comprobante fiscal,comprobante:mostrador-4-extra-2,a6292664-c873-4bf9-811f-a3f77dc13131
+2026-04,ítem venta,item:mostrador-4-extra-2,9ea1f4c9-9b66-4b5e-8006-f12648c32408
+2026-04,medio de pago,medio:mostrador-4-extra-2:0,077625bb-d211-4488-8f39-5d64a3caa89c
+2026-04,venta,venta:mostrador-4-extra-3,8a185c31-1b17-444a-8e86-0c19cce1e8c8
+2026-04,comprobante fiscal,comprobante:mostrador-4-extra-3,752fa75f-92a4-4e36-8374-15ab28e7ff5f
+2026-04,ítem venta,item:mostrador-4-extra-3,c76f72d8-fdf9-47a4-82ab-b3cd227f06df
+2026-04,medio de pago,medio:mostrador-4-extra-3:0,8dc27bcb-c8fa-4d43-8d7f-798b5dbd492a
+2026-04,medio de pago,medio:mostrador-4-extra-3:1,32305780-6d5a-4eb6-8101-8704d3367b5f
+2026-04,venta,venta:mostrador-4-extra-4,d4a17e11-821f-425f-8c4d-c8daed57b8cb
+2026-04,comprobante fiscal,comprobante:mostrador-4-extra-4,298a39fb-abf1-4f28-8745-b7198dacaf2b
+2026-04,ítem venta,item:mostrador-4-extra-4,1c294864-889e-4696-8a5e-4dc9c61688d3
+2026-04,medio de pago,medio:mostrador-4-extra-4:0,fdfbb6ee-8d15-4e24-873c-72079962b0c4
+2026-04,venta,venta:mostrador-4-extra-5,48625a43-0ce1-4fd5-899d-54b53f221b8b
+2026-04,comprobante fiscal,comprobante:mostrador-4-extra-5,a747e376-1ca3-4684-8353-32a040a19507
+2026-04,ítem venta,item:mostrador-4-extra-5,07366aab-23d9-47f3-8e5d-b57fa7394689
+2026-04,medio de pago,medio:mostrador-4-extra-5:0,48778539-7515-4963-8fd6-8430134b70d0
+2026-04,medio de pago,medio:mostrador-4-extra-5:1,0dd28890-0037-4775-832d-211aadf585b5
+2026-04,venta,venta:mostrador-4-extra-6,9396818a-8cc9-45fa-8ca9-18ab6d55e71d
+2026-04,comprobante fiscal,comprobante:mostrador-4-extra-6,c236e4c8-1d55-49ad-85d3-a9da7ddfe84c
+2026-04,ítem venta,item:mostrador-4-extra-6,c11047a1-1541-402c-8517-a9fee48c0515
+2026-04,medio de pago,medio:mostrador-4-extra-6:0,59121d73-cb96-4f3b-80fd-3b36a341e128
+2026-04,venta,venta:mostrador-4-extra-7,acaadb42-787d-4be4-86f8-85ed213b27ba
+2026-04,comprobante fiscal,comprobante:mostrador-4-extra-7,f7fa1333-7115-4da4-8960-0b6682516294
+2026-04,ítem venta,item:mostrador-4-extra-7,412563e3-0990-46aa-892c-a715932836a9
+2026-04,medio de pago,medio:mostrador-4-extra-7:0,938e4e90-4aab-4b23-81bc-63fa6277ae84
+2026-04,medio de pago,medio:mostrador-4-extra-7:1,01146797-9f64-4685-8b0b-6778be18fea3
+2026-04,venta,venta:mostrador-4-extra-8,c728779c-089b-4167-86ba-3af8fb08b9b3
+2026-04,comprobante fiscal,comprobante:mostrador-4-extra-8,c27b458d-9350-4b4e-8c59-8281cf5990f8
+2026-04,ítem venta,item:mostrador-4-extra-8,c0517c23-c57a-424c-8e31-ad2a01330b09
+2026-04,medio de pago,medio:mostrador-4-extra-8:0,d1077e4b-5c39-476b-86ae-887be9a643c7
+2026-04,venta,venta:web-4-extra-1,6c5ab8cb-78f8-497c-818a-2e99e32c66bb
+2026-04,comprobante fiscal,comprobante:web-4-extra-1,473d8811-7e1f-4812-89e1-446b1a1cd0dc
+2026-04,ítem venta,item:web-4-extra-1,1fc241eb-6b0b-4272-86e4-741320fdcd67
+2026-04,medio de pago,medio:web-4-extra-1:0,5d2d17fe-525f-4b6d-8bec-34ada113d48d
+2026-04,ingreso,ingreso:web-4-extra-1,898dd588-dd7c-405f-8007-7e5de64e833a
+2026-04,ecommerce,ecommerce:web-4-extra-1,a82311ac-272c-4ef9-84f9-2a42a627b3fb
+2026-04,venta,venta:web-4-extra-2,32200373-60b9-49d9-8a1d-07c55a3edac7
+2026-04,comprobante fiscal,comprobante:web-4-extra-2,182f64f4-1559-45d8-8f4f-7ea831519692
+2026-04,ítem venta,item:web-4-extra-2,d804b281-2865-4ffa-8222-9f1fad416596
+2026-04,medio de pago,medio:web-4-extra-2:0,91d4bb76-a070-4b60-8166-fcc5470b0047
+2026-04,ingreso,ingreso:web-4-extra-2,bb9ac3bc-a4ab-4939-89fa-38d78df70a5b
+2026-04,ecommerce,ecommerce:web-4-extra-2,7704c838-36a8-4bb9-8a6b-e06cde92fc4e
+2026-04,venta,venta:web-4-extra-3,994ca670-44ad-46f8-8095-d9c5189a5b98
+2026-04,comprobante fiscal,comprobante:web-4-extra-3,d9112a70-8393-4b30-80db-6a2144c790ef
+2026-04,ítem venta,item:web-4-extra-3,8ec44b13-b200-4994-8223-2e19c9331cad
+2026-04,medio de pago,medio:web-4-extra-3:0,f5081af2-cfea-4c49-8600-89a3a673429c
+2026-04,ingreso,ingreso:web-4-extra-3,41363703-92b2-421f-871f-3024e17efe2f
+2026-04,ecommerce,ecommerce:web-4-extra-3,8aa89b8f-48ff-466a-8abf-0667a0c91c3e
+2026-04,venta,venta:web-4-extra-4,c47487d4-802c-4ee0-82f9-7322878a50fd
+2026-04,comprobante fiscal,comprobante:web-4-extra-4,7fefa183-9ae7-4df4-8808-c2fdf16e2ba5
+2026-04,ítem venta,item:web-4-extra-4,4d0f870c-2663-46a7-8b7c-44874b58d42a
+2026-04,medio de pago,medio:web-4-extra-4:0,8f7bca62-83f1-42fd-85e4-4058824aad7f
+2026-04,ingreso,ingreso:web-4-extra-4,f7f85b03-b8bc-4198-8f7d-6f529cfa66e8
+2026-04,ecommerce,ecommerce:web-4-extra-4,d46717bf-2060-4162-8b2e-8b2bd98d1b42
+2026-05,venta,venta:mostrador-5-extra-1,1731d936-9021-4eff-89a8-4d2639c2bee3
+2026-05,comprobante fiscal,comprobante:mostrador-5-extra-1,3a814b34-8e57-4920-8e0b-cc725ab813e0
+2026-05,ítem venta,item:mostrador-5-extra-1,3379319d-d9e9-45d4-8079-1b7a8e6d1336
+2026-05,medio de pago,medio:mostrador-5-extra-1:0,ba971d34-7145-47f1-86c4-9f37356c9a25
+2026-05,medio de pago,medio:mostrador-5-extra-1:1,e064ce71-8b84-4782-8896-e0114e68f93f
+2026-05,venta,venta:mostrador-5-extra-2,4a3d23a1-bc4c-4282-8330-99bdf99be602
+2026-05,comprobante fiscal,comprobante:mostrador-5-extra-2,ba3dbab6-652a-4669-8f32-7859449a29d6
+2026-05,ítem venta,item:mostrador-5-extra-2,49364a9f-a7ce-46d3-8c18-6a1083a4d571
+2026-05,medio de pago,medio:mostrador-5-extra-2:0,c8da219e-d3c5-4a5b-89b3-02279cc20449
+2026-05,venta,venta:mostrador-5-extra-3,2cb1b35b-1b73-40cb-804d-1ac72fb5f0a9
+2026-05,comprobante fiscal,comprobante:mostrador-5-extra-3,abc2a223-35ab-463c-8674-77bf865c5a3a
+2026-05,ítem venta,item:mostrador-5-extra-3,2ab67879-be37-43ed-8575-7caa66e817a8
+2026-05,medio de pago,medio:mostrador-5-extra-3:0,69631b4b-258a-4fea-8b37-d63d5f12051a
+2026-05,medio de pago,medio:mostrador-5-extra-3:1,5b895949-75d1-4d57-8443-9ee53a969ea4
+2026-05,venta,venta:mostrador-5-extra-4,7ce3c0ca-7697-48c9-8b06-715b29dd7624
+2026-05,comprobante fiscal,comprobante:mostrador-5-extra-4,eb160f1b-e5cf-47a1-82ff-773adfd5769b
+2026-05,ítem venta,item:mostrador-5-extra-4,804e0eb7-f603-4c81-8afe-624c20b50069
+2026-05,medio de pago,medio:mostrador-5-extra-4:0,0ccbccd5-2922-4236-82a2-85395b57aa43
+2026-05,venta,venta:mostrador-5-extra-5,f666c0cf-5da1-4745-80ee-ce8fe8af3e66
+2026-05,comprobante fiscal,comprobante:mostrador-5-extra-5,31e84fb0-4f78-4658-8daa-f6c2a28bb99f
+2026-05,ítem venta,item:mostrador-5-extra-5,d2f3d2df-a001-41b6-88e0-fec275d182bc
+2026-05,medio de pago,medio:mostrador-5-extra-5:0,d7065069-d754-41f7-825a-f36daf29ccae
+2026-05,medio de pago,medio:mostrador-5-extra-5:1,9ef205d1-f6a1-4c71-8aba-8cb24c9e1532
+2026-05,venta,venta:mostrador-5-extra-6,0ab6b480-780c-4b30-8a76-e5856ef1dc26
+2026-05,comprobante fiscal,comprobante:mostrador-5-extra-6,946116fe-8241-4bb6-8b68-92b90ead493a
+2026-05,ítem venta,item:mostrador-5-extra-6,994b1602-b023-4ea3-89bb-41b9515d29b2
+2026-05,medio de pago,medio:mostrador-5-extra-6:0,90cde6f7-e313-44e7-80f1-ac77b7b1ffe1
+2026-05,venta,venta:mostrador-5-extra-7,e6567c3e-88ff-4ebc-883e-73a93c1e9ba1
+2026-05,comprobante fiscal,comprobante:mostrador-5-extra-7,eddd880c-1fab-4a82-847d-74f2c9e2126a
+2026-05,ítem venta,item:mostrador-5-extra-7,91a73471-fbd5-46db-828f-bfcf1a2539a4
+2026-05,medio de pago,medio:mostrador-5-extra-7:0,5768da81-840a-4864-8659-522fda9a808b
+2026-05,medio de pago,medio:mostrador-5-extra-7:1,c4e3c987-bfe1-4ac6-8ee8-04a20cdea078
+2026-05,venta,venta:web-5-extra-1,8550b34c-659e-4780-8062-9f7cd223551d
+2026-05,comprobante fiscal,comprobante:web-5-extra-1,e52ce690-9833-41f1-832f-5166c17da386
+2026-05,ítem venta,item:web-5-extra-1,81db3709-6d10-4281-85f3-eefebec0cbc2
+2026-05,medio de pago,medio:web-5-extra-1:0,3a3db1b9-aeb6-4ec3-8f5f-8fc583d4e09b
+2026-05,ingreso,ingreso:web-5-extra-1,93a0eb29-0cb4-4081-883d-806eb5a6b66e
+2026-05,ecommerce,ecommerce:web-5-extra-1,2d3f2f47-4c83-457b-8570-4bc07556b568
+2026-05,venta,venta:web-5-extra-2,3dd9ad49-1f4c-4484-8049-ef681db39428
+2026-05,comprobante fiscal,comprobante:web-5-extra-2,11ea1f05-cc1a-4feb-8e87-8fc17809f40f
+2026-05,ítem venta,item:web-5-extra-2,fce0366b-a176-4ca0-878f-e78e3e0512bb
+2026-05,medio de pago,medio:web-5-extra-2:0,1614628e-d070-46ea-878c-24338bcce761
+2026-05,ingreso,ingreso:web-5-extra-2,beb77f80-6e75-4dbe-8d8c-08917be9b9f3
+2026-05,ecommerce,ecommerce:web-5-extra-2,ab5900cc-d95c-4bde-8db4-3823819b45d8
+2026-05,venta,venta:web-5-extra-3,906d220a-9074-4061-85b9-bdafaaf236a3
+2026-05,comprobante fiscal,comprobante:web-5-extra-3,23bd049d-580a-4f6f-8ba1-4828a54b2d92
+2026-05,ítem venta,item:web-5-extra-3,e5b1dcf2-4176-4f80-8582-1707aca9004f
+2026-05,medio de pago,medio:web-5-extra-3:0,7427fd10-ff60-48fe-8875-1038df41ee05
+2026-05,ingreso,ingreso:web-5-extra-3,c857abea-44c1-4700-8031-faf3a6436d17
+2026-05,ecommerce,ecommerce:web-5-extra-3,73204ec3-1b26-4168-890e-fc4697754c7e
+2026-05,venta,venta:web-5-extra-4,00b45574-65eb-42f0-88fb-abee7aab68cf
+2026-05,comprobante fiscal,comprobante:web-5-extra-4,f99e5fae-3cfa-4c2b-8911-a26359251c51
+2026-05,ítem venta,item:web-5-extra-4,8281c97c-4857-46d9-8fde-dd8ebb108891
+2026-05,medio de pago,medio:web-5-extra-4:0,f0d9f859-3c8d-4d53-81ac-da7d904954a4
+2026-05,ingreso,ingreso:web-5-extra-4,94c128ca-1b7e-4049-8883-6e6ec420d669
+2026-05,ecommerce,ecommerce:web-5-extra-4,0434c1cc-7e2e-4022-8312-19714d620c16
+2026-06,venta,venta:mostrador-6-extra-1,8e036142-0e3a-42d9-84c8-4e0efba67452
+2026-06,comprobante fiscal,comprobante:mostrador-6-extra-1,2412e4ce-0c9f-4192-82fd-0486d7fa02ff
+2026-06,ítem venta,item:mostrador-6-extra-1,761451f5-02dc-430d-83b5-ee939e682a91
+2026-06,medio de pago,medio:mostrador-6-extra-1:0,f2d450b9-ee15-46c6-877d-66af46182914
+2026-06,medio de pago,medio:mostrador-6-extra-1:1,fac0fca3-e25a-4cd5-89fd-71c420ada938
+2026-06,venta,venta:mostrador-6-extra-2,be319dce-8e99-45a9-8e35-a72cc84101a0
+2026-06,comprobante fiscal,comprobante:mostrador-6-extra-2,223e328d-15fa-4b2e-834d-4265897ecb8b
+2026-06,ítem venta,item:mostrador-6-extra-2,459acd26-f2d7-46ae-8af7-0b6e4154603a
+2026-06,medio de pago,medio:mostrador-6-extra-2:0,974401ec-fad3-4d9b-8e13-5fa63aa11069
+2026-06,venta,venta:mostrador-6-extra-3,ee38afe1-ec5c-4c70-8bbf-75d454d6c4fd
+2026-06,comprobante fiscal,comprobante:mostrador-6-extra-3,043edd12-81f7-4a2d-8313-55e02b3c63c4
+2026-06,ítem venta,item:mostrador-6-extra-3,b2fc6b9d-16f4-4f00-8266-f76ba4fe18aa
+2026-06,medio de pago,medio:mostrador-6-extra-3:0,4fc82dd1-50f5-40ec-82b9-54d2a21ad430
+2026-06,medio de pago,medio:mostrador-6-extra-3:1,13f2cf67-bb5e-42f4-8444-1c47e77d527c
+2026-06,venta,venta:mostrador-6-extra-4,aef29aeb-a0e0-43f3-8771-f463b8cb13e2
+2026-06,comprobante fiscal,comprobante:mostrador-6-extra-4,ab9ea0bd-90fe-4dd9-84b9-0218f44cea07
+2026-06,ítem venta,item:mostrador-6-extra-4,7f94dbb3-7d1d-4401-83a4-a77def070f7f
+2026-06,medio de pago,medio:mostrador-6-extra-4:0,7180b051-d715-4c64-8054-3dc1e9f8e2ea
+2026-06,venta,venta:mostrador-6-extra-5,2587698f-b297-4363-8222-c80ce922b714
+2026-06,comprobante fiscal,comprobante:mostrador-6-extra-5,0b24225b-e6db-42fb-8c69-4e564b13dc73
+2026-06,ítem venta,item:mostrador-6-extra-5,4a487c09-8e7b-495e-8d02-d742a080692a
+2026-06,medio de pago,medio:mostrador-6-extra-5:0,7143d421-66a0-40ec-8479-f9dd887b5f71
+2026-06,medio de pago,medio:mostrador-6-extra-5:1,735a8264-f602-4731-8e22-fc01d4f06235
+2026-06,venta,venta:mostrador-6-extra-6,e409c08f-def4-4baa-8ec5-518af5428ec2
+2026-06,comprobante fiscal,comprobante:mostrador-6-extra-6,bb120a62-bb48-4054-85c3-3d6262d39f56
+2026-06,ítem venta,item:mostrador-6-extra-6,f5f975fc-2494-40ad-89d8-e826ef828365
+2026-06,medio de pago,medio:mostrador-6-extra-6:0,d306c265-d107-4797-8dbf-4e5c390ff0af
+2026-06,venta,venta:mostrador-6-extra-7,4b986489-c02d-40a7-8a8d-d5eb5a13f005
+2026-06,comprobante fiscal,comprobante:mostrador-6-extra-7,49563f76-61d9-4f66-8de7-2cfc67b39e11
+2026-06,ítem venta,item:mostrador-6-extra-7,8ba6235c-4862-4c8c-8848-8b20e0a286c5
+2026-06,medio de pago,medio:mostrador-6-extra-7:0,36e12a93-0db9-48b6-87a5-c41203ae8e08
+2026-06,medio de pago,medio:mostrador-6-extra-7:1,8d6b41b3-9de3-4a50-862b-461182ceadf5
+2026-06,venta,venta:web-6-extra-1,2d3762fe-0a7f-4519-8884-6f3fbf9ed266
+2026-06,comprobante fiscal,comprobante:web-6-extra-1,9216d29a-1b0e-4be4-89d7-487b107a449b
+2026-06,ítem venta,item:web-6-extra-1,66b084cf-bf46-4b20-8659-7fe976047886
+2026-06,medio de pago,medio:web-6-extra-1:0,cb2be518-4619-4efe-8f27-d0ea40e0bdbf
+2026-06,ingreso,ingreso:web-6-extra-1,61b2d53d-eb6f-43e8-8ccd-e21170449172
+2026-06,ecommerce,ecommerce:web-6-extra-1,b39c714f-8a03-4dd2-83ba-6b33a15d820d
+2026-06,venta,venta:web-6-extra-2,b29ab35c-b395-47a2-8f72-27e926d78f53
+2026-06,comprobante fiscal,comprobante:web-6-extra-2,afc0e61b-3347-4ef6-81ce-ee06c04e49bf
+2026-06,ítem venta,item:web-6-extra-2,adf98eec-a597-4b94-84ae-f430b8513906
+2026-06,medio de pago,medio:web-6-extra-2:0,94f66972-1138-47fd-8696-42551692f6b2
+2026-06,ingreso,ingreso:web-6-extra-2,d0da40cc-d34d-4bcf-86b5-512ef050d031
+2026-06,ecommerce,ecommerce:web-6-extra-2,9db47274-a33f-40fc-86e1-e66793f4ca90
+2026-06,venta,venta:web-6-extra-3,829d8c29-b2df-4bf1-84f9-6700880e62dc
+2026-06,comprobante fiscal,comprobante:web-6-extra-3,4db893ed-63b4-4be4-8cfb-096d761cd371
+2026-06,ítem venta,item:web-6-extra-3,7eaa4025-b15c-4f03-83ae-ba8fc6c14ce9
+2026-06,medio de pago,medio:web-6-extra-3:0,6cafaa3e-cb10-4be3-812b-5c87823b1c26
+2026-06,ingreso,ingreso:web-6-extra-3,cf819d6f-9858-4374-81e2-da5f53cd44bb
+2026-06,ecommerce,ecommerce:web-6-extra-3,b291af2c-e925-4467-886e-45d78533b6dc
+2026-07,venta,venta:mostrador-7-extra-1,041f2178-eb77-4a79-8dca-7113762c7fff
+2026-07,comprobante fiscal,comprobante:mostrador-7-extra-1,41913ea7-35fd-419d-8abe-58393f62942e
+2026-07,ítem venta,item:mostrador-7-extra-1,b99b58c9-3e7e-4e95-8a62-8779760ab11d
+2026-07,medio de pago,medio:mostrador-7-extra-1:0,46fff88d-afdd-4e88-8436-55e0d65eaa06
+2026-07,medio de pago,medio:mostrador-7-extra-1:1,2cac0eb1-86b7-45e9-8ea7-140a6154d351
+2026-07,venta,venta:mostrador-7-extra-2,52db04d4-4191-4bde-8950-40c80c5b7ac6
+2026-07,comprobante fiscal,comprobante:mostrador-7-extra-2,c846cb74-6610-4b11-8fa1-2954668eff7e
+2026-07,ítem venta,item:mostrador-7-extra-2,bc01a1f2-6c25-4c4e-872c-1969d8d7dadb
+2026-07,medio de pago,medio:mostrador-7-extra-2:0,1ee8361e-b92e-4637-885a-15dad66520c6
+2026-07,venta,venta:mostrador-7-extra-3,4c073919-c502-4a86-8507-e67fdbb3b814
+2026-07,comprobante fiscal,comprobante:mostrador-7-extra-3,cf0c4c91-96e9-4959-8b4e-0a2636fd893c
+2026-07,ítem venta,item:mostrador-7-extra-3,7ae581ce-0c64-45a7-8072-883b7d33e4d1
+2026-07,medio de pago,medio:mostrador-7-extra-3:0,d92a3f93-8456-42f6-8717-ddde6ab041d7
+2026-07,medio de pago,medio:mostrador-7-extra-3:1,e5977596-bec5-4ab6-8ff2-05e951772a87
+2026-07,venta,venta:mostrador-7-extra-4,82e25ba6-b35a-4d72-8aa3-18bac56ecb14
+2026-07,comprobante fiscal,comprobante:mostrador-7-extra-4,c3d0263e-3511-4cec-8d98-dc3f35c3bc5d
+2026-07,ítem venta,item:mostrador-7-extra-4,f361cd61-9f82-40aa-8d6b-c4837d22a1cb
+2026-07,medio de pago,medio:mostrador-7-extra-4:0,256e7c47-e1cb-4b96-8941-83f3c15bd81b
+2026-07,venta,venta:mostrador-7-extra-5,1454b16c-b3a2-48df-804e-91dab3c9ef09
+2026-07,comprobante fiscal,comprobante:mostrador-7-extra-5,3675d2c4-33a4-4c1c-8b73-4c67cbf4472b
+2026-07,ítem venta,item:mostrador-7-extra-5,ad6e8f35-b4b2-4f9d-8c6b-f93ce50ec5e8
+2026-07,medio de pago,medio:mostrador-7-extra-5:0,866b1e32-a467-4861-8510-49c43c7bbf9c
+2026-07,medio de pago,medio:mostrador-7-extra-5:1,4402d3b4-af35-4088-88a6-b477125076f7
+2026-07,venta,venta:mostrador-7-extra-6,01b9a184-e569-467f-80d0-5c521a078ed7
+2026-07,comprobante fiscal,comprobante:mostrador-7-extra-6,d3412eda-a47e-4b54-8a05-fd978b36f001
+2026-07,ítem venta,item:mostrador-7-extra-6,98a6f462-1f32-4b8d-820b-7f1c695ee439
+2026-07,medio de pago,medio:mostrador-7-extra-6:0,66bf20d3-1d22-4cfc-808b-c1123a6869e1
+2026-07,venta,venta:mostrador-7-extra-7,5d78481f-f7b7-4477-8f6f-edb729bf005e
+2026-07,comprobante fiscal,comprobante:mostrador-7-extra-7,f68ea150-c126-4e9d-894f-1e68869081ad
+2026-07,ítem venta,item:mostrador-7-extra-7,34a9b8ab-5899-4cc8-8a00-2705399433b6
+2026-07,medio de pago,medio:mostrador-7-extra-7:0,aca47768-6fdc-4ab3-8180-56845e64b7d8
+2026-07,medio de pago,medio:mostrador-7-extra-7:1,5de54ea2-5b0d-40f1-8d6d-ecbf9f74365a
+2026-07,venta,venta:web-7-extra-1,e3d9845d-4f54-4261-8ee1-6ce0e7d5e212
+2026-07,comprobante fiscal,comprobante:web-7-extra-1,9802d1f5-7a5e-4470-896b-c8b8fc2a284a
+2026-07,ítem venta,item:web-7-extra-1,1f52ec9c-2697-4560-898a-c71d4a5b5ffa
+2026-07,medio de pago,medio:web-7-extra-1:0,675b23c2-78be-42f5-8573-beca2f7df18c
+2026-07,ingreso,ingreso:web-7-extra-1,5150663f-bf02-403c-889e-efc60d6807c9
+2026-07,ecommerce,ecommerce:web-7-extra-1,b030d40c-2c3f-4647-8555-f3c360c1a1b2
+2026-07,venta,venta:web-7-extra-2,79338d9b-9b2d-4bcf-88b5-2dd3f2bfdd21
+2026-07,comprobante fiscal,comprobante:web-7-extra-2,94e3e964-81ff-4ac4-8d61-866a46948bfb
+2026-07,ítem venta,item:web-7-extra-2,8af3edca-7f1e-44b2-85f1-83ce3a5df8de
+2026-07,medio de pago,medio:web-7-extra-2:0,4515377a-c991-4a11-8191-7ed06448214c
+2026-07,ingreso,ingreso:web-7-extra-2,61dbd060-f227-4dcd-88e4-415925c07fc4
+2026-07,ecommerce,ecommerce:web-7-extra-2,cccf7ba7-a7ad-4add-8100-afb83fc59c03
+2026-07,venta,venta:web-7-extra-3,7949d426-d482-41d3-81b9-7b506e17b416
+2026-07,comprobante fiscal,comprobante:web-7-extra-3,8084d2f2-0b11-40dc-8ff2-40295e454dd7
+2026-07,ítem venta,item:web-7-extra-3,22096400-2482-4c1d-8c4b-249673a410a3
+2026-07,medio de pago,medio:web-7-extra-3:0,d02a1c9f-13c1-483d-806b-08c5d4f5005d
+2026-07,ingreso,ingreso:web-7-extra-3,4f139ef4-28a7-48f8-83e1-2b57fd00dd7b
+2026-07,ecommerce,ecommerce:web-7-extra-3,a33f417a-5e6d-4cc0-85a3-4ea7d389de95
+2026-05,orden,orden:mayo,8999e89c-0810-4f95-8955-815c8031ee01
+2026-05,orden-item,orden-item:mayo,25520965-2837-474b-8075-538b8891929a
+2026-05,cuenta,cuenta:mayo,75b65b2d-4729-45f8-8cec-cfb3e4d052ff
+2026-05,proveedor-comprobante,proveedor-comprobante:mayo:0,fda00c4c-f56a-4c46-8c00-12f4b3df5e52
+2026-05,imputacion,imputacion:mayo:0,c87bcb4b-04a3-49ff-8be0-8bf541be7d79
+2026-05,proveedor-comprobante,proveedor-comprobante:mayo:1,040f9cf5-d331-43cd-8dd7-3097defa43d5
+2026-05,imputacion,imputacion:mayo:1,c1fefe3e-19f2-4d91-8fd7-4db10a852cbe
+2026-07,orden,orden:julio,e817c97e-1cd9-40c2-8e85-81a3c65bd0b5
+2026-07,orden-item,orden-item:julio,a1d3a8ce-125e-4622-80e8-63e635497b86
+2026-07,cuenta,cuenta:julio,cdd74459-d69a-4e87-84d0-c32bc8a1c950
+2026-07,proveedor-comprobante,proveedor-comprobante:julio:0,4cfc2bd6-5e74-45bb-8751-0c9e2c654812
+2026-07,imputacion,imputacion:julio:0,e9bad8f4-9ce2-4ea2-83ae-22ebe8b4d85c
+2026-04,orden,orden:4-extra-1,2fc2fdd8-7fd9-45f5-8fa9-0a7a9c6aeacf
+2026-04,orden-item,orden-item:4-extra-1,f25fa84f-d733-4482-8ac0-0a7b72444445
+2026-04,cuenta,cuenta:4-extra-1,73619e2a-671c-47a2-8060-79d506678da9
+2026-04,proveedor-comprobante,proveedor-comprobante:4-extra-1:0,8728f2d8-cd12-437c-84c6-b6d9892ebcbf
+2026-04,imputacion,imputacion:4-extra-1:0,234d1050-821a-4619-8cb4-9bd411b19d80
+2026-04,orden,orden:4-extra-2,f92ab9b0-6971-432e-8523-ec40876feae2
+2026-04,orden-item,orden-item:4-extra-2,96ed8822-193d-491c-8274-66255a232b3c
+2026-04,cuenta,cuenta:4-extra-2,715d5b54-416e-4048-8fe8-f94f265c2341
+2026-04,proveedor-comprobante,proveedor-comprobante:4-extra-2:0,d7527904-0c8b-46b9-8ac9-2481726f3883
+2026-04,imputacion,imputacion:4-extra-2:0,f3c35375-8d94-41b2-82d4-275f187d7b28
+2026-04,orden,orden:4-extra-3,ae3f3f94-3cba-4210-80e5-b488a2d61284
+2026-04,orden-item,orden-item:4-extra-3,b0211d09-faef-4221-8b44-66fc590b5dcb
+2026-04,cuenta,cuenta:4-extra-3,49dd8672-357b-47c6-815e-8a1831a5f79a
+2026-04,proveedor-comprobante,proveedor-comprobante:4-extra-3:0,0cfc6e5e-2569-420b-8764-e6007b87cd10
+2026-04,imputacion,imputacion:4-extra-3:0,26133881-8d9a-4d43-8b1e-1b674a96f881
+2026-05,orden,orden:5-extra-1,d63e67af-c1b6-4f72-813f-29dc1bd4f028
+2026-05,orden-item,orden-item:5-extra-1,81318855-34e0-4a1b-8312-550098da2004
+2026-05,cuenta,cuenta:5-extra-1,f052d158-3696-4bc4-8f13-7f45338df4b8
+2026-05,proveedor-comprobante,proveedor-comprobante:5-extra-1:0,7ccbf6d2-c4c6-4b38-85d3-2f7d5f0d2ec4
+2026-05,imputacion,imputacion:5-extra-1:0,87b705c7-888a-4eba-869b-04439f9f53be
+2026-05,orden,orden:5-extra-2,4d4857c3-a24c-4b97-8c88-770033bdb2c5
+2026-05,orden-item,orden-item:5-extra-2,9c142a85-3a77-4e20-8b88-79f4704e0aea
+2026-05,cuenta,cuenta:5-extra-2,5a8fec8c-340c-4c40-89ce-d1691fe233e9
+2026-05,proveedor-comprobante,proveedor-comprobante:5-extra-2:0,88ebda8b-dea5-4f63-87f5-a120e65fd87e
+2026-05,imputacion,imputacion:5-extra-2:0,b372eb93-cf7c-4529-83b5-5347cbf40f09
+2026-06,orden,orden:6-extra-1,089c4ec1-a835-4ede-86ef-f381c97b3e13
+2026-06,orden-item,orden-item:6-extra-1,65d6142b-81c7-44ff-863a-7149e2662965
+2026-06,cuenta,cuenta:6-extra-1,a0d79455-a55d-4f87-86f2-95706dfa4197
+2026-06,proveedor-comprobante,proveedor-comprobante:6-extra-1:0,7b148599-b9c2-432e-808d-db7d0a6fcaad
+2026-06,imputacion,imputacion:6-extra-1:0,d4bddb8a-11e0-479f-8fb5-c55aee2a44ec
+2026-06,orden,orden:6-extra-2,01e5e453-91ba-4558-87ee-b0ac4451d006
+2026-06,orden-item,orden-item:6-extra-2,eee7c39d-03a6-4fb5-804d-7f3ec0a94724
+2026-06,cuenta,cuenta:6-extra-2,b4091250-2de8-4dc6-8812-0dd5dccd19b5
+2026-06,proveedor-comprobante,proveedor-comprobante:6-extra-2:0,7e0bd789-f2c7-4dc3-8432-7ebf5f81b134
+2026-06,imputacion,imputacion:6-extra-2:0,d598230b-6e20-4fd0-8dcd-339644867dbc
+2026-06,orden,orden:6-extra-3,67d94cde-beff-4088-893d-afe2737fbb1b
+2026-06,orden-item,orden-item:6-extra-3,0f83b520-013a-4212-8462-ffb3c5af46f1
+2026-06,cuenta,cuenta:6-extra-3,4a39a8eb-3654-4fb9-8e99-a1d8352d1e3c
+2026-06,proveedor-comprobante,proveedor-comprobante:6-extra-3:0,52034852-5380-41ce-8a35-1313df8cd7b2
+2026-06,imputacion,imputacion:6-extra-3:0,15399f6a-af6f-44ec-865b-a65c2d1396de
+2026-07,orden,orden:7-extra-1,388ae325-c58d-4ef9-8d3a-015e6dc89b7b
+2026-07,orden-item,orden-item:7-extra-1,ad3eb1a8-ec01-4565-8d50-1a52844a34a7
+2026-07,cuenta,cuenta:7-extra-1,5c3ee8b3-e25f-42b7-89a6-ca2c307f6d85
+2026-07,proveedor-comprobante,proveedor-comprobante:7-extra-1:0,4a52a86b-7031-42f7-81d9-2c3edca06b26
+2026-07,imputacion,imputacion:7-extra-1:0,8fb14453-3311-4d32-8fdb-a4e851fe2683
+2026-07,orden,orden:7-extra-2,e43d68f5-2443-4f1e-85b9-10b03744476c
+2026-07,orden-item,orden-item:7-extra-2,01bfde5f-e5db-46b1-8757-6bdfb40f6d0c
+2026-07,cuenta,cuenta:7-extra-2,228fa03d-3452-431c-896d-461d377f29d8
+2026-07,proveedor-comprobante,proveedor-comprobante:7-extra-2:0,d8be8b05-da42-4377-8813-1e051d83ce3e
+2026-07,imputacion,imputacion:7-extra-2:0,161f7375-c96d-4d1d-8e09-e010d98ac5d2
+2026-05,gasto,gasto:alquiler-mayo,3e3e239d-dc3d-43b2-8aeb-a86513961745
+2026-06,gasto,gasto:servicios-junio,52fb9fb4-7444-4223-86cf-a042118c0b71
+2026-07,gasto,gasto:sueldos-julio,f4bf21a3-d7a6-4efd-8ab0-40e6cb693732
+2026-07,gasto,gasto:otros-julio-baja,0692903f-3405-49c4-8fb7-746cec6ccd6b
+2026-04,gasto,gasto:4-extra-0,1770880a-447d-4cc5-810e-4a19f21f5ec3
+2026-04,gasto,gasto:4-extra-1,f6847c18-0251-4587-85ab-3d24acf1f16a
+2026-04,gasto,gasto:4-extra-2,d9d6f78c-7a82-4958-8b2d-d6e9059e7b35
+2026-04,gasto,gasto:4-extra-3,e6a2964a-777d-46c0-8fbc-8835e35ffb3d
+2026-04,gasto,gasto:4-extra-4,d69f0fad-0962-486f-8f63-bd0811db769e
+2026-04,gasto,gasto:4-extra-5,27f38708-da79-4943-8f1b-2eb40fbb8582
+2026-04,gasto,gasto:4-extra-6,c62f11ad-1fa2-43b9-8791-8710b97b30fb
+2026-04,gasto,gasto:4-extra-7,ded69528-d808-48af-8cc3-4799103692a9
+2026-04,gasto,gasto:4-extra-8,a7d3f646-4502-4af2-8b0e-8b93eea7102a
+2026-04,gasto,gasto:4-extra-9,84e7a24e-107d-4a8d-87a0-c260369316a0
+2026-05,gasto,gasto:5-extra-0,c05d4ec8-a655-4cf6-8a07-6b6e6d410252
+2026-05,gasto,gasto:5-extra-1,dd06b8ff-c854-429c-84ab-029a83180857
+2026-05,gasto,gasto:5-extra-2,643f629d-1484-4c18-8f37-d29d99877028
+2026-05,gasto,gasto:5-extra-3,6a90d674-a45c-4e05-8c20-7ba82bc7609f
+2026-05,gasto,gasto:5-extra-4,b6e6c7bb-49e9-4d78-8146-b860cb08ec61
+2026-05,gasto,gasto:5-extra-5,2705507f-c049-44b7-8fea-70f6dcdf2028
+2026-05,gasto,gasto:5-extra-6,ced2d8e3-5dbe-4f69-8862-a020ca9c5c4d
+2026-05,gasto,gasto:5-extra-7,5e08c9d9-b484-46e3-86c8-c571549027d9
+2026-05,gasto,gasto:5-extra-8,37df3d53-aa26-4ef9-871e-e3ec76725d21
+2026-05,gasto,gasto:5-extra-9,939201d9-94c2-4924-8a36-94aaffd59b45
+2026-06,gasto,gasto:6-extra-0,5c363948-5ccb-4dbf-845b-8e2ef8a0766a
+2026-06,gasto,gasto:6-extra-1,281369a9-231c-437b-85e4-b4229294e1ae
+2026-06,gasto,gasto:6-extra-2,6c2047fa-d619-432b-8f49-d12a87d9a177
+2026-06,gasto,gasto:6-extra-3,91fb884a-fd5d-4117-8800-c08494730a47
+2026-06,gasto,gasto:6-extra-4,4daffd10-cbbc-489a-8b1c-35371bda2374
+2026-06,gasto,gasto:6-extra-5,19ebf87b-081a-4c80-86ee-38d7b15a2a74
+2026-06,gasto,gasto:6-extra-6,c27a6969-590f-43ff-8550-2dfc30d420e6
+2026-06,gasto,gasto:6-extra-7,f877b10b-2c88-4ff1-85db-65c483197119
+2026-06,gasto,gasto:6-extra-8,78637ae4-6e1c-4bf7-8ecc-95755b1ecfb3
+2026-06,gasto,gasto:6-extra-9,aa75b6c4-a7dc-4067-8253-f0ac4ee10795
+2026-07,gasto,gasto:7-extra-0,822c19d8-10f7-4714-8917-ed678d196453
+2026-07,gasto,gasto:7-extra-1,145559a5-76c3-4f9f-86b1-1e35fa37fe45
+2026-07,gasto,gasto:7-extra-2,9d3ea619-23d6-4ade-8d9b-53f6f8fd6070
+2026-07,gasto,gasto:7-extra-3,68351da6-c7df-4ef3-891a-b690ccfbbc14
+2026-07,gasto,gasto:7-extra-4,c8a03a4b-551b-4338-8bc1-238269ad6708
+2026-07,gasto,gasto:7-extra-5,69a4c7af-5308-4186-8d88-aa8610934841
+2026-07,gasto,gasto:7-extra-6,99799b6f-8e14-4bd0-8216-09832ee6105a
+2026-07,gasto,gasto:7-extra-7,10271edf-de18-4489-80fd-6c5b65e35480
+2026-07,gasto,gasto:7-extra-8,9dce6b39-b305-416b-8f0b-0c9548d82bf6
+2026-07,gasto,gasto:7-extra-9,f1908e3b-c73f-4e53-8a84-7d264c979759
+2026-04,gasto,gasto:4-anulado,8c80fb93-831a-49ed-8c8a-2841d358d4c2
+2026-05,gasto,gasto:5-anulado,8437e963-6f47-4fc0-88aa-e1af91665bdc
+2026-06,gasto,gasto:6-anulado,f8cb5780-6b25-44f8-8e94-2b69f434d5e5
+2026-07,gasto,gasto:7-anulado,2fc43120-b930-4be8-8c4a-f40c45faa1d6
+2026-07,reintegro / NC,comprobante:nc-web-julio,94a1550c-4251-42ad-8760-1d0c6197b768
+2026-07,reintegro / NC,contra:web-julio,9d25aa54-c9d5-412d-8d56-b1783e188c6a
+2026-07,reintegro / NC,reintegro:web-julio,dfaf5dd8-c581-406f-889b-f14214b4704f
+2026-07,reintegro / NC,intento:web-julio,caa85a7b-5e44-4b86-8a68-433b9addd680
+2026-06,cuenta corriente,cuenta-corriente:junio,782751e1-98d4-49b7-8dc6-0bb4217b0363
