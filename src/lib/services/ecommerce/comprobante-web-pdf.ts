@@ -127,7 +127,7 @@ export interface ComprobanteFiscalPdf extends Omit<ComprobanteWebDescargable, "m
   } | null;
 }
 
-const LEYENDA_SIMULADO = "SIMULADO — SIN VALIDEZ FISCAL ANTE AFIP";
+const LEYENDA_SIMULADO = "SIMULADO — SIN VALIDEZ FISCAL ANTE ARCA";
 const CANALES: Record<CanalVenta, string> = { MOSTRADOR: "Mostrador", WEB: "Web" };
 const MEDIOS: Record<MedioPagoVenta, string> = {
   EFECTIVO: "Efectivo",
@@ -394,7 +394,6 @@ export async function generarComprobanteFiscalPdf(comprobante: ComprobanteFiscal
   const filasTotales: [string, number][] = [
     ...(subtotal !== null ? [["Subtotal", signo * subtotal] as [string, number]] : []),
     ...(descuento > 0 ? [["Descuento", -descuento] as [string, number]] : []), // negativo también en la NC (spec B §2.10)
-    ["IVA contenido (21 %)", signo * iva],
   ];
   const altoPagos = pagos.length > 0 ? 18 + pagos.length * 16 : 0;
   const altoTotales = filasTotales.length * 16 + 34;
