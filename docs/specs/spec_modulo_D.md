@@ -410,7 +410,7 @@ Toda actualización de `valor` emite, tras el `COMMIT`, el evento `configuracion
 
 | CA | Contrato verificable |
 |---|---|
-| D8-1 | `listarAuditLog(filtros, sesion)` fuerza `usuario_id = sesion.userId` cuando falta `auditoria:leer_forense`, descartando incluso un ID de tercero explícito. La ruta `GET /api/auditoria/logs` y `/auditoria/logs` usan esa misma función; ningún otro parámetro puede ampliar el alcance. |
+| D8-1 | La regla vive en una sola función, `listarHistorialPropio(filtros, usuarioId)`, cuyo `usuarioId` sale siempre de la sesión; su schema no declara `usuario_id`, así que un ID de tercero se descarta sin validarse. La vista y el endpoint dedicados (`/auditoria/mi-historial`, `GET /api/auditoria/mi-historial`) la usan directamente; la rama sin `auditoria:leer_forense` de `listarAuditLog(filtros, sesion)` (`GET /api/auditoria/logs`) delega en ella, y `/auditoria/logs` en modo general sin ese permiso redirige a `/auditoria/mi-historial`. El camino forense de `listarAuditLog` no cambia. Ningún parámetro puede ampliar el alcance. *(Actualizado por decisión del PO, 21/10/2026 — `docs/modulos/modulo D/HU8_TASKS.md` §9 C1/C7.)* |
 | D8-2 | `AuditLog` append-only, orden `created_at DESC, id DESC`, paginación en base y filtros de fecha/acción. No se crea tabla ni copia del log. |
 | D8-3 | `fecha_desde` y `fecha_hasta` son días `AAAA-MM-DD` en `America/Argentina/Buenos_Aires`; filtro `[inicio del día desde, inicio del día posterior a hasta)`. Día final completo incluido, incluso registros con milisegundos antes de medianoche. Rango invertido es 400; no usar `lte` a medianoche del día final. |
 | D8-4 | El selector `accion` para modo propio obtiene DISTINCT de acciones con `usuario_id = sesion.userId`. La opción se filtra en servidor; un usuario sin acciones recibe lista vacía. Con permiso forense, la consola conserva su selector global. |
@@ -419,6 +419,8 @@ Toda actualización de `valor` emite, tras el `COMMIT`, el evento `configuracion
 | D8-7 | La UI de historial propio no ofrece búsqueda por otro usuario ni reemplaza la Consola Forense D5. |
 
 La implementación existente de `listarAuditLog` ya fuerza usuario para la lectura ordinaria; la task se centra en la fecha final inclusiva, selector de acciones propio y regresión de proyección. La corrección del rango beneficia también al modo forense. Pruebas HTTP comprueban ID de tercero ignorado, selector restringido, frontera horaria argentina, paginación y ausencia de campos forenses.
+
+*Nota (decisión del PO, 21/10/2026):* la frase "La corrección del rango beneficia también al modo forense" queda sin efecto para HU-D8: el camino forense de `listarAuditLog` se mantiene exactamente igual. Su `fecha_hasta` con `lte` a medianoche UTC, el orden sin desempate por `id` y la lectura de hashes para descartarlos quedan registrados como deuda de HU-D5 (`HU8_TASKS.md` §10, DT-2 a DT-4). `AuditLog` suma `@@index([usuario_id, created_at])` para la consulta propia.
 
 ### 8.2. HU-D6 — Alertas automáticas de desvíos críticos (backlog fila 16)
 

@@ -225,6 +225,8 @@ model AuditLog {
   // --- Relación ---
   usuario Usuario? @relation(fields: [usuario_id], references: [id], onDelete: Restrict)
 
+  /// HU-D8 — historial propio: filtra por `usuario_id` y ordena por `created_at`.
+  @@index([usuario_id, created_at])
   @@map("audit_logs")
 }
 
